@@ -2,10 +2,10 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>🌌 Warp Drive Simulator – Casanova Edition</title>
+  <title>🌌 Base Warp Drive Simulator</title>
   <style>
     body {
-      background: url('casanova.png') no-repeat center center fixed;
+      background: black url('casanova.png') no-repeat center center fixed;
       background-size: cover;
       color: white;
       font-family: 'Courier New', monospace;
@@ -15,7 +15,7 @@
     h1 {
       font-size: 2.5em;
     }
-    .controls {
+    .controls, .result {
       margin-top: 30px;
       font-size: 1.2em;
     }
@@ -32,8 +32,9 @@
   </style>
 </head>
 <body>
-  <h1>🌌 Warp Drive Simulator – Casanova Edition</h1>
-  <p>This simulator uses CST Time and curvature theory. Select a planet and warp factor to begin. Planets are fixed. Curvature is dynamic.</p>
+  <h1>🌌 Base Warp Drive Simulator</h1>
+  <p>This simulator calculates warp travel based on CST Time and curvature dynamics. Select a planet and warp factor to simulate travel. Click to print your Travel Ticket Destination.</p>
+  <p><strong>Note:</strong> Warp speed is scaled linearly in this simulation using the formula: <code>warp speed = warp factor × speed of light</code>. This is a simplified model and not exponential as in Star Trek canon.</p>
 
   <div class="controls">
     <label>Select Planet: </label>
@@ -44,69 +45,124 @@
       <option value="Neptune">Neptune</option>
     </select><br>
 
-    <label>Warp Factor (1–10): </label>
-    <input type="number" id="warpFactor" min="1" max="10" step="0.1" value="1"><br>
+    <label>Warp Factor (1–99.9): </label>
+    <input type="number" id="warpFactor" min="1" max="99.9" step="0.1" value="1"><br>
 
     <button onclick="engageWarp()">Engage</button>
+    <button onclick="printTicket()">Print Ticket</button>
   </div>
 
   <canvas id="simCanvas" width="800" height="300"></canvas>
+  <div class="result" id="status"></div>
 
   <script>
-    const planetPositions = {
-      Mercury: 650,
-      Venus: 670,
-      Mars: 700,
-      Neptune: 750
+    const distances = {
+      Mercury: 48000000,
+      Venus: 25000000,
+      Mars: 34000000,
+      Neptune: 2700000000
     };
 
+    const planetPositions = {
+      Mercury: 600,
+      Venus: 600,
+      Mars: 600,
+      Neptune: 600
+    };
+
+    let latestTicketData = {};
+
     function engageWarp() {
+      const planet = document.getElementById("planet").value;
+      const warpInput = document.getElementById("warpFactor");
+      let warp = parseFloat(warpInput.value);
+
+      if (isNaN(warp) || warp < 1 || warp > 99.9) {
+        alert("Please enter a valid warp factor between 1 and 99.9.");
+        warpInput.focus();
+        return;
+      }
+
+      const distance = distances[planet];
+      const lightSpeed = 186282;
+      const warpSpeed = warp * lightSpeed;
+      const travelSeconds = distance / warpSpeed;
+
+      const departureTime = new Date();
+      const arrivalTime = new Date(departureTime.getTime() + travelSeconds * 1000);
+
+      latestTicketData = {
+        planet,
+        warp,
+        departure: departureTime,
+        arrival: arrivalTime,
+        travelSeconds
+      };
+
       const canvas = document.getElementById("simCanvas");
       const ctx = canvas.getContext("2d");
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      const planet = document.getElementById("planet").value;
-      const warp = parseFloat(document.getElementById("warpFactor").value);
-      const planetX = planetPositions[planet];
-
-      // Draw Earth
+      // Draw Earth and Planet
       ctx.fillStyle = "white";
       ctx.beginPath();
-      ctx.arc(100, 150, 10, 0, 2 * Math.PI);
+      ctx.arc(50, 150, 10, 0, 2 * Math.PI);
       ctx.fill();
-      ctx.fillText("🌍 Earth", 70, 180);
+      ctx.fillText("🌍 Earth", 20, 180);
 
-      // Draw Target Planet
+      const planetX = planetPositions[planet];
       ctx.beginPath();
       ctx.arc(planetX, 150, 10, 0, 2 * Math.PI);
       ctx.fill();
-      ctx.fillText("🪐 " + planet, planetX - 20, 180);
+      ctx.fillText("🪐 " + planet, planetX - 30, 180);
 
-      // Draw curved path based on warp factor
-      ctx.strokeStyle = "cyan";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(100, 150);
-      const curveHeight = 80 / warp; // More curve for lower warp
-      const cp1x = (100 + planetX) / 2;
-      const cp1y = 150 - curveHeight;
-      ctx.quadraticCurveTo(cp1x, cp1y, planetX, 150);
-      ctx.stroke();
-
-      // Animate ship along the curve
-      const shipImg = new Image();
-      shipImg.src = "https://emojicdn.elk.sh/🚀";
+      // Curve Path
+      let shipX = 50;
       let t = 0;
+      const totalSteps = planetX - 50;
+      const curveFactor = Math.max(1, (10 / warp));
 
-      function animate() {
-        ctx.clearRect(0, 130, canvas.width, 40);
-        const x = (1 - t) * (1 - t) * 100 + 2 * (1 - t) * t * cp1x + t * t * planetX;
-        const y = (1 - t) * (1 - t) * 150 + 2 * (1 - t) * t * cp1y + t * t * 150;
-        ctx.drawImage(shipImg, x - 10, y - 10, 20, 20);
-        t += 0.01;
-        if (t <= 1) requestAnimationFrame(animate);
+      const interval = setInterval(() => {
+        if (t > 1) {
+          clearInterval(interval);
+          document.getElementById("status").innerText =
+            `Arrived at ${planet} in ${travelSeconds.toFixed(2)} seconds.`;
+          return;
+        }
+
+        ctx.clearRect(60, 140, 680, 20);
+        const x = 50 + t * (planetX - 50);
+        const y = 150 - Math.sin(Math.PI * t) * (100 / curveFactor);
+
+        ctx.fillStyle = "cyan";
+        ctx.beginPath();
+        ctx.arc(x, y, 5, 0, 2 * Math.PI);
+        ctx.fill();
+
+        t += 0.005; // Slower for visual
+      }, 20);
+
+      document.getElementById("status").innerText =
+        `Engaged warp to ${planet} at Warp ${warp}...`;
+    }
+
+    function printTicket() {
+      if (!latestTicketData.planet) {
+        alert("Please engage warp travel first.");
+        return;
       }
-      animate();
+      const { planet, warp, departure, arrival, travelSeconds } = latestTicketData;
+      const win = window.open('', '', 'width=400,height=600');
+      win.document.write('<pre>');
+      win.document.write(`🚀 Warp Travel Ticket\n`);
+      win.document.write(`Planet: ${planet}\n`);
+      win.document.write(`Warp Factor: ${warp}\n`);
+      win.document.write(`CST Departure Time: ${departure.toLocaleTimeString()}\n`);
+      win.document.write(`CST Arrival Time: ${arrival.toLocaleTimeString()}\n`);
+      win.document.write(`CST Travel Duration: ${Math.floor(travelSeconds / 60)} min ${Math.round(travelSeconds % 60)} sec\n`);
+      win.document.write('</pre>');
+      win.document.close();
+      win.print();
     }
   </script>
 </body>
