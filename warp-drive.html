@@ -2,21 +2,26 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>🌌 Warp Drive Simulator Reset</title>
+  <title>🌌 Base Warp Drive Simulator</title>
   <style>
     body {
       background: black;
       color: white;
       font-family: 'Courier New', monospace;
       text-align: center;
-      padding-top: 40px;
+      padding-top: 50px;
     }
     h1 {
       font-size: 2.5em;
     }
-    label, select, input, button {
+    .controls, .result {
+      margin-top: 30px;
+      font-size: 1.2em;
+    }
+    select, input, button {
       font-size: 1em;
       margin: 5px;
+      padding: 5px;
     }
     canvas {
       margin-top: 30px;
@@ -25,63 +30,98 @@
   </style>
 </head>
 <body>
-  <h1>🌌 Warp Drive Simulator</h1>
-  <p>This simulator shows ship curvature based on warp speed. CST-based curvature dynamics included.</p>
+  <h1>🌌 Base Warp Drive Simulator</h1>
+  <p>This simulator calculates warp travel based on <strong>CST Time</strong>, <strong>planetary orbital positioning</strong>, and <strong>curvature dynamics</strong>.</p>
+  <p>All computations are based on Earth Central Standard Time (CST), assuming an equilibrium warp corridor across the solar system. Planet position is estimated in relation to CST-based orbit approximation—not exact real-time ephemeris. Cosmic time or Interstellar time is not used in travel calculations, only CST.</p>
+  <p><strong>Note:</strong> Warp speed is scaled linearly in this simulation using the formula: <code>warp speed = warp factor × speed of light</code>. This is a simplified model and not exponential as in Star Trek canon.</p>
 
-  <label>Select Planet:</label>
-  <select id="planet">
-    <option value="Mercury">Mercury</option>
-    <option value="Venus">Venus</option>
-    <option value="Mars">Mars</option>
-    <option value="Neptune">Neptune</option>
-  </select>
+  <div class="controls">
+    <label>Select Planet: </label>
+    <select id="planet">
+      <option value="Mercury">Mercury</option>
+      <option value="Venus">Venus</option>
+      <option value="Mars">Mars</option>
+      <option value="Neptune">Neptune</option>
+    </select><br>
 
-  <label>Warp Factor (1–10):</label>
-  <input type="number" id="warpFactor" min="1" max="10" step="0.1" value="1">
+    <label>Warp Factor (1–99.9): </label>
+    <input type="number" id="warpFactor" min="1" max="99.9" step="0.1" value="1"><br>
 
-  <button onclick="engageWarp()">Engage</button>
+    <button onclick="engageWarp()">Engage</button>
+  </div>
 
   <canvas id="simCanvas" width="600" height="300"></canvas>
+  <div class="result" id="status"></div>
 
   <script>
+    const distances = {
+      Mercury: 48000000,
+      Venus: 25000000,
+      Mars: 34000000,
+      Neptune: 2700000000
+    };
+
     function engageWarp() {
       const planet = document.getElementById("planet").value;
-      const warp = parseFloat(document.getElementById("warpFactor").value);
-      if (isNaN(warp) || warp < 1 || warp > 10) {
-        alert("Please enter a warp factor between 1 and 10.");
+      const warpInput = document.getElementById("warpFactor");
+      let warp = parseFloat(warpInput.value);
+
+      if (isNaN(warp) || warp < 1 || warp > 99.9) {
+        alert("Please enter a valid warp factor between 1 and 99.9.");
+        warpInput.focus();
         return;
       }
+
+      const distance = distances[planet];
+      const lightSpeed = 186282;
+      const warpSpeed = warp * lightSpeed;
+      const travelSeconds = distance / warpSpeed;
 
       const canvas = document.getElementById("simCanvas");
       const ctx = canvas.getContext("2d");
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      const startX = 50;
-      const startY = 250;
-      const endX = 550;
-      const endY = 50;
-      const controlX = (startX + endX) / 2;
-      const curveFactor = 300 / warp; // lower warp = more curve
-
-      // draw Earth
       ctx.fillStyle = "white";
       ctx.beginPath();
-      ctx.arc(startX, startY, 10, 0, 2 * Math.PI);
+      ctx.arc(50, 150, 10, 0, 2 * Math.PI);
       ctx.fill();
-      ctx.fillText("🌍 Earth", startX - 20, startY + 25);
+      ctx.fillText("🌍 Earth", 20, 180);
 
-      // draw Planet
+      const maxX = 550;
+      const minX = 150;
+      const planetX = Math.min(maxX, minX + travelSeconds * 2);
+
       ctx.beginPath();
-      ctx.arc(endX, endY, 10, 0, 2 * Math.PI);
+      ctx.arc(planetX, 150, 10, 0, 2 * Math.PI);
       ctx.fill();
-      ctx.fillText("🪐 " + planet, endX - 20, endY - 15);
+      ctx.fillText("🩐 " + planet, planetX - 30, 180);
 
-      // draw Curve Path
-      ctx.strokeStyle = "cyan";
-      ctx.beginPath();
-      ctx.moveTo(startX, startY);
-      ctx.quadraticCurveTo(controlX, startY - curveFactor, endX, endY);
-      ctx.stroke();
+      let shipX = 50;
+      const curveDepth = Math.max(30, 100 - warp * 5); // more curve at low warp
+      const path = [];
+
+      for (let i = 0; i <= 1; i += 0.01) {
+        const t = i;
+        const x = (1 - t) * (1 - t) * 50 + 2 * (1 - t) * t * ((planetX + 50) / 2) + t * t * planetX;
+        const y = (1 - t) * (1 - t) * 150 + 2 * (1 - t) * t * (150 - curveDepth) + t * t * 150;
+        path.push({ x, y });
+      }
+
+      let index = 0;
+      const interval = setInterval(() => {
+        ctx.clearRect(60, 130, 480, 40);
+        ctx.fillStyle = "cyan";
+        ctx.beginPath();
+        ctx.arc(path[index].x, path[index].y, 5, 0, 2 * Math.PI);
+        ctx.fill();
+        index++;
+        if (index >= path.length) {
+          clearInterval(interval);
+          document.getElementById("status").innerText = `Warp journey to ${planet} complete.`;
+        }
+      }, Math.max(10, 100 - warp * 5));
+
+      document.getElementById("status").innerText = `Engaged warp to ${planet} at Warp ${warp}...`;
     }
   </script>
 </body>
