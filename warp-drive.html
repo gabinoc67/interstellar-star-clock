@@ -26,10 +26,8 @@
     }
     .clocks {
       margin-top: 10px;
-      font-family: monospace;
       font-size: 16px;
-      text-align: left;
-      display: inline-block;
+      color: #00ffcc;
     }
   </style>
 </head>
@@ -65,19 +63,14 @@
   </svg>
 
   <div class="info" id="travelInfo"></div>
-  <div class="clocks">
-    <div><strong>🌍 CST Time:</strong> <span id="cstClock"></span></div>
-    <div><strong>🪐 Local Planet Time:</strong> <span id="planetClock"></span></div>
-    <div><strong>🌌 Interstellar Time:</strong> <span id="interClock"></span></div>
-    <div><strong>🧭 Star Date:</strong> <span id="starDate"></span></div>
-  </div>
+  <div class="clocks" id="liveClocks"></div>
 
   <script>
     const planets = {
-      Mercury: { distance: 56974000, angle: 30, orbitScale: 88 },
-      Venus: { distance: 25000000, angle: 60, orbitScale: 225 },
-      Mars: { distance: 140000000, angle: 120, orbitScale: 687 },
-      Pluto: { distance: 4670000000, angle: 160, orbitScale: 90560 }
+      Mercury: { distance: 56974000, angle: 30 },
+      Venus: { distance: 25000000, angle: 60 },
+      Mars: { distance: 140000000, angle: 120 },
+      Pluto: { distance: 4670000000, angle: 160 }
     };
 
     const speedOfLight = 186282; // miles/sec
@@ -86,14 +79,12 @@
     function simulateTravel() {
       const svg = document.getElementById("warpPath");
       const info = document.getElementById("travelInfo");
+      const liveClocks = document.getElementById("liveClocks");
       const planetName = document.getElementById("planetSelect").value;
       const warpFactor = parseInt(document.getElementById("warpSpeed").value);
-      const { distance, angle, orbitScale } = planets[planetName];
+      const { distance, angle } = planets[planetName];
       const speed = speedOfLight * Math.pow(warpFactor, 2.5);
-
       const timeSec = distance / speed;
-      const timeMin = (timeSec / 60).toFixed(2);
-      const timeHr = (timeSec / 3600).toFixed(2);
 
       while (svg.children.length > 2) svg.removeChild(svg.lastChild);
       cancelAnimationFrame(animationId);
@@ -134,39 +125,48 @@
 
       const pathLength = path.getTotalLength();
       let progress = 0;
+      const visualDuration = 10000; // 10 seconds visual slowdown
+      const frameRate = 60;
+      const steps = visualDuration / (1000 / frameRate);
+      const increment = pathLength / steps;
+
+      const startTime = Date.now();
+
+      clockInterval = setInterval(() => {
+        const now = new Date();
+        const localTime = new Date(now.getTime() + distance / 1000);
+        const cst = now.toLocaleTimeString("en-US", { timeZone: 'America/Chicago' });
+        const interstellarTime = Math.floor((now.getTime() - new Date("2000-01-01").getTime()) / 1000);
+        const starDate = (now.getFullYear() - 2323 + now.getMonth() / 12).toFixed(2);
+        liveClocks.innerHTML = `
+          <strong>Live Clocks:</strong><br>
+          • Local Planet Time: ${localTime.toLocaleTimeString()}<br>
+          • Earth CST Time: ${cst}<br>
+          • Interstellar Time: ${interstellarTime} seconds since Y2K<br>
+          • Star Date: ${starDate}`;
+      }, 1000);
 
       function animate() {
         const point = path.getPointAtLength(progress);
         ship.setAttribute("cx", point.x);
         ship.setAttribute("cy", point.y);
-        progress += pathLength / (600 / warpFactor);
+        progress += increment;
         if (progress < pathLength) {
           animationId = requestAnimationFrame(animate);
+        } else {
+          clearInterval(clockInterval);
+          const totalTime = (Date.now() - startTime) / 1000;
+          info.innerHTML = `
+            <strong>🪐 Destination:</strong> ${planetName}<br>
+            <strong>Distance:</strong> ${distance.toLocaleString()} miles<br>
+            <strong>Warp Factor:</strong> ${warpFactor}<br>
+            <strong>Speed:</strong> ${(speed / speedOfLight).toFixed(2)}x light speed<br>
+            <strong>Time in Warp:</strong> ${timeSec.toFixed(2)} sec / ${(timeSec / 60).toFixed(2)} min / ${(timeSec / 3600).toFixed(2)} hr<br>
+            <strong>Visual Travel Time:</strong> ${totalTime.toFixed(1)} sec`
         }
       }
+
       animate();
-
-      info.innerHTML = `
-        <strong>🪐 Destination:</strong> ${planetName}<br>
-        <strong>Distance:</strong> ${distance.toLocaleString()} miles<br>
-        <strong>Warp Factor:</strong> ${warpFactor}<br>
-        <strong>Speed:</strong> ${(speed / speedOfLight).toFixed(2)}x light speed<br>
-        <strong>Time in Warp:</strong> ${timeSec.toFixed(2)} sec / ${timeMin} min / ${timeHr} hr`;
-
-      clockInterval = setInterval(() => {
-        const now = new Date();
-        document.getElementById("cstClock").textContent = now.toLocaleTimeString("en-US", { timeZone: "America/Chicago" });
-
-        const localPlanetTime = new Date(now.getTime() + (now.getTime() / orbitScale));
-        document.getElementById("planetClock").textContent = localPlanetTime.toLocaleTimeString();
-
-        const base2000 = new Date("2000-01-01T00:00:00Z");
-        const interSecs = Math.floor((now.getTime() - base2000.getTime()) / 1000);
-        document.getElementById("interClock").textContent = `${interSecs.toLocaleString()} sec since Jan 1, 2000`;
-
-        const starDate = (now.getFullYear() + (now.getMonth() + 1)/12 + now.getDate()/365).toFixed(2);
-        document.getElementById("starDate").textContent = `SD ${starDate}`;
-      }, 1000);
     }
   </script>
 </body>
