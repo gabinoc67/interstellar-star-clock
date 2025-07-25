@@ -1,8 +1,8 @@
+// warp-assets.js – JavaScript logic for Warp Drive Simulator
+
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 const log = document.getElementById("log");
-const planetSelect = document.getElementById("planetSelect");
-const warpSelect = document.getElementById("warpSelect");
 const flash = document.getElementById("flash");
 const warpSound = document.getElementById("warpSound");
 
@@ -28,57 +28,51 @@ const positions = {
 };
 
 let selectedPlanet = "mars";
-let arcHeight = 150;
+let arcHeight = 100;
 
 function drawScene(shipX = null, shipY = null) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(images.earth, positions.earth.x, positions.earth.y, positions.earth.w, positions.earth.h);
   ctx.drawImage(images[selectedPlanet], positions.planet.x, positions.planet.y, positions.planet.w, positions.planet.h);
 
+  // Warp trajectory arc
   ctx.beginPath();
   ctx.moveTo(positions.earth.x + positions.earth.w / 2, positions.earth.y);
-  ctx.quadraticCurveTo(
-    canvas.width / 2,
-    510 - arcHeight,
-    positions.planet.x + positions.planet.w / 2,
-    positions.planet.y
-  );
+  ctx.quadraticCurveTo(canvas.width / 2, 500 - arcHeight, positions.planet.x + positions.planet.w / 2, positions.planet.y);
   ctx.strokeStyle = "#00ffff";
   ctx.lineWidth = 3;
   ctx.stroke();
 
   if (shipX !== null && shipY !== null) {
-    ctx.drawImage(images.ship, shipX - 24, shipY - 24, 48, 48);
+    ctx.drawImage(images.ship, shipX - 24, shipY - 24, 48, 48); // Bigger ship
   }
 }
 
 function engageWarp() {
-  selectedPlanet = planetSelect.value;
-  const warp = parseInt(warpSelect.value);
-  arcHeight = 170 - warp * 15;
+  selectedPlanet = document.getElementById("planetSelect").value;
+  const warp = parseInt(document.getElementById("warpSelect").value);
+  arcHeight = 100 + (10 - warp) * 12; // Warp 1 = highest arc, Warp 10 = flat
 
-  log.textContent = `Warp ${warp} to ${selectedPlanet} initiated at CST time: ${new Date().toLocaleString('en-US', { timeZone: 'America/Chicago' })}`;
+  log.textContent = `Warp ${warp} to ${selectedPlanet} initiated at CST: ${new Date().toLocaleTimeString('en-US', { timeZone: 'America/Chicago' })}`;
   playWarpSound();
   speak(`Warp ${warp} engaged. Destination: ${selectedPlanet}.`);
   animateShip();
 }
 
 function resetScene() {
-  planetSelect.value = "mercury";
-  warpSelect.value = "1";
-  selectedPlanet = "mercury";
-  arcHeight = 150;
-  drawScene();
+  selectedPlanet = document.getElementById("planetSelect").value = "mercury";
+  document.getElementById("warpSelect").value = "1";
   log.textContent = "Status: Reset. Waiting for warp command...";
+  drawScene();
 }
 
 function animateShip() {
   let step = 0;
-  const steps = 400;
+  const steps = 300;
   const x1 = positions.earth.x + positions.earth.w / 2;
   const y1 = positions.earth.y;
   const x2 = canvas.width / 2;
-  const y2 = 510 - arcHeight;
+  const y2 = 500 - arcHeight;
   const x3 = positions.planet.x + positions.planet.w / 2;
   const y3 = positions.planet.y;
 
@@ -94,18 +88,11 @@ function animateShip() {
     } else {
       flashArrival();
       speak(`Arrived at ${selectedPlanet}. Warp complete.`);
-      log.textContent += `\nArrived at ${selectedPlanet} at CST time: ${new Date().toLocaleString('en-US', { timeZone: 'America/Chicago' })}`;
+      log.textContent += `\nArrived at ${selectedPlanet} at CST: ${new Date().toLocaleTimeString('en-US', { timeZone: 'America/Chicago' })}`;
     }
   }
 
   animate();
-}
-
-function flashArrival() {
-  flash.style.opacity = 1;
-  setTimeout(() => {
-    flash.style.opacity = 0;
-  }, 300);
 }
 
 function playWarpSound() {
@@ -120,6 +107,7 @@ function speak(text) {
   speechSynthesis.speak(utter);
 }
 
+// Ensure images are loaded before first draw
 let loaded = 0;
 const total = Object.keys(images).length;
 for (let key in images) {
