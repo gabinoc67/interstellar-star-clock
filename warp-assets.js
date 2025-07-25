@@ -116,3 +116,9 @@ for (let key in images) {
     if (loaded === total) drawScene();
   };
 }
+function flashArrival() {
+  flash.style.opacity = 1;
+  setTimeout(() => {
+    flash.style.opacity = 0;
+  }, 300);
+}
