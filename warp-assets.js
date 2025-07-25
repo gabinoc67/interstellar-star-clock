@@ -15,12 +15,13 @@ const images = {
   pluto: new Image()
 };
 
-images.earth.src = "https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/blob/main/earth.png";
+images.earth.src = "https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/earth.png";
 images.ship.src = "https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/colonialship.png";
 images.mercury.src = "https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/mercury.png";
-images.venus.src = "https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/blob/main/venus.png";
-images.mars.src = "https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/blob/main/mars.png";
-images.pluto.src = "https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/blob/main/pluto.png";
+images.venus.src = "https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/venus.png";
+images.mars.src = "https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/mars.png";
+images.pluto.src = "https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/pluto.png";
+
 
 const positions = {
   earth: { x: 80, y: 400, w: 220, h: 220 },
