@@ -1,191 +1,175 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>🚀 Casanova Warp Drive Simulator</title>
+  <title>Warp Drive Simulator</title>
   <style>
     body {
       margin: 0;
-      padding: 0;
-      font-family: 'Courier New', monospace;
       background: url('https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/CASANOVA.png') no-repeat center center fixed;
       background-size: cover;
-      color: white;
-      text-align: center;
-      padding-top: 50px;
+      font-family: monospace;
+      color: #00ffcc;
+      overflow: hidden;
     }
-    h1 {
-      font-size: 2.5em;
+
+    #controls {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      background: rgba(0, 0, 0, 0.6);
+      padding: 15px;
+      border-radius: 10px;
+      border: 2px solid #00ffcc;
     }
-    .controls, .result {
-      margin-top: 30px;
-      font-size: 1.2em;
+
+    select, button {
+      font-size: 16px;
+      padding: 6px;
+      margin: 5px 0;
+      border-radius: 5px;
+      width: 140px;
     }
-    select, input, button {
-      font-size: 1em;
-      margin: 5px;
-      padding: 5px;
+
+    #canvas {
+      display: block;
     }
-    canvas {
-      margin-top: 30px;
-      border: 1px solid white;
-      background-color: rgba(200,200,200,0.2);
+
+    #flash {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      background: white;
+      opacity: 0;
+      transition: opacity 0.3s ease-out;
+      z-index: 10;
+      pointer-events: none;
     }
   </style>
 </head>
 <body>
-  <h1>🌌 CST Time Warp Drive Simulator</h1>
-  <p>This simulator calculates warp travel based on CST Time and curvature dynamics. Select a planet and warp factor to simulate travel.</p>
+  <div id="flash"></div>
 
-  <div class="controls">
-    <label>Select Planet: </label>
-    <select id="planet">
-      <option value="Mercury">Mercury</option>
-      <option value="Venus">Venus</option>
-      <option value="Mars">Mars</option>
-      <option value="Neptune">Neptune</option>
-    </select><br>
-
-    <label>Enter Warp Speed (1–99.9): </label>
-    <input type="number" id="warpFactor" min="1" max="99.9" step="0.1" value="1"><br>
-
+  <div id="controls">
+    <select id="planetSelect">
+      <option value="mercury">Mercury</option>
+      <option value="venus">Venus</option>
+      <option value="mars">Mars</option>
+      <option value="pluto">Pluto</option>
+    </select>
+    <select id="warpSelect">
+      ${[...Array(9).keys()].map(i => `<option value="${i+1}">Warp ${i+1}</option>`).join('')}
+    </select>
     <button onclick="engageWarp()">Engage</button>
-    <button onclick="printTicket()">Print Ticket</button>
   </div>
 
-  <canvas id="simCanvas" width="900" height="250"></canvas>
-  <div class="result" id="status"></div>
+  <canvas id="canvas" width="1200" height="600"></canvas>
+
+  <audio id="warpSound" src="https://actions.google.com/sounds/v1/transportation/space_ship_takeoff.ogg"></audio>
 
   <script>
-    const distances = {
-      Mercury: 48000000,
-      Venus: 25000000,
-      Mars: 34000000,
-      Neptune: 2700000000
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const flash = document.getElementById('flash');
+
+    const earthImg = new Image();
+    earthImg.src = "https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/blob/main/earth.png";
+
+    const shipImg = new Image();
+    shipImg.src = "https://upload.wikimedia.org/wikipedia/commons/thumb/1/12/Space_Shuttle_Icon.svg/64px-Space_Shuttle_Icon.svg.png";
+
+    const planetImages = {
+      mercury: "https://raw.githubusercontent.com/interstellar-star-clock/blob/main/mercury.png",
+      venus: "https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/blob/main/venus.png",
+      mars: "https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/blob/main/mars.png",
+      pluto: "https://github.com/gabinoc67/interstellar-star-clock/blob/main/pluto.png"
     };
 
-    const planetPositions = {
-      Mercury: 350,
-      Venus: 450,
-      Mars: 600,
-      Neptune: 800
-    };
+    let currentArcHeight = 100;
+    let animationFrame = null;
 
-    let latestTicketData = {};
-
-    function engageWarp() {
-      const planet = document.getElementById("planet").value;
-      const warpInput = document.getElementById("warpFactor");
-      let warp = parseFloat(warpInput.value);
-
-      if (isNaN(warp) || warp < 1 || warp > 99.9) {
-        alert("Please enter a valid warp factor between 1 and 99.9.");
-        warpInput.focus();
-        return;
-      }
-
-      const distance = distances[planet];
-      const lightSpeed = 186282;
-      const warpSpeed = warp * lightSpeed;
-      const travelSeconds = distance / warpSpeed;
-
-      const departureTime = new Date();
-      const arrivalTime = new Date(departureTime.getTime() + travelSeconds * 1000);
-
-      latestTicketData = {
-        planet,
-        warp,
-        departure: departureTime,
-        arrival: arrivalTime,
-        travelSeconds
-      };
-
-      const canvas = document.getElementById("simCanvas");
-      const ctx = canvas.getContext("2d");
+    function drawScene(planetName, shipX = null, shipY = null) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(earthImg, 50, 450, 100, 100);
 
-      ctx.strokeStyle = "yellow";
-      ctx.lineWidth = 12;
+      const planetImg = new Image();
+      planetImg.onload = () => {
+        ctx.drawImage(planetImg, 1050, 450, 80, 80);
+        drawArc(shipX, shipY);
+      };
+      planetImg.src = planetImages[planetName];
+    }
 
-      const startX = 60;
-      const endX = planetPositions[planet];
-      const controlX = (startX + endX) / 2;
-      const controlY = 100 - 70 / warp;
-
+    function drawArc(shipX, shipY) {
       ctx.beginPath();
-      ctx.moveTo(startX, 150);
-      ctx.quadraticCurveTo(controlX, controlY, endX, 150);
+      ctx.moveTo(100, 500);
+      ctx.quadraticCurveTo(canvas.width / 2, 500 - currentArcHeight, canvas.width - 100, 500);
+      ctx.strokeStyle = "#00ffff";
+      ctx.lineWidth = 2;
       ctx.stroke();
 
-      ctx.fillStyle = "white";
-      ctx.beginPath();
-      ctx.arc(startX, 150, 20, 0, 2 * Math.PI);
-      ctx.fill();
-      ctx.font = "12px Courier New";
-      ctx.fillText("🌍 Earth", startX - 25, 185);
-
-      ctx.beginPath();
-      ctx.arc(endX, 150, 20, 0, 2 * Math.PI);
-      ctx.fill();
-      ctx.font = "12px Courier New";
-      ctx.fillText("🌐 " + planet, endX - 30, 185);
-
-      let progress = 0;
-      const shipInterval = setInterval(() => {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.strokeStyle = "yellow";
-        ctx.lineWidth = 12;
-        ctx.beginPath();
-        ctx.moveTo(startX, 150);
-        ctx.quadraticCurveTo(controlX, controlY, endX, 150);
-        ctx.stroke();
-
-        ctx.fillStyle = "white";
-        ctx.beginPath();
-        ctx.arc(startX, 150, 20, 0, 2 * Math.PI);
-        ctx.fill();
-        ctx.fillText("🌍 Earth", startX - 25, 185);
-        ctx.beginPath();
-        ctx.arc(endX, 150, 20, 0, 2 * Math.PI);
-        ctx.fill();
-        ctx.fillText("🌐 " + planet, endX - 30, 185);
-
-        const t = progress;
-        const shipX = (1 - t) * (1 - t) * startX + 2 * (1 - t) * t * controlX + t * t * endX;
-        const shipY = (1 - t) * (1 - t) * 150 + 2 * (1 - t) * t * controlY + t * t * 150;
-        ctx.fillStyle = "cyan";
-        ctx.beginPath();
-        ctx.arc(shipX, shipY, 10, 0, 2 * Math.PI);
-        ctx.fill();
-
-        progress += 0.01;
-        if (progress > 1) {
-          clearInterval(shipInterval);
-          document.getElementById("status").innerText = `Arrived at ${planet} in ${travelSeconds.toFixed(2)} seconds.`;
-        }
-      }, 50);
-
-      document.getElementById("status").innerText = `Engaged warp to ${planet} at Warp ${warp}...`;
-    }
-
-    function printTicket() {
-      if (!latestTicketData.planet) {
-        alert("Please engage warp travel first.");
-        return;
+      if (shipX && shipY) {
+        ctx.drawImage(shipImg, shipX - 16, shipY - 16, 32, 32);
       }
-      const { planet, warp, departure, arrival, travelSeconds } = latestTicketData;
-      const win = window.open('', '', 'width=400,height=600');
-      win.document.write('<pre>');
-      win.document.write(`🌌 Milky Way Warp Ticket\n`);
-      win.document.write(`Destination: ${planet}\n`);
-      win.document.write(`Warp Factor: ${warp}\n`);
-      win.document.write(`CST Departure: ${departure.toLocaleTimeString()}\n`);
-      win.document.write(`CST Arrival: ${arrival.toLocaleTimeString()}\n`);
-      win.document.write(`CST Duration: ${Math.floor(travelSeconds / 60)} min ${Math.round(travelSeconds % 60)} sec\n`);
-      win.document.write('</pre>');
-      win.document.close();
-      win.print();
     }
+
+    function playWarpSound() {
+      const sound = document.getElementById("warpSound");
+      sound.currentTime = 0;
+      sound.play();
+    }
+
+    function speakAI(message) {
+      const synth = window.speechSynthesis;
+      const utter = new SpeechSynthesisUtterance(message);
+      utter.rate = 1;
+      utter.pitch = 1;
+      synth.speak(utter);
+    }
+
+    function flashArrival() {
+      flash.style.opacity = 1;
+      setTimeout(() => {
+        flash.style.opacity = 0;
+      }, 300);
+    }
+
+    function engageWarp() {
+      const planet = document.getElementById("planetSelect").value;
+      const warp = parseInt(document.getElementById("warpSelect").value);
+      currentArcHeight = 150 - warp * 15;
+
+      playWarpSound();
+      speakAI(`Warp ${warp} engaged. Destination set to ${planet}.`);
+
+      startShipAnimation(planet, warp);
+    }
+
+    function startShipAnimation(planet, warp) {
+      const steps = 400; // slower travel
+      let step = 0;
+
+      function animate() {
+        step++;
+        const t = step / steps;
+        const x = 100 + t * (canvas.width - 200);
+        const y = 500 - currentArcHeight * 4 * t * (1 - t); // curve
+
+        drawScene(planet, x, y);
+
+        if (step < steps) {
+          animationFrame = requestAnimationFrame(animate);
+        } else {
+          flashArrival();
+          speakAI(`Arrived at ${planet}. Warp completed.`);
+        }
+      }
+
+      cancelAnimationFrame(animationFrame);
+      animate();
+    }
+
+    earthImg.onload = () => drawScene("mars");
   </script>
 </body>
 </html>
