@@ -2,51 +2,59 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>🌌 Warp Simulator – CST Time Synced</title>
+  <title>🌌 Warp Simulation – CST Synced</title>
   <style>
     body {
-      margin: 0;
-      background: black;
-      color: white;
+      background-color: #000;
+      color: #fff;
       font-family: 'Courier New', monospace;
+      margin: 0;
+      padding: 0;
+    }
+    .controls {
       display: flex;
-      flex-direction: row;
       justify-content: space-between;
-      align-items: flex-start;
-      height: 100vh;
-    }
-    .info-panel {
-      width: 300px;
-      padding: 20px;
-    }
-    canvas {
-      background: black;
-      border-left: 2px solid #333;
-      flex-grow: 1;
-    }
-    .box {
-      background: #111;
-      border: 1px solid #555;
-      border-radius: 8px;
       padding: 10px;
-      margin-bottom: 15px;
+    }
+    .info-box {
+      background: #111;
+      color: #fff;
+      padding: 10px;
+      margin: 5px;
+      width: 48%;
+      border: 1px solid #444;
+      border-radius: 8px;
     }
     select, button {
-      width: 100%;
-      margin-top: 5px;
-      padding: 8px;
-      background: black;
-      color: white;
-      border: 1px solid #666;
+      margin: 5px;
+      padding: 6px 12px;
       font-size: 1em;
+      background: #000;
+      color: #fff;
+      border: 1px solid #555;
+      border-radius: 6px;
+    }
+    canvas {
+      display: block;
+      margin: 10px auto;
+      background: #000;
+      border: 1px solid #333;
     }
   </style>
 </head>
 <body>
-  <div class="info-panel">
-    <div class="box" id="earthTime">🌍 CST Time: --:--:--</div>
-    <div class="box">
-      Destination:
+
+  <h1 style="text-align:center; padding:10px">🚀 Warp Simulation</h1>
+
+  <div class="controls">
+    <div class="info-box">
+      🌍 CST Time: <span id="cstClock">--:--:--</span><br>
+      📡 Distance: <span id="vector">-- AU</span><br>
+      🧭 Angle: <span id="angle">--°</span><br>
+      🕓 Departure: <span id="cstTime">--</span><br>
+      🛬 Arrival: <span id="arrival">--</span>
+    </div>
+    <div class="info-box">
       <select id="targetPlanet">
         <option value="199">Mercury</option>
         <option value="299">Venus</option>
@@ -57,7 +65,6 @@
         <option value="899">Neptune</option>
         <option value="999">Pluto</option>
       </select>
-      Warp:
       <select id="warpSpeed">
         <option value="1">Warp 1</option>
         <option value="2">Warp 2</option>
@@ -69,134 +76,158 @@
         <option value="8">Warp 8</option>
         <option value="9">Warp 9</option>
         <option value="10">Warp 10</option>
-      </select>
-      <button onclick="engageWarp()">🚀 Engage</button>
-      <button onclick="resetScene()">🔁 Reset</button>
+      </select><br>
+      <button onclick="engageWarp()">Engage Warp</button>
+      <button onclick="resetMap()">Reset</button>
       <button onclick="screenshotMap()">📸 Screenshot</button>
     </div>
-    <div class="box">
-      📡 Distance: <span id="vector">-- AU</span><br>
-      🧭 Angle: <span id="angle">--°</span><br>
-      🕓 Departure: <span id="cstTime">--</span><br>
-      🛬 Arrival: <span id="arrival">--</span>
-    </div>
   </div>
-  <canvas id="orbitCanvas" width="1000" height="1000"></canvas>
+
+  <canvas id="orbitCanvas" width="900" height="900"></canvas>
+
   <audio id="warpSound">
     <source src="data:audio/ogg;base64,T2dnUwACAAAAAAAAAAA+qWAAAAAAABjYXRhdgAAAA8AAAAA//tAxAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" type="audio/ogg">
   </audio>
+
   <script>
     const canvas = document.getElementById("orbitCanvas");
     const ctx = canvas.getContext("2d");
     const warpSound = document.getElementById("warpSound");
 
-    const AU_SCALE = 20; // scale to fit Pluto in view
-    const SUN_X = canvas.width / 2;
-    const SUN_Y = canvas.height / 2;
-    let animationId = null;
-
-    const ORBIT_RADIUS = {
-      "199": 0.39, "299": 0.72, "499": 1.52, "599": 5.20,
-      "699": 9.58, "799": 19.2, "899": 30.1, "999": 39.5
+    const planetNames = {
+      "199": "Mercury", "299": "Venus", "499": "Mars", "599": "Jupiter",
+      "699": "Saturn", "799": "Uranus", "899": "Neptune", "999": "Pluto"
     };
 
-    const planetColors = ["#ccc", "#ffb6c1", "#f00", "#ff0", "#f90", "#0ff", "#88f", "#bbb"];
+    const AU_SCALE = 10; // scaled up for visibility
+    const ORBIT_RADIUS = {
+      "199": 2.0, "299": 3.5, "499": 5.0,
+      "599": 6.5, "699": 7.5, "799": 8.5, "899": 9.5, "999": 10.5
+    };
 
-    function updateCST() {
+    let shipAnim = null;
+    let currentAngle = 0, currentDistance = 1, currentLabel = "", currentWarp = 5;
+
+    function updateTime() {
       const now = new Date();
       const options = { timeZone: 'America/Chicago', hour12: true };
-      document.getElementById("earthTime").textContent = "🌍 CST Time: " + now.toLocaleTimeString('en-US', options);
+      document.getElementById("cstClock").textContent = now.toLocaleTimeString('en-US', options);
     }
-    setInterval(updateCST, 1000);
-    updateCST();
+    setInterval(updateTime, 1000); updateTime();
 
-    function drawSystem(angle = 45, dist = 1, warp = 5, drawShip = false, t = 0) {
+    function drawSystem() {
+      const cx = canvas.width / 2, cy = canvas.height / 2;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Sun
-      ctx.beginPath(); ctx.arc(SUN_X, SUN_Y, 10, 0, 2 * Math.PI);
-      ctx.fillStyle = "yellow"; ctx.fill();
-
-      // Earth
-      const earthX = SUN_X + AU_SCALE;
-      const earthY = SUN_Y;
-      ctx.beginPath(); ctx.arc(earthX, earthY, 6, 0, 2 * Math.PI);
-      ctx.fillStyle = "#0ff"; ctx.fill();
-
-      // Orbits
-      let i = 0;
-      for (const r of Object.values(ORBIT_RADIUS)) {
-        const rr = r * AU_SCALE;
+      // Draw orbits
+      Object.values(ORBIT_RADIUS).forEach(rAU => {
         ctx.beginPath();
-        ctx.arc(SUN_X, SUN_Y, rr, 0, 2 * Math.PI);
+        ctx.arc(cx, cy, rAU * AU_SCALE, 0, 2 * Math.PI);
         ctx.strokeStyle = "#333";
         ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(SUN_X + rr, SUN_Y, 3, 0, 2 * Math.PI);
-        ctx.fillStyle = planetColors[i++ % planetColors.length];
-        ctx.fill();
-      }
+      });
 
-      // Target Planet
-      const rad = angle * (Math.PI / 180);
-      const targetX = SUN_X + dist * AU_SCALE * Math.cos(rad);
-      const targetY = SUN_Y + dist * AU_SCALE * Math.sin(rad);
-      ctx.beginPath(); ctx.arc(targetX, targetY, 6, 0, 2 * Math.PI);
-      ctx.fillStyle = "#f00"; ctx.fill();
+      // Sun
+      ctx.beginPath();
+      ctx.arc(cx, cy, 10, 0, 2 * Math.PI);
+      ctx.fillStyle = "yellow";
+      ctx.fill();
 
-      // Warp curve
-      const midX = (earthX + targetX) / 2;
-      const midY = (earthY + targetY) / 2 - (100 * (1 - warp / 10));
+      // Earth
+      ctx.beginPath();
+      ctx.arc(cx + AU_SCALE, cy, 6, 0, 2 * Math.PI);
+      ctx.fillStyle = "#0ff";
+      ctx.fill();
+    }
+
+    function drawScene(angleDeg, distanceAU, warpLevel) {
+      drawSystem();
+      const cx = canvas.width / 2, cy = canvas.height / 2;
+      const earthX = cx + AU_SCALE, earthY = cy;
+      const rad = angleDeg * Math.PI / 180;
+      const planetX = cx + distanceAU * AU_SCALE * Math.cos(rad);
+      const planetY = cy + distanceAU * AU_SCALE * Math.sin(rad);
+
+      const midX = (earthX + planetX) / 2;
+      const midY = (earthY + planetY) / 2 - 80 * (1 - warpLevel / 10);
+
       ctx.beginPath();
       ctx.moveTo(earthX, earthY);
-      ctx.quadraticCurveTo(midX, midY, targetX, targetY);
-      ctx.setLineDash([5, 5]);
-      ctx.strokeStyle = "lime";
+      ctx.quadraticCurveTo(midX, midY, planetX, planetY);
+      ctx.setLineDash([5, 3]);
+      ctx.strokeStyle = "#0f0";
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Ship animation
-      if (drawShip) {
-        const x = (1 - t) ** 2 * earthX + 2 * (1 - t) * t * midX + t ** 2 * targetX;
-        const y = (1 - t) ** 2 * earthY + 2 * (1 - t) * t * midY + t ** 2 * targetY;
-        ctx.fillStyle = "white";
+      ctx.beginPath();
+      ctx.arc(planetX, planetY, 6, 0, 2 * Math.PI);
+      ctx.fillStyle = "#f00";
+      ctx.fill();
+
+      return { earthX, earthY, midX, midY, planetX, planetY };
+    }
+
+    function animateShip(path, duration) {
+      if (shipAnim) cancelAnimationFrame(shipAnim);
+      const start = performance.now();
+
+      function step(now) {
+        const t = Math.min((now - start) / duration, 1);
+        const x = (1 - t) ** 2 * path.earthX + 2 * (1 - t) * t * path.midX + t ** 2 * path.planetX;
+        const y = (1 - t) ** 2 * path.earthY + 2 * (1 - t) * t * path.midY + t ** 2 * path.planetY;
+        drawScene(currentAngle, currentDistance, currentWarp);
         ctx.beginPath();
         ctx.arc(x, y, 5, 0, 2 * Math.PI);
+        ctx.fillStyle = "#fff";
         ctx.fill();
+
+        if (t < 1) shipAnim = requestAnimationFrame(step);
+        else warpSound.pause();
       }
+      warpSound.currentTime = 0;
+      warpSound.play();
+      shipAnim = requestAnimationFrame(step);
     }
 
     async function engageWarp() {
-      const id = document.getElementById("targetPlanet").value;
+      const planetId = document.getElementById("targetPlanet").value;
       const warp = parseInt(document.getElementById("warpSpeed").value);
-      const dist = ORBIT_RADIUS[id];
-      const angle = Math.random() * 360;
+      currentWarp = warp;
 
-      document.getElementById("vector").textContent = dist + " AU";
-      document.getElementById("angle").textContent = angle.toFixed(1) + "°";
-      const now = new Date();
-      document.getElementById("cstTime").textContent = now.toLocaleTimeString('en-US', { timeZone: 'America/Chicago' });
-
-      const sec = dist * 600 / warp;
-      const arrival = new Date(now.getTime() + sec * 1000);
-      document.getElementById("arrival").textContent = arrival.toLocaleTimeString('en-US', { timeZone: 'America/Chicago' });
-
-      if (animationId) cancelAnimationFrame(animationId);
-      warpSound.currentTime = 0;
-      warpSound.play();
-      const start = performance.now();
-
-      function animate(now) {
-        const t = Math.min((now - start) / (sec * 1000), 1);
-        drawSystem(angle, dist, warp, true, t);
-        if (t < 1) animationId = requestAnimationFrame(animate);
+      try {
+        const res = await fetch(`https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND='${planetId}'&CENTER='@sun'&MAKE_EPHEM='YES'&EPHEM_TYPE='VECTORS'&OUT_UNITS='AU-D'&VEC_TABLE='3'&START_TIME='NOW'&STOP_TIME='NOW'&STEP_SIZE='1 d'`);
+        const text = await res.text();
+        const line = text.split('\n').find(l => l.includes('X=') && l.includes('Y='));
+        const x = parseFloat(line.match(/X= *([-\.\d]+)/)[1]);
+        const y = parseFloat(line.match(/Y= *([-\.\d]+)/)[1]);
+        const z = parseFloat(line.match(/Z= *([-\.\d]+)/)[1]);
+        const distance = Math.sqrt(x * x + y * y + z * z).toFixed(3);
+        const angle = (Math.atan2(y, x) * 180 / Math.PI).toFixed(1);
+        currentDistance = parseFloat(distance);
+        currentAngle = parseFloat(angle);
+      } catch (e) {
+        currentDistance = 1.52;
+        currentAngle = 45;
       }
-      requestAnimationFrame(animate);
+
+      const now = new Date();
+      const travelSeconds = (currentDistance / warp) * 600;
+      const arrival = new Date(now.getTime() + travelSeconds * 1000);
+      const options = { timeZone: 'America/Chicago', hour12: true };
+
+      document.getElementById("vector").textContent = currentDistance.toFixed(2) + " AU";
+      document.getElementById("angle").textContent = currentAngle.toFixed(1) + "°";
+      document.getElementById("cstTime").textContent = now.toLocaleTimeString('en-US', options);
+      document.getElementById("arrival").textContent = arrival.toLocaleTimeString('en-US', options);
+
+      const path = drawScene(currentAngle, currentDistance, warp);
+      animateShip(path, travelSeconds * 1000);
     }
 
-    function resetScene() {
-      if (animationId) cancelAnimationFrame(animationId);
+    function resetMap() {
+      if (shipAnim) cancelAnimationFrame(shipAnim);
       drawSystem();
+      warpSound.pause();
       document.getElementById("vector").textContent = "-- AU";
       document.getElementById("angle").textContent = "--°";
       document.getElementById("arrival").textContent = "--";
@@ -212,5 +243,6 @@
 
     drawSystem();
   </script>
+
 </body>
 </html>
