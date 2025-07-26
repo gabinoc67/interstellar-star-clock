@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>🚀 Warp Simulation</title>
+  <style>
+    body {
+      background-color: #000;
+      color: #fff;
+      font-family: 'Courier New', monospace;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: row;
+      height: 100vh;
+    }
+    .left-panel, .right-panel {
+      width: 50%;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+    .info-box {
+      background: #111;
+      padding: 10px;
+      margin: 10px auto;
+      border: 1px solid #444;
+      border-radius: 8px;
+    }
+    select, button {
+      margin: 8px;
+      padding: 8px 16px;
+      font-size: 1em;
+      background: #000;
+      color: #fff;
+      border: 1px solid #555;
+      border-radius: 6px;
+    }
+    canvas {
+      display: block;
+      margin: 0 auto;
+      border: 1px solid #333;
+      background: #000;
+    }
+  </style>
+</head>
+<body>
+
+<div class="left-panel">
+  <h1>🚀 Warp Simulation</h1>
+  <div class="info-box" id="earthTime">🌍 CST Time: --:--:--</div>
+  <div class="info-box">
+    Destination:
+    <select id="targetPlanet">
+      <option value="199">Mercury</option>
+      <option value="299">Venus</option>
+      <option value="499">Mars</option>
+      <option value="599">Jupiter</option>
+      <option value="699">Saturn</option>
+      <option value="799">Uranus</option>
+      <option value="899">Neptune</option>
+      <option value="999">Pluto</option>
+    </select>
+    <select id="warpSpeed">
+      <option value="1">Warp 1</option>
+      <option value="2">Warp 2</option>
+      <option value="3">Warp 3</option>
+      <option value="4">Warp 4</option>
+      <option value="5" selected>Warp 5</option>
+      <option value="6">Warp 6</option>
+      <option value="7">Warp 7</option>
+      <option value="8">Warp 8</option>
+      <option value="9">Warp 9</option>
+      <option value="10">Warp 10</option>
+    </select>
+    <br>
+    <button onclick="engageWarp()">Engage Warp</button>
+    <button onclick="resetMap()">Reset</button>
+    <button onclick="screenshotMap()">📸 Screenshot</button>
+  </div>
+  <div class="info-box">
+    Vector: <span id="vector">-- AU</span> | Angle: <span id="angle">--°</span><br>
+    Arrival: <span id="arrival">--</span> | Captured: <span id="cstTime">--</span>
+  </div>
+</div>
+
+<div class="right-panel">
+  <canvas id="orbitCanvas" width="800" height="800"></canvas>
+</div>
+
+<audio id="warpSound">
+  <source src="data:audio/ogg;base64,T2dnUwACAAAAAAAAAAA+qWAAAAAAABjYXRhdgAAAA8AAAAA//tAxAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" type="audio/ogg">
+  Your browser does not support the audio tag.
+</audio>
+
+<script>
+  const canvas = document.getElementById("orbitCanvas");
+  const ctx = canvas.getContext("2d");
+  const warpSound = document.getElementById("warpSound");
+
+  const planetNames = {
+    "199": "Mercury", "299": "Venus", "499": "Mars", "599": "Jupiter",
+    "699": "Saturn", "799": "Uranus", "899": "Neptune", "999": "Pluto"
+  };
+
+  const AU_SCALE = 10; // more zoomed out to fit all planets
+  const ORBIT_RADIUS = {
+    "199": 0.39, "299": 0.72, "499": 1.52, "599": 5.20,
+    "699": 9.58, "799": 19.2, "899": 30.1, "999": 39.5
+  };
+
+  let shipAnim = null;
+  let currentAngle = 0, currentDistance = 1, currentLabel = "", currentWarp = 5;
+
+  function updateTime() {
+    const now = new Date();
+    const options = { timeZone: 'America/Chicago', hour12: true };
+    document.getElementById("earthTime").textContent = "🌍 CST Time: " + now.toLocaleTimeString('en-US', options);
+  }
+  setInterval(updateTime, 1000); updateTime();
+
+  function drawScene(angleDeg = 0, distanceAU = 1, label = "", warpLevel = 5) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const cx = canvas.width / 2, cy = canvas.height / 2;
+    const earthX = cx + (1 * AU_SCALE);
+    const earthY = cy;
+
+    Object.keys(ORBIT_RADIUS).forEach(pid => {
+      const r = ORBIT_RADIUS[pid] * AU_SCALE;
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+      ctx.strokeStyle = "#333"; ctx.stroke();
+      ctx.fillStyle = "#888";
+      ctx.fillText(`${planetNames[pid]} Orbit`, cx + r + 5, cy - 5);
+    });
+
+    ctx.beginPath(); ctx.arc(cx, cy, 10, 0, 2 * Math.PI);
+    ctx.fillStyle = "yellow"; ctx.fill();
+
+    ctx.beginPath(); ctx.arc(earthX, earthY, 6, 0, 2 * Math.PI);
+    ctx.fillStyle = "#0ff"; ctx.fill();
+    ctx.fillText("Earth", earthX + 10, earthY - 5);
+
+    const rad = angleDeg * (Math.PI / 180);
+    const planetX = cx + distanceAU * AU_SCALE * Math.cos(rad);
+    const planetY = cy + distanceAU * AU_SCALE * Math.sin(rad);
+
+    ctx.beginPath(); ctx.arc(planetX, planetY, 6, 0, 2 * Math.PI);
+    ctx.fillStyle = "#f00"; ctx.fill();
+    ctx.fillText(label, planetX + 10, planetY - 5);
+
+    const midX = (earthX + planetX) / 2;
+    const midY = (earthY + planetY) / 2 - (80 * (1 - warpLevel / 10));
+    ctx.beginPath(); ctx.moveTo(earthX, earthY);
+    ctx.quadraticCurveTo(midX, midY, planetX, planetY);
+    ctx.setLineDash([5, 3]);
+    ctx.strokeStyle = "#0f0"; ctx.stroke();
+    ctx.setLineDash([]);
+
+    return { earthX, earthY, midX, midY, planetX, planetY };
+  }
+
+  function animateShip(p, duration) {
+    if (shipAnim) cancelAnimationFrame(shipAnim);
+    const start = performance.now();
+
+    function step(now) {
+      const t = Math.min((now - start) / duration, 1);
+      const x = (1 - t) ** 2 * p.earthX + 2 * (1 - t) * t * p.midX + t ** 2 * p.planetX;
+      const y = (1 - t) ** 2 * p.earthY + 2 * (1 - t) * t * p.midY + t ** 2 * p.planetY;
+      drawScene(currentAngle, currentDistance, currentLabel, currentWarp);
+      ctx.beginPath(); ctx.arc(x, y, 5, 0, 2 * Math.PI);
+      ctx.fillStyle = "#fff"; ctx.fill();
+      ctx.fillText("🛸", x + 8, y);
+      if (t < 1) shipAnim = requestAnimationFrame(step);
+      else warpSound.pause();
+    }
+
+    warpSound.currentTime = 0;
+    warpSound.play();
+    shipAnim = requestAnimationFrame(step);
+  }
+
+  async function engageWarp() {
+    const planetId = document.getElementById("targetPlanet").value;
+    const warp = parseInt(document.getElementById("warpSpeed").value);
+    currentWarp = warp;
+
+    try {
+      const res = await fetch(`https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND='${planetId}'&CENTER='@sun'&MAKE_EPHEM='YES'&EPHEM_TYPE='VECTORS'&OUT_UNITS='AU-D'&VEC_TABLE='3'&START_TIME='NOW'&STOP_TIME='NOW'&STEP_SIZE='1 d'`);
+      const text = await res.text();
+      const line = text.split('\n').find(l => l.includes('X=') && l.includes('Y='));
+      const x = parseFloat(line.match(/X= *([-.\d]+)/)[1]);
+      const y = parseFloat(line.match(/Y= *([-.\d]+)/)[1]);
+      const z = parseFloat(line.match(/Z= *([-.\d]+)/)[1]);
+      const distance = Math.sqrt(x * x + y * y + z * z).toFixed(3);
+      const angle = (Math.atan2(y, x) * 180 / Math.PI).toFixed(1);
+
+      currentAngle = parseFloat(angle);
+      currentDistance = parseFloat(distance);
+      currentLabel = planetNames[planetId];
+
+      document.getElementById("vector").textContent = distance + " AU";
+      document.getElementById("angle").textContent = angle + "°";
+
+      const baseSecondsPerAU = 600;
+      const travelSeconds = (currentDistance / warp) * baseSecondsPerAU;
+
+      const now = new Date();
+      const arrival = new Date(now.getTime() + travelSeconds * 1000);
+      const options = { timeZone: 'America/Chicago', hour12: true };
+      document.getElementById("arrival").textContent = arrival.toLocaleTimeString('en-US', options);
+      document.getElementById("cstTime").textContent = now.toLocaleTimeString('en-US', options);
+
+      const path = drawScene(currentAngle, currentDistance, currentLabel, warp);
+      animateShip(path, travelSeconds * 1000);
+    } catch (e) {
+      alert("Could not fetch live planetary data. Using default Mars curve.");
+      currentAngle = 45;
+      currentDistance = 1.52;
+      currentLabel = "Mars";
+      const path = drawScene(currentAngle, currentDistance, currentLabel, warp);
+      animateShip(path, 3000);
+    }
+  }
+
+  function resetMap() {
+    if (shipAnim) cancelAnimationFrame(shipAnim);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    warpSound.pause();
+    warpSound.currentTime = 0;
+    currentAngle = 0;
+    currentDistance = 1;
+    currentLabel = "";
+    drawScene();
+    document.getElementById("vector").textContent = "-- AU";
+    document.getElementById("angle").textContent = "--°";
+    document.getElementById("arrival").textContent = "--";
+    document.getElementById("cstTime").textContent = "--";
+  }
+
+  function screenshotMap() {
+    const link = document.createElement("a");
+    link.download = "warp_map.png";
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  }
+
+  drawScene();
+</script>
+
+</body>
+</html>
