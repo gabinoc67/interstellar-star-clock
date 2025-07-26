@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>🌌 Warp Simulation – CST Synced</title>
+  <title>🌌 CST Warp Simulator</title>
   <style>
     body {
       background-color: #000;
@@ -11,59 +11,56 @@
       margin: 0;
       padding: 0;
     }
-    .controls {
+    .top-bar {
       display: flex;
       justify-content: space-between;
       padding: 10px;
+      background-color: #111;
     }
-    .info-box {
-      background: #111;
-      color: #fff;
+    .info-box, .control-box {
+      background-color: #111;
+      border: 1px solid #333;
       padding: 10px;
-      margin: 5px;
-      width: 48%;
-      border: 1px solid #444;
-      border-radius: 8px;
+      border-radius: 6px;
+    }
+    .info-box span {
+      display: block;
+      margin: 4px 0;
     }
     select, button {
-      margin: 5px;
-      padding: 6px 12px;
-      font-size: 1em;
-      background: #000;
+      background-color: #000;
       color: #fff;
       border: 1px solid #555;
-      border-radius: 6px;
+      padding: 6px 10px;
+      margin: 5px;
     }
     canvas {
       display: block;
-      margin: 10px auto;
+      margin: 0 auto;
       background: #000;
       border: 1px solid #333;
     }
   </style>
 </head>
 <body>
-
-  <h1 style="text-align:center; padding:10px">🚀 Warp Simulation</h1>
-
-  <div class="controls">
+  <div class="top-bar">
     <div class="info-box">
-      🌍 CST Time: <span id="cstClock">--:--:--</span><br>
-      📡 Distance: <span id="vector">-- AU</span><br>
-      🧭 Angle: <span id="angle">--°</span><br>
-      🕓 Departure: <span id="cstTime">--</span><br>
-      🛬 Arrival: <span id="arrival">--</span>
+      <span id="cstTime">🌎 CST Time: --:--:--</span>
+      <span>📡 Distance: <span id="vector">-- AU</span></span>
+      <span>🧭 Angle: <span id="angle">--°</span></span>
+      <span>🕓 Departure: <span id="departure">--</span></span>
+      <span>🛬 Arrival: <span id="arrival">--</span></span>
     </div>
-    <div class="info-box">
+    <div class="control-box">
       <select id="targetPlanet">
-        <option value="199">Mercury</option>
-        <option value="299">Venus</option>
-        <option value="499">Mars</option>
-        <option value="599">Jupiter</option>
-        <option value="699">Saturn</option>
-        <option value="799">Uranus</option>
-        <option value="899">Neptune</option>
-        <option value="999">Pluto</option>
+        <option value="Mercury">Mercury</option>
+        <option value="Venus">Venus</option>
+        <option value="Mars">Mars</option>
+        <option value="Jupiter">Jupiter</option>
+        <option value="Saturn">Saturn</option>
+        <option value="Uranus">Uranus</option>
+        <option value="Neptune">Neptune</option>
+        <option value="Pluto">Pluto</option>
       </select>
       <select id="warpSpeed">
         <option value="1">Warp 1</option>
@@ -76,162 +73,99 @@
         <option value="8">Warp 8</option>
         <option value="9">Warp 9</option>
         <option value="10">Warp 10</option>
-      </select><br>
+      </select>
+      <br>
       <button onclick="engageWarp()">Engage Warp</button>
       <button onclick="resetMap()">Reset</button>
       <button onclick="screenshotMap()">📸 Screenshot</button>
     </div>
   </div>
-
-  <canvas id="orbitCanvas" width="900" height="900"></canvas>
-
-  <audio id="warpSound">
-    <source src="data:audio/ogg;base64,T2dnUwACAAAAAAAAAAA+qWAAAAAAABjYXRhdgAAAA8AAAAA//tAxAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" type="audio/ogg">
-  </audio>
+  <canvas id="canvas" width="800" height="800"></canvas>
 
   <script>
-    const canvas = document.getElementById("orbitCanvas");
+    const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
-    const warpSound = document.getElementById("warpSound");
-
-    const planetNames = {
-      "199": "Mercury", "299": "Venus", "499": "Mars", "599": "Jupiter",
-      "699": "Saturn", "799": "Uranus", "899": "Neptune", "999": "Pluto"
+    const planetOrbitAU = {
+      Mercury: 0.39,
+      Venus: 0.72,
+      Earth: 1.00,
+      Mars: 1.52,
+      Jupiter: 5.20,
+      Saturn: 9.58,
+      Uranus: 19.2,
+      Neptune: 30.1,
+      Pluto: 39.5
     };
+    const scale = 10; // pixels per AU
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
 
-    const AU_SCALE = 10; // scaled up for visibility
-    const ORBIT_RADIUS = {
-      "199": 2.0, "299": 3.5, "499": 5.0,
-      "599": 6.5, "699": 7.5, "799": 8.5, "899": 9.5, "999": 10.5
-    };
-
-    let shipAnim = null;
-    let currentAngle = 0, currentDistance = 1, currentLabel = "", currentWarp = 5;
-
-    function updateTime() {
+    function getCSTAngle(name) {
       const now = new Date();
-      const options = { timeZone: 'America/Chicago', hour12: true };
-      document.getElementById("cstClock").textContent = now.toLocaleTimeString('en-US', options);
+      const cst = new Date(now.toLocaleString("en-US", { timeZone: "America/Chicago" }));
+      const secondsToday = cst.getHours() * 3600 + cst.getMinutes() * 60 + cst.getSeconds();
+      const dayFraction = secondsToday / 86400; // full rotation in 24 hrs
+      const angle = (dayFraction * 360 + planetOrbitAU[name] * 10) % 360;
+      return angle;
     }
-    setInterval(updateTime, 1000); updateTime();
 
-    function drawSystem() {
-      const cx = canvas.width / 2, cy = canvas.height / 2;
+    function drawSystem(selectedPlanet = null) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      // Draw orbits
-      Object.values(ORBIT_RADIUS).forEach(rAU => {
-        ctx.beginPath();
-        ctx.arc(cx, cy, rAU * AU_SCALE, 0, 2 * Math.PI);
-        ctx.strokeStyle = "#333";
-        ctx.stroke();
-      });
-
-      // Sun
+      
+      // Draw sun
       ctx.beginPath();
       ctx.arc(cx, cy, 10, 0, 2 * Math.PI);
       ctx.fillStyle = "yellow";
       ctx.fill();
 
-      // Earth
-      ctx.beginPath();
-      ctx.arc(cx + AU_SCALE, cy, 6, 0, 2 * Math.PI);
-      ctx.fillStyle = "#0ff";
-      ctx.fill();
-    }
+      for (let [planet, au] of Object.entries(planetOrbitAU)) {
+        const angle = getCSTAngle(planet) * (Math.PI / 180);
+        const r = au * scale;
+        const px = cx + r * Math.cos(angle);
+        const py = cy + r * Math.sin(angle);
 
-    function drawScene(angleDeg, distanceAU, warpLevel) {
-      drawSystem();
-      const cx = canvas.width / 2, cy = canvas.height / 2;
-      const earthX = cx + AU_SCALE, earthY = cy;
-      const rad = angleDeg * Math.PI / 180;
-      const planetX = cx + distanceAU * AU_SCALE * Math.cos(rad);
-      const planetY = cy + distanceAU * AU_SCALE * Math.sin(rad);
-
-      const midX = (earthX + planetX) / 2;
-      const midY = (earthY + planetY) / 2 - 80 * (1 - warpLevel / 10);
-
-      ctx.beginPath();
-      ctx.moveTo(earthX, earthY);
-      ctx.quadraticCurveTo(midX, midY, planetX, planetY);
-      ctx.setLineDash([5, 3]);
-      ctx.strokeStyle = "#0f0";
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      ctx.beginPath();
-      ctx.arc(planetX, planetY, 6, 0, 2 * Math.PI);
-      ctx.fillStyle = "#f00";
-      ctx.fill();
-
-      return { earthX, earthY, midX, midY, planetX, planetY };
-    }
-
-    function animateShip(path, duration) {
-      if (shipAnim) cancelAnimationFrame(shipAnim);
-      const start = performance.now();
-
-      function step(now) {
-        const t = Math.min((now - start) / duration, 1);
-        const x = (1 - t) ** 2 * path.earthX + 2 * (1 - t) * t * path.midX + t ** 2 * path.planetX;
-        const y = (1 - t) ** 2 * path.earthY + 2 * (1 - t) * t * path.midY + t ** 2 * path.planetY;
-        drawScene(currentAngle, currentDistance, currentWarp);
+        // Orbit
         ctx.beginPath();
-        ctx.arc(x, y, 5, 0, 2 * Math.PI);
-        ctx.fillStyle = "#fff";
-        ctx.fill();
+        ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+        ctx.strokeStyle = "#222";
+        ctx.stroke();
 
-        if (t < 1) shipAnim = requestAnimationFrame(step);
-        else warpSound.pause();
+        // Planet
+        ctx.beginPath();
+        ctx.arc(px, py, 5, 0, 2 * Math.PI);
+        ctx.fillStyle = (planet === selectedPlanet) ? "#0ff" : "#fff";
+        ctx.fill();
       }
-      warpSound.currentTime = 0;
-      warpSound.play();
-      shipAnim = requestAnimationFrame(step);
     }
 
-    async function engageWarp() {
-      const planetId = document.getElementById("targetPlanet").value;
+    function updateTime() {
+      const now = new Date().toLocaleTimeString("en-US", { timeZone: "America/Chicago" });
+      document.getElementById("cstTime").textContent = "🌎 CST Time: " + now;
+    }
+
+    function engageWarp() {
+      const target = document.getElementById("targetPlanet").value;
       const warp = parseInt(document.getElementById("warpSpeed").value);
-      currentWarp = warp;
+      const dist = planetOrbitAU[target];
+      const angle = getCSTAngle(target).toFixed(1);
 
-      try {
-        const res = await fetch(`https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND='${planetId}'&CENTER='@sun'&MAKE_EPHEM='YES'&EPHEM_TYPE='VECTORS'&OUT_UNITS='AU-D'&VEC_TABLE='3'&START_TIME='NOW'&STOP_TIME='NOW'&STEP_SIZE='1 d'`);
-        const text = await res.text();
-        const line = text.split('\n').find(l => l.includes('X=') && l.includes('Y='));
-        const x = parseFloat(line.match(/X= *([-\.\d]+)/)[1]);
-        const y = parseFloat(line.match(/Y= *([-\.\d]+)/)[1]);
-        const z = parseFloat(line.match(/Z= *([-\.\d]+)/)[1]);
-        const distance = Math.sqrt(x * x + y * y + z * z).toFixed(3);
-        const angle = (Math.atan2(y, x) * 180 / Math.PI).toFixed(1);
-        currentDistance = parseFloat(distance);
-        currentAngle = parseFloat(angle);
-      } catch (e) {
-        currentDistance = 1.52;
-        currentAngle = 45;
-      }
-
+      document.getElementById("vector").textContent = dist + " AU";
+      document.getElementById("angle").textContent = angle + "°";
       const now = new Date();
-      const travelSeconds = (currentDistance / warp) * 600;
-      const arrival = new Date(now.getTime() + travelSeconds * 1000);
-      const options = { timeZone: 'America/Chicago', hour12: true };
+      document.getElementById("departure").textContent = now.toLocaleTimeString("en-US", { timeZone: "America/Chicago" });
+      const seconds = (dist / warp) * 600;
+      const arrival = new Date(now.getTime() + seconds * 1000);
+      document.getElementById("arrival").textContent = arrival.toLocaleTimeString("en-US", { timeZone: "America/Chicago" });
 
-      document.getElementById("vector").textContent = currentDistance.toFixed(2) + " AU";
-      document.getElementById("angle").textContent = currentAngle.toFixed(1) + "°";
-      document.getElementById("cstTime").textContent = now.toLocaleTimeString('en-US', options);
-      document.getElementById("arrival").textContent = arrival.toLocaleTimeString('en-US', options);
-
-      const path = drawScene(currentAngle, currentDistance, warp);
-      animateShip(path, travelSeconds * 1000);
+      drawSystem(target);
     }
 
     function resetMap() {
-      if (shipAnim) cancelAnimationFrame(shipAnim);
-      drawSystem();
-      warpSound.pause();
       document.getElementById("vector").textContent = "-- AU";
       document.getElementById("angle").textContent = "--°";
+      document.getElementById("departure").textContent = "--";
       document.getElementById("arrival").textContent = "--";
-      document.getElementById("cstTime").textContent = "--";
+      drawSystem();
     }
 
     function screenshotMap() {
@@ -241,8 +175,9 @@
       link.click();
     }
 
+    updateTime();
+    setInterval(updateTime, 1000);
     drawSystem();
   </script>
-
 </body>
 </html>
