@@ -35,11 +35,6 @@
     canvas {
       flex-grow: 1;
     }
-    @media print {
-      #controls {
-        display: none;
-      }
-    }
   </style>
 </head>
 <body>
@@ -88,33 +83,29 @@
   <script>
     const canvas = document.getElementById('spaceCanvas');
     const ctx = canvas.getContext('2d');
+    const AU = 30;
 
-    const planetData = [
-      { name: 'Mercury', radius: 40, angle: 0 },
-      { name: 'Venus', radius: 70, angle: 30 },
-      { name: 'Earth', radius: 100, angle: 60 },
-      { name: 'Mars', radius: 130, angle: 90 },
-      { name: 'Jupiter', radius: 170, angle: 120 },
-      { name: 'Saturn', radius: 210, angle: 150 },
-      { name: 'Uranus', radius: 250, angle: 180 },
-      { name: 'Neptune', radius: 290, angle: 210 },
-      { name: 'Pluto', radius: 330, angle: 240 }
-    ];
+    const planetNames = ["Mercury", "Venus", "Earth", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto"];
+    const planetRadii = planetNames.map((_, i) => AU * (i + 1));
 
     function getPlanetPositions() {
-      const cx = 600;
-      const cy = 384;
-      const positions = {
-        Sun: { x: cx, y: cy }
-      };
-      planetData.forEach(({ name, radius, angle }) => {
-        const rad = angle * Math.PI / 180;
-        const x = cx + radius * Math.cos(rad);
-        const y = cy + radius * Math.sin(rad);
+      const now = new Date();
+      const secondsInDay = 86400;
+      const seconds = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+      const angleBase = (seconds / secondsInDay) * 2 * Math.PI;
+
+      const positions = {};
+      planetNames.forEach((name, i) => {
+        const radius = planetRadii[i];
+        const angle = angleBase + i * (Math.PI / 12);
+        const x = 600 + radius * Math.cos(angle);
+        const y = 384 + radius * Math.sin(angle);
         positions[name] = { x, y };
       });
       return positions;
     }
+
+    let trajectoryLine = null;
 
     const drawScene = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -123,33 +114,100 @@
       // Draw orbit rings
       ctx.strokeStyle = 'white';
       ctx.lineWidth = 1.5;
-      planetData.forEach(p => {
+      planetRadii.forEach(r => {
         ctx.beginPath();
-        ctx.arc(600, 384, p.radius, 0, 2 * Math.PI);
+        ctx.arc(600, 384, r, 0, 2 * Math.PI);
         ctx.stroke();
       });
 
-      // Draw Sun
-      ctx.beginPath();
-      ctx.arc(600, 384, 15, 0, 2 * Math.PI);
-      ctx.fillStyle = 'orange';
-      ctx.fill();
+      // Draw trajectory line if exists
+      if (trajectoryLine) {
+        ctx.setLineDash([5, 5]);
+        ctx.strokeStyle = 'lime';
+        ctx.beginPath();
+        ctx.moveTo(trajectoryLine.x1, trajectoryLine.y1);
+        ctx.lineTo(trajectoryLine.x2, trajectoryLine.y2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
 
       // Draw planets
       for (const [name, { x, y }] of Object.entries(planets)) {
-        if (name !== 'Sun') {
-          ctx.beginPath();
-          ctx.arc(x, y, 6, 0, 2 * Math.PI);
-          ctx.fillStyle = name === 'Earth' ? 'cyan' : (name === 'Pluto' ? 'lime' : 'white');
-          ctx.fill();
-          ctx.fillStyle = 'white';
-          ctx.font = '12px monospace';
-          ctx.fillText(name, x + 10, y);
-        }
+        ctx.beginPath();
+        ctx.arc(x, y, 10, 0, 2 * Math.PI);
+        ctx.fillStyle = name === 'Earth' ? 'cyan' : name === 'Pluto' ? 'lime' : 'white';
+        ctx.fill();
+        ctx.fillStyle = 'white';
+        ctx.font = '12px monospace';
+        ctx.fillText(name, x + 12, y);
       }
     };
 
     drawScene();
+
+    document.getElementById('engage').onclick = () => {
+      const planet = document.getElementById('planet').value;
+      const warpText = document.getElementById('warp').value;
+      const warpLevel = parseInt(warpText.split(' ')[1]);
+
+      const planets = getPlanetPositions();
+      const earth = planets.Earth;
+      const dest = planets[planet];
+
+      trajectoryLine = { x1: earth.x, y1: earth.y, x2: dest.x, y2: dest.y };
+
+      const dx = dest.x - earth.x;
+      const dy = dest.y - earth.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      const angleDeg = Math.atan2(dy, dx) * 180 / Math.PI;
+
+      const now = new Date();
+      const departure = now.toLocaleTimeString();
+      const travelSeconds = Math.round((distance / 100) / warpLevel * 5);
+      const arrival = new Date(now.getTime() + travelSeconds * 1000);
+
+      document.getElementById('distance').textContent = (distance / 100).toFixed(2);
+      document.getElementById('angle').textContent = angleDeg.toFixed(2);
+      document.getElementById('departure').textContent = departure;
+      document.getElementById('arrival').textContent = arrival.toLocaleTimeString();
+      document.getElementById('duration').textContent = `${Math.floor(travelSeconds / 60)}:${String(travelSeconds % 60).padStart(2, '0')}`;
+
+      const steps = 300;
+      let step = 0;
+      const resetBtn = document.getElementById('reset');
+      resetBtn.disabled = true;
+
+      const interval = setInterval(() => {
+        drawScene();
+        const progress = step / steps;
+        const arcHeight = (1 - warpLevel / 10) * 80;
+        const curveX = earth.x + dx * progress;
+        const curveY = earth.y + dy * progress - arcHeight * Math.sin(Math.PI * progress);
+
+        ctx.beginPath();
+        ctx.arc(curveX, curveY, 6, 0, 2 * Math.PI);
+        ctx.fillStyle = 'lime';
+        ctx.fill();
+        ctx.strokeStyle = 'white';
+        ctx.stroke();
+
+        step++;
+        if (step > steps) {
+          clearInterval(interval);
+          resetBtn.disabled = false;
+        }
+      }, 50);
+    };
+
+    document.getElementById('reset').onclick = () => {
+      trajectoryLine = null;
+      drawScene();
+      document.getElementById('distance').textContent = '--';
+      document.getElementById('angle').textContent = '--';
+      document.getElementById('departure').textContent = '--';
+      document.getElementById('arrival').textContent = '--';
+      document.getElementById('duration').textContent = '--';
+    };
 
     document.getElementById('screenshot').onclick = () => {
       const link = document.createElement('a');
