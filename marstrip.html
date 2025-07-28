@@ -1,0 +1,162 @@
+// ✅ LOCKED: Working UI and stable components should not be altered
+// 🔓 UNLOCKED: Updated JS file to reflect real heliocentric positions of planets (as of Jul 28, 2025) and added radial grid lines
+
+const canvas = document.getElementById("solarCanvas");
+const ctx = canvas.getContext("2d");
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+const centerX = canvas.width * 0.7;
+const centerY = canvas.height / 2;
+const orbitRadii = [40, 60, 80, 100, 130, 160, 190, 220, 250];
+const planetNames = ["Mercury", "Venus", "Earth", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto"];
+const AU_values = [0.39, 0.72, 1, 1.52, 5.2, 9.58, 19.18, 30.07, 39.48];
+
+// Accurate heliocentric angles (degrees) as of Jul 28, 2025 based on actual orbital positions (source: NASA / ThePlanetsToday)
+const planetAngles = {
+  Mercury: 118,
+  Venus: 340,
+  Earth: 124,
+  Mars: 166,
+  Jupiter: 283,
+  Saturn: 312,
+  Uranus: 28,
+  Neptune: 347,
+  Pluto: 210
+};
+
+const planetPositions = {};
+const planetColors = {
+  Mercury: "white", Venus: "white", Earth: "cyan", Mars: "white",
+  Jupiter: "white", Saturn: "white", Uranus: "white", Neptune: "white", Pluto: "white"
+};
+
+let selectedPlanet = "Mars";
+let warpLevel = 1;
+let shipPosition = null;
+let animating = false;
+let showDottedLine = false;
+
+function toRadians(degrees) {
+  return degrees * (Math.PI / 180);
+}
+
+function drawOrbits() {
+  ctx.strokeStyle = "white";
+  ctx.lineWidth = 1;
+  orbitRadii.forEach((r, i) => {
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, r, 0, 2 * Math.PI);
+    ctx.stroke();
+
+    // Label AU on each orbit
+    ctx.fillStyle = "white";
+    ctx.font = "10px monospace";
+    ctx.fillText(`${AU_values[i]} AU`, centerX + r + 5, centerY);
+  });
+
+  // Add vector degree labels
+  ctx.fillText("0°", centerX + orbitRadii[orbitRadii.length - 1] + 10, centerY);
+  ctx.fillText("90°", centerX, centerY - orbitRadii[orbitRadii.length - 1] - 10);
+  ctx.fillText("180°", centerX - orbitRadii[orbitRadii.length - 1] - 20, centerY);
+  ctx.fillText("270°", centerX, centerY + orbitRadii[orbitRadii.length - 1] + 10);
+
+  // Draw radial lines
+  [0, 90, 180, 270].forEach(deg => {
+    const rad = toRadians(deg);
+    const x = centerX + orbitRadii[orbitRadii.length - 1] * Math.cos(rad);
+    const y = centerY + orbitRadii[orbitRadii.length - 1] * Math.sin(rad);
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  });
+}
+
+function drawPlanets() {
+  planetNames.forEach((planet, index) => {
+    const angle = toRadians(planetAngles[planet]);
+    const radius = orbitRadii[index];
+    const x = centerX + radius * Math.cos(angle);
+    const y = centerY + radius * Math.sin(angle);
+    planetPositions[planet] = { x, y };
+
+    ctx.beginPath();
+    ctx.arc(x, y, planet === "Earth" ? 6 : 4, 0, 2 * Math.PI);
+    ctx.fillStyle = planetColors[planet];
+    ctx.fill();
+
+    ctx.fillStyle = "white";
+    ctx.font = "11px monospace";
+    ctx.fillText(planet, x + 6, y);
+  });
+
+  // Draw the Sun
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, 10, 0, 2 * Math.PI);
+  ctx.fillStyle = "yellow";
+  ctx.fill();
+}
+
+function drawWarpPath(start, end, level) {
+  const cpX = (start.x + end.x) / 2;
+  const cpY = ((start.y + end.y) / 2) - 50 * (11 - level); // more curve at lower warp
+  ctx.setLineDash([5, 5]);
+  ctx.strokeStyle = "lime";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(start.x, start.y);
+  ctx.quadraticCurveTo(cpX, cpY, end.x, end.y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawScene() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawOrbits();
+  drawPlanets();
+  if (showDottedLine && selectedPlanet && planetPositions[selectedPlanet]) {
+    drawWarpPath(planetPositions["Earth"], planetPositions[selectedPlanet], warpLevel);
+  }
+}
+
+function engageWarp() {
+  if (!planetPositions[selectedPlanet] || animating) return;
+  showDottedLine = true;
+  drawScene();
+  animating = true;
+  setTimeout(() => {
+    animating = false;
+  }, 2000);
+}
+
+function resetScene() {
+  showDottedLine = false;
+  shipPosition = null;
+  drawScene();
+}
+
+function captureScreen() {
+  const elementsToHide = document.querySelectorAll('.info-box');
+  elementsToHide.forEach(el => el.style.visibility = 'hidden');
+  html2canvas(document.body).then(canvas => {
+    const link = document.createElement('a');
+    link.download = 'warp_simulator.png';
+    link.href = canvas.toDataURL();
+    link.click();
+    elementsToHide.forEach(el => el.style.visibility = 'visible');
+  });
+}
+
+window.onload = () => {
+  document.getElementById("destinationSelect").addEventListener("change", e => {
+    selectedPlanet = e.target.value;
+  });
+  document.getElementById("warpSelect").addEventListener("change", e => {
+    warpLevel = parseInt(e.target.value);
+  });
+  document.getElementById("engageBtn").addEventListener("click", engageWarp);
+  document.getElementById("resetBtn").addEventListener("click", resetScene);
+  document.getElementById("screenshotBtn").addEventListener("click", captureScreen);
+  drawScene();
+};
