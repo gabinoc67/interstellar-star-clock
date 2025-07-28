@@ -1,88 +1,194 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8">
-  <title>🚀 Warp Simulator</title>
+  <meta charset="UTF-8" />
+  <title>🚀 Warp Drive Simulator</title>
   <style>
     body {
       margin: 0;
-      background-color: black;
-      color: #00ffcc;
       font-family: 'Courier New', monospace;
+      background-color: black;
+      color: cyan;
       overflow: hidden;
     }
-    .info-box {
+
+    #controls {
       position: absolute;
-      top: 20px;
-      left: 20px;
-      width: 420px;
-      padding: 15px;
-      border: 2px solid #00ffcc;
-      border-radius: 10px;
-      background-color: rgba(0, 0, 0, 0.8);
-      color: #00ffcc;
-      font-size: 18px;
-    }
-    select, input, button {
-      width: 100%;
-      margin-top: 5px;
+      top: 10px;
+      left: 10px;
+      background: rgba(0, 0, 0, 0.85);
+      border: 2px solid cyan;
       padding: 10px;
-      font-size: 16px;
-      font-family: 'Courier New', monospace;
+      border-radius: 8px;
+      width: 250px;
     }
-    button {
-      background-color: #000;
-      color: #00ffcc;
-      border: 1px solid #00ffcc;
-      cursor: pointer;
+
+    label, select, button {
+      display: block;
+      margin: 10px 0;
+      font-size: 14px;
     }
-    button:hover {
-      background-color: #002f2f;
-    }
+
     canvas {
       display: block;
+      background: url('https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/CASANOVA.png') no-repeat center center;
+      background-size: cover;
+    }
+
+    #log {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 5px;
+      font-size: 14px;
+      width: 400px;
     }
   </style>
 </head>
 <body>
 
-<div class="info-box">
-  <label for="destinationSelect">Destination Planet:</label>
-  <select id="destinationSelect">
-    <option value="Mercury">Mercury</option>
-    <option value="Venus">Venus</option>
-    <option value="Mars">Mars</option>
-    <option value="Jupiter">Jupiter</option>
-    <option value="Saturn">Saturn</option>
-    <option value="Uranus">Uranus</option>
-    <option value="Neptune">Neptune</option>
-    <option value="Pluto">Pluto</option>
+<div id="controls">
+  <label>Destination Planet:</label>
+  <select id="planetSelect">
+    <option value="mars">Mars</option>
+    <option value="mercury">Mercury</option>
+    <option value="neptune">Neptune</option>
+    <option value="pluto">Pluto</option>
+    <option value="saturn">Saturn</option>
+    <option value="jupiter">Jupiter</option>
   </select>
 
-  <label for="warpSelect">Warp Level (1-10):</label>
+  <label>Warp Level (1–10):</label>
   <select id="warpSelect">
-    <option value="1">Warp 1</option>
-    <option value="2">Warp 2</option>
-    <option value="3">Warp 3</option>
-    <option value="4">Warp 4</option>
-    <option value="5">Warp 5</option>
-    <option value="6">Warp 6</option>
-    <option value="7">Warp 7</option>
-    <option value="8">Warp 8</option>
-    <option value="9">Warp 9</option>
-    <option value="10" selected>Warp 10</option>
+    ${[...Array(10)].map((_, i) => `<option value="${i + 1}">Warp ${i + 1}</option>`).join('')}
   </select>
 
-  <button id="engageBtn">🚀 Engage Warp</button>
-  <button id="resetBtn">🔄 Reset</button>
-  <button id="screenshotBtn">📸 Screenshot</button>
+  <button onclick="engageWarp()">🛸 Engage Warp</button>
+  <button onclick="resetScene()">🔄 Reset</button>
+  <button onclick="screenshot()">📸 Screenshot</button>
 </div>
 
-<canvas id="solarCanvas"></canvas>
+<canvas id="canvas" width="1400" height="800"></canvas>
+<div id="log">Status: Ready for warp.</div>
 
-<!-- External script -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<script src="warp-assets.js"></script>
+<script>
+  const canvas = document.getElementById("canvas");
+  const ctx = canvas.getContext("2d");
+  const log = document.getElementById("log");
+
+  const images = {
+    earth: new Image(),
+    ship: new Image(),
+    mars: new Image(),
+    mercury: new Image(),
+    neptune: new Image(),
+    pluto: new Image(),
+    saturn: new Image(),
+    jupiter: new Image(),
+  };
+
+  images.earth.src = "https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/earth.png";
+  images.ship.src = "https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/colonialship.png";
+  images.mars.src = "https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/mars.png";
+  images.mercury.src = "https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/mercury.png";
+  images.neptune.src = "https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/neptune.png";
+  images.pluto.src = "https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/pluto.png";
+  images.saturn.src = "https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/saturn.png";
+  images.jupiter.src = "https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/jupiter.png";
+
+  const positions = {
+    earth: { x: 100, y: 400, w: 220, h: 220 },
+    planet: { x: 1100, y: 400, w: 220, h: 220 }
+  };
+
+  let selectedPlanet = "mars";
+  let arcHeight = 150;
+
+  function drawScene(shipX = null, shipY = null) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(images.earth, positions.earth.x, positions.earth.y, positions.earth.w, positions.earth.h);
+    ctx.drawImage(images[selectedPlanet], positions.planet.x, positions.planet.y, positions.planet.w, positions.planet.h);
+
+    ctx.fillStyle = "white";
+    ctx.font = "bold 22px Courier New";
+    ctx.fillText("Earth", positions.earth.x + 60, positions.earth.y + positions.earth.h + 30);
+    ctx.fillText(selectedPlanet.charAt(0).toUpperCase() + selectedPlanet.slice(1), positions.planet.x + 40, positions.planet.y + positions.planet.h + 30);
+
+    // Draw warp curve
+    ctx.beginPath();
+    ctx.moveTo(positions.earth.x + positions.earth.w / 2, positions.earth.y);
+    ctx.quadraticCurveTo(canvas.width / 2, 500 - arcHeight, positions.planet.x + positions.planet.w / 2, positions.planet.y);
+    ctx.strokeStyle = "#00ffff";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    if (shipX !== null && shipY !== null) {
+      ctx.drawImage(images.ship, shipX - 20, shipY - 20, 50, 50);
+    }
+  }
+
+  function engageWarp() {
+    selectedPlanet = document.getElementById("planetSelect").value;
+    const warp = parseInt(document.getElementById("warpSelect").value);
+    arcHeight = 100 + (10 - warp) * 12;
+    log.textContent = `Engaging Warp ${warp} to ${selectedPlanet.toUpperCase()} at CST ${new Date().toLocaleTimeString('en-US', { timeZone: 'America/Chicago' })}`;
+    animateShip();
+  }
+
+  function resetScene() {
+    selectedPlanet = "mars";
+    document.getElementById("planetSelect").value = "mars";
+    document.getElementById("warpSelect").value = "1";
+    log.textContent = "Status: Reset. Ready for warp.";
+    drawScene();
+  }
+
+  function animateShip() {
+    let step = 0;
+    const steps = 300;
+    const x1 = positions.earth.x + positions.earth.w / 2;
+    const y1 = positions.earth.y;
+    const x2 = canvas.width / 2;
+    const y2 = 500 - arcHeight;
+    const x3 = positions.planet.x + positions.planet.w / 2;
+    const y3 = positions.planet.y;
+
+    function animate() {
+      step++;
+      const t = step / steps;
+      const x = (1 - t) ** 2 * x1 + 2 * (1 - t) * t * x2 + t ** 2 * x3;
+      const y = (1 - t) ** 2 * y1 + 2 * (1 - t) * t * y2 + t ** 2 * y3;
+      drawScene(x, y);
+
+      if (step < steps) {
+        requestAnimationFrame(animate);
+      } else {
+        log.textContent += `\nArrived at ${selectedPlanet.toUpperCase()} at CST ${new Date().toLocaleTimeString('en-US', { timeZone: 'America/Chicago' })}`;
+      }
+    }
+
+    animate();
+  }
+
+  function screenshot() {
+    const link = document.createElement('a');
+    link.download = `warp_simulation_${selectedPlanet}.png`;
+    link.href = canvas.toDataURL();
+    link.click();
+  }
+
+  // Load all images first
+  let loaded = 0;
+  const total = Object.keys(images).length;
+  for (let key in images) {
+    images[key].onload = () => {
+      loaded++;
+      if (loaded === total) drawScene();
+    };
+  }
+</script>
 
 </body>
 </html>
