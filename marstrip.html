@@ -17,6 +17,8 @@
       padding: 20px;
       border-right: 2px solid cyan;
       font-size: 16px;
+      background-color: black;
+      color: cyan;
     }
     .panel {
       margin-bottom: 15px;
@@ -34,6 +36,10 @@
     }
     canvas {
       flex-grow: 1;
+    }
+    .planet-label {
+      font-size: 14px;
+      color: white;
     }
   </style>
 </head>
@@ -88,8 +94,6 @@
     const planetNames = ["Sun", "Mercury", "Venus", "Earth", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto"];
     const planetRadii = planetNames.map((_, i) => AU * i);
 
-    let trajectory = [];
-
     function getPlanetPositions() {
       const now = new Date();
       const secondsInDay = 86400;
@@ -102,7 +106,7 @@
         const angle = angleBase + i * (Math.PI / 12);
         const x = 600 + radius * Math.cos(angle);
         const y = 384 + radius * Math.sin(angle);
-        positions[name] = { x, y };
+        positions[name] = { x, y, angle, radius };
       });
       return positions;
     }
@@ -120,28 +124,23 @@
         ctx.stroke();
       });
 
-      // Draw trajectory dotted line
-      if (trajectory.length > 1) {
-        ctx.beginPath();
-        ctx.setLineDash([5, 5]);
-        ctx.moveTo(trajectory[0].x, trajectory[0].y);
-        trajectory.forEach(point => ctx.lineTo(point.x, point.y));
-        ctx.strokeStyle = 'cyan';
-        ctx.lineWidth = 1.2;
-        ctx.stroke();
-        ctx.setLineDash([]);
+      // Draw planet labels and positions
+      for (const [name, { x, y }] of Object.entries(planets)) {
+        if (name !== 'Sun') {
+          ctx.beginPath();
+          ctx.arc(x, y, 6, 0, 2 * Math.PI);
+          ctx.fillStyle = name === 'Earth' ? 'cyan' : 'white';
+          ctx.fill();
+          ctx.font = '14px monospace';
+          ctx.fillText(name, x + 10, y);
+        }
       }
 
-      // Draw planets
-      for (const [name, { x, y }] of Object.entries(planets)) {
-        ctx.beginPath();
-        ctx.arc(x, y, 8, 0, 2 * Math.PI);
-        ctx.fillStyle = name === 'Earth' ? 'cyan' : (name === 'Sun' ? 'orange' : 'white');
-        ctx.fill();
-        ctx.fillStyle = 'white';
-        ctx.font = '14px monospace';
-        ctx.fillText(name, x + 10, y);
-      }
+      // Draw sun at center
+      ctx.beginPath();
+      ctx.arc(600, 384, 12, 0, 2 * Math.PI);
+      ctx.fillStyle = 'yellow';
+      ctx.fill();
     };
 
     drawScene();
@@ -175,26 +174,38 @@
       let step = 0;
       const resetBtn = document.getElementById('reset');
       resetBtn.disabled = true;
-      trajectory = [];
 
-      const interval = setInterval(() => {
-        const progress = step / steps;
-        const arcHeight = (1 - warpLevel / 10) * 80;
+      const path = [];
+      for (let i = 0; i <= steps; i++) {
+        const progress = i / steps;
+        const arcHeight = (1 - warpLevel / 10) * 100;
         const curveX = earth.x + dx * progress;
         const curveY = earth.y + dy * progress - arcHeight * Math.sin(Math.PI * progress);
-        trajectory.push({ x: curveX, y: curveY });
+        path.push({ x: curveX, y: curveY });
+      }
 
+      const interval = setInterval(() => {
         drawScene();
 
+        // Draw dotted trajectory path
+        ctx.setLineDash([5, 5]);
         ctx.beginPath();
-        ctx.arc(curveX, curveY, 6, 0, 2 * Math.PI);
-        ctx.fillStyle = 'lime';
-        ctx.fill();
+        for (let i = 0; i < path.length - 1; i++) {
+          ctx.moveTo(path[i].x, path[i].y);
+          ctx.lineTo(path[i + 1].x, path[i + 1].y);
+        }
         ctx.strokeStyle = 'white';
         ctx.stroke();
+        ctx.setLineDash([]);
+
+        const { x, y } = path[step];
+        ctx.beginPath();
+        ctx.arc(x, y, 6, 0, 2 * Math.PI);
+        ctx.fillStyle = 'lime';
+        ctx.fill();
 
         step++;
-        if (step > steps) {
+        if (step >= path.length) {
           clearInterval(interval);
           resetBtn.disabled = false;
         }
@@ -208,7 +219,6 @@
       document.getElementById('departure').textContent = '--';
       document.getElementById('arrival').textContent = '--';
       document.getElementById('duration').textContent = '--';
-      trajectory = [];
     };
 
     document.getElementById('screenshot').onclick = () => {
