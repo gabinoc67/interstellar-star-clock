@@ -13,25 +13,26 @@
     h1 {
       margin-top: 20px;
     }
-    button {
-      padding: 10px 20px;
+    button, select {
+      padding: 10px 15px;
       margin: 10px;
       font-size: 16px;
-      border: none;
       border-radius: 6px;
+      border: none;
       cursor: pointer;
     }
     #startBtn { background-color: #00ccff; color: black; }
+    #stopBtn { background-color: #999; color: white; }
     #resetBtn { background-color: #ff6600; color: white; }
 
     table {
-      width: 90%;
+      width: 95%;
       margin: auto;
       border-collapse: collapse;
       margin-top: 20px;
     }
     th, td {
-      padding: 12px;
+      padding: 10px;
       border: 1px solid white;
     }
     .synced { background-color: #0f0; color: black; }
@@ -43,15 +44,42 @@
       margin-top: 20px;
       color: cyan;
     }
+    .control-group {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
   </style>
 </head>
 <body>
 
 <h1>🚀 Warp Bubble Clock Synchronization Monitor</h1>
 
-<div>
+<div class="control-group">
   <button id="startBtn">▶️ Start Clocks</button>
+  <button id="stopBtn">⏸️ Stop Clocks</button>
   <button id="resetBtn">🔄 Reset Clocks</button>
+
+  <label>
+    Warp Speed:
+    <select id="warpSpeed">
+      ${[...Array(10).keys()].map(i => `<option value="${i+1}">Warp ${i+1}</option>`).join("")}
+    </select>
+  </label>
+
+  <label>
+    Destination:
+    <select id="destination">
+      <option value="Mars">Mars</option>
+      <option value="Jupiter">Jupiter</option>
+      <option value="Saturn">Saturn</option>
+      <option value="Pluto">Pluto</option>
+    </select>
+  </label>
+
+  <button onclick="exportLog()">📄 Export Log CSV</button>
 </div>
 
 <div id="beacon">⏳ Beacon: Waiting for Start...</div>
@@ -60,15 +88,17 @@
   <thead>
     <tr>
       <th>Clock ID</th>
+      <th>Name</th>
       <th>Location</th>
       <th>Purpose</th>
-      <th>Current Time</th>
+      <th>CST Time</th>
+      <th>Clock Local Time</th>
       <th>Δ from CST (ms)</th>
       <th>Status</th>
     </tr>
   </thead>
   <tbody id="clock-table-body">
-    <!-- Clock rows dynamically generated -->
+    <!-- Populated by JS -->
   </tbody>
 </table>
 
@@ -77,15 +107,17 @@
   let beaconInterval = null;
   let simulationRunning = false;
 
+  const log = [];
+
   const clocks = [
-    { id: 'C1', location: 'Ship Biometric Zone', purpose: 'Biometric Sync', drift: 0 },
-    { id: 'C2', location: 'Warp Shell Edge', purpose: 'Gravitational Phase Monitoring', drift: 3 },
-    { id: 'C3', location: 'Onboard AI Core', purpose: 'Warp Navigation Sync', drift: 0 },
-    { id: 'C4', location: 'CST Dome Anchor', purpose: 'Earth CST Master Reference', drift: 0 },
-    { id: 'C5', location: 'Bubble Mid-Space', purpose: 'Clock Drift Sensor', drift: -6 },
-    { id: 'C6', location: 'UGT Clock', purpose: 'Universal Galactic Time', drift: 0 },
-    { id: 'C7', location: 'Interstellar Time Base', purpose: 'Universe Age Reference', drift: 0 },
-    { id: 'C8', location: 'Mars Surface Dome', purpose: 'Planet Local Year Tracker', drift: 0 }
+    { id: 'C1', name: 'BioSync', location: 'Ship Biometric Zone', purpose: 'Biometric Sync', drift: 0 },
+    { id: 'C2', name: 'EdgeWave', location: 'Warp Shell Edge', purpose: 'Gravitational Phase Monitoring', drift: 3 },
+    { id: 'C3', name: 'NavCore', location: 'Onboard AI Core', purpose: 'Warp Navigation Sync', drift: 0 },
+    { id: 'C4', name: 'CSTMaster', location: 'CST Dome Anchor', purpose: 'Earth CST Master Reference', drift: 0 },
+    { id: 'C5', name: 'DriftEye', location: 'Bubble Mid-Space', purpose: 'Clock Drift Sensor', drift: -6 },
+    { id: 'C6', name: 'UGT', location: 'UGT Clock', purpose: 'Universal Galactic Time', drift: 0 },
+    { id: 'C7', name: 'UniAge', location: 'Interstellar Time Base', purpose: 'Universe Age Reference', drift: 0 },
+    { id: 'C8', name: 'MarsClock', location: 'Mars Surface Dome', purpose: 'Planet Local Year Tracker', drift: 0 }
   ];
 
   function getCSTTime() {
@@ -97,11 +129,17 @@
     return date.toISOString().substr(11, 12); // HH:MM:SS.sss
   }
 
+  function checkFTLSafety(warp, avgDrift) {
+    const safeCurve = 1 / warp;
+    return avgDrift < safeCurve * 10;
+  }
+
   function updateClocks() {
     const tableBody = document.getElementById("clock-table-body");
     tableBody.innerHTML = "";
 
     const baseTime = getCSTTime();
+    let totalDrift = 0;
 
     clocks.forEach(clock => {
       // Simulate drift
@@ -110,6 +148,7 @@
         clock.drift += randomDrift;
       }
 
+      totalDrift += Math.abs(clock.drift);
       const clockTime = baseTime + clock.drift;
       const delta = clock.drift.toFixed(3);
 
@@ -126,8 +165,10 @@
       const row = `
         <tr class="${className}">
           <td>${clock.id}</td>
+          <td>${clock.name}</td>
           <td>${clock.location}</td>
           <td>${clock.purpose}</td>
+          <td>${formatTime(baseTime)}</td>
           <td>${formatTime(clockTime)}</td>
           <td>${delta}</td>
           <td>${status}</td>
@@ -135,41 +176,69 @@
       `;
       tableBody.innerHTML += row;
     });
+
+    const avgDrift = totalDrift / clocks.length;
+    const warp = parseInt(document.getElementById("warpSpeed").value);
+    const planet = document.getElementById("destination").value;
+    const safe = checkFTLSafety(warp, avgDrift);
+
+    const logEntry = {
+      time: new Date().toISOString(),
+      warp,
+      destination: planet,
+      avgDrift: avgDrift.toFixed(3),
+      status: safe ? "SAFE" : "UNSAFE"
+    };
+    log.push(logEntry);
+
+    document.getElementById("beacon").textContent =
+      `🛰️ Warp ${warp} → ${planet} | Avg Drift: ${avgDrift.toFixed(3)} ms → ${safe ? "✅ SAFE" : "❌ UNSAFE"}`;
   }
 
   function beaconPulse() {
     if (!simulationRunning) return;
-    document.getElementById("beacon").textContent = `🔄 Beacon Sync Pulse Sent @ ${new Date().toLocaleTimeString()}`;
-
-    // Dampen drift
     clocks.forEach(clock => {
-      if (clock.id !== 'C4') {
-        clock.drift *= 0.1;
-      }
+      if (clock.id !== 'C4') clock.drift *= 0.1;
     });
-
     updateClocks();
   }
 
   document.getElementById("startBtn").addEventListener("click", () => {
     if (!simulationRunning) {
       simulationRunning = true;
-      document.getElementById("beacon").textContent = "🔵 Beacon Active — CST Sync Engaged";
-      driftInterval = setInterval(updateClocks, 200);
-      beaconInterval = setInterval(beaconPulse, 1000);
+      driftInterval = setInterval(updateClocks, 500);
+      beaconInterval = setInterval(beaconPulse, 2000);
     }
+  });
+
+  document.getElementById("stopBtn").addEventListener("click", () => {
+    simulationRunning = false;
+    clearInterval(driftInterval);
+    clearInterval(beaconInterval);
   });
 
   document.getElementById("resetBtn").addEventListener("click", () => {
     simulationRunning = false;
     clearInterval(driftInterval);
     clearInterval(beaconInterval);
-    driftInterval = null;
-    beaconInterval = null;
     clocks.forEach(clock => clock.drift = 0);
     document.getElementById("beacon").textContent = "⏳ Beacon: Reset — Waiting for Start...";
     updateClocks();
+    log.length = 0;
   });
+
+  function exportLog() {
+    const csvContent = [
+      ["Time", "Warp", "Destination", "Avg Drift (ms)", "Status"],
+      ...log.map(entry => [entry.time, entry.warp, entry.destination, entry.avgDrift, entry.status])
+    ].map(e => e.join(",")).join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "warp_clock_log.csv";
+    link.click();
+  }
 
   updateClocks();
 </script>
