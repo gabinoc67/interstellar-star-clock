@@ -2,19 +2,18 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Warp Bubble Clock Sync Monitor</title>
+  <title>Warp Drive Clock Sync Simulator</title>
   <style>
     body {
       font-family: Arial, sans-serif;
       background: black;
       color: white;
       text-align: center;
-    }
-    h1 {
-      margin-top: 20px;
+      margin: 0;
+      padding: 0;
     }
     button, select {
-      padding: 10px 15px;
+      padding: 10px;
       margin: 10px;
       font-size: 16px;
       border-radius: 6px;
@@ -27,9 +26,8 @@
 
     table {
       width: 95%;
-      margin: auto;
+      margin: 20px auto;
       border-collapse: collapse;
-      margin-top: 20px;
     }
     th, td {
       padding: 10px;
@@ -41,36 +39,49 @@
 
     #beacon {
       font-size: 18px;
-      margin-top: 20px;
+      margin-top: 10px;
       color: cyan;
     }
-    .control-group {
-      display: flex;
-      justify-content: center;
-      gap: 20px;
+    canvas {
+      display: block;
+      margin: 30px auto;
+      background: #111;
+      border: 2px solid #333;
+    }
+    #arrivalInfo {
+      color: lime;
+      font-weight: bold;
       margin-top: 10px;
-      flex-wrap: wrap;
     }
   </style>
 </head>
 <body>
 
-<h1>🚀 Warp Bubble Clock Synchronization Monitor</h1>
+<h1>🚀 Warp Drive Clock Synchronization Simulator</h1>
 
-<div class="control-group">
-  <button id="startBtn">▶️ Start Clocks</button>
-  <button id="stopBtn">⏸️ Stop Clocks</button>
-  <button id="resetBtn">🔄 Reset Clocks</button>
+<div>
+  <button id="startBtn">▶️ Start Travel</button>
+  <button id="stopBtn">⏸️ Pause</button>
+  <button id="resetBtn">🔄 Reset</button>
 
   <label>
-    Warp Speed:
+    Warp Drive:
     <select id="warpSpeed">
-      ${[...Array(10).keys()].map(i => `<option value="${i+1}">Warp ${i+1}</option>`).join("")}
+      <option value="1">Warp 1</option>
+      <option value="2">Warp 2</option>
+      <option value="3">Warp 3</option>
+      <option value="4">Warp 4</option>
+      <option value="5">Warp 5</option>
+      <option value="6">Warp 6</option>
+      <option value="7">Warp 7</option>
+      <option value="8">Warp 8</option>
+      <option value="9">Warp 9</option>
+      <option value="10">Warp 10</option>
     </select>
   </label>
 
   <label>
-    Destination:
+    Destination Planet:
     <select id="destination">
       <option value="Mars">Mars</option>
       <option value="Jupiter">Jupiter</option>
@@ -84,47 +95,22 @@
 
 <div id="beacon">⏳ Beacon: Waiting for Start...</div>
 
+<canvas id="curveCanvas" width="600" height="300"></canvas>
+<div id="arrivalInfo"></div>
+
 <table>
   <thead>
     <tr>
-      <th>Clock ID</th>
-      <th>Name</th>
-      <th>Location</th>
-      <th>Purpose</th>
-      <th>CST Time</th>
-      <th>Clock Local Time</th>
-      <th>Δ from CST (ms)</th>
-      <th>Status</th>
+      <th>Clock ID</th><th>Name</th><th>Location</th><th>Purpose</th>
+      <th>CST Time</th><th>Clock Local Time</th><th>Δ from CST (ms)</th><th>Status</th>
     </tr>
   </thead>
   <tbody id="clock-table-body"></tbody>
 </table>
 
-<br><hr><br>
-
-<!-- Additional Monitors -->
-<div style="margin: 20px; text-align: left; padding-left: 10%;">
-  <h2>🧪 Quantum Sync Monitor</h2>
-  <p><strong>Entangled Clock Pair:</strong> <span id="quantumStatus">🔴 Disconnected</span></p>
-  <p><strong>Last Sync Timestamp:</strong> <span id="quantumTimestamp">N/A</span></p>
-
-  <h2>🌌 Curvature Physics Engine</h2>
-  <p><strong>Curvature Safety (Alcubierre Placeholder):</strong> <span id="curvatureStatus">Pending...</span></p>
-  <p><strong>Energy Mass Factor:</strong> <span id="energyFactor">E=mc²</span></p>
-
-  <h2>⏳ Relativistic Lag</h2>
-  <p><strong>Light-lag Delay (ms):</strong> <span id="lightLag">N/A</span></p>
-  <p><strong>Relativity Drift (ms):</strong> <span id="relativityDelay">N/A</span></p>
-
-  <h2>🚀 Ship Coordinates & Velocity</h2>
-  <p><strong>Location:</strong> <span id="shipLocation">X:0, Y:0, Z:0</span></p>
-  <p><strong>Velocity Vector:</strong> <span id="velocityVector">[0,0,0]</span></p>
-</div>
-
 <script>
-  let driftInterval = null;
-  let beaconInterval = null;
-  let simulationRunning = false;
+  let driftInterval = null, beaconInterval = null, animationFrame = null;
+  let simulationRunning = false, shipProgress = 0, shipArrived = false;
   const log = [];
 
   const clocks = [
@@ -138,163 +124,174 @@
     { id: 'C8', name: 'MarsClock', location: 'Mars Surface Dome', purpose: 'Planet Local Year Tracker', drift: 0 }
   ];
 
-  let shipCoords = { x: 0, y: 0, z: 0 };
-  let velocity = [0, 0, 0];
-
   function getCSTTime() {
     return new Date().getTime();
   }
 
-  function formatTime(epochMs) {
-    const date = new Date(epochMs);
-    return date.toISOString().substr(11, 12); // HH:MM:SS.sss
-  }
-
-  function checkFTLSafety(warp, avgDrift) {
-    const safeCurve = 1 / warp;
-    return avgDrift < safeCurve * 10;
-  }
-
-  function updateShipLocation() {
-    velocity = [Math.random() * 10, Math.random() * 10, Math.random() * 10];
-    shipCoords.x += velocity[0];
-    shipCoords.y += velocity[1];
-    shipCoords.z += velocity[2];
-
-    document.getElementById("shipLocation").textContent = `X:${shipCoords.x.toFixed(2)}, Y:${shipCoords.y.toFixed(2)}, Z:${shipCoords.z.toFixed(2)}`;
-    document.getElementById("velocityVector").textContent = `[${velocity.map(v => v.toFixed(2)).join(", ")}]`;
-  }
-
-  function updateQuantumSync() {
-    const now = new Date().toISOString();
-    document.getElementById("quantumStatus").textContent = "🟢 Entangled";
-    document.getElementById("quantumTimestamp").textContent = now;
-  }
-
-  function updateCurvaturePhysics(warp) {
-    const curvature = (1 / (warp * warp)).toFixed(5);
-    document.getElementById("curvatureStatus").textContent = `Curvature factor: ${curvature}`;
-    document.getElementById("energyFactor").textContent = `E = m × (warp² × c²)`;
-  }
-
-  function updateRelativityCalc(destination) {
-    const lightLags = { Mars: 750, Jupiter: 2000, Saturn: 3500, Pluto: 5000 }; // ms delay
-    const delay = lightLags[destination] || 1000;
-    document.getElementById("lightLag").textContent = delay;
-    document.getElementById("relativityDelay").textContent = (delay * 0.05).toFixed(2); // basic 5% dilation
+  function formatTime(ms) {
+    return new Date(ms).toISOString().substr(11, 12);
   }
 
   function updateClocks() {
-    const tableBody = document.getElementById("clock-table-body");
-    tableBody.innerHTML = "";
-
+    const table = document.getElementById("clock-table-body");
+    table.innerHTML = "";
     const baseTime = getCSTTime();
     let totalDrift = 0;
 
     clocks.forEach(clock => {
       if (simulationRunning) clock.drift += Math.random() * 2 - 1;
+      const drift = clock.drift.toFixed(3);
       totalDrift += Math.abs(clock.drift);
+      const time = baseTime + clock.drift;
 
-      const clockTime = baseTime + clock.drift;
-      const delta = clock.drift.toFixed(3);
-
-      let status = "✅ Synced";
-      let className = "synced";
+      let status = "✅ Synced", cls = "synced";
       if (Math.abs(clock.drift) >= 5 && Math.abs(clock.drift) < 10) {
-        status = "⚠️ Slight Drift";
-        className = "warning";
+        status = "⚠️ Slight Drift"; cls = "warning";
       } else if (Math.abs(clock.drift) >= 10) {
-        status = "❌ Unsafe Drift";
-        className = "danger";
+        status = "❌ Unsafe Drift"; cls = "danger";
       }
 
-      tableBody.innerHTML += `
-        <tr class="${className}">
-          <td>${clock.id}</td>
-          <td>${clock.name}</td>
-          <td>${clock.location}</td>
-          <td>${clock.purpose}</td>
-          <td>${formatTime(baseTime)}</td>
-          <td>${formatTime(clockTime)}</td>
-          <td>${delta}</td>
-          <td>${status}</td>
-        </tr>
-      `;
+      table.innerHTML += `
+        <tr class="${cls}">
+          <td>${clock.id}</td><td>${clock.name}</td><td>${clock.location}</td><td>${clock.purpose}</td>
+          <td>${formatTime(baseTime)}</td><td>${formatTime(time)}</td><td>${drift}</td><td>${status}</td>
+        </tr>`;
     });
 
     const avgDrift = totalDrift / clocks.length;
-    const warp = parseInt(document.getElementById("warpSpeed").value);
-    const planet = document.getElementById("destination").value;
-    const safe = checkFTLSafety(warp, avgDrift);
+    const warp = parseInt(document.getElementById("warpSpeed").value) || 1;
+    const destination = document.getElementById("destination").value;
+    const safe = avgDrift < (1 / warp) * 10;
 
-    updateQuantumSync();
-    updateShipLocation();
-    updateCurvaturePhysics(warp);
-    updateRelativityCalc(planet);
-
-    const logEntry = {
-      time: new Date().toISOString(),
-      warp,
-      destination: planet,
-      avgDrift: avgDrift.toFixed(3),
-      shipCoords: `${shipCoords.x.toFixed(1)},${shipCoords.y.toFixed(1)},${shipCoords.z.toFixed(1)}`,
-      velocity: `${velocity.map(v => v.toFixed(1)).join(',')}`,
-      status: safe ? "SAFE" : "UNSAFE"
-    };
-    log.push(logEntry);
-
-    document.getElementById("beacon").textContent =
-      `🛰️ Warp ${warp} → ${planet} | Avg Drift: ${avgDrift.toFixed(3)} ms → ${safe ? "✅ SAFE" : "❌ UNSAFE"}`;
+    document.getElementById("beacon").textContent = 
+      `🛰️ Warp ${warp} → ${destination} | Avg Drift: ${avgDrift.toFixed(3)} ms → ${safe ? "✅ SAFE" : "❌ UNSAFE"}`;
   }
 
   function beaconPulse() {
     if (!simulationRunning) return;
-    clocks.forEach(clock => {
-      if (clock.id !== 'C4') clock.drift *= 0.1;
-    });
+    clocks.forEach(c => { if (c.id !== "C4") c.drift *= 0.1; });
     updateClocks();
   }
 
-  document.getElementById("startBtn").addEventListener("click", () => {
+  function drawCurveWithShip() {
+    const canvas = document.getElementById("curveCanvas");
+    const ctx = canvas.getContext("2d");
+    const warp = parseInt(document.getElementById("warpSpeed").value) || 1;
+    const curveHeight = 100 / warp;
+    const endX = 550, startX = 50, baseY = 250;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.beginPath();
+    ctx.moveTo(startX, baseY);
+    for (let x = startX; x <= endX; x++) {
+      const t = (x - startX) / (endX - startX);
+      const y = baseY - curveHeight * Math.pow(t, 1 / warp) * 200;
+      ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = "red";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    const t = shipProgress;
+    const shipX = startX + (endX - startX) * t;
+    const shipY = baseY - curveHeight * Math.pow(t, 1 / warp) * 200;
+
+    ctx.beginPath();
+    ctx.arc(shipX, shipY, 8, 0, 2 * Math.PI);
+    ctx.fillStyle = shipArrived ? "lime" : "cyan";
+    ctx.shadowColor = shipArrived ? "lime" : "cyan";
+    ctx.shadowBlur = 10;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    ctx.beginPath();
+    ctx.arc(endX, baseY - curveHeight * 200, 6, 0, 2 * Math.PI);
+    ctx.fillStyle = "orange";
+    ctx.fill();
+    ctx.font = "14px Arial";
+    ctx.fillText(document.getElementById("destination").value, endX - 20, baseY - curveHeight * 200 - 10);
+  }
+
+  function animateShip() {
+    if (!simulationRunning || shipArrived) return;
+    const warp = parseInt(document.getElementById("warpSpeed").value) || 1;
+    shipProgress += 0.005 * warp;
+    if (shipProgress >= 1) {
+      shipProgress = 1;
+      shipArrived = true;
+      syncOnArrival();
+    }
+    drawCurveWithShip();
+    animationFrame = requestAnimationFrame(animateShip);
+  }
+
+  function syncOnArrival() {
+    const now = new Date();
+    const planet = document.getElementById("destination").value;
+    const localTime = new Date(now.getTime() + Math.random() * 2000 - 1000); // ±1s
+    const message = `🟢 ARRIVED at ${planet} | CST: ${now.toLocaleTimeString()} | Planet Local: ${localTime.toLocaleTimeString()}`;
+    document.getElementById("arrivalInfo").textContent = message;
+    log.push({
+      time: now.toISOString(),
+      warp: document.getElementById("warpSpeed").value,
+      destination: planet,
+      arrivalCST: now.toLocaleTimeString(),
+      localTime: localTime.toLocaleTimeString(),
+      status: "ARRIVED"
+    });
+    simulationRunning = false;
+    clearInterval(driftInterval);
+    clearInterval(beaconInterval);
+  }
+
+  document.getElementById("startBtn").onclick = () => {
     if (!simulationRunning) {
       simulationRunning = true;
+      shipArrived = false;
+      shipProgress = 0;
       driftInterval = setInterval(updateClocks, 500);
       beaconInterval = setInterval(beaconPulse, 2000);
+      animateShip();
     }
-  });
+  };
 
-  document.getElementById("stopBtn").addEventListener("click", () => {
+  document.getElementById("stopBtn").onclick = () => {
     simulationRunning = false;
     clearInterval(driftInterval);
     clearInterval(beaconInterval);
-  });
+    cancelAnimationFrame(animationFrame);
+  };
 
-  document.getElementById("resetBtn").addEventListener("click", () => {
+  document.getElementById("resetBtn").onclick = () => {
     simulationRunning = false;
     clearInterval(driftInterval);
     clearInterval(beaconInterval);
-    clocks.forEach(clock => clock.drift = 0);
+    cancelAnimationFrame(animationFrame);
+    clocks.forEach(c => c.drift = 0);
+    shipProgress = 0;
+    shipArrived = false;
     log.length = 0;
-    shipCoords = { x: 0, y: 0, z: 0 };
-    velocity = [0, 0, 0];
-    document.getElementById("beacon").textContent = "⏳ Beacon: Reset — Waiting for Start...";
+    document.getElementById("arrivalInfo").textContent = "";
+    document.getElementById("beacon").textContent = "⏳ Beacon: Waiting for Start...";
     updateClocks();
-  });
+    drawCurveWithShip();
+  };
 
   function exportLog() {
-    const csvContent = [
-      ["Time", "Warp", "Destination", "Avg Drift (ms)", "Ship Location", "Velocity", "Status"],
-      ...log.map(e => [e.time, e.warp, e.destination, e.avgDrift, e.shipCoords, e.velocity, e.status])
+    const csv = [
+      ["Time", "Warp", "Destination", "Arrival CST", "Local Planet Time", "Status"],
+      ...log.map(e => [e.time, e.warp, e.destination, e.arrivalCST, e.localTime, e.status])
     ].map(row => row.join(",")).join("\n");
 
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob([csv], { type: "text/csv" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = "warp_clock_log.csv";
+    link.download = "warp_arrival_log.csv";
     link.click();
   }
 
   updateClocks();
+  drawCurveWithShip();
 </script>
 
 </body>
