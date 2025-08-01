@@ -66,7 +66,11 @@
 </head>
 <body>
   <h1>🕅️🌌 Planetary Month Mapping Table</h1>
-  <p>This table shows how each planet’s year is divided into 12 months. Month boundaries are computed as equal partitions of the planet’s orbital period (in days). Earth uses the real Gregorian month lengths. The clocks below display the current CST time and each planet’s local date (year/month/day) consistent with this table.</p>
+  <p>
+    Each planet’s “year” is split into 12 equal month segments (by days). The table below shows
+    1-based day ranges for each month. Earth’s column uses real Gregorian month lengths (non-leap) for readability.
+    The clocks use the exact same month boundaries as this table, so the displayed month/day always matches.
+  </p>
 
   <table id="monthTable">
     <tr>
@@ -88,12 +92,16 @@
   </div>
 
   <script>
-    // === CONFIG ===
-    // Orbital periods in Earth days (rounded where needed)
+    // =========================
+    // CONFIG
+    // =========================
+
+    // Orbital periods in Earth days (rounded where needed).
+    // Earth uses 365.25 to advance the year index smoothly; table shows Gregorian month ranges.
     const orbits = {
       mercury: 88,
       venus: 225,
-      earth: 365.25, // use 365.25 for year progression; table uses Gregorian months
+      earth: 365.25,
       mars: 687,
       jupiter: 4333,
       saturn: 10759,
@@ -102,16 +110,36 @@
       pluto: 90560
     };
 
+    // Optional per-planet day offsets to "anchor" where January starts.
+    // Keep 0 for natural astronomical alignment. Adjust later if you want a different start month.
+    const anchors = {
+      mercury: 0,
+      venus: 0,
+      earth: 0,
+      mars: 0,
+      jupiter: 0,
+      saturn: 0,
+      uranus: 0,
+      neptune: 0,
+      pluto: 0
+    };
+
     const planets = ["mercury","venus","earth","mars","jupiter","saturn","uranus","neptune","pluto"];
     const monthNames = ["January","February","March","April","May","June",
                         "July","August","September","October","November","December"];
 
-    // Starting epoch (UTC) for planetary year counting
+    // Starting epoch (UTC) for planetary year counting.
     const epoch = new Date("2000-01-01T00:00:00Z");
 
-    // === UTILS ===
+    // =========================
+    // HELPERS
+    // =========================
+
+    function mod(a, n) { return ((a % n) + n) % n; }
+
+    // Equal partitions with integer boundaries (0..totalDays)
     function monthBoundaries(totalDaysInt) {
-      // 13 boundaries from 0 to totalDaysInt, dividing year into 12 equal segments
+      // 13 boundaries: b[0]=0 ... b[12]=totalDaysInt; 12 segments covering all days
       const b = [];
       for (let m = 0; m <= 12; m++) {
         b.push(Math.floor((m * totalDaysInt) / 12));
@@ -120,47 +148,10 @@
       return b;
     }
 
+    // Earth table column uses real (non-leap) Gregorian month boundaries.
     function gregorianMonthBoundariesNonLeap() {
-      // cumulative ends for a non-leap Earth year
-      // boundaries (0-based start): [0,31,59,90,120,151,181,212,243,273,304,334,365]
+      // cumulative ends: [0,31,59,90,120,151,181,212,243,273,304,334,365]
       return [0,31,59,90,120,151,181,212,243,273,304,334,365];
-    }
-
-    function buildMonthTable() {
-      // Precompute boundaries for each planet (integers)
-      const boundariesByPlanet = {};
-      for (const p of planets) {
-        const totalInt = Math.round(orbits[p]); // use integer total days
-        boundariesByPlanet[p] = monthBoundaries(totalInt);
-      }
-      // Override Earth with real Gregorian month lengths (non-leap for table)
-      boundariesByPlanet.earth = gregorianMonthBoundariesNonLeap();
-
-      const table = document.getElementById('monthTable');
-
-      for (let m = 0; m < 12; m++) {
-        const row = document.createElement('tr');
-
-        // Leftmost "Earth Month" label
-        const tdMonth = document.createElement('td');
-        tdMonth.className = 'month-col';
-        tdMonth.textContent = monthNames[m];
-        row.appendChild(tdMonth);
-
-        for (const p of planets) {
-          const b = boundariesByPlanet[p];
-          const start = b[m] + 1;     // 1-based display
-          const end   = b[m + 1];     // inclusive
-          const td = document.createElement('td');
-          td.textContent = `${start}–${end}`;
-          row.appendChild(td);
-        }
-
-        table.appendChild(row);
-      }
-
-      // Return boundaries for reuse by clock/date logic
-      return boundariesByPlanet;
     }
 
     function getCSTTimeString(dateObj) {
@@ -168,46 +159,84 @@
       return dateObj.toLocaleTimeString([], { hour12: true, timeZone: "America/Chicago" });
     }
 
+    // Make a (planet -> boundaries[]) map for table & clocks
+    function computeBoundariesMap() {
+      const map = {};
+      for (const p of planets) {
+        const totalInt = Math.round(orbits[p]);
+        map[p] = monthBoundaries(totalInt);
+      }
+      // Override Earth's boundaries in the table/clock with real month lengths
+      map.earth = gregorianMonthBoundariesNonLeap();
+      return map;
+    }
+
+    // =========================
+    // TABLE
+    // =========================
+
+    function buildMonthTable(boundariesMap) {
+      const table = document.getElementById('monthTable');
+
+      for (let m = 0; m < 12; m++) {
+        const row = document.createElement('tr');
+
+        // Leftmost Earth month label
+        const tdMonth = document.createElement('td');
+        tdMonth.className = 'month-col';
+        tdMonth.textContent = monthNames[m];
+        row.appendChild(tdMonth);
+
+        for (const p of planets) {
+          const b = boundariesMap[p];
+          const start = b[m] + 1;  // 1-based for display
+          const end   = b[m + 1];  // inclusive
+          const td = document.createElement('td');
+          td.textContent = `${start}–${end}`;
+          row.appendChild(td);
+        }
+
+        table.appendChild(row);
+      }
+    }
+
+    // =========================
+    // CLOCK / DATE LABELS
+    // =========================
+
     function getPlanetDateLabel(planet, nowUTCms, boundariesMap) {
-      // Compute day-of-year and year on the planet since the epoch
+      // Planet total integer days for day-of-year modulo
       const total = Math.round(orbits[planet]);
+
+      // Days elapsed since epoch (UTC)
       const diffDays = (nowUTCms - epoch.getTime()) / (1000 * 60 * 60 * 24);
-      const yearIndex = Math.floor(diffDays / total);     // years since 2000-01-01
+
+      // Year index and "display year" (arbitrary era starting at 2000)
+      const yearIndex = Math.floor(diffDays / total);
       const planetYear = 2000 + yearIndex;
 
-      const day0 = Math.floor(((diffDays % total) + total) % total); // safe modulo: 0..total-1
+      // 0-based day-of-year with optional anchor shift
+      const day0 = Math.floor(mod(diffDays + (anchors[planet] || 0), total)); // 0..total-1
 
-      // Use same boundaries the table uses for this planet
-      let boundaries = boundariesMap[planet];
-      if (planet === "earth") {
-        // For Earth date label, use Gregorian month boundaries too
-        boundaries = gregorianMonthBoundariesNonLeap();
-      }
+      // Boundaries for this planet (Earth uses Gregorian boundaries)
+      const boundaries = boundariesMap[planet];
 
-      // Find month by boundary search
+      // Find the month by boundary search
       let m = 0;
       while (m < 12 && !(day0 >= boundaries[m] && day0 < boundaries[m + 1])) m++;
 
-      const dayInMonth = (day0 - boundaries[m]) + 1; // 1-based for display
+      const dayInMonth = (day0 - boundaries[m]) + 1; // 1-based
       return `${monthNames[m]} ${dayInMonth}, ${planetYear}`;
     }
 
-    // === MAIN ===
-    const boundariesMap = buildMonthTable(); // Build table and get boundaries
-
-    function updateClocks() {
-      const now = new Date();                 // local system time (we only use ms)
+    function updateClocks(boundariesMap) {
+      const now = new Date();           // system time; used only for ms timestamp and display
       const nowUTCms = now.getTime();
 
-      // Date labels by planet (month/day/year derived from boundaries)
+      // Date labels (month/day/year derived from same boundaries as table)
       document.getElementById("mercuryDate").innerText = getPlanetDateLabel("mercury", nowUTCms, boundariesMap);
       document.getElementById("venusDate").innerText   = getPlanetDateLabel("venus",   nowUTCms, boundariesMap);
-      // Earth: show real Gregorian date string in CST plus label consistent with table
-      const earthDateLabel = getPlanetDateLabel("earth", nowUTCms, boundariesMap);
-      // If you want the human-readable Earth date (weekday etc.), you can also show:
-      // const earthHuman = new Date().toLocaleDateString([], { timeZone: "America/Chicago" });
-      document.getElementById("earthDate").innerText   = earthDateLabel;
-
+      document.getElementById("earthDate").innerText   = getPlanetDateLabel("earth",   nowUTCms, boundariesMap);
       document.getElementById("marsDate").innerText    = getPlanetDateLabel("mars",    nowUTCms, boundariesMap);
       document.getElementById("jupiterDate").innerText = getPlanetDateLabel("jupiter", nowUTCms, boundariesMap);
       document.getElementById("saturnDate").innerText  = getPlanetDateLabel("saturn",  nowUTCms, boundariesMap);
@@ -228,9 +257,16 @@
       document.getElementById("plutoClock").innerText   = cstTime;
     }
 
-    // Initial render + updates
-    updateClocks();
-    setInterval(updateClocks, 1000);
+    // =========================
+    // INIT
+    // =========================
+
+    const boundariesMap = computeBoundariesMap();
+    buildMonthTable(boundariesMap);
+
+    function tick() { updateClocks(boundariesMap); }
+    tick();
+    setInterval(tick, 1000);
   </script>
 </body>
 </html>
