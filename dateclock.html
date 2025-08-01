@@ -16,6 +16,9 @@
     .month-title { color:#9af7f7; font-weight:bold; margin:6px 0 4px; }
     .days { display:flex; flex-wrap:wrap; gap:6px 10px; }
     .day { color:#ffffff; }
+      .header { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:6px 8px; background:#001f1f; border:1px dashed #004444; border-radius:8px; margin-bottom:8px; }
+    .header .date { color:#9af7f7; font-weight:bold; }
+    .header .time { color:#ffaa00; font-variant-numeric: tabular-nums; }
   </style>
 </head>
 <body>
@@ -50,6 +53,12 @@
 
     const planets = ['mercury','venus','earth','mars','jupiter','saturn','uranus','neptune','pluto'];
 
+    // Timezone label
+    const TZ_LABEL = 'CST';
+
+    // Epoch used for planetary year indexing
+    const epoch = new Date('2000-01-01T00:00:00Z');
+
     // =========================
     // HELPERS
     // =========================
@@ -69,6 +78,31 @@
       for (const p of planets) map[p] = monthBoundaries(Math.round(orbits[p]));
       map.earth = gregorianMonthBoundariesNonLeap();
       return map;
+    }
+
+    // Figure which month index today falls into per-planet
+    function getTodayMonthIndex(planet, boundariesMap) {
+      const nowUTCms = Date.now();
+      const diffDays = (nowUTCms - epoch.getTime()) / (1000*60*60*24);
+      const total = Math.round(orbits[planet]);
+      const day0 = Math.floor(((diffDays % total) + total) % total); // 0..total-1
+      const boundaries = boundariesMap[planet];
+      for (let m = 0; m < 12; m++) if (day0 >= boundaries[m] && day0 < boundaries[m+1]) return m;
+      return 0;
+    }
+
+    // Planetary year index (Earth uses real year)
+    function getPlanetYear(planet) {
+      if (planet === 'earth') return new Date().getUTCFullYear();
+      const nowUTCms = Date.now();
+      const diffDays = (nowUTCms - epoch.getTime()) / (1000*60*60*24);
+      const total = Math.round(orbits[planet]);
+      const yearIndex = Math.floor(diffDays / total);
+      return 2000 + yearIndex;
+    }
+
+    function getCSTTimeString(dateObj) {
+      return dateObj.toLocaleTimeString([], { hour12: true, timeZone: 'America/Chicago' });
     }
 
     // =========================
@@ -97,6 +131,19 @@
         const h2 = document.createElement('h2');
         h2.textContent = prettyName[p];
         wrap.appendChild(h2);
+
+        // Header with Month + Year and live CST time
+        const header = document.createElement('div');
+        header.className = 'header';
+        const dateSpan = document.createElement('span');
+        dateSpan.className = 'date';
+        dateSpan.id = `${p}-date`;
+        const timeSpan = document.createElement('span');
+        timeSpan.className = 'time';
+        timeSpan.id = `${p}-time`;
+        header.appendChild(dateSpan);
+        header.appendChild(timeSpan);
+        wrap.appendChild(header);
 
         const count = document.createElement('div');
         count.className = 'count';
@@ -138,7 +185,21 @@
       });
     }
 
+    function updateHeaders() {
+      const now = new Date();
+      planets.forEach(p => {
+        const mIdx = getTodayMonthIndex(p, boundariesMap);
+        const year = getPlanetYear(p);
+        const dateEl = document.getElementById(`${p}-date`);
+        const timeEl = document.getElementById(`${p}-time`);
+        if (dateEl) dateEl.textContent = `${monthNames[mIdx]} ${year}`;
+        if (timeEl) timeEl.textContent = `${getCSTTimeString(now)} ${TZ_LABEL}`;
+      });
+    }
+
     buildPanelsAllMonths();
+    updateHeaders();
+    setInterval(updateHeaders, 1000);
   </script>
 </body>
 </html>
