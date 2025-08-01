@@ -2,42 +2,43 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>🕅️🌌 Planetary Day-by-Day Labels — All Months</title>
+  <title>🪐 Planetary Day-by-Day — Sequential Day Numbers (All Months)</title>
   <style>
     body { background-color: black; color: #00ffff; font-family: 'Courier New', monospace; padding: 20px; }
     h1 { text-align: center; font-size: 2em; }
-    p { max-width: 900px; margin: 0 auto 16px auto; line-height: 1.4; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
-    .panel { background:#001a1a; border:1px solid #00ffff; border-radius:8px; padding: 10px 10px 12px; }
+    p { max-width: 1000px; margin: 0 auto 16px auto; line-height: 1.4; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+    .panel { background:#001a1a; border:1px solid #00ffff; border-radius:10px; padding: 12px; }
     .panel h2 { font-size: 1.05em; margin: 0 0 8px; color:#00ffff; text-align:center; }
-    .count { font-size: 0.85em; color: #ffaa00; text-align:center; margin-bottom: 8px; }
-    .months { max-height: 520px; overflow:auto; border-top:1px dashed #004444; padding-top:8px; }
-    .month-block { margin-bottom: 10px; }
-    .month-title { color:#9af7f7; font-weight:bold; margin:6px 0 4px; }
-    .days { display:flex; flex-wrap:wrap; gap:6px 10px; }
-    .day { color:#ffffff; }
-      .header { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:6px 8px; background:#001f1f; border:1px dashed #004444; border-radius:8px; margin-bottom:8px; }
+    .header { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:6px 8px; background:#001f1f; border:1px dashed #004444; border-radius:8px; margin-bottom:8px; }
     .header .date { color:#9af7f7; font-weight:bold; }
     .header .time { color:#ffaa00; font-variant-numeric: tabular-nums; }
+    .count { font-size: 0.85em; color: #ffaa00; text-align:center; margin-bottom: 10px; }
+    .months { max-height: 560px; overflow:auto; border-top:1px dashed #004444; padding-top:8px; }
+    .month-block { background:#001616; border:1px solid #004444; border-radius:8px; padding:8px; margin-bottom: 10px; }
+    .month-title { color:#9af7f7; font-weight:bold; margin:4px 0 6px; }
+    .days { display:flex; flex-wrap:wrap; gap:6px 10px; }
+    .day { color:#ffffff; }
   </style>
 </head>
 <body>
-  <h1>🕅️🌌 Planetary Day-by-Day Labels — All Months</h1>
+  <h1>🪐 Planetary Day-by-Day — Sequential Day Numbers</h1>
   <p>
-    This version lists <strong>all 12 months at once</strong> for every planet. Earth uses real Gregorian month lengths (non‑leap).
-    All other planets split their orbital year into 12 equal month segments.
+    Each planet’s year is split into 12 months. Within a planet, days are labeled by the
+    <strong>absolute day-of-year</strong> (they do not reset at 1 each month).
+    Earth uses real Gregorian month lengths (non-leap). Other planets use equal partitions of their
+    orbital day totals. Headers show the current <strong>Month + Absolute Day + Year</strong> for that planet,
+    plus live <strong>CST</strong> time.
   </p>
 
   <div id="panelGrid" class="grid"></div>
 
   <script>
-    // =========================
-    // CONFIG
-    // =========================
+    // ===== CONFIG =====
     const orbits = {
       mercury: 88,
       venus: 225,
-      earth: 365.25,
+      earth: 365.25, // used for year math; month lengths use real non-leap boundaries
       mars: 687,
       jupiter: 4333,
       saturn: 10759,
@@ -45,84 +46,66 @@
       neptune: 60190,
       pluto: 90560
     };
-
     const monthNames = [
       'January','February','March','April','May','June',
       'July','August','September','October','November','December'
     ];
-
     const planets = ['mercury','venus','earth','mars','jupiter','saturn','uranus','neptune','pluto'];
-
-    // Timezone label
     const TZ_LABEL = 'CST';
-
-    // Epoch used for planetary year indexing
     const epoch = new Date('2000-01-01T00:00:00Z');
 
-    // =========================
-    // HELPERS
-    // =========================
+    // ===== HELPERS =====
     function monthBoundaries(totalDaysInt) {
+      // 0..total, split into 12 buckets as evenly as possible
       const b = [];
       for (let m = 0; m <= 12; m++) b.push(Math.floor((m * totalDaysInt) / 12));
-      b[12] = totalDaysInt; // ensure exact end
+      b[12] = totalDaysInt;
       return b;
     }
-
     function gregorianMonthBoundariesNonLeap() {
+      // 0-based cumulative day-of-year boundaries for non-leap Earth
       return [0,31,59,90,120,151,181,212,243,273,304,334,365];
     }
-
     function computeBoundariesMap() {
       const map = {};
-      for (const p of planets) map[p] = monthBoundaries(Math.round(orbits[p]));
+      for (const p of planets) {
+        const totalInt = Math.round(orbits[p]);
+        map[p] = monthBoundaries(totalInt);
+      }
+      // Earth uses real month lengths
       map.earth = gregorianMonthBoundariesNonLeap();
       return map;
     }
-
-    // Figure which month index today falls into per-planet
-    function getTodayMonthIndex(planet, boundariesMap) {
-      const nowUTCms = Date.now();
-      const diffDays = (nowUTCms - epoch.getTime()) / (1000*60*60*24);
-      const total = Math.round(orbits[planet]);
-      const day0 = Math.floor(((diffDays % total) + total) % total); // 0..total-1
-      const boundaries = boundariesMap[planet];
-      for (let m = 0; m < 12; m++) if (day0 >= boundaries[m] && day0 < boundaries[m+1]) return m;
+    function getTotalDays(planet) {
+      return planet === 'earth' ? 365 : Math.round(orbits[planet]);
+    }
+    function absDayOfYear(planet) {
+      // absolute day-of-year for the planet: 1..N
+      const N = getTotalDays(planet);
+      const diffDays = (Date.now() - epoch.getTime()) / (1000*60*60*24);
+      const d0 = Math.floor((((diffDays % N) + N) % N)); // 0..N-1
+      return d0 + 1;
+    }
+    function planetYear(planet) {
+      if (planet === 'earth') return new Date().getUTCFullYear();
+      const N = getTotalDays(planet);
+      const diffDays = (Date.now() - epoch.getTime()) / (1000*60*60*24);
+      return 2000 + Math.floor(diffDays / N);
+    }
+    function currentMonthIndex(planet, boundariesMap) {
+      const N = getTotalDays(planet);
+      const d0 = absDayOfYear(planet) - 1; // 0-based
+      const b = boundariesMap[planet];
+      for (let m = 0; m < 12; m++) if (d0 >= b[m] && d0 < b[m+1]) return m;
       return 0;
     }
-
-    // Planetary year index (Earth uses real year)
-    function getPlanetYear(planet) {
-      if (planet === 'earth') return new Date().getUTCFullYear();
-      const nowUTCms = Date.now();
-      const diffDays = (nowUTCms - epoch.getTime()) / (1000*60*60*24);
-      const total = Math.round(orbits[planet]);
-      const yearIndex = Math.floor(diffDays / total);
-      return 2000 + yearIndex;
+    function timeCSTStr(now) {
+      return now.toLocaleTimeString([], { hour12: true, timeZone: 'America/Chicago' });
     }
 
-    // Day number within the current month for a given planet
-    function getPlanetDayInMonth(planet, boundariesMap) {
-      const nowUTCms = Date.now();
-      const diffDays = (nowUTCms - epoch.getTime()) / (1000*60*60*24);
-      const total = Math.round(orbits[planet]);
-      const day0 = Math.floor(((diffDays % total) + total) % total); // 0..total-1
-      const b = boundariesMap[planet];
-      let m = 0;
-      while (m < 12 && !(day0 >= b[m] && day0 < b[m+1])) m++;
-      return (day0 - b[m]) + 1; // 1-based
-    }
-
-    function getCSTTimeString(dateObj) {
-      return dateObj.toLocaleTimeString([], { hour12: true, timeZone: 'America/Chicago' });
-    }
-
-    // =========================
-    // RENDER
-    // =========================
+    // ===== RENDER =====
     const boundariesMap = computeBoundariesMap();
     const panelGrid = document.getElementById('panelGrid');
-
     const prettyName = {
       mercury: '☿ Mercury',
       venus: '♀ Venus',
@@ -144,7 +127,7 @@
         h2.textContent = prettyName[p];
         wrap.appendChild(h2);
 
-        // Header with Month + Year and live CST time
+        // Header: Month + Absolute Day + Year, and CST time
         const header = document.createElement('div');
         header.className = 'header';
         const dateSpan = document.createElement('span');
@@ -157,6 +140,7 @@
         header.appendChild(timeSpan);
         wrap.appendChild(header);
 
+        // Year length used
         const count = document.createElement('div');
         count.className = 'count';
         const b = boundariesMap[p];
@@ -165,22 +149,24 @@
         count.textContent = `${namePlain} year length used here: ${totalDays} days`;
         wrap.appendChild(count);
 
+        // All months with absolute day numbers
         const monthsWrap = document.createElement('div');
         monthsWrap.className = 'months';
-
         for (let m = 0; m < 12; m++) {
-          const daysInMonth = b[m+1] - b[m];
+          const startAbs = b[m] + 1;         // absolute day-of-year (1-based)
+          const endAbs   = b[m + 1];         // inclusive absolute day
+          const len = endAbs - b[m];
 
           const mBlock = document.createElement('div');
           mBlock.className = 'month-block';
 
           const mTitle = document.createElement('div');
           mTitle.className = 'month-title';
-          mTitle.textContent = `${monthNames[m]} (${daysInMonth} day${daysInMonth!==1?'s':''})`;
+          mTitle.textContent = `${monthNames[m]} (${len} day${len!==1?'s':''})`;
 
           const daysWrap = document.createElement('div');
           daysWrap.className = 'days';
-          for (let d = 1; d <= daysInMonth; d++) {
+          for (let d = startAbs; d <= endAbs; d++) {
             const span = document.createElement('span');
             span.className = 'day';
             span.textContent = `${monthNames[m]} ${d}`;
@@ -200,15 +186,13 @@
     function updateHeaders() {
       const now = new Date();
       planets.forEach(p => {
-        const mIdx = getTodayMonthIndex(p, boundariesMap);
-        const year = getPlanetYear(p);
+        const mIdx = currentMonthIndex(p, boundariesMap);
+        const year = planetYear(p);
+        const abs = absDayOfYear(p);
         const dateEl = document.getElementById(`${p}-date`);
         const timeEl = document.getElementById(`${p}-time`);
-        if (dateEl) {
-          const dayInMonth = getPlanetDayInMonth(p, boundariesMap);
-          dateEl.textContent = `${monthNames[mIdx]} ${dayInMonth}, ${year}`;
-        }
-        if (timeEl) timeEl.textContent = `${getCSTTimeString(now)} ${TZ_LABEL}`;
+        if (dateEl) dateEl.textContent = `${monthNames[mIdx]} ${abs}, ${year}`;
+        if (timeEl) timeEl.textContent = `${timeCSTStr(now)} ${TZ_LABEL}`;
       });
     }
 
