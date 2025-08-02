@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>🪐 Interstellar Star Clock — 3D-Oriented Ellipses + Planet Clocks</title>
+  <title>🪐 Interstellar Star Clock — Clean Solar View + Planet Clocks</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root{ --fg:#00ffcc; --gap: clamp(10px, 2vmin, 22px); --pad: clamp(10px, 2vmin, 18px); }
@@ -24,12 +24,14 @@
       background:#001a16; color:var(--fg); border:1px solid #064e3b; padding:.3rem .5rem; border-radius:6px;
     }
 
+    /* Left panel */
     .left{ display:flex; flex-direction:column; align-items:center; gap: var(--gap); }
     .canvas-wrap{ width:100%; display:flex; justify-content:center; }
     canvas{ width:100%; max-width:560px; aspect-ratio:1 / 1; background:#000; border:1px solid #064e3b; border-radius:10px; }
     .planet-image{ display:flex; justify-content:center; width:100%; }
     .planet-image img{ width:min(40vw, 44vh, 420px); height:auto; display:block; }
 
+    /* Right panel */
     .content{ text-align:center; padding: var(--pad); }
     h2{ margin:.25rem 0 .4rem; font-size: clamp(1rem, 2.1vw, 1.6rem); }
     .clock-box{ margin-top: .9rem; font-size: clamp(.95rem, 1.5vw, 1.2rem); }
@@ -131,9 +133,7 @@
       return `${sign}${d}d ${h}h ${m}m ${s}s`;
     }
 
-    // ---------- J2000 mean elements with secular rates ----------
-    // a in AU, e unitless, L/ϖ/Ω rates in deg/century; i in deg (with optional di)
-    // Sources are standard low-precision tables; rates are approximate for visualization.
+    // ---------- J2000 mean elements with secular rates & orientation ----------
     const PLANETS = {
       Mercury:{ a:0.38709893, da:0.00000066, e:0.20563069, de:0.00002527,
         L:252.25084, dL:149472.67411175, varpi:77.45645, dvarpi:0.16047689,
@@ -195,19 +195,19 @@
       return E;
     }
 
-    // State & projection (full orientation)
+    // State + 3D orientation projection (x,y in AU on ecliptic)
     function orbitState(name, dateUTC){
       const p = PLANETS[name];
       const JD = toJulianDate(dateUTC);
-      const T = (JD - 2451545.0) / 36525.0; // Julian centuries
+      const T = (JD - 2451545.0) / 36525.0;
 
       const a = p.a + p.da*T;
       const e = p.e + p.de*T;
       const L = p.L + p.dL*T;
-      const varpi = p.varpi + p.dvarpi*T;     // longitude of perihelion ϖ
-      const Omega = p.Omega + p.dOmega*T;     // longitude of ascending node Ω
-      const i = (p.i + (p.di||0)*T) * DEG2RAD;// inclination in rad
-      const omega = norm360(varpi - Omega);   // argument of perihelion ω
+      const varpi = p.varpi + p.dvarpi*T;
+      const Omega = p.Omega + p.dOmega*T;
+      const i = (p.i + (p.di||0)*T) * DEG2RAD;
+      const omega = norm360(varpi - Omega);
 
       const Mdeg = norm360(L - varpi);
       const M = Mdeg * DEG2RAD;
@@ -220,11 +220,10 @@
       const nu = 2*Math.atan2(Math.sqrt(1+e)*Math.sin(E/2), Math.sqrt(1-e)*Math.cos(E/2));
       const nudeg = norm2pi(nu) * RAD2DEG;
 
-      // Position projected into ecliptic plane using Ω, i, ω
+      // Projected position
       const Ω = Omega * DEG2RAD, ω = omega * DEG2RAD;
-      const u = ω + nu; // argument of latitude
-      const cosΩ = Math.cos(Ω), sinΩ = Math.sin(Ω);
-      const cosi = Math.cos(i); // z discarded (projection)
+      const u = ω + nu;
+      const cosΩ = Math.cos(Ω), sinΩ = Math.sin(Ω), cosi = Math.cos(i);
       const x = rAU * (cosΩ*Math.cos(u) - sinΩ*Math.sin(u)*cosi);
       const y = rAU * (sinΩ*Math.cos(u) + cosΩ*Math.sin(u)*cosi);
 
@@ -233,40 +232,22 @@
       const remainDays = (2*Math.PI - Mnorm) / n;
       const pct = (Mnorm / (2*Math.PI)) * 100;
 
-      return { aAU:a, e, varpiDeg: varpi, OmegaDeg: Omega, iDeg: i*RAD2DEG,
-               omegaDeg: omega, Mdeg, nudeg, rAU, sinceDays, remainDays, percent:pct,
+      return { aAU:a, e, OmegaDeg:Omega, iDeg:i*RAD2DEG, omegaDeg:omega,
+               Mdeg, nudeg, rAU, sinceDays, remainDays, percent:pct,
                x, y, color:p.color };
-    }
-
-    // Sample a projected ellipse curve (for drawing)
-    function sampleProjectedEllipse(st, steps=360){
-      const pts = [];
-      const Ω = st.OmegaDeg * DEG2RAD, ω = st.omegaDeg * DEG2RAD;
-      const cosΩ = Math.cos(Ω), sinΩ = Math.sin(Ω), cosi = Math.cos(st.iDeg*DEG2RAD);
-      const a = st.aAU, e = st.e;
-
-      for(let k=0;k<=steps;k++){
-        const nu = (k/steps)*2*Math.PI;
-        const r = a*(1 - e*e) / (1 + e*Math.cos(nu)); // polar equation
-        const u = ω + nu;
-        const x = r * (cosΩ*Math.cos(u) - sinΩ*Math.sin(u)*cosi);
-        const y = r * (sinΩ*Math.cos(u) + cosΩ*Math.sin(u)*cosi);
-        pts.push([x, y]);
-      }
-      return pts;
     }
 
     // ---------- Planet images ----------
     const IMG = {
-      Mercury:"https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/mercury2.png",
-      Venus:"https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/venus2.png",
+      Mercury:"https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/mercury.png",
+      Venus:"https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/venus.png",
       Earth:"https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/earth.png",
       Mars:"https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/mars.png",
       Jupiter:"https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/jupiter.png",
       Saturn:"https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/saturn.png",
       Uranus:"https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/uranus.png",
-      Neptune:"https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/neptune2.png",
-      Pluto:"https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/pluto2.png"
+      Neptune:"https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/neptune.png",
+      Pluto:"https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/pluto.png"
     };
     function setPlanetImage(name){
       const img = document.getElementById('planetImg');
@@ -274,7 +255,7 @@
       img.alt = name;
     }
 
-    // ---------- SOLAR SYSTEM (independent) ----------
+    // ---------- SOLAR SYSTEM (independent; no lines to planets; evenly spaced guide rings) ----------
     const solarCanvas = document.getElementById('solarCanvas');
     const sctx = solarCanvas.getContext('2d');
 
@@ -293,73 +274,60 @@
       const w = solarCanvas.clientWidth, h = solarCanvas.clientHeight;
       const cx = w/2, cy = h/2;
 
+      // States for all planets
       const names = Object.keys(PLANETS);
       const states = names.map(n => ({ name:n, st: orbitState(n, new Date(now.toISOString())) }));
 
-      // Fit scale to farthest projected aphelion radius
-      const maxR = Math.max(...states.map(o => {
-        // estimate projected max radius ~ a(1+e); projection will be <= this
-        return o.st.aAU * (1 + o.st.e);
-      }));
-      const margin = 0.9;
+      // Scale to farthest planet position
+      const maxR = Math.max(...states.map(o => Math.hypot(o.st.x, o.st.y)));
+      const margin = 0.85;
       const scale = Math.min(cx, cy) * margin / maxR;
 
-      // Clear + Sun
+      // Clear
       sctx.clearRect(0,0,w,h);
+
+      // Evenly-spaced circular guide rings (no physical meaning, purely visual)
+      const guides = 6; // number of rings
+      sctx.strokeStyle = "rgba(255,255,255,0.14)";
+      sctx.lineWidth = 1;
+      for(let i=1;i<=guides;i++){
+        const r = (Math.min(cx,cy) * margin) * (i/guides);
+        sctx.beginPath();
+        sctx.arc(cx, cy, r, 0, Math.PI*2);
+        sctx.stroke();
+      }
+
+      // Sun
       sctx.beginPath();
       sctx.arc(cx, cy, 6, 0, Math.PI*2);
       sctx.fillStyle = "#ffd27f";
       sctx.fill();
 
+      // Plot planet markers + labels (NO vectors)
       sctx.font = "12px 'Courier New', monospace";
-
-      // Draw all oriented elliptical orbits (faint)
-      sctx.lineWidth = 1;
-      sctx.strokeStyle = "rgba(255,255,255,0.18)";
-      for(const {st} of states){
-        const pts = sampleProjectedEllipse(st, 300);
-        sctx.beginPath();
-        for(let i=0;i<pts.length;i++){
-          const x = cx + pts[i][0]*scale;
-          const y = cy + pts[i][1]*scale;
-          if(i===0) sctx.moveTo(x,y); else sctx.lineTo(x,y);
-        }
-        sctx.stroke();
-      }
-
-      // Draw vectors, markers, labels
       for(const {name, st} of states){
         const color = PLANETS[name].color || "#fff";
         const x = cx + st.x*scale;
         const y = cy + st.y*scale;
 
-        // Vector Sun -> planet
-        sctx.beginPath();
-        sctx.moveTo(cx, cy);
-        sctx.lineTo(x, y);
-        sctx.strokeStyle = color;
-        sctx.lineWidth = 1.6;
-        sctx.stroke();
-
-        // Planet marker
+        // Dot
         const dotR = (st.aAU < 2 ? 4.5 : (st.aAU < 6 ? 4 : 3));
         sctx.beginPath();
         sctx.arc(x, y, dotR, 0, Math.PI*2);
         sctx.fillStyle = color;
         sctx.fill();
 
-        // Label slightly away along vector
-        const rOff = 8 + dotR;
+        // Label just offset outward
         const ang = Math.atan2(st.y, st.x);
-        const lx = x + rOff*Math.cos(ang);
-        const ly = y + rOff*Math.sin(ang);
+        const lx = x + (8 + dotR) * Math.cos(ang);
+        const ly = y + (8 + dotR) * Math.sin(ang);
         sctx.fillStyle = color;
         sctx.fillText(name, lx, ly);
       }
 
       // Footer timestamp
       sctx.fillStyle = "#aaa";
-      sctx.fillText(`3D-oriented ellipses @ ${now.toUTCString()} (Ω,i,ω projection)`, 10, h - 14);
+      sctx.fillText(`Positions @ ${now.toUTCString()}  (evenly spaced guide rings)`, 10, h - 14);
     }
 
     // ---------- CLOCKS / READOUTS (selected planet only) ----------
@@ -398,7 +366,7 @@
       document.getElementById("orbitPercent").textContent =
         `Orbit completion (${planet}): ${st.percent.toFixed(6)}%`;
       document.getElementById("orbitDetails").textContent =
-        `a=${st.aAU.toFixed(6)} AU, e=${st.e.toFixed(6)} | M=${st.Mdeg.toFixed(4)}°, ν=${st.nudeg.toFixed(4)}° | Ω=${st.OmegaDeg.toFixed(4)}°, i=${st.iDeg.toFixed(4)}°, ω=${st.omegaDeg.toFixed(4)}°`;
+        `a=${st.aAU.toFixed(6)} AU, e=${st.e.toFixed(6)} | M=${st.Mdeg.toFixed(4)}°, ν=${st.nudeg.toFixed(4)}° | Ω=${(st.OmegaDeg*RAD2DEG).toFixed(4)}°, i=${st.iDeg.toFixed(4)}°, ω=${st.omegaDeg.toFixed(4)}°`;
 
       // Distance & true anomaly for selected planet
       const distanceMiles = st.rAU * AU_TO_MILES;
