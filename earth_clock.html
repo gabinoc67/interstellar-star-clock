@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>🪐 Interstellar Star Clock — Orbits + Vectors</title>
+  <title>🪐 Interstellar Star Clock — 3D-Oriented Ellipses + Planet Clocks</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root{ --fg:#00ffcc; --gap: clamp(10px, 2vmin, 22px); --pad: clamp(10px, 2vmin, 18px); }
@@ -27,7 +27,6 @@
     .left{ display:flex; flex-direction:column; align-items:center; gap: var(--gap); }
     .canvas-wrap{ width:100%; display:flex; justify-content:center; }
     canvas{ width:100%; max-width:560px; aspect-ratio:1 / 1; background:#000; border:1px solid #064e3b; border-radius:10px; }
-
     .planet-image{ display:flex; justify-content:center; width:100%; }
     .planet-image img{ width:min(40vw, 44vh, 420px); height:auto; display:block; }
 
@@ -45,7 +44,7 @@
 <body>
   <div class="wrap">
     <header>
-      <h1>🪐 Interstellar Star Clock — <span id="titlePlanet">Earth</span></h1>
+      <h1>🪐 Interstellar Star Clock — Solar System (live) + <span id="titlePlanet">Earth</span> Clocks</h1>
       <div class="controls">
         <label for="planet">Planet:</label>
         <select id="planet">
@@ -56,15 +55,17 @@
       </div>
     </header>
 
+    <!-- LEFT: Solar system canvas (independent) + selected planet image -->
     <div class="left">
       <div class="canvas-wrap">
-        <canvas id="vectorCanvas"></canvas>
+        <canvas id="solarCanvas"></canvas>
       </div>
       <div class="planet-image">
         <img id="planetImg" alt="Planet image">
       </div>
     </div>
 
+    <!-- RIGHT: Selected planet readouts -->
     <div class="content">
       <div class="clock-box">
         <h2>🌍 Local Time (America/Chicago)</h2>
@@ -131,16 +132,54 @@
     }
 
     // ---------- J2000 mean elements with secular rates ----------
+    // a in AU, e unitless, L/ϖ/Ω rates in deg/century; i in deg (with optional di)
+    // Sources are standard low-precision tables; rates are approximate for visualization.
     const PLANETS = {
-      Mercury:{ a:0.38709893, da:0.00000066, e:0.20563069, de:0.00002527, L:252.25084, dL:149472.67411175, varpi:77.45645, dvarpi:0.16047689, P:87.9691,  color:"#9ad" },
-      Venus:  { a:0.72333199, da:0.00000092, e:0.00677323, de:-0.00004938, L:181.97973, dL:58517.81538729, varpi:131.56370, dvarpi:0.0020708,  P:224.701, color:"#f7c" },
-      Earth:  { a:1.00000011, da:-0.00000005, e:0.01671022, de:-0.00003804, L:100.46435, dL:35999.37285429, varpi:102.93735, dvarpi:0.32327364, P:365.256363004, color:"#0fc" },
-      Mars:   { a:1.52366231, da:-0.00007221, e:0.09341233, de:0.00011902, L:-4.553432, dL:19140.30268499, varpi:-23.943629, dvarpi:0.44441088, P:686.971, color:"#f66" },
-      Jupiter:{ a:5.20336301, da:0.00060737, e:0.04839266, de:-0.00012880, L:34.351484, dL:3034.90567464, varpi:14.331309, dvarpi:0.2155525, P:4332.59, color:"#ffb" },
-      Saturn: { a:9.53707032, da:-0.00301530, e:0.05415060, de:-0.00036762, L:50.077471, dL:1222.11379404, varpi:93.057237, dvarpi:0.5665415, P:10759.22, color:"#fb9" },
-      Uranus: { a:19.19126393, da:0.00152025, e:0.04716771, de:-0.00019150, L:314.055005, dL:428.46699831, varpi:173.005159, dvarpi:0.1686465, P:30688.5, color:"#9ff" },
-      Neptune:{ a:30.06896348, da:-0.00125196, e:0.00858587, de:0.00002510, L:304.348665, dL:218.48620020, varpi:48.123691, dvarpi:0.0259423, P:60182, color:"#9bf" },
-      Pluto:  { a:39.48168677, da:-0.00076912, e:0.24880766, de:0.00006465, L:238.92881, dL:145.20780515, varpi:224.06676, dvarpi:-0.04062942, P:90560, color:"#ddd" }
+      Mercury:{ a:0.38709893, da:0.00000066, e:0.20563069, de:0.00002527,
+        L:252.25084, dL:149472.67411175, varpi:77.45645, dvarpi:0.16047689,
+        Omega:48.33167, dOmega:0.159400, i:7.00487, di:-0.005951,
+        P:87.9691, color:"#9ad"
+      },
+      Venus:{ a:0.72333199, da:0.00000092, e:0.00677323, de:-0.00004938,
+        L:181.97973, dL:58517.81538729, varpi:131.56370, dvarpi:0.0020708,
+        Omega:76.68069, dOmega:-0.272741, i:3.39471, di:-0.000789,
+        P:224.701, color:"#f7c"
+      },
+      Earth:{ a:1.00000011, da:-0.00000005, e:0.01671022, de:-0.00003804,
+        L:100.46435, dL:35999.37285429, varpi:102.93735, dvarpi:0.32327364,
+        Omega:-11.26064, dOmega:-0.003417, i:0.00005, di:-0.013371,
+        P:365.256363004, color:"#0fc"
+      },
+      Mars:{ a:1.52366231, da:-0.00007221, e:0.09341233, de:0.00011902,
+        L:-4.553432, dL:19140.30268499, varpi:-23.943629, dvarpi:0.44441088,
+        Omega:49.57854, dOmega:0.772092, i:1.85061, di:-0.008473,
+        P:686.971, color:"#f66"
+      },
+      Jupiter:{ a:5.20336301, da:0.00060737, e:0.04839266, de:-0.00012880,
+        L:34.351484, dL:3034.90567464, varpi:14.331309, dvarpi:0.2155525,
+        Omega:100.55615, dOmega:0.204691, i:1.30530, di:-0.001837,
+        P:4332.59, color:"#ffb"
+      },
+      Saturn:{ a:9.53707032, da:-0.00301530, e:0.05415060, de:-0.00036762,
+        L:50.077471, dL:1222.11379404, varpi:93.057237, dvarpi:0.5665415,
+        Omega:113.71504, dOmega:-0.208741, i:2.48446, di:0.002043,
+        P:10759.22, color:"#fb9"
+      },
+      Uranus:{ a:19.19126393, da:0.00152025, e:0.04716771, de:-0.00019150,
+        L:314.055005, dL:428.46699831, varpi:173.005159, dvarpi:0.1686465,
+        Omega:74.22988, dOmega:-0.204, i:0.76986, di:-0.000,
+        P:30688.5, color:"#9ff"
+      },
+      Neptune:{ a:30.06896348, da:-0.00125196, e:0.00858587, de:0.00002510,
+        L:304.348665, dL:218.48620020, varpi:48.123691, dvarpi:0.0259423,
+        Omega:131.72169, dOmega:1.180, i:1.76917, di:-0.000,
+        P:60182, color:"#9bf"
+      },
+      Pluto:{ a:39.48168677, da:-0.00076912, e:0.24880766, de:0.00006465,
+        L:238.92881, dL:145.20780515, varpi:224.06676, dvarpi:-0.04062942,
+        Omega:110.30347, dOmega:-0.011, i:17.14175, di:0.000,
+        P:90560, color:"#ddd"
+      }
     };
 
     // ---------- Kepler solver ----------
@@ -156,15 +195,19 @@
       return E;
     }
 
+    // State & projection (full orientation)
     function orbitState(name, dateUTC){
       const p = PLANETS[name];
       const JD = toJulianDate(dateUTC);
-      const T = (JD - 2451545.0) / 36525.0;
+      const T = (JD - 2451545.0) / 36525.0; // Julian centuries
 
       const a = p.a + p.da*T;
       const e = p.e + p.de*T;
       const L = p.L + p.dL*T;
-      const varpi = p.varpi + p.dvarpi*T;
+      const varpi = p.varpi + p.dvarpi*T;     // longitude of perihelion ϖ
+      const Omega = p.Omega + p.dOmega*T;     // longitude of ascending node Ω
+      const i = (p.i + (p.di||0)*T) * DEG2RAD;// inclination in rad
+      const omega = norm360(varpi - Omega);   // argument of perihelion ω
 
       const Mdeg = norm360(L - varpi);
       const M = Mdeg * DEG2RAD;
@@ -177,12 +220,40 @@
       const nu = 2*Math.atan2(Math.sqrt(1+e)*Math.sin(E/2), Math.sqrt(1-e)*Math.cos(E/2));
       const nudeg = norm2pi(nu) * RAD2DEG;
 
+      // Position projected into ecliptic plane using Ω, i, ω
+      const Ω = Omega * DEG2RAD, ω = omega * DEG2RAD;
+      const u = ω + nu; // argument of latitude
+      const cosΩ = Math.cos(Ω), sinΩ = Math.sin(Ω);
+      const cosi = Math.cos(i); // z discarded (projection)
+      const x = rAU * (cosΩ*Math.cos(u) - sinΩ*Math.sin(u)*cosi);
+      const y = rAU * (sinΩ*Math.cos(u) + cosΩ*Math.sin(u)*cosi);
+
       const Mnorm = norm2pi(M);
       const sinceDays = Mnorm / n;
       const remainDays = (2*Math.PI - Mnorm) / n;
       const pct = (Mnorm / (2*Math.PI)) * 100;
 
-      return { aAU:a, e, Mdeg, nudeg, rAU, sinceDays, remainDays, percent:pct, color:p.color };
+      return { aAU:a, e, varpiDeg: varpi, OmegaDeg: Omega, iDeg: i*RAD2DEG,
+               omegaDeg: omega, Mdeg, nudeg, rAU, sinceDays, remainDays, percent:pct,
+               x, y, color:p.color };
+    }
+
+    // Sample a projected ellipse curve (for drawing)
+    function sampleProjectedEllipse(st, steps=360){
+      const pts = [];
+      const Ω = st.OmegaDeg * DEG2RAD, ω = st.omegaDeg * DEG2RAD;
+      const cosΩ = Math.cos(Ω), sinΩ = Math.sin(Ω), cosi = Math.cos(st.iDeg*DEG2RAD);
+      const a = st.aAU, e = st.e;
+
+      for(let k=0;k<=steps;k++){
+        const nu = (k/steps)*2*Math.PI;
+        const r = a*(1 - e*e) / (1 + e*Math.cos(nu)); // polar equation
+        const u = ω + nu;
+        const x = r * (cosΩ*Math.cos(u) - sinΩ*Math.sin(u)*cosi);
+        const y = r * (sinΩ*Math.cos(u) + cosΩ*Math.sin(u)*cosi);
+        pts.push([x, y]);
+      }
+      return pts;
     }
 
     // ---------- Planet images ----------
@@ -203,106 +274,104 @@
       img.alt = name;
     }
 
-    // ---------- Canvas (orbits + vectors; NO extra label lines) ----------
-    const planetEl = document.getElementById('planet');
-    const titlePlanet = document.getElementById('titlePlanet');
-    const canvas = document.getElementById('vectorCanvas');
-    const ctx = canvas.getContext('2d');
+    // ---------- SOLAR SYSTEM (independent) ----------
+    const solarCanvas = document.getElementById('solarCanvas');
+    const sctx = solarCanvas.getContext('2d');
 
-    function resizeCanvas(){
-      const cssSize = canvas.getBoundingClientRect();
+    function resizeSolar(){
+      const css = solarCanvas.getBoundingClientRect();
       const ratio = Math.max(1, Math.floor(window.devicePixelRatio || 1));
-      canvas.width = Math.floor(cssSize.width * ratio);
-      canvas.height = Math.floor(cssSize.height * ratio);
-      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      solarCanvas.width = Math.floor(css.width * ratio);
+      solarCanvas.height = Math.floor(css.height * ratio);
+      sctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     }
-    window.addEventListener('resize', () => { resizeCanvas(); drawScene(); });
+    window.addEventListener('resize', () => { resizeSolar(); drawSolar(); });
 
-    function drawScene(){
+    function drawSolar(){
       const now = new Date();
-      resizeCanvas();
-      const w = canvas.clientWidth, h = canvas.clientHeight;
+      resizeSolar();
+      const w = solarCanvas.clientWidth, h = solarCanvas.clientHeight;
       const cx = w/2, cy = h/2;
 
       const names = Object.keys(PLANETS);
       const states = names.map(n => ({ name:n, st: orbitState(n, new Date(now.toISOString())) }));
 
-      const maxAphelion = Math.max(...states.map(o => o.st.aAU * (1 + o.st.e)));
+      // Fit scale to farthest projected aphelion radius
+      const maxR = Math.max(...states.map(o => {
+        // estimate projected max radius ~ a(1+e); projection will be <= this
+        return o.st.aAU * (1 + o.st.e);
+      }));
       const margin = 0.9;
-      const scale = Math.min(cx, cy) * margin / maxAphelion;
+      const scale = Math.min(cx, cy) * margin / maxR;
 
-      // Clear
-      ctx.clearRect(0,0,w,h);
+      // Clear + Sun
+      sctx.clearRect(0,0,w,h);
+      sctx.beginPath();
+      sctx.arc(cx, cy, 6, 0, Math.PI*2);
+      sctx.fillStyle = "#ffd27f";
+      sctx.fill();
 
-      // Sun
-      ctx.beginPath();
-      ctx.arc(cx, cy, 6, 0, Math.PI*2);
-      ctx.fillStyle = "#ffd27f";
-      ctx.fill();
+      sctx.font = "12px 'Courier New', monospace";
 
-      // 0° reference (perihelion direction)
-      ctx.beginPath();
-      ctx.moveTo(cx, cy);
-      ctx.lineTo(cx + maxAphelion*scale, cy);
-      ctx.strokeStyle = "rgba(255,255,255,0.25)";
-      ctx.lineWidth = 1;
-      ctx.setLineDash([6,4]);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      // Orbits (circles at a) and vectors + markers + labels
-      ctx.lineWidth = 1;
-      ctx.font = "12px 'Courier New', monospace";
-
-      for(const {name, st} of states){
-        const color = PLANETS[name].color || "#fff";
-        const orbitR = st.aAU * scale;
-
-        // Orbit ring
-        ctx.beginPath();
-        ctx.arc(cx, cy, orbitR, 0, Math.PI*2);
-        ctx.strokeStyle = "rgba(255,255,255,0.15)";
-        ctx.stroke();
-
-        // Vector from Sun to current position
-        const theta = st.nudeg * DEG2RAD;
-        const rPx = st.rAU * scale;
-        const x = cx + rPx * Math.cos(theta);
-        const y = cy + rPx * Math.sin(theta);
-
-        ctx.beginPath();
-        ctx.moveTo(cx, cy);
-        ctx.lineTo(x, y);
-        ctx.strokeStyle = color;
-        ctx.lineWidth = (name === planetEl.value) ? 2.5 : 1.5;
-        ctx.stroke();
-
-        // Planet marker (no extra leader lines)
-        const dotR = (st.aAU < 2 ? 4.5 : (st.aAU < 6 ? 4 : 3));
-        ctx.beginPath();
-        ctx.arc(x, y, dotR, 0, Math.PI*2);
-        ctx.fillStyle = color;
-        ctx.fill();
-
-        // Text label only (slight radial offset); no connecting line
-        const lx = x + (8 + dotR) * Math.cos(theta);
-        const ly = y + (8 + dotR) * Math.sin(theta);
-        ctx.fillStyle = color;
-        ctx.fillText(name, lx, ly);
+      // Draw all oriented elliptical orbits (faint)
+      sctx.lineWidth = 1;
+      sctx.strokeStyle = "rgba(255,255,255,0.18)";
+      for(const {st} of states){
+        const pts = sampleProjectedEllipse(st, 300);
+        sctx.beginPath();
+        for(let i=0;i<pts.length;i++){
+          const x = cx + pts[i][0]*scale;
+          const y = cy + pts[i][1]*scale;
+          if(i===0) sctx.moveTo(x,y); else sctx.lineTo(x,y);
+        }
+        sctx.stroke();
       }
 
-      // Timestamp
-      ctx.fillStyle = "#aaa";
-      ctx.fillText(`Vectors @ ${now.toUTCString()}  (0° = perihelion direction)`, 10, h - 14);
+      // Draw vectors, markers, labels
+      for(const {name, st} of states){
+        const color = PLANETS[name].color || "#fff";
+        const x = cx + st.x*scale;
+        const y = cy + st.y*scale;
+
+        // Vector Sun -> planet
+        sctx.beginPath();
+        sctx.moveTo(cx, cy);
+        sctx.lineTo(x, y);
+        sctx.strokeStyle = color;
+        sctx.lineWidth = 1.6;
+        sctx.stroke();
+
+        // Planet marker
+        const dotR = (st.aAU < 2 ? 4.5 : (st.aAU < 6 ? 4 : 3));
+        sctx.beginPath();
+        sctx.arc(x, y, dotR, 0, Math.PI*2);
+        sctx.fillStyle = color;
+        sctx.fill();
+
+        // Label slightly away along vector
+        const rOff = 8 + dotR;
+        const ang = Math.atan2(st.y, st.x);
+        const lx = x + rOff*Math.cos(ang);
+        const ly = y + rOff*Math.sin(ang);
+        sctx.fillStyle = color;
+        sctx.fillText(name, lx, ly);
+      }
+
+      // Footer timestamp
+      sctx.fillStyle = "#aaa";
+      sctx.fillText(`3D-oriented ellipses @ ${now.toUTCString()} (Ω,i,ω projection)`, 10, h - 14);
     }
 
-    // ---------- Clock/Readouts ----------
+    // ---------- CLOCKS / READOUTS (selected planet only) ----------
+    const planetEl = document.getElementById('planet');
+    const titlePlanet = document.getElementById('titlePlanet');
+
     function updateClocks() {
       const now = new Date();
       const planet = planetEl.value;
       titlePlanet.textContent = planet;
 
-      // America/Chicago local time (DST)
+      // Local time (America/Chicago) with DST
       const chicago = new Intl.DateTimeFormat('en-US', {
         timeZone: 'America/Chicago',
         year: 'numeric', month: '2-digit', day: '2-digit',
@@ -329,7 +398,7 @@
       document.getElementById("orbitPercent").textContent =
         `Orbit completion (${planet}): ${st.percent.toFixed(6)}%`;
       document.getElementById("orbitDetails").textContent =
-        `a=${st.aAU.toFixed(6)} AU, e=${st.e.toFixed(6)} | M=${st.Mdeg.toFixed(4)}°, ν=${st.nudeg.toFixed(4)}°`;
+        `a=${st.aAU.toFixed(6)} AU, e=${st.e.toFixed(6)} | M=${st.Mdeg.toFixed(4)}°, ν=${st.nudeg.toFixed(4)}° | Ω=${st.OmegaDeg.toFixed(4)}°, i=${st.iDeg.toFixed(4)}°, ω=${st.omegaDeg.toFixed(4)}°`;
 
       // Distance & true anomaly for selected planet
       const distanceMiles = st.rAU * AU_TO_MILES;
@@ -337,23 +406,21 @@
         Math.round(distanceMiles).toLocaleString() + " miles";
       document.getElementById("trueAnomaly").textContent =
         `${st.nudeg.toFixed(4)}° true anomaly from perihelion`;
-
-      // Redraw scene
-      drawScene();
     }
 
     // ---------- Wiring ----------
-    const planetEl = document.getElementById('planet');
     planetEl.addEventListener('change', () => {
-      setPlanetImage(planetEl.value);
-      updateClocks();
+      setPlanetImage(planetEl.value); // update picture
+      updateClocks();                 // update right-side readouts
+      // Solar panel runs independently
     });
 
-    // Initial
-    const titlePlanet = document.getElementById('titlePlanet');
+    // Initial boot
     setPlanetImage(planetEl.value);
     updateClocks();
-    setInterval(updateClocks, 1000);
+    drawSolar();
+    setInterval(drawSolar, 1000);    // solar view: all planets live
+    setInterval(updateClocks, 1000); // selected planet clocks
   });
   </script>
 </body>
