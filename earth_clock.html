@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>🪐 Interstellar Star Clock — Clean Solar View + Planet Clocks</title>
+  <title>🪐 Interstellar Star Clock — Solar System + Planet Clocks</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root{ --fg:#00ffcc; --gap: clamp(10px, 2vmin, 22px); --pad: clamp(10px, 2vmin, 18px); }
@@ -18,7 +18,8 @@
     header{
       grid-column: 1 / -1; display:flex; justify-content:space-between; align-items:center; gap: var(--gap);
     }
-    h1{ margin:0; font-size: clamp(1.2rem, 3.2vw, 2.4rem); line-height:1.15; }
+    /* Smaller title */
+    h1{ margin:0; font-size: clamp(1.0rem, 2.6vw, 1.8rem); line-height:1.2; }
     .controls{ display:flex; align-items:center; gap:.5rem; font-size: clamp(.9rem, 1.6vw, 1rem); }
     select{
       background:#001a16; color:var(--fg); border:1px solid #064e3b; padding:.3rem .5rem; border-radius:6px;
@@ -87,6 +88,7 @@
       <div class="clock-box">
         <h2>📏 Distance from Sun</h2>
         <div id="distanceFromSun"></div>
+        <div id="distanceAU" class="muted"></div>
       </div>
 
       <div class="clock-box">
@@ -133,7 +135,7 @@
       return `${sign}${d}d ${h}h ${m}m ${s}s`;
     }
 
-    // ---------- J2000 mean elements with secular rates & orientation ----------
+    // ---------- J2000 elements with secular rates & 3D orientation ----------
     const PLANETS = {
       Mercury:{ a:0.38709893, da:0.00000066, e:0.20563069, de:0.00002527,
         L:252.25084, dL:149472.67411175, varpi:77.45645, dvarpi:0.16047689,
@@ -221,7 +223,7 @@
       const nudeg = norm2pi(nu) * RAD2DEG;
 
       // Projected position
-      const Ω = Omega * DEG2RAD, ω = omega * DEG2RAD;
+      const Ω = (p.Omega + p.dOmega*T) * DEG2RAD, ω = (norm360(varpi - p.Omega - p.dOmega*T)) * DEG2RAD;
       const u = ω + nu;
       const cosΩ = Math.cos(Ω), sinΩ = Math.sin(Ω), cosi = Math.cos(i);
       const x = rAU * (cosΩ*Math.cos(u) - sinΩ*Math.sin(u)*cosi);
@@ -232,9 +234,7 @@
       const remainDays = (2*Math.PI - Mnorm) / n;
       const pct = (Mnorm / (2*Math.PI)) * 100;
 
-      return { aAU:a, e, OmegaDeg:Omega, iDeg:i*RAD2DEG, omegaDeg:omega,
-               Mdeg, nudeg, rAU, sinceDays, remainDays, percent:pct,
-               x, y, color:p.color };
+      return { aAU:a, e, Mdeg, nudeg, rAU, sinceDays, remainDays, percent:pct, x, y, color:p.color };
     }
 
     // ---------- Planet images ----------
@@ -255,7 +255,7 @@
       img.alt = name;
     }
 
-    // ---------- SOLAR SYSTEM (independent; no lines to planets; evenly spaced guide rings) ----------
+    // ---------- SOLAR SYSTEM (independent; TWO-ZONE SCALE + TICKS & AU LABELS) ----------
     const solarCanvas = document.getElementById('solarCanvas');
     const sctx = solarCanvas.getContext('2d');
 
@@ -274,27 +274,71 @@
       const w = solarCanvas.clientWidth, h = solarCanvas.clientHeight;
       const cx = w/2, cy = h/2;
 
-      // States for all planets
       const names = Object.keys(PLANETS);
       const states = names.map(n => ({ name:n, st: orbitState(n, new Date(now.toISOString())) }));
 
-      // Scale to farthest planet position
-      const maxR = Math.max(...states.map(o => Math.hypot(o.st.x, o.st.y)));
-      const margin = 0.85;
-      const scale = Math.min(cx, cy) * margin / maxR;
+      // Farthest distance for outer scale
+      const maxR_AU = Math.max(...states.map(o => Math.hypot(o.st.x, o.st.y)));
+      const Rpx = Math.min(cx, cy) * 0.88;    // total drawable radius
+
+      // Two-zone radial scaling
+      const R_BREAK_AU = 6;
+      const R_INNER_PCT = 0.70;
+      const R_INNER_PX = Rpx * R_INNER_PCT;
+      const R_OUTER_PX = Rpx - R_INNER_PX;
+      const OUTER_SPAN_AU = Math.max(0.0001, maxR_AU - R_BREAK_AU);
+
+      function radiusPx(rAU){
+        if (rAU <= R_BREAK_AU) return (rAU / R_BREAK_AU) * R_INNER_PX;
+        return R_INNER_PX + ((rAU - R_BREAK_AU) / OUTER_SPAN_AU) * R_OUTER_PX;
+      }
 
       // Clear
       sctx.clearRect(0,0,w,h);
 
-      // Evenly-spaced circular guide rings (no physical meaning, purely visual)
-      const guides = 6; // number of rings
+      // --- Degree ticks (outer rim) ---
+      const rimR = Rpx;                 // radius for degree rim
+      const minorLen = 6, majorLen = 12;
+      sctx.strokeStyle = "rgba(255,255,255,0.25)";
+      sctx.fillStyle = "rgba(255,255,255,0.6)";
+      sctx.font = "11px 'Courier New', monospace";
+
+      for (let deg = 0; deg < 360; deg += 10) {
+        const rad = deg * DEG2RAD;
+        const len = (deg % 30 === 0) ? majorLen : minorLen;
+        const x1 = cx + (rimR - len) * Math.cos(rad);
+        const y1 = cy + (rimR - len) * Math.sin(rad);
+        const x2 = cx + rimR * Math.cos(rad);
+        const y2 = cy + rimR * Math.sin(rad);
+        sctx.beginPath();
+        sctx.moveTo(x1,y1); sctx.lineTo(x2,y2); sctx.stroke();
+
+        if (deg % 30 === 0) {
+          // label just inside the rim
+          const lx = cx + (rimR - majorLen - 16) * Math.cos(rad);
+          const ly = cy + (rimR - majorLen - 16) * Math.sin(rad);
+          sctx.fillText(`${deg}°`, lx - 8, ly + 4);
+        }
+      }
+
+      // --- AU guide rings + labels (right-hand / 0° side) ---
+      const ringMarksAU = [1,2,3,4,5,6,8,10,15,20,30,40];
       sctx.strokeStyle = "rgba(255,255,255,0.14)";
       sctx.lineWidth = 1;
-      for(let i=1;i<=guides;i++){
-        const r = (Math.min(cx,cy) * margin) * (i/guides);
-        sctx.beginPath();
-        sctx.arc(cx, cy, r, 0, Math.PI*2);
-        sctx.stroke();
+      sctx.fillStyle = "rgba(255,255,255,0.55)";
+      sctx.font = "12px 'Courier New', monospace";
+      for(const mark of ringMarksAU){
+        if (mark <= maxR_AU + 0.1){
+          const r = radiusPx(mark);
+          // ring
+          sctx.beginPath();
+          sctx.arc(cx, cy, r, 0, Math.PI*2);
+          sctx.stroke();
+          // label at 0° (to the right)
+          const lx = cx + r + 6;
+          const ly = cy + 4;
+          sctx.fillText(`${mark} AU`, lx, ly);
+        }
       }
 
       // Sun
@@ -303,22 +347,21 @@
       sctx.fillStyle = "#ffd27f";
       sctx.fill();
 
-      // Plot planet markers + labels (NO vectors)
+      // Plot planet markers + labels (no vectors)
       sctx.font = "12px 'Courier New', monospace";
       for(const {name, st} of states){
         const color = PLANETS[name].color || "#fff";
-        const x = cx + st.x*scale;
-        const y = cy + st.y*scale;
+        const ang = Math.atan2(st.y, st.x);
+        const r = radiusPx(Math.hypot(st.x, st.y));
+        const x = cx + r * Math.cos(ang);
+        const y = cy + r * Math.sin(ang);
 
-        // Dot
         const dotR = (st.aAU < 2 ? 4.5 : (st.aAU < 6 ? 4 : 3));
         sctx.beginPath();
         sctx.arc(x, y, dotR, 0, Math.PI*2);
         sctx.fillStyle = color;
         sctx.fill();
 
-        // Label just offset outward
-        const ang = Math.atan2(st.y, st.x);
         const lx = x + (8 + dotR) * Math.cos(ang);
         const ly = y + (8 + dotR) * Math.sin(ang);
         sctx.fillStyle = color;
@@ -327,7 +370,7 @@
 
       // Footer timestamp
       sctx.fillStyle = "#aaa";
-      sctx.fillText(`Positions @ ${now.toUTCString()}  (evenly spaced guide rings)`, 10, h - 14);
+      sctx.fillText(`Positions @ ${now.toUTCString()}  (inner expanded to 6 AU; outer compressed; degree & AU rings)`, 10, h - 14);
     }
 
     // ---------- CLOCKS / READOUTS (selected planet only) ----------
@@ -359,6 +402,16 @@
 
       // Accurate state for selected planet
       const st = orbitState(planet, new Date(now.toISOString()));
+      const miles = st.rAU * AU_TO_MILES;
+
+      document.getElementById("distanceFromSun").textContent =
+        Math.round(miles).toLocaleString() + " miles";
+      document.getElementById("distanceAU").textContent =
+        st.rAU.toFixed(6) + " AU";
+
+      document.getElementById("trueAnomaly").textContent =
+        `${st.nudeg.toFixed(4)}° true anomaly from perihelion`;
+
       document.getElementById("orbitSince").textContent =
         `Elapsed since perihelion (${planet}): ${dhmsDays(st.sinceDays)}`;
       document.getElementById("orbitRemaining").textContent =
@@ -366,21 +419,14 @@
       document.getElementById("orbitPercent").textContent =
         `Orbit completion (${planet}): ${st.percent.toFixed(6)}%`;
       document.getElementById("orbitDetails").textContent =
-        `a=${st.aAU.toFixed(6)} AU, e=${st.e.toFixed(6)} | M=${st.Mdeg.toFixed(4)}°, ν=${st.nudeg.toFixed(4)}° | Ω=${(st.OmegaDeg*RAD2DEG).toFixed(4)}°, i=${st.iDeg.toFixed(4)}°, ω=${st.omegaDeg.toFixed(4)}°`;
-
-      // Distance & true anomaly for selected planet
-      const distanceMiles = st.rAU * AU_TO_MILES;
-      document.getElementById("distanceFromSun").textContent =
-        Math.round(distanceMiles).toLocaleString() + " miles";
-      document.getElementById("trueAnomaly").textContent =
-        `${st.nudeg.toFixed(4)}° true anomaly from perihelion`;
+        `a=${st.aAU.toFixed(6)} AU, e=${st.e.toFixed(6)} | M=${st.Mdeg.toFixed(4)}°, ν=${st.nudeg.toFixed(4)}°`;
     }
 
     // ---------- Wiring ----------
+    const planetEl = document.getElementById('planet');
     planetEl.addEventListener('change', () => {
       setPlanetImage(planetEl.value); // update picture
       updateClocks();                 // update right-side readouts
-      // Solar panel runs independently
     });
 
     // Initial boot
