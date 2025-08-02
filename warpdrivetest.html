@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Warp Drive Clock Sync & Trajectory</title>
+  <title>Warp Drive Clock Sync & Trajectory + IST Orbits</title>
   <style>
     body {
       background-color: black;
@@ -25,11 +25,12 @@
     th, td {
       padding: 10px;
       border: 1px solid white;
+      font-variant-numeric: tabular-nums;
     }
     .synced { background-color: #0f0; color: black; }
     .warning { background-color: #ff0; color: black; }
     .danger { background-color: #f00; color: white; }
-    button, select {
+    button, select, input {
       padding: 10px 15px;
       margin: 10px;
       font-size: 16px;
@@ -40,39 +41,75 @@
     #startBtn { background-color: #00ccff; color: black; }
     #stopBtn { background-color: #999; color: white; }
     #resetBtn { background-color: #ff6600; color: white; }
+    .cfg {
+      width: 90%;
+      margin: 0 auto 10px auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 8px;
+      align-items: center;
+      justify-items: center;
+    }
+    .pill {
+      display: inline-block;
+      padding: 6px 10px;
+      border: 1px solid #555;
+      border-radius: 999px;
+      font-size: 12px;
+      color: #9fdfff;
+    }
+    progress { width: 100%; height: 10px; border-radius: 6px; }
+    .subtle { color:#9f9f9f; font-size: 12px; }
   </style>
 </head>
 <body>
 
 <h1>🚀 Warp Drive Sync + Curve Visualizer</h1>
-<h3>Instructions: Step 1: Select Warp Drive Speed & planet of choice Step 2: Press Engage Button Step 3: Click Start Button Step 4: Press Stop Clock any time Step 5: Press Reset (Redo Steps) C1 → “Crew SAFE/WARN/UNSAFE”/C2/C3 → “Flight SAFE/WARN/UNSAFE (with C4 as anchor)” C5 DriftEye tells yu if the internal time environment is stable or not.(+-5 Crew Warning +-10 Crew Unsafe)<h3>
-<label>
-  Warp Speed:
-  <select id="warpSpeed">
-    <option value="1">Warp 1</option>
-    <option value="2">Warp 2</option>
-    <option value="3">Warp 3</option>
-    <option value="4">Warp 4</option>
-    <option value="5">Warp 5</option>
-    <option value="6">Warp 6</option>
-    <option value="7">Warp 7</option>
-    <option value="8">Warp 8</option>
-    <option value="9">Warp 9</option>
-    <option value="10">Warp 10</option>
-  </select>
-</label>
+<h3>Instructions: Step 1: Select Warp Speed & planet  Step 2: Press Engage  Step 3: Click Start  Step 4: Stop any time  Step 5: Reset<br>
+C1 → Crew SAFE/WARN/UNSAFE • C2/C3 → Flight SAFE/WARN (C4 anchor) • C5 DriftEye: internal time stability (±5 WARN, ±10 UNSAFE)</h3>
 
-<label style="margin-left: 20px;">
-  Destination:
-  <select id="destination">
-    <option value="Mars">Mars</option>
-    <option value="Jupiter">Jupiter</option>
-    <option value="Saturn">Saturn</option>
-    <option value="Pluto">Pluto</option>
-  </select>
-</label>
+<div class="cfg">
+  <div>
+    <label>Warp Speed:&nbsp;
+      <select id="warpSpeed">
+        <option value="1">Warp 1</option>
+        <option value="2">Warp 2</option>
+        <option value="3">Warp 3</option>
+        <option value="4">Warp 4</option>
+        <option value="5">Warp 5</option>
+        <option value="6">Warp 6</option>
+        <option value="7">Warp 7</option>
+        <option value="8">Warp 8</option>
+        <option value="9">Warp 9</option>
+        <option value="10">Warp 10</option>
+      </select>
+    </label>
+  </div>
 
-<br>
+  <div>
+    <label>Destination:&nbsp;
+      <select id="destination">
+        <option value="Mars">Mars</option>
+        <option value="Jupiter">Jupiter</option>
+        <option value="Saturn">Saturn</option>
+        <option value="Pluto">Pluto</option>
+      </select>
+    </label>
+  </div>
+
+  <div>
+    <label>IST Day 0 (years ago):&nbsp;
+      <input id="istDay0Years" type="number" step="1" value="45500000000">
+    </label>
+  </div>
+
+  <div>
+    <label>Baseline Days / IST Year:&nbsp;
+      <input id="baselineDaysPerYear" type="number" step="0.001" value="365.25">
+    </label>
+  </div>
+</div>
+
 <button id="startBtn">▶️ Start</button>
 <button id="stopBtn">⏸️ Stop</button>
 <button id="resetBtn">🔄 Engage Warp</button>
@@ -80,6 +117,25 @@
 
 <canvas id="curveCanvas" width="800" height="300"></canvas>
 <div id="beacon">⏳ Waiting for start...</div>
+
+<!-- Orbital tracker for the selected destination + Sun age -->
+<table>
+  <thead>
+    <tr>
+      <th colspan="6">IST Orbital Tracker (Live)</th>
+    </tr>
+    <tr>
+      <th>Body</th>
+      <th>Age Since Creation</th>
+      <th>Orbits Completed</th>
+      <th>Current Orbit</th>
+      <th>Progress</th>
+      <th>Days into Orbit / Orbit Length</th>
+    </tr>
+  </thead>
+  <tbody id="orbit-body"></tbody>
+</table>
+<div class="subtle">Formation offsets (Myr after Day 0): Sun 0; Mercury 5; Venus 30; Earth 27; Mars 10; Jupiter 1; Saturn 3; Uranus 15; Neptune 20; Pluto 30.</div>
 
 <table>
   <thead>
@@ -92,11 +148,14 @@
 </table>
 
 <script>
+  // =========================
+  // Canvas + Warp Visualizer
+  // =========================
   const canvas = document.getElementById("curveCanvas");
   const ctx = canvas.getContext("2d");
 
   let simulationRunning = false;
-  let driftInterval = null, beaconInterval = null, animationFrame = null;
+  let driftInterval = null, beaconInterval = null, orbitInterval = null, animationFrame = null;
   let shipProgress = 0, shipArrived = false;
   const startX = 100, endX = 700, baseY = 220;
   const shipCoords = { x: 0, y: 0, z: 0 };
@@ -114,11 +173,67 @@
   function getCSTTime() {
     return new Date().getTime();
   }
-
   function formatTime(epochMs) {
     return new Date(epochMs).toISOString().substr(11, 12);
   }
 
+  // =========================
+  // IST Configuration & Data
+  // =========================
+  const IST_INPUT = () => Number(document.getElementById("istDay0Years").value || 45500000000);
+  const DPY_INPUT = () => Number(document.getElementById("baselineDaysPerYear").value || 365.25);
+
+  // Formation offsets (Myr after Day 0)
+  const formationOffsetMyr = {
+    Sun: 0,
+    Mercury: 5, Venus: 30, Earth: 27, Mars: 10,
+    Jupiter: 1, Saturn: 3, Uranus: 15, Neptune: 20, Pluto: 30
+  };
+
+  // Sidereal orbital periods (Earth days)
+  const orbitalDays = {
+    Mercury: 87.969,
+    Venus:   224.701,
+    Earth:   365.256,
+    Mars:    686.980,
+    Jupiter: 4332.59,
+    Saturn:  10759.22,
+    Uranus:  30685,
+    Neptune: 60190,
+    Pluto:   90560
+  };
+
+  // Age/Orbit math from IST baseline
+  let tIST0 = performance.now(); // reset when IST inputs change to keep continuity
+
+  function getISTSnapshot() {
+    const dpy = DPY_INPUT(); // baseline days per IST year
+    const spy = dpy * 86400; // seconds per IST year
+    const elapsedISTyears = (performance.now() - tIST0) / 1000 / spy;
+    const day0YearsAgo = IST_INPUT();
+    const istYears = day0YearsAgo + elapsedISTyears; // total years since Day 0
+    const istDays  = istYears * dpy;
+    return { istYears, istDays, dpy };
+  }
+
+  function planetAgeYears(name, istYears) {
+    const offsetYears = (formationOffsetMyr[name] || 0) * 1_000_000;
+    return Math.max(0, istYears - offsetYears); // years since creation
+  }
+
+  function orbitsFor(name, pDays) {
+    const yearLen = orbitalDays[name];
+    if (!yearLen) return null; // Sun or unknown
+    const totalOrbits = pDays / yearLen;
+    const completed = Math.max(0, Math.floor(totalOrbits));
+    const frac = totalOrbits - completed;
+    const daysInto = frac * yearLen;
+    return { totalOrbits, completed, frac, daysInto, yearLen };
+  }
+
+  // =========================
+  // UI: Clocks & Beacon
+  // =========================
   function updateClocks() {
     const tbody = document.getElementById("clock-table-body");
     tbody.innerHTML = "";
@@ -132,8 +247,8 @@
       totalDrift += Math.abs(clock.drift);
 
       let cls = "synced", status = "✅ Synced";
-      if (Math.abs(clock.drift) > 5) cls = "warning", status = "⚠️ Drift";
-      if (Math.abs(clock.drift) > 10) cls = "danger", status = "❌ Unsafe";
+      if (Math.abs(clock.drift) > 5) { cls = "warning"; status = "⚠️ Drift"; }
+      if (Math.abs(clock.drift) > 10) { cls = "danger"; status = "❌ Unsafe"; }
 
       tbody.innerHTML += `
         <tr class="${cls}">
@@ -166,6 +281,71 @@
     });
   }
 
+  // =========================
+  // UI: Orbital Tracker Table
+  // =========================
+  function updateOrbitTable() {
+    const { istYears, dpy } = getISTSnapshot();
+    const destination = document.getElementById("destination").value;
+
+    // Build two rows: Sun + selected destination
+    const rows = [];
+    // Sun age
+    const sunYears = planetAgeYears("Sun", istYears);
+    const sunDays = sunYears * dpy;
+    rows.push({
+      body: "Sun",
+      age: `${(sunYears/1e9).toFixed(6)} Ga • ${Math.floor(sunYears).toLocaleString()} y • ${Math.floor(sunDays).toLocaleString()} d`,
+      comp: "—", curr: "—", prog: "—", into: "—"
+    });
+
+    // Destination planet
+    const pYears = planetAgeYears(destination, istYears);
+    const pDays  = pYears * dpy;
+    const orbits = orbitsFor(destination, pDays);
+    let row;
+    if (orbits) {
+      const completed = orbits.completed;
+      const currentOrbit = completed + 1;
+      const percent = (orbits.frac*100).toFixed(2) + "%";
+      row = {
+        body: destination,
+        age: `${(pYears/1e9).toFixed(6)} Ga • ${Math.floor(pYears).toLocaleString()} y • ${Math.floor(pDays).toLocaleString()} d`,
+        comp: completed.toLocaleString(),
+        curr: currentOrbit.toLocaleString(),
+        prog: percent,
+        into: `~${Math.floor(orbits.daysInto).toLocaleString()} / ${Math.floor(orbits.yearLen).toLocaleString()} d`
+      };
+    } else {
+      row = { body: destination, age: "—", comp: "—", curr: "—", prog: "—", into: "—" };
+    }
+
+    const tbody = document.getElementById("orbit-body");
+    tbody.innerHTML = `
+      <tr>
+        <td>${rows[0].body}</td>
+        <td>${rows[0].age}</td>
+        <td>${rows[0].comp}</td>
+        <td>${rows[0].curr}</td>
+        <td>${rows[0].prog}</td>
+        <td>${rows[0].into}</td>
+      </tr>
+      <tr>
+        <td>${row.body}</td>
+        <td>${row.age}</td>
+        <td>${row.comp}</td>
+        <td>${row.curr}</td>
+        <td>
+          <div class="pill">${row.prog}</div>
+        </td>
+        <td>${row.into}</td>
+      </tr>
+    `;
+  }
+
+  // =========================
+  // Drawing & Animation
+  // =========================
   function drawCurveWithShip() {
     const warp = parseInt(document.getElementById("warpSpeed").value) || 1;
     const arcHeight = 80 / warp;
@@ -189,7 +369,7 @@
     ctx.fillStyle = "white";
     ctx.fillText(destination, endX - 30, baseY + 25);
 
-    // Arc
+    // Arc (Warp 1 high arc → Warp 10 flatter)
     ctx.beginPath();
     ctx.moveTo(startX, baseY);
     ctx.quadraticCurveTo((startX + endX) / 2, baseY - arcHeight * 3, endX, baseY);
@@ -197,7 +377,7 @@
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // Ship
+    // Ship (quadratic Bezier)
     const t = shipProgress;
     const cx = (1 - t) ** 2 * startX + 2 * (1 - t) * t * ((startX + endX) / 2) + t ** 2 * endX;
     const cy = (1 - t) ** 2 * baseY + 2 * (1 - t) * t * (baseY - arcHeight * 3) + t ** 2 * baseY;
@@ -218,12 +398,15 @@
     if (shipProgress >= 1) {
       shipProgress = 1;
       shipArrived = true;
-      stopAll(); // ✅ This stops clocks, beacon, and animation at arrival
+      stopAll(); // ✅ Stops clocks, beacon, orbit updates, animation at arrival
     }
     drawCurveWithShip();
     animationFrame = requestAnimationFrame(animateShip);
   }
 
+  // =========================
+  // Start/Stop/Reset
+  // =========================
   function startAll() {
     if (simulationRunning) return;
     simulationRunning = true;
@@ -233,6 +416,7 @@
     beaconInterval = setInterval(() => {
       clocks.forEach(c => { if (c.id !== "C4") c.drift *= 0.1; });
     }, 2000);
+    orbitInterval = setInterval(updateOrbitTable, 500);
     animateShip();
   }
 
@@ -240,6 +424,7 @@
     simulationRunning = false;
     clearInterval(driftInterval);
     clearInterval(beaconInterval);
+    clearInterval(orbitInterval);
     cancelAnimationFrame(animationFrame);
   }
 
@@ -250,7 +435,10 @@
     log.length = 0;
     clocks.forEach(c => c.drift = 0);
     document.getElementById("beacon").textContent = "⏳ Waiting for start...";
+    // Reset IST continuity so new Day0/DPY take effect from now
+    tIST0 = performance.now();
     updateClocks();
+    updateOrbitTable();
     drawCurveWithShip();
   }
 
@@ -271,8 +459,14 @@
   document.getElementById("stopBtn").onclick = stopAll;
   document.getElementById("resetBtn").onclick = resetAll;
 
+  // When IST inputs change, rebase the elapsed counter for seamless continuity
+  document.getElementById("istDay0Years").addEventListener("input", () => { tIST0 = performance.now(); updateOrbitTable(); });
+  document.getElementById("baselineDaysPerYear").addEventListener("input", () => { tIST0 = performance.now(); updateOrbitTable(); });
+  document.getElementById("destination").addEventListener("change", updateOrbitTable);
+
   window.onload = () => {
     updateClocks();
+    updateOrbitTable();
     drawCurveWithShip();
   };
 </script>
