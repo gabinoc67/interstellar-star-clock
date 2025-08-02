@@ -1,101 +1,139 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>🪐 Planetary Age Calculator</title>
+  <meta charset="UTF-8" />
+  <title>🪐 Planetary Age Calculator (with Time of Birth)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
+    :root { --teal:#00ffff; }
     body {
-      background: black;
-      color: white;
-      font-family: 'Courier New', monospace;
-      text-align: center;
-      padding: 50px;
+      background:#000;
+      color:#fff;
+      font-family: "Courier New", monospace;
+      text-align:center;
+      padding:40px;
     }
-    h1 {
-      font-size: 2.8em;
-      color: #00ffff;
-    }
-    p, label {
-      font-size: 1.5em;
-      margin-top: 20px;
-    }
+    /* ~20% smaller fonts than your original */
+    h1 { font-size:2.24em; color:var(--teal); margin:0 0 .3em; }
+    p, label { font-size:1.2em; margin:.6em 0; }
+    .controls { display:flex; flex-wrap:wrap; gap:10px; justify-content:center; align-items:center; }
     input, button {
-      padding: 15px;
-      font-size: 1.2em;
-      margin: 15px;
-      border-radius: 10px;
-      border: none;
+      padding:12px 14px;
+      font-size:.96em;
+      margin:8px 6px;
+      border-radius:10px;
+      border:none;
+    }
+    input[type="datetime-local"] {
+      background:#061b1b;
+      color:#d9ffff;
+      border:1px solid #0aa;
     }
     button {
-      background-color: #00ffff;
-      color: black;
-      cursor: pointer;
+      background:var(--teal);
+      color:#000;
+      cursor:pointer;
     }
+    button:disabled { opacity:.6; cursor:not-allowed; }
     table {
-      margin: 30px auto;
-      border-collapse: collapse;
-      color: #00ffff;
-      font-size: 1.5em;
-      width: 80%;
+      margin:24px auto 0;
+      border-collapse:collapse;
+      color:var(--teal);
+      font-size:1.2em; /* 20% smaller */
+      width:min(900px, 90vw);
     }
-    th, td {
-      border: 2px solid #00ffff;
-      padding: 15px 20px;
-    }
-    th {
-      background: #003f3f;
-    }
-    #results {
-      margin-top: 40px;
-    }
+    th, td { border:2px solid var(--teal); padding:12px 16px; }
+    th { background:#003f3f; }
+    #results { margin-top:28px; }
+    .note { font-size:.95em; color:#9ff; opacity:.8; margin-top:8px; }
   </style>
 </head>
 <body>
   <h1>🪐 Planetary Age Calculator</h1>
-  <p>Enter your birthdate (MM/DD/YYYY):</p>
-  <input type="date" id="birthdate">
-  <button onclick="calculateAge()">Calculate</button>
+  <p>Enter your <strong>date & time of birth</strong> (local time):</p>
+
+  <div class="controls">
+    <label for="birthdt" style="display:none;">Birth date & time</label>
+    <input type="datetime-local" id="birthdt" />
+    <button id="calcBtn" onclick="calculateAge()">Calculate</button>
+  </div>
+  <div class="note">Uses the mean tropical year (365.24219 days) and precise orbital periods. Timestamp math handles leap years/DST correctly.</div>
 
   <div id="results"></div>
 
   <script>
+    // More precise orbital periods (days)
     const planetData = [
-      { name: "Mercury",  orbit: 88 },
-      { name: "Venus",    orbit: 225 },
-      { name: "Earth",    orbit: 365.25 },
-      { name: "Mars",     orbit: 687 },
-      { name: "Jupiter",  orbit: 4333 },
-      { name: "Saturn",   orbit: 10759 },
-      { name: "Uranus",   orbit: 30687 },
-      { name: "Neptune",  orbit: 60190 },
-      { name: "Pluto",    orbit: 90560 }
+      { name: "Mercury",  orbit: 87.9691 },
+      { name: "Venus",    orbit: 224.701 },
+      { name: "Earth",    orbit: 365.24219 }, // mean tropical year
+      { name: "Mars",     orbit: 686.980 },
+      { name: "Jupiter",  orbit: 4332.59 },
+      { name: "Saturn",   orbit: 10759.22 },
+      { name: "Uranus",   orbit: 30685.4 },
+      { name: "Neptune",  orbit: 60190.03 },
+      { name: "Pluto",    orbit: 90560 } // approximate
     ];
 
+    function fmt(n, dp=3) {
+      return Number(n).toFixed(dp);
+    }
+
     function calculateAge() {
-      const input = document.getElementById("birthdate").value;
+      const input = document.getElementById("birthdt").value;
       const resultsDiv = document.getElementById("results");
+
       if (!input) {
-        resultsDiv.innerHTML = "<p>Please enter a valid date.</p>";
+        resultsDiv.innerHTML = "<p>Please enter a valid date and time.</p>";
         return;
       }
 
+      // datetime-local gives "YYYY-MM-DDTHH:mm" in local time zone
       const birth = new Date(input);
       const now = new Date();
-      const msPerYear = 1000 * 60 * 60 * 24 * 365.25;
-      const earthAge = (now - birth) / msPerYear;
+
+      if (isNaN(birth.getTime())) {
+        resultsDiv.innerHTML = "<p>Could not read that date/time. Please try again.</p>";
+        return;
+      }
+      if (birth > now) {
+        resultsDiv.innerHTML = "<p>Birthdate can’t be in the future.</p>";
+        return;
+      }
+
+      // Use precise timestamps (milliseconds) to avoid DST/time-zone issues.
+      const ageSeconds = (now.getTime() - birth.getTime()) / 1000;
+      const secondsPerTropicalYear = 365.24219 * 86400;
+      const earthYears = ageSeconds / secondsPerTropicalYear;
 
       let html = `<table>
-                    <tr><th>Planet</th><th>Age (Planet Years)</th><th>Equivalent Earth Years</th></tr>`;
-      planetData.forEach(planet => {
-        const planetYears = earthAge * (365.25 / planet.orbit);
-        const earthEquivalent = (planetYears * planet.orbit / 365.25).toFixed(2);
+        <tr>
+          <th>Planet</th>
+          <th>Age (Planet Years)</th>
+          <th>Equivalent Earth Years</th>
+          <th>Orbital Period (days)</th>
+        </tr>`;
+
+      planetData.forEach(p => {
+        // Convert Earth years to planet years by ratio of periods
+        const planetYears = earthYears * (365.24219 / p.orbit);
+        const earthEquivalent = (planetYears * p.orbit / 365.24219); // ~= earthYears
+
         html += `<tr>
-                  <td>${planet.name}</td>
-                  <td>${planetYears.toFixed(3)}</td>
-                  <td>${earthEquivalent}</td>
-                </tr>`;
+          <td>${p.name}</td>
+          <td>${fmt(planetYears, 3)}</td>
+          <td>${fmt(earthEquivalent, 2)}</td>
+          <td>${fmt(p.orbit, 5)}</td>
+        </tr>`;
       });
+
       html += `</table>`;
+
+      // Optional summary
+      const years = Math.floor(earthYears);
+      const months = Math.floor((earthYears - years) * 12);
+      html += `<div class="note">Approx. Earth age: ${years} years, ${months} months (using 365.24219-day year).</div>`;
+
       resultsDiv.innerHTML = html;
     }
   </script>
