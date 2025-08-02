@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Warp Control Center — Compact/Responsive</title>
+<title>Warp Control Center — Compact/Responsive + Dynamic Engine</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
   :root{
@@ -88,7 +88,7 @@
         <label>Compact <input id="compact" type="checkbox" checked></label>
         <label>Engineer Mode <input id="engMode" type="checkbox"></label>
         <label>Sound <input id="soundOn" type="checkbox" checked></label>
-        <span class="badge">GV Panel v2.1</span>
+        <span class="badge">GV Panel v2.2</span>
       </div>
     </div>
 
@@ -173,7 +173,7 @@
       </div>
     </div>
 
-    <!-- Polar Map -->
+    <!-- Polar Map (smaller) -->
     <div class="panel glass">
       <h2>Heliocentric Polar Map (Now vs Arrival)</h2>
       <canvas id="orbitCanvas"></canvas>
@@ -210,7 +210,7 @@
 </div>
 
 <script>
-/* ====== Base data & helpers (same physics as last build) ====== */
+/* ====== Base data & helpers ====== */
 const AU_M=1.495978707e11, C_MPS=299792458;
 const orbitAU={ Earth:1.0, Mars:1.524, Jupiter:5.204, Saturn:9.582, Pluto:39.48 };
 const orbitalDays={ Mercury:87.969, Venus:224.701, Earth:365.256, Mars:686.980, Jupiter:4332.59, Saturn:10759.22, Uranus:30685, Neptune:60190, Pluto:90560 };
@@ -244,47 +244,88 @@ function planetAgeYears(name,iy){ return Math.max(0, iy - (formationOffsetMyr[na
 function trueAnomalyFrac(name,iy,dpy){ const py=planetAgeYears(name,iy), pd=py*dpy, T=orbitalDays[name]; if(!T) return 0; const N=pd/T; return N-Math.floor(N); }
 function orbitsFor(name,pd){ const T=orbitalDays[name]; if(!T) return null; const tot=pd/T, comp=Math.max(0,Math.floor(tot)), frac=tot-comp, daysInto=frac*T; return {totalOrbits:tot,completed:comp,frac,daysInto,yearLen:T}; }
 
-/* ====== Warp & Engine ====== */
+/* ====== Dynamic engine state (NEW) ====== */
+let lastFrameTime = performance.now();
+const engineState = {
+  t: 0, temp: 0, sag: 0, containNeed: 0.22, jitter: 0
+};
+function stepEngineDynamics(dt, running){
+  if(!running){
+    engineState.temp = Math.max(0, engineState.temp - 0.30*dt);
+    engineState.sag  = Math.max(0, engineState.sag  - 0.25*dt);
+    engineState.jitter *= 0.85;
+    engineState.containNeed = 0.22 + 0.06*engineState.temp;
+    return;
+  }
+  engineState.t += dt;
+  engineState.temp = Math.min(1, engineState.temp + 0.06*dt);
+  const baseSag = 0.02 + 0.04*engineState.temp;
+  const ripple  = 0.01*Math.sin(0.7*engineState.t);
+  engineState.sag = Math.max(0, baseSag + ripple);
+  engineState.containNeed = 0.22 + 0.06*engineState.temp;
+
+  const biasMag = Math.hypot(
+    Number($("lrBias").value||0)/100,
+    Number($("udBias").value||0)/100
+  );
+  engineState.jitter = 0.01 + 0.03*biasMag
+                     + 0.01*Math.sin(3.0*engineState.t)
+                     + 0.006*(Math.random()-0.5);
+  engineState.jitter = Math.max(0, Math.min(0.08, engineState.jitter));
+}
+
+/* ====== Warp & Engine (integrates dynamics) ====== */
 function warpInputs(){ return { warp:Number($("warpSpeed").value||1), exp:Number($("warpExp").value||3), scale:Number($("warpScale").value||1) }; }
 function engineInputs(){
-  const reactorMW=Number($("reactorMW").value||5000);
+  const reactorMW_in=Number($("reactorMW").value||5000);
   const front=Number($("frontPct").value||0)/100, rear=Number($("rearPct").value||0)/100;
   const lr=Number($("lrBias").value||0)/100, ud=Number($("udBias").value||0)/100;
   const mode=$("intakeMode").value;
 
-  // power split (heuristic, compact)
-  const vecDemand=Math.min(1, 0.4 + 0.6*(Math.abs(lr)+Math.abs(ud)+Math.abs(rear-front)));
-  const coilsPct=Math.max(0.35, 0.55 - 0.25*vecDemand);
-  const containPct=Math.max(0.20, 0.25 - 0.10*(rear-front<0?1:0));
-  const vanesPct=Math.min(0.35, 1 - coilsPct - containPct);
+  // Apply sag
+  const reactorMW = reactorMW_in * (1 - engineState.sag);
 
+  // Power split
+  const vecDemand=Math.min(1, 0.4 + 0.6*(Math.abs(lr)+Math.abs(ud)+Math.abs(rear-front)));
+  let coilsPct=Math.max(0.35, 0.55 - 0.25*vecDemand);
+  let containPct=Math.max(engineState.containNeed, 0.20);
+  let vanesPct=Math.min(0.35, 1 - coilsPct - containPct);
+  const sum=coilsPct+containPct+vanesPct; if(sum>1){ const k=1/sum; coilsPct*=k; containPct*=k; vanesPct*=k; }
+
+  // Meters
   $("mCoils").style.width=`${coilsPct*100}%`; $("mCoilsVal").textContent=`${(coilsPct*reactorMW).toFixed(0)} MW`;
   $("mVanes").style.width=`${vanesPct*100}%`; $("mVanesVal").textContent=`${(vanesPct*reactorMW).toFixed(0)} MW`;
   $("mContain").style.width=`${containPct*100}%`; $("mContainVal").textContent=`${(containPct*reactorMW).toFixed(0)} MW`;
 
+  // Stability
   let stability=1.0;
-  if(containPct<0.22) stability -= 0.25*(0.22-containPct)/0.22;
-  const biasMag=Math.hypot(lr,ud); stability -= 0.3*Math.max(0, biasMag-0.3)/0.7;
-  if(rear<front) stability -= 0.2*(front-rear);
-  if(mode==="positive" && rear<front) stability -= 0.05;
-  if(mode==="negative" && rear>front) stability -= 0.05;
-  stability=Math.max(0,Math.min(1,stability));
+  if (containPct < engineState.containNeed) stability -= 0.40*(engineState.containNeed - containPct)/engineState.containNeed;
+  const biasMag=Math.hypot(lr,ud); stability -= 0.30*Math.max(0, biasMag-0.3)/0.7;
+  if (rear<front) stability -= 0.20*(front-rear);
+  if (mode==="positive" && rear<front) stability -= 0.05;
+  if (mode==="negative" && rear>front) stability -= 0.05;
+  stability -= engineState.jitter;
+  stability = Math.max(0, Math.min(1, stability));
 
+  // Gradient factor
   const grad=Math.max(0,(rear-front));
-  const gradBoost=coilsPct*(0.5+0.5*grad);
-  const gradientFactor=stability*(0.35+0.9*gradBoost);
+  let gradBoost=coilsPct*(0.5+0.5*grad);
+  gradBoost *= (1 - 0.20*engineState.temp);
+  const gradientFactor = stability * (0.35 + 0.9*gradBoost);
 
+  // Lights
   setLight($("lightBubble"), stability>0.75?"good":stability>0.45?"warn":"bad");
   setLight($("lightPower"), "good");
-  setLight($("lightVector"), Math.hypot(lr,ud)<0.6?"good":Math.hypot(lr,ud)<0.85?"warn":"bad");
+  setLight($("lightVector"), biasMag<0.6?"good":biasMag<0.85?"warn":"bad");
 
+  // Engineer panel
   if($("engMode").checked){
     $("engPanel").style.display="block";
-    const coilI=(coilsPct*reactorMW)*5, wallM = 1/(0.25+gradientFactor)*4, containMargin=(containPct-0.22)*100, negE=-(gradientFactor*reactorMW)*1.2e3;
+    const coilI=(coilsPct*reactorMW)*5, wallM=1/(0.25+gradientFactor)*4, containMargin=(containPct-engineState.containNeed)*100, negE=-(gradientFactor*reactorMW)*1.2e3;
     $("rdGradient").textContent=`GradientFactor: ${gradientFactor.toFixed(3)}`;
     $("rdStability").textContent=`Bubble Stability: ${stability.toFixed(3)}`;
     $("rdCoilI").textContent=`Coil Current (arb): ${coilI.toFixed(0)}`;
-    $("rdContain").textContent=`Containment Margin: ${containMargin.toFixed(1)}%`;
+    $("rdContain").textContent=`Containment Margin: ${containMargin.toFixed(1)}% (need ${(engineState.containNeed*100).toFixed(1)}%)`;
     $("rdWall").textContent=`Wall Thickness (est): ${wallM.toFixed(2)} m`;
     $("rdNegE").textContent=`Neg. Energy Density (est): ${negE.toExponential(3)} J/m³`;
   } else { $("engPanel").style.display="none"; }
@@ -315,9 +356,9 @@ function computeETASeconds(){
   return { eta, dAU, v };
 }
 
-/* ====== Orbit & Polar Map ====== */
+/* ====== Orbit & Polar Map (smaller) ====== */
 const orbitCanvas=$("orbitCanvas"), octx=orbitCanvas.getContext("2d");
-const orbitRadiiPx={Mars:130,Jupiter:185,Saturn:230,Pluto:270};
+const orbitRadiiPx={Mars:110,Jupiter:155,Saturn:195,Pluto:230}; // tightened for 420×420 base
 function updateOrbitTable(){
   const {istYears,dpy}=IST_snapshot(); const dest=$("destination").value;
   const sY=planetAgeYears("Sun",istYears), sD=sY*dpy;
@@ -336,22 +377,22 @@ function drawOrbitView(){
   const w=orbitCanvas.width,h=orbitCanvas.height,cx=w/2,cy=h/2;
   octx.clearRect(0,0,w,h);
   // Sun
-  octx.beginPath(); octx.arc(cx,cy,12,0,Math.PI*2); octx.fillStyle="#ffb703"; octx.shadowColor="#ffb703"; octx.shadowBlur=14; octx.fill(); octx.shadowBlur=0;
-  octx.fillStyle="#cfe2ff"; octx.fillText("Sun",cx-14,cy-18);
+  octx.beginPath(); octx.arc(cx,cy,10,0,Math.PI*2); octx.fillStyle="#ffb703"; octx.shadowColor="#ffb703"; octx.shadowBlur=12; octx.fill(); octx.shadowBlur=0;
+  octx.fillStyle="#cfe2ff"; octx.fillText("Sun",cx-14,cy-16);
   ["Mars","Jupiter","Saturn","Pluto"].forEach(p=>{
     const r=orbitRadiiPx[p]; octx.beginPath(); octx.arc(cx,cy,r,0,Math.PI*2);
     octx.strokeStyle=p===dest?"#ffffff":"#3c4a6a"; octx.lineWidth=p===dest?2:1; octx.stroke();
     octx.fillStyle="#98a9cc"; octx.fillText(p,cx+r+8,cy-2);
   });
-  const fracNow=trueAnomalyFrac(dest,istYears,dpy), thNow=fracNow*Math.PI*2, rPx=orbitRadiiPx[dest]||200;
+  const fracNow=trueAnomalyFrac(dest,istYears,dpy), thNow=fracNow*Math.PI*2, rPx=orbitRadiiPx[dest]||180;
   const px=cx+rPx*Math.cos(thNow), py=cy+rPx*Math.sin(thNow);
-  octx.beginPath(); octx.arc(px,py,6,0,Math.PI*2); octx.fillStyle="#22d3ee"; octx.shadowColor="#22d3ee"; octx.shadowBlur=10; octx.fill(); octx.shadowBlur=0;
+  octx.beginPath(); octx.arc(px,py,5,0,Math.PI*2); octx.fillStyle="#22d3ee"; octx.shadowColor="#22d3ee"; octx.shadowBlur=9; octx.fill(); octx.shadowBlur=0;
   octx.beginPath(); octx.moveTo(cx,cy); octx.lineTo(px,py); octx.strokeStyle="#6aa9ff"; octx.lineWidth=1; octx.stroke();
 
   const {eta,dAU}=computeETASeconds();
   const T=orbitalDays[dest], dFrac=eta/(T*86400), thArr=(thNow+dFrac*Math.PI*2)%(Math.PI*2);
   const ax=cx+rPx*Math.cos(thArr), ay=cy+rPx*Math.sin(thArr);
-  octx.beginPath(); octx.arc(ax,ay,6,0,Math.PI*2); octx.fillStyle="#22c55e"; octx.shadowColor="#22c55e"; octx.shadowBlur=12; octx.fill(); octx.shadowBlur=0;
+  octx.beginPath(); octx.arc(ax,ay,5,0,Math.PI*2); octx.fillStyle="#22c55e"; octx.shadowColor="#22c55e"; octx.shadowBlur=11; octx.fill(); octx.shadowBlur=0;
   octx.beginPath(); octx.moveTo(cx,cy); octx.lineTo(ax,ay); octx.strokeStyle="#22c55e"; octx.lineWidth=1.5; octx.stroke();
 
   const degNow=(thNow*180/Math.PI+360)%360, degArr=(thArr*180/Math.PI+360)%360; let d=degArr-degNow; if(d<0)d+=360;
@@ -360,7 +401,6 @@ function drawOrbitView(){
 
 /* ====== Curve & Vectors ====== */
 const curveCanvas=$("curveCanvas"), ctx=curveCanvas.getContext("2d");
-let baseCurveSize={w:820,h:320}, baseOrbitSize={w:520,h:520};
 function drawCurve(){
   const warp=Number($("warpSpeed").value||1); const eng=engineInputs();
   const arcHeight=90/Math.max(1, warp*(0.8+0.6*eng.stability));
@@ -402,15 +442,6 @@ function drawCurve(){
 }
 
 /* ====== Animation & Clocks ====== */
-function animate(){
-  if(!simulationRunning || shipArrived) return;
-  const {warp}=warpInputs(); const eng=engineInputs();
-  const speed=Math.max(0.05,eng.gradientFactor)*Math.min(1,0.6+0.7*eng.stability);
-  shipProgress += 0.00045*Math.pow(warp,0.85)*(0.8+0.6*speed);
-  if(shipProgress>=1){ shipProgress=1; shipArrived=true; tone("good"); stopAll(); }
-  drawCurve(); drawOrbitView(); animationFrame=requestAnimationFrame(animate);
-}
-
 const clocks=[
   { id:"C1", location:"Biometric Zone", purpose:"Medium Crew/Local Systems", drift:0 },
   { id:"C2", location:"Warp Shell Edge", purpose:"Phase Monitor Field Timing", drift:3 },
@@ -435,7 +466,8 @@ function updateClocks(){
     tbody.innerHTML += `<tr class="${cls}">
       <td>${c.id}</td><td>${c.location}</td><td>${c.purpose}</td>
       <td>${fmtClock(base)}</td><td>${fmtClock(local)}</td><td>${d}</td><td>${status}</td>
-      <td>${fmtClock(arr)}</td><td>${arrISTstr}</td></tr>`;
+      <td>${fmtClock(arr)}</td><td>${arrISTstr}</td>
+    </tr>`;
   });
   const avg=total/clocks.length;
   const warp=Number($("warpSpeed").value||1), dest=$("destination").value;
@@ -444,35 +476,59 @@ function updateClocks(){
   flightLog.push({t:new Date().toISOString(), warp, dest, eta:etaStr, distAU:dAU.toFixed(3), vOverC:(v/C_MPS).toFixed(2)});
 }
 
+function animate(){
+  if(!simulationRunning || shipArrived) return;
+
+  // advance engine dynamics every frame (NEW)
+  const now=performance.now(); const dt=(now - lastFrameTime)/1000; lastFrameTime=now;
+  stepEngineDynamics(dt, true);
+
+  const {warp}=warpInputs(); const eng=engineInputs();
+  const speed=Math.max(0.05,eng.gradientFactor)*Math.min(1,0.6+0.7*eng.stability);
+  shipProgress += 0.00045*Math.pow(warp,0.85)*(0.8+0.6*speed);
+  if(shipProgress>=1){ shipProgress=1; shipArrived=true; tone("good"); stopAll(); }
+  drawCurve(); drawOrbitView(); animationFrame=requestAnimationFrame(animate);
+}
+
 /* ====== Controls ====== */
 function startAll(){
   if(simulationRunning) return;
   simulationRunning=true; shipArrived=false; shipProgress=0; tone("good");
+  lastFrameTime = performance.now();
   driftInterval=setInterval(updateClocks,500);
   beaconInterval=setInterval(()=>{ clocks.forEach(c=>{ if(c.id!=="C4") c.drift*=0.1; }); },2000);
   orbitInterval=setInterval(()=>{ updateOrbitTable(); drawOrbitView(); },600);
   animationFrame=requestAnimationFrame(animate);
 }
-function stopAll(){ simulationRunning=false; clearInterval(driftInterval); clearInterval(beaconInterval); clearInterval(orbitInterval); cancelAnimationFrame(animationFrame); tone("warn"); }
-function resetAll(){ stopAll(); shipProgress=0; shipArrived=false; clocks.forEach(c=>c.drift=0); tIST0=performance.now();
-  $("beacon").textContent="⏳ Waiting for start…"; updateClocks(); updateOrbitTable(); drawCurve(); drawOrbitView(); }
+function stopAll(){
+  simulationRunning=false;
+  clearInterval(driftInterval); clearInterval(beaconInterval); clearInterval(orbitInterval);
+  cancelAnimationFrame(animationFrame);
+  // cool down one step so readouts relax
+  stepEngineDynamics(0.2, false);
+  tone("warn");
+}
+function resetAll(){
+  stopAll(); shipProgress=0; shipArrived=false; clocks.forEach(c=>c.drift=0); tIST0=performance.now();
+  engineState.t=0; engineState.temp=0; engineState.sag=0; engineState.containNeed=0.22; engineState.jitter=0;
+  $("beacon").textContent="⏳ Waiting for start…"; updateClocks(); updateOrbitTable(); drawCurve(); drawOrbitView();
+}
 function exportLog(){ const rows=[["Time","Warp","Destination","ETA","Distance(AU)","v/c"], ...flightLog.map(e=>[e.t,e.warp,e.dest,e.eta,e.distAU,e.vOverC])];
   const csv=rows.map(r=>r.join(",")).join("\n"); const blob=new Blob([csv],{type:"text/csv"}); const a=document.createElement("a");
   a.href=URL.createObjectURL(blob); a.download="warp_log.csv"; a.click(); }
 
-/* ====== UI SCALE / COMPACT ====== */
+/* ====== UI SCALE / COMPACT + Canvas resize ====== */
 const rootEl=document.documentElement, scaleEl=$("uiScale");
+const curveBase={w:820,h:320}, orbitBase={w:420,h:420}; // smaller polar map
 function applyScale(){
   const pct = Number(scaleEl.value||100);
   rootEl.style.setProperty('--ui-scale', (pct/100).toString());
   $("uiScaleVal").textContent = pct+"%";
-  // Resize canvases pixel-accurately to avoid blur
   const s = pct/100;
-  // Base sizes -> scaled
-  const cw = Math.round(baseCurveSize.w * s), ch = Math.round(baseCurveSize.h * s);
-  const ow = Math.round(baseOrbitSize.w * s), oh = Math.round(baseOrbitSize.h * s);
-  curveCanvas.width=cw; curveCanvas.height=ch;
-  orbitCanvas.width=ow; orbitCanvas.height=oh;
+  curveCanvas.width = Math.round(curveBase.w*s);
+  curveCanvas.height= Math.round(curveBase.h*s);
+  orbitCanvas.width = Math.round(orbitBase.w*s);
+  orbitCanvas.height= Math.round(orbitBase.h*s);
   drawCurve(); drawOrbitView();
 }
 $("compact").addEventListener("change", (e)=>{
@@ -489,12 +545,8 @@ $("startBtn").onclick=startAll; $("stopBtn").onclick=stopAll; $("resetBtn").oncl
 
 /* Init */
 window.onload=()=>{
-  // Initial canvas sizes (before scaling)
-  baseCurveSize={w:820,h:320}; baseOrbitSize={w:520,h:520};
-  // compact by default for smaller screens
-  document.body.classList.add("compact");
-  // Apply initial scale
-  applyScale();
+  document.body.classList.add("compact");       // compact default
+  applyScale();                                 // sets canvas sizes (incl. smaller orbit)
   updateClocks(); updateOrbitTable(); drawCurve(); drawOrbitView();
 };
 </script>
