@@ -27,7 +27,7 @@
     /* Top inputs row: evenly spaced labels + controls */
     .inputs-grid{
       display:grid;
-      grid-template-columns: repeat(6, 1fr);
+      grid-template-columns: repeat(7, 1fr); /* now 7 to include Seconds */
       gap:12px; align-items:end;
     }
     .inputs-grid.second{ margin-top:12px; grid-template-columns: repeat(6, 1fr); }
@@ -53,8 +53,21 @@
     tbody td{padding:12px; border-bottom:1px dashed var(--border)}
     tbody tr:last-child td{border-bottom:none}
 
+    /* Inline “lived” label next to timezone label */
+    .label-row{
+      display:flex; align-items:center; justify-content:space-between;
+      gap:8px;
+    }
+    .lived-badge{
+      font-size:12px; color:var(--text); background:#0e1520; border:1px solid var(--border);
+      padding:8px 10px; border-radius:10px; white-space:nowrap; flex-shrink:0;
+    }
+
     @media (max-width: 980px){
-      .inputs-grid, .inputs-grid.second{ grid-template-columns: repeat(3, 1fr); }
+      .inputs-grid{ grid-template-columns: repeat(3, 1fr); }
+      .inputs-grid.second{ grid-template-columns: repeat(3, 1fr); }
+      .label-row{ flex-direction:column; align-items:flex-start; gap:6px; }
+      .lived-badge{ width:100%; }
     }
     @media (max-width: 560px){
       .inputs-grid, .inputs-grid.second{ grid-template-columns: 1fr; }
@@ -96,6 +109,10 @@
           <select id="minute"></select>
         </div>
         <div class="field">
+          <label for="second">Second</label>
+          <select id="second"></select>
+        </div>
+        <div class="field">
           <label for="ampm">AM / PM</label>
           <select id="ampm">
             <option value="AM">AM</option>
@@ -107,7 +124,10 @@
       <!-- Row 2: evenly spaced + action buttons + display fields -->
       <div class="inputs-grid second" id="row2">
         <div class="field">
-          <label for="tz">Birth Time Zone (fixed UTC offset)</label>
+          <div class="label-row">
+            <label for="tz">Birth Time Zone (fixed UTC offset)</label>
+            <span class="lived-badge" id="livedInline">I have lived —</span>
+          </div>
           <select id="tz">
             <optgroup label="Americas">
               <option value="-10">HST (UTC−10:00)</option>
@@ -188,7 +208,7 @@
       { name: 'Saturn',  days: 10759.22 },
       { name: 'Uranus',  days: 30685.4 },
       { name: 'Neptune', days: 60190.03 },
-      { name: 'Pluto',   days: 90560 } // (optional dwarf planet)
+      { name: 'Pluto',   days: 90560 } // optional dwarf planet
     ];
 
     // DOM refs
@@ -197,13 +217,15 @@
     const daySel    = document.getElementById('day');
     const hourSel   = document.getElementById('hour');
     const minuteSel = document.getElementById('minute');
+    const secondSel = document.getElementById('second');
     const ampmSel   = document.getElementById('ampm');
     const tzSel     = document.getElementById('tz');
 
-    const nowDisplay    = document.getElementById('nowDisplay');
-    const birthDisplay  = document.getElementById('birthDisplay');
-    const elapsedDisplay= document.getElementById('elapsedDisplay');
-    const statusDisplay = document.getElementById('statusDisplay');
+    const nowDisplay     = document.getElementById('nowDisplay');
+    const birthDisplay   = document.getElementById('birthDisplay');
+    const elapsedDisplay = document.getElementById('elapsedDisplay');
+    const statusDisplay  = document.getElementById('statusDisplay');
+    const livedInline    = document.getElementById('livedInline');
 
     const resultsBody = document.querySelector('#resultsTable tbody');
 
@@ -220,8 +242,7 @@
         opt.value = String(y); opt.textContent = String(y);
         yearSel.appendChild(opt);
       }
-      // try to preserve previous selection if still valid; otherwise set a reasonable default
-      if (prevValue && parseInt(prevValue,10) >= 1900 && parseInt(prevValue,10) <= currentYear){
+      if (prevValue && +prevValue >= 1900 && +prevValue <= currentYear){
         yearSel.value = prevValue;
       } else {
         yearSel.value = String(currentYear - 20);
@@ -236,10 +257,9 @@
       daySel.innerHTML = '';
       for (let d=1; d<=daysInMonth; d++){
         const opt = document.createElement('option');
-        opt.value = String(d); opt.textContent = String(d);
+        opt.value = String(d); opt.textContent = String(d).padStart(2,'0');
         daySel.appendChild(opt);
       }
-      // Clamp previous day if out of range
       daySel.value = String(Math.min(parseInt(prev,10)||1, daysInMonth));
     }
 
@@ -252,14 +272,21 @@
         hourSel.appendChild(opt);
       }
       minuteSel.innerHTML = '';
+      secondSel.innerHTML = '';
       for (let m=0; m<60; m++){
-        const opt = document.createElement('option');
-        opt.value = String(m);
-        opt.textContent = pad(m);
-        minuteSel.appendChild(opt);
+        const optM = document.createElement('option');
+        optM.value = String(m);
+        optM.textContent = pad(m);
+        minuteSel.appendChild(optM);
+
+        const optS = document.createElement('option');
+        optS.value = String(m);
+        optS.textContent = pad(m);
+        secondSel.appendChild(optS);
       }
       hourSel.value = '12';
       minuteSel.value = '00';
+      secondSel.value = '00';
       ampmSel.value  = 'AM';
     }
 
@@ -270,21 +297,33 @@
       const d  = parseInt(daySel.value,10);
       let h    = parseInt(hourSel.value,10) % 12; // 0..11
       const min = parseInt(minuteSel.value,10);
+      const sec = parseInt(secondSel.value,10);
       if (ampmSel.value === 'PM') h += 12; // 12h -> 24h
 
       const offsetHours = parseFloat(tzSel.value); // e.g., -6 for CST
       // Build UTC by subtracting the offset from local wall-clock time
-      const utcMillis = Date.UTC(y, mo-1, d, h - offsetHours, min, 0);
+      const utcMillis = Date.UTC(y, mo-1, d, h - offsetHours, min, sec);
       return new Date(utcMillis);
     }
 
     const fmtUTC = dt => dt.toISOString().replace('T',' ').replace('Z',' UTC');
 
     function fmtElapsed(ms){
-      const sec = Math.floor(ms/1000);
-      const days = Math.floor(sec/86400);
+      const secAll = Math.floor(ms/1000);
+      const days = Math.floor(secAll/86400);
       const years = (days / 365.2425).toFixed(6);
-      return `${days} days (~${years} Earth years)`;
+      return `${String(days)} days (~${years} Earth years)`;
+    }
+
+    function fmtElapsedDHMS(ms){
+      const totalSec = Math.max(0, Math.floor(ms/1000));
+      const days = Math.floor(totalSec / 86400);
+      let rem = totalSec % 86400;
+      const hours = Math.floor(rem / 3600);
+      rem %= 3600;
+      const minutes = Math.floor(rem / 60);
+      const seconds = rem % 60;
+      return `I have lived ${days} days ${hours} hours ${minutes} minutes ${seconds} seconds`;
     }
 
     function calculate(){
@@ -300,6 +339,7 @@
         birthDisplay.value = fmtUTC(birthUTC);
         const elapsedMs = nowUTC - birthUTC;
         elapsedDisplay.value = fmtElapsed(elapsedMs);
+        livedInline.textContent = fmtElapsedDHMS(elapsedMs);
         statusDisplay.value = 'OK';
 
         // Fill results
@@ -316,21 +356,29 @@
         });
       }catch(err){
         statusDisplay.value = 'Error: ' + err.message;
+        livedInline.textContent = 'I have lived —';
       }
     }
 
     function resetAll(){
-      populateYears();
+      // Do NOT repopulate years here; set explicitly to the requested values
+      // Set to your specified reset state:
+      // Year 1900, Month January (1), Day 01, AM, Hour 01, Minute 01, Second 00, TZ = CST (-6)
+      yearSel.value = '1900';
       monthSel.value = '1';
       populateDays();
       daySel.value = '1';
-      populateTime();
+      ampmSel.value = 'AM';
+      hourSel.value = '1';
+      minuteSel.value = '1';
+      secondSel.value = '0';
       tzSel.value = '-6';
 
       nowDisplay.value = '';
       birthDisplay.value = '';
       elapsedDisplay.value = '';
       statusDisplay.value = '';
+      livedInline.textContent = 'I have lived —';
       resultsBody.innerHTML = '';
     }
 
@@ -364,6 +412,9 @@
       };
       setInterval(refresh, 24*3600*1000);
     })();
+
+    // After init, set reset state immediately so defaults match your request
+    resetAll();
   </script>
 </body>
 </html>
