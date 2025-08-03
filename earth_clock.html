@@ -18,21 +18,21 @@
     header{
       grid-column: 1 / -1; display:flex; justify-content:space-between; align-items:center; gap: var(--gap);
     }
-    /* Smaller title */
-    h1{ margin:0; font-size: clamp(1.0rem, 2.6vw, 1.8rem); line-height:1.2; }
+    /* Smaller, tighter title */
+    h1{ margin:0; font-size: clamp(0.85rem, 2.0vw, 1.4rem); line-height:1.15; letter-spacing:.5px; }
     .controls{ display:flex; align-items:center; gap:.5rem; font-size: clamp(.9rem, 1.6vw, 1rem); }
     select{
       background:#001a16; color:var(--fg); border:1px solid #064e3b; padding:.3rem .5rem; border-radius:6px;
     }
 
-    /* Left panel */
-    .left{ display:flex; flex-direction:column; align-items:center; gap: var(--gap); }
-    .canvas-wrap{ width:100%; display:flex; justify-content:center; }
+    /* LEFT: image (left) + solar canvas (right) side-by-side */
+    .left{ display:flex; flex-direction:row; align-items:center; gap: var(--gap); }
+    .planet-image{ display:flex; justify-content:center; align-items:center; }
+    .planet-image img{ width:min(30vw, 44vh, 360px); height:auto; display:block; }
+    .canvas-wrap{ flex:1; display:flex; justify-content:center; align-items:center; }
     canvas{ width:100%; max-width:560px; aspect-ratio:1 / 1; background:#000; border:1px solid #064e3b; border-radius:10px; }
-    .planet-image{ display:flex; justify-content:center; width:100%; }
-    .planet-image img{ width:min(40vw, 44vh, 420px); height:auto; display:block; }
 
-    /* Right panel */
+    /* RIGHT panel */
     .content{ text-align:center; padding: var(--pad); }
     h2{ margin:.25rem 0 .4rem; font-size: clamp(1rem, 2.1vw, 1.6rem); }
     .clock-box{ margin-top: .9rem; font-size: clamp(.95rem, 1.5vw, 1.2rem); }
@@ -40,7 +40,8 @@
 
     @media (max-width: 980px){
       .wrap{ grid-template-columns: 1fr; }
-      .planet-image img{ width:min(70vw, 48vh, 420px); }
+      .left{ flex-direction:column; }
+      .planet-image img{ width:min(60vw, 48vh, 360px); }
     }
   </style>
 </head>
@@ -58,13 +59,13 @@
       </div>
     </header>
 
-    <!-- LEFT: Solar system canvas (independent) + selected planet image -->
+    <!-- LEFT: Planet image (LEFT) + Solar system canvas (RIGHT) -->
     <div class="left">
-      <div class="canvas-wrap">
-        <canvas id="solarCanvas"></canvas>
-      </div>
       <div class="planet-image">
         <img id="planetImg" alt="Planet image">
+      </div>
+      <div class="canvas-wrap">
+        <canvas id="solarCanvas"></canvas>
       </div>
     </div>
 
@@ -114,6 +115,7 @@
     function norm2pi(x){ x = x % (2*Math.PI); return x < 0 ? x + 2*Math.PI : x; }
 
     function toJulianDate(dateUTC) {
+      // Julian Date with 12h offset so midnight starts a new day correctly
       const a = Math.floor((14 - (dateUTC.getUTCMonth()+1)) / 12);
       const y = dateUTC.getUTCFullYear() + 4800 - a;
       const m = (dateUTC.getUTCMonth()+1) + 12*a - 3;
@@ -135,7 +137,7 @@
       return `${sign}${d}d ${h}h ${m}m ${s}s`;
     }
 
-    // ---------- J2000 elements with secular rates & 3D orientation ----------
+    // ---------- J2000 orbital elements + secular rates ----------
     const PLANETS = {
       Mercury:{ a:0.38709893, da:0.00000066, e:0.20563069, de:0.00002527,
         L:252.25084, dL:149472.67411175, varpi:77.45645, dvarpi:0.16047689,
@@ -187,7 +189,7 @@
     // ---------- Kepler solver ----------
     function solveKeplerElliptic(M, e) { // M in rad
       let E = (e < 0.8) ? M : Math.PI;
-      for (let i=0; i<15; i++){
+      for (let i=0; i<20; i++){
         const f = E - e*Math.sin(E) - M;
         const f1 = 1 - e*Math.cos(E);
         const dE = -f / f1;
@@ -201,7 +203,7 @@
     function orbitState(name, dateUTC){
       const p = PLANETS[name];
       const JD = toJulianDate(dateUTC);
-      const T = (JD - 2451545.0) / 36525.0;
+      const T = (JD - 2451545.0) / 36525.0; // centuries from J2000.0
 
       const a = p.a + p.da*T;
       const e = p.e + p.de*T;
@@ -214,16 +216,16 @@
       const Mdeg = norm360(L - varpi);
       const M = Mdeg * DEG2RAD;
 
-      const Pdays = p.P;
-      const n = 2*Math.PI / Pdays;
+      const Pdays = p.P;            // sidereal period (days)
+      const n = 2*Math.PI / Pdays;  // mean motion (rad/day)
 
       const E = solveKeplerElliptic(M, e);
       const rAU = a * (1 - e*Math.cos(E));
       const nu = 2*Math.atan2(Math.sqrt(1+e)*Math.sin(E/2), Math.sqrt(1-e)*Math.cos(E/2));
       const nudeg = norm2pi(nu) * RAD2DEG;
 
-      // Projected position
-      const Ω = (p.Omega + p.dOmega*T) * DEG2RAD, ω = (norm360(varpi - p.Omega - p.dOmega*T)) * DEG2RAD;
+      // Projected position in ecliptic plane (AU)
+      const Ω = Omega * DEG2RAD, ω = (omega) * DEG2RAD;
       const u = ω + nu;
       const cosΩ = Math.cos(Ω), sinΩ = Math.sin(Ω), cosi = Math.cos(i);
       const x = rAU * (cosΩ*Math.cos(u) - sinΩ*Math.sin(u)*cosi);
@@ -255,15 +257,17 @@
       img.alt = name;
     }
 
-    // ---------- SOLAR SYSTEM (independent; TWO-ZONE SCALE + TICKS & AU LABELS) ----------
+    // ---------- SOLAR SYSTEM CANVAS ----------
     const solarCanvas = document.getElementById('solarCanvas');
     const sctx = solarCanvas.getContext('2d');
 
     function resizeSolar(){
       const css = solarCanvas.getBoundingClientRect();
       const ratio = Math.max(1, Math.floor(window.devicePixelRatio || 1));
-      solarCanvas.width = Math.floor(css.width * ratio);
-      solarCanvas.height = Math.floor(css.height * ratio);
+      const w = Math.max(300, Math.floor(css.width * ratio));
+      const h = Math.max(300, Math.floor(css.height * ratio));
+      solarCanvas.width = w;
+      solarCanvas.height = h;
       sctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     }
     window.addEventListener('resize', () => { resizeSolar(); drawSolar(); });
@@ -297,7 +301,7 @@
       sctx.clearRect(0,0,w,h);
 
       // --- Degree ticks (outer rim) ---
-      const rimR = Rpx;                 // radius for degree rim
+      const rimR = Rpx;
       const minorLen = 6, majorLen = 12;
       sctx.strokeStyle = "rgba(255,255,255,0.25)";
       sctx.fillStyle = "rgba(255,255,255,0.6)";
@@ -314,14 +318,13 @@
         sctx.moveTo(x1,y1); sctx.lineTo(x2,y2); sctx.stroke();
 
         if (deg % 30 === 0) {
-          // label just inside the rim
           const lx = cx + (rimR - majorLen - 16) * Math.cos(rad);
           const ly = cy + (rimR - majorLen - 16) * Math.sin(rad);
           sctx.fillText(`${deg}°`, lx - 8, ly + 4);
         }
       }
 
-      // --- AU guide rings + labels (right-hand / 0° side) ---
+      // --- AU guide rings + labels ---
       const ringMarksAU = [1,2,3,4,5,6,8,10,15,20,30,40];
       sctx.strokeStyle = "rgba(255,255,255,0.14)";
       sctx.lineWidth = 1;
@@ -330,11 +333,9 @@
       for(const mark of ringMarksAU){
         if (mark <= maxR_AU + 0.1){
           const r = radiusPx(mark);
-          // ring
           sctx.beginPath();
           sctx.arc(cx, cy, r, 0, Math.PI*2);
           sctx.stroke();
-          // label at 0° (to the right)
           const lx = cx + r + 6;
           const ly = cy + 4;
           sctx.fillText(`${mark} AU`, lx, ly);
@@ -347,7 +348,7 @@
       sctx.fillStyle = "#ffd27f";
       sctx.fill();
 
-      // Plot planet markers + labels (no vectors)
+      // Planets + labels
       sctx.font = "12px 'Courier New', monospace";
       for(const {name, st} of states){
         const color = PLANETS[name].color || "#fff";
@@ -423,10 +424,9 @@
     }
 
     // ---------- Wiring ----------
-    const planetEl = document.getElementById('planet');
     planetEl.addEventListener('change', () => {
-      setPlanetImage(planetEl.value); // update picture
-      updateClocks();                 // update right-side readouts
+      setPlanetImage(planetEl.value);
+      updateClocks();
     });
 
     // Initial boot
