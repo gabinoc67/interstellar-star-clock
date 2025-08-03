@@ -1,9 +1,9 @@
-// ✅ render/hud-ship-overlay.js – Full HUD with Alerts, Compass, and Responsive Menu
+// ✅ render/hud-ship-overlay.js – Synced Compass, Log CSV, Curve Sync
 
 window.addEventListener("DOMContentLoaded", () => {
   const hud = document.getElementById("hud");
 
-  // 🔄 Compass Heading
+  // 🧭 Compass Heading
   const compass = document.createElement("div");
   compass.innerHTML = `
     <div id="compass" style="color:#ffa; text-align:center; font-size:1.1rem; margin:4px 0;">
@@ -12,7 +12,7 @@ window.addEventListener("DOMContentLoaded", () => {
   `;
   hud.appendChild(compass);
 
-  // 🖼 Ship 3D Render
+  // 🛸 Ship Render
   const shipRender = document.createElement("div");
   shipRender.innerHTML = `
     <div style="margin:8px 0; text-align:center;">
@@ -22,7 +22,7 @@ window.addEventListener("DOMContentLoaded", () => {
   `;
   hud.appendChild(shipRender);
 
-  // 🔃 Tab Buttons
+  // 📦 Toggleable Menu
   const tabBar = document.createElement("div");
   tabBar.style.display = "flex";
   tabBar.style.flexWrap = "wrap";
@@ -42,7 +42,6 @@ window.addEventListener("DOMContentLoaded", () => {
     tabBar.appendChild(btn);
   });
 
-  // 📱 Responsive Menu Toggle
   const menuToggle = document.createElement("button");
   menuToggle.textContent = "📦 Menu";
   menuToggle.style.margin = "4px 0";
@@ -85,6 +84,9 @@ window.addEventListener("DOMContentLoaded", () => {
   simulateVitals();
 });
 
+let curveAngle = 0;
+let vitalsLog = [];
+
 function simulateVitals() {
   const audio = new Audio("https://www.soundjay.com/button/beep-07.wav");
   audio.volume = 0.4;
@@ -97,9 +99,13 @@ function simulateVitals() {
     const warp = document.getElementById("warp-matrix");
     const heading = document.getElementById("heading-angle");
 
+    const now = new Date().toLocaleTimeString();
+    const data = { time: now };
+
     if (radBar) {
       let r = 10 + Math.random() * 30;
       radBar.value = r;
+      data.radiation = Math.round(r);
       if (r > 35) {
         audio.play();
         document.body.style.boxShadow = "0 0 30px red";
@@ -113,17 +119,39 @@ function simulateVitals() {
       let s = 75 + Math.random() * 20;
       if (warp && warp.value > 75) s -= 5;
       shieldBar.value = s;
+      data.shield = Math.round(s);
       if (s < 60) {
         document.body.style.boxShadow = "0 0 30px red";
         console.warn(`🛡 Shield Warning: ${Math.round(s)}%`);
       }
     }
 
-    if (signalBar) signalBar.value = 30 + Math.random() * 60;
-    if (core) core.value = 50 + Math.random() * 40;
-    if (warp) warp.value = 30 + Math.random() * 50;
-    if (heading) heading.textContent = `${Math.floor(Math.random() * 360).toString().padStart(3, '0')}`;
+    if (signalBar) {
+      let sig = 30 + Math.random() * 60;
+      signalBar.value = sig;
+      data.signal = Math.round(sig);
+    }
 
+    if (core) {
+      let c = 50 + Math.random() * 40;
+      core.value = c;
+      data.core = Math.round(c);
+    }
+
+    if (warp) {
+      let w = 30 + Math.random() * 50;
+      warp.value = w;
+      data.warp = Math.round(w);
+    }
+
+    if (heading) {
+      let ang = Math.floor((curveAngle % 360));
+      heading.textContent = ang.toString().padStart(3, '0');
+      data.heading = ang;
+    }
+
+    curveAngle += 5; // simulated curve sync
+    vitalsLog.push(data);
     updateVectorDisplay();
   }, 2000);
 }
@@ -132,4 +160,19 @@ function updateVectorDisplay() {
   const warp = document.getElementById("warp-matrix");
   const gveOut = document.getElementById("gve-output");
   if (warp && gveOut) {
-    gveOut.textContent = `Vector Integrity: ${Math.round(warp.value)}
+    gveOut.textContent = `Vector Integrity: ${Math.round(warp.value)}%`;
+  }
+}
+
+// ⬇ CSV Export Option
+function exportVitalsCSV() {
+  let csv = "Time,Heading,Core,Warp,Shield,Radiation,Signal\n";
+  vitalsLog.forEach(d => {
+    csv += `${d.time},${d.heading || ""},${d.core || ""},${d.warp || ""},${d.shield || ""},${d.radiation || ""},${d.signal || ""}\n`;
+  });
+  const blob = new Blob([csv], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "vitals-log.csv";
+  a.click();
+}
