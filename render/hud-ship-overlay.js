@@ -1,7 +1,17 @@
-// ✅ render/hud-ship-overlay.js – Ship Tabs + Tooltips + Live Physics Sync
+// ✅ render/hud-ship-overlay.js – Tabs + Tooltips + Physics Sync + 3D Ship + Vector Link + Logging
 
 window.addEventListener("DOMContentLoaded", () => {
   const hud = document.getElementById("hud");
+
+  // 3D Rotating Ship Display
+  const shipRender = document.createElement("div");
+  shipRender.innerHTML = `
+    <div style="margin:8px 0; text-align:center;">
+      <h4 style="color:#fff;">🛸 Ship Display</h4>
+      <img src="/main/ship_render.png" alt="Ship Model" id="ship3d" style="width:150px; animation: rotate 10s linear infinite;">
+    </div>
+  `;
+  hud.appendChild(shipRender);
 
   // Create tab selector
   const tabBar = document.createElement("div");
@@ -25,7 +35,6 @@ window.addEventListener("DOMContentLoaded", () => {
   hud.appendChild(tabBar);
   hud.appendChild(tabContent);
 
-  // Tabs' HTML blocks
   const tabData = {
     Core: `
       <h4 style="color:#0ff;">Ship Core ⚙️</h4>
@@ -53,7 +62,7 @@ window.addEventListener("DOMContentLoaded", () => {
     tabContent.innerHTML = tabData[name];
   }
 
-  switchTab("Core"); // Default
+  switchTab("Core");
   simulateVitals();
 });
 
@@ -71,16 +80,40 @@ function simulateVitals() {
     if (radBar) {
       let r = 10 + Math.random() * 30;
       radBar.value = r;
-      if (r > 35) audio.play();
+      if (r > 35) {
+        audio.play();
+        console.warn(`☢️ High Radiation Level: ${Math.round(r)}%`);
+      }
     }
-    if (shieldBar) shieldBar.value = 75 + Math.random() * 20;
+
+    if (shieldBar) {
+      let s = 75 + Math.random() * 20;
+      if (warp && warp.value > 75) s -= 5;
+      shieldBar.value = s;
+      if (s < 60) console.warn(`🛡 Shield Warning: ${Math.round(s)}%`);
+    }
+
     if (signalBar) signalBar.value = 30 + Math.random() * 60;
     if (core) core.value = 50 + Math.random() * 40;
     if (warp) warp.value = 30 + Math.random() * 50;
 
-    // Live physics sync example:
-    if (warp && warp.value > 75 && shieldBar) {
-      shieldBar.value -= 5; // warp strain damages shield
-    }
+    // Simulate gravity vector display update
+    updateVectorDisplay();
   }, 2000);
 }
+
+function updateVectorDisplay() {
+  const warp = document.getElementById("warp-matrix");
+  const gveOut = document.getElementById("gve-output");
+  if (warp && gveOut) {
+    gveOut.textContent = `Vector Integrity: ${Math.round(warp.value)}%`;
+  }
+}
+
+// ⬇ CSS KEYFRAMES (add in your main CSS file)
+/*
+@keyframes rotate {
+  from { transform: rotateY(0deg); }
+  to { transform: rotateY(360deg); }
+}
+*/
