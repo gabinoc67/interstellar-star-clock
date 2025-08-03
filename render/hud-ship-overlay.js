@@ -1,4 +1,4 @@
-// ✅ render/hud-ship-overlay.js – Synced Compass, Log CSV, Curve Sync
+// ✅ render/hud-ship-overlay.js – Final Enhancements: CSV Button + Sync Rotation + HUD-Curve Integration
 
 window.addEventListener("DOMContentLoaded", () => {
   const hud = document.getElementById("hud");
@@ -17,10 +17,16 @@ window.addEventListener("DOMContentLoaded", () => {
   shipRender.innerHTML = `
     <div style="margin:8px 0; text-align:center;">
       <h4 style="color:#fff;">🛸 Ship Display</h4>
-      <img src="/main/ship_render.png" alt="Ship Model" id="ship3d" style="width:150px; animation: rotate 10s linear infinite;">
+      <img src="/main/ship_render.png" alt="Ship Model" id="ship3d" style="width:150px; transform: rotateZ(0deg); transition: transform 0.5s linear;">
     </div>
   `;
   hud.appendChild(shipRender);
+
+  // 📤 CSV Export Button
+  const exportBtn = document.createElement("button");
+  exportBtn.textContent = "📤 Download Vitals CSV";
+  exportBtn.addEventListener("click", exportVitalsCSV);
+  hud.appendChild(exportBtn);
 
   // 📦 Toggleable Menu
   const tabBar = document.createElement("div");
@@ -98,6 +104,7 @@ function simulateVitals() {
     const core = document.getElementById("core-load");
     const warp = document.getElementById("warp-matrix");
     const heading = document.getElementById("heading-angle");
+    const ship3d = document.getElementById("ship3d");
 
     const now = new Date().toLocaleTimeString();
     const data = { time: now };
@@ -150,7 +157,12 @@ function simulateVitals() {
       data.heading = ang;
     }
 
-    curveAngle += 5; // simulated curve sync
+    // 🌀 Sync HUD compass to curve and rotate ship image
+    curveAngle += 5;
+    if (ship3d) {
+      ship3d.style.transform = `rotateZ(${curveAngle}deg)`;
+    }
+
     vitalsLog.push(data);
     updateVectorDisplay();
   }, 2000);
@@ -164,7 +176,6 @@ function updateVectorDisplay() {
   }
 }
 
-// ⬇ CSV Export Option
 function exportVitalsCSV() {
   let csv = "Time,Heading,Core,Warp,Shield,Radiation,Signal\n";
   vitalsLog.forEach(d => {
