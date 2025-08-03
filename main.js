@@ -1,5 +1,7 @@
 // ✅ main.js - Bootstrap Warp Simulator
 
+let warpCountdownInterval = null;
+
 // Global initialization on page load
 window.addEventListener("DOMContentLoaded", () => {
   console.log("🌌 Warp Control Simulator Booting...");
@@ -31,7 +33,6 @@ function initUI() {
 
 // ✅ Init clock system (C1–C5)
 function initClockSync() {
-  let startTime = Date.now();
   setInterval(() => {
     const now = new Date();
     for (let i = 1; i <= 5; i++) {
@@ -57,6 +58,7 @@ function startSimulation() {
 function stopSimulation() {
   console.log("🔴 Stopping simulation...");
   logStatus("🔴 Simulation stopped.");
+  if (warpCountdownInterval) clearInterval(warpCountdownInterval);
 }
 
 // ⚡ Engage Warp
@@ -69,6 +71,26 @@ function engageWarp() {
   const { etaSeconds, dAU } = computeETASeconds();
   logStatus(`⏳ ETA: ${Math.round(etaSeconds)} sec | Distance: ${dAU} AU`);
 
-  drawCurve(); // start ship animation
+  drawCurve(); // Start ship animation
   validateGR();
+
+  startWarpCountdown(etaSeconds);
+}
+
+// ⏱ Live countdown timer during warp
+function startWarpCountdown(duration) {
+  let remaining = Math.round(duration);
+  if (warpCountdownInterval) clearInterval(warpCountdownInterval);
+
+  logStatus(`🕒 Warp countdown started: ${remaining} sec`);
+
+  warpCountdownInterval = setInterval(() => {
+    remaining--;
+    logStatus(`⏳ Time left: ${remaining} sec`);
+
+    if (remaining <= 0) {
+      clearInterval(warpCountdownInterval);
+      logStatus("✅ Arrived at destination. Warp complete.");
+    }
+  }, 1000);
 }
