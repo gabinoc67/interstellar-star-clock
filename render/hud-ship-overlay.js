@@ -1,68 +1,59 @@
-// ✅ render/hud-ship-overlay.js – Ship Interior + Radiation + Shield Health + Alerts + Sensor
+// ✅ render/hud-ship-overlay.js – Ship Tabs + Tooltips + Live Physics Sync
 
 window.addEventListener("DOMContentLoaded", () => {
   const hud = document.getElementById("hud");
 
-  // 🔋 Ship Core
-  const shipCore = document.createElement("div");
-  shipCore.innerHTML = `
-    <div style="margin-top:10px">
-      <h4 style="color:#0ff; margin:4px 0;">Ship Core</h4>
-      <div style="display:flex; flex-direction:column; gap:6px;">
-        <div><span style="color:#ccc">⚡ Core Load:</span> <progress id="core-load" value="60" max="100"></progress></div>
-        <div><span style="color:#ccc">🌀 Warp Matrix:</span> <progress id="warp-matrix" value="40" max="100"></progress></div>
-      </div>
-    </div>
-  `;
+  // Create tab selector
+  const tabBar = document.createElement("div");
+  tabBar.style.display = "flex";
+  tabBar.style.gap = "6px";
+  tabBar.style.marginBottom = "4px";
 
-  // ☢️ Radiation Monitor
-  const radMonitor = document.createElement("div");
-  radMonitor.innerHTML = `
-    <div style="margin-top:10px">
-      <h4 style="color:#f66; margin:4px 0;">Radiation Monitor</h4>
-      <div><span style="color:#ccc">☢️ Level:</span> <progress id="rad-bar" value="15" max="100"></progress></div>
-    </div>
-  `;
+  const tabs = ["Core", "Shield", "Sensors"];
+  const tabContent = document.createElement("div");
+  tabContent.id = "systems-box";
+  tabContent.style.display = "block";
 
-  // 🛡 Shield Health
-  const shieldStat = document.createElement("div");
-  shieldStat.innerHTML = `
-    <div style="margin-top:10px">
-      <h4 style="color:#6f6; margin:4px 0;">Shield Integrity</h4>
-      <div><span style="color:#ccc">🛡 Status:</span> <progress id="shield-bar" value="80" max="100"></progress></div>
-    </div>
-  `;
-
-  // 📡 Deep Space Sensor
-  const sensorPanel = document.createElement("div");
-  sensorPanel.innerHTML = `
-    <div style="margin-top:10px">
-      <h4 style="color:#ffa500; margin:4px 0;">Deep Space Sensor</h4>
-      <div><span style="color:#ccc">📡 Signal Strength:</span> <progress id="signal-bar" value="50" max="100"></progress></div>
-    </div>
-  `;
-
-  // 📦 Collapsible Container
-  const toggleBtn = document.createElement("button");
-  toggleBtn.textContent = "🧰 Toggle HUD Systems";
-  toggleBtn.style.margin = "6px 0";
-  toggleBtn.style.padding = "4px 8px";
-
-  const systemBox = document.createElement("div");
-  systemBox.id = "systems-box";
-  systemBox.style.display = "block";
-
-  systemBox.appendChild(shipCore);
-  systemBox.appendChild(radMonitor);
-  systemBox.appendChild(shieldStat);
-  systemBox.appendChild(sensorPanel);
-  hud.appendChild(toggleBtn);
-  hud.appendChild(systemBox);
-
-  toggleBtn.addEventListener("click", () => {
-    systemBox.style.display = systemBox.style.display === "none" ? "block" : "none";
+  tabs.forEach(name => {
+    const btn = document.createElement("button");
+    btn.textContent = name;
+    btn.style.padding = "4px 8px";
+    btn.addEventListener("click", () => switchTab(name));
+    tabBar.appendChild(btn);
   });
 
+  hud.appendChild(tabBar);
+  hud.appendChild(tabContent);
+
+  // Tabs' HTML blocks
+  const tabData = {
+    Core: `
+      <h4 style="color:#0ff;">Ship Core ⚙️</h4>
+      <div title="Displays internal energy distribution">
+        ⚡ Core Load: <progress id="core-load" value="60" max="100"></progress><br>
+        🌀 Warp Matrix: <progress id="warp-matrix" value="40" max="100"></progress>
+      </div>
+    `,
+    Shield: `
+      <h4 style="color:#6f6;">Shield Integrity 🛡</h4>
+      <div title="Protects from cosmic debris and radiation">
+        Status: <progress id="shield-bar" value="80" max="100"></progress>
+      </div>
+    `,
+    Sensors: `
+      <h4 style="color:#ffa500;">Deep Space Sensors 📡</h4>
+      <div title="Monitors external conditions and hazards">
+        ☢️ Radiation Level: <progress id="rad-bar" value="15" max="100"></progress><br>
+        📡 Signal Strength: <progress id="signal-bar" value="50" max="100"></progress>
+      </div>
+    `
+  };
+
+  function switchTab(name) {
+    tabContent.innerHTML = tabData[name];
+  }
+
+  switchTab("Core"); // Default
   simulateVitals();
 });
 
@@ -86,5 +77,10 @@ function simulateVitals() {
     if (signalBar) signalBar.value = 30 + Math.random() * 60;
     if (core) core.value = 50 + Math.random() * 40;
     if (warp) warp.value = 30 + Math.random() * 50;
+
+    // Live physics sync example:
+    if (warp && warp.value > 75 && shieldBar) {
+      shieldBar.value -= 5; // warp strain damages shield
+    }
   }, 2000);
 }
