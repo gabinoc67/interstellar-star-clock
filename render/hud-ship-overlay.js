@@ -1,9 +1,18 @@
-// ✅ render/hud-ship-overlay.js – Tabs + Tooltips + Physics Sync + 3D Ship + Vector Link + Logging
+// ✅ render/hud-ship-overlay.js – Full HUD with Alerts, Compass, and Responsive Menu
 
 window.addEventListener("DOMContentLoaded", () => {
   const hud = document.getElementById("hud");
 
-  // 3D Rotating Ship Display
+  // 🔄 Compass Heading
+  const compass = document.createElement("div");
+  compass.innerHTML = `
+    <div id="compass" style="color:#ffa; text-align:center; font-size:1.1rem; margin:4px 0;">
+      🧭 Heading: <span id="heading-angle">000</span>°
+    </div>
+  `;
+  hud.appendChild(compass);
+
+  // 🖼 Ship 3D Render
   const shipRender = document.createElement("div");
   shipRender.innerHTML = `
     <div style="margin:8px 0; text-align:center;">
@@ -13,9 +22,10 @@ window.addEventListener("DOMContentLoaded", () => {
   `;
   hud.appendChild(shipRender);
 
-  // Create tab selector
+  // 🔃 Tab Buttons
   const tabBar = document.createElement("div");
   tabBar.style.display = "flex";
+  tabBar.style.flexWrap = "wrap";
   tabBar.style.gap = "6px";
   tabBar.style.marginBottom = "4px";
 
@@ -32,6 +42,15 @@ window.addEventListener("DOMContentLoaded", () => {
     tabBar.appendChild(btn);
   });
 
+  // 📱 Responsive Menu Toggle
+  const menuToggle = document.createElement("button");
+  menuToggle.textContent = "📦 Menu";
+  menuToggle.style.margin = "4px 0";
+  menuToggle.addEventListener("click", () => {
+    tabContent.style.display = tabContent.style.display === "none" ? "block" : "none";
+  });
+
+  hud.appendChild(menuToggle);
   hud.appendChild(tabBar);
   hud.appendChild(tabContent);
 
@@ -76,13 +95,17 @@ function simulateVitals() {
     const signalBar = document.getElementById("signal-bar");
     const core = document.getElementById("core-load");
     const warp = document.getElementById("warp-matrix");
+    const heading = document.getElementById("heading-angle");
 
     if (radBar) {
       let r = 10 + Math.random() * 30;
       radBar.value = r;
       if (r > 35) {
         audio.play();
+        document.body.style.boxShadow = "0 0 30px red";
         console.warn(`☢️ High Radiation Level: ${Math.round(r)}%`);
+      } else {
+        document.body.style.boxShadow = "none";
       }
     }
 
@@ -90,14 +113,17 @@ function simulateVitals() {
       let s = 75 + Math.random() * 20;
       if (warp && warp.value > 75) s -= 5;
       shieldBar.value = s;
-      if (s < 60) console.warn(`🛡 Shield Warning: ${Math.round(s)}%`);
+      if (s < 60) {
+        document.body.style.boxShadow = "0 0 30px red";
+        console.warn(`🛡 Shield Warning: ${Math.round(s)}%`);
+      }
     }
 
     if (signalBar) signalBar.value = 30 + Math.random() * 60;
     if (core) core.value = 50 + Math.random() * 40;
     if (warp) warp.value = 30 + Math.random() * 50;
+    if (heading) heading.textContent = `${Math.floor(Math.random() * 360).toString().padStart(3, '0')}`;
 
-    // Simulate gravity vector display update
     updateVectorDisplay();
   }, 2000);
 }
@@ -106,14 +132,4 @@ function updateVectorDisplay() {
   const warp = document.getElementById("warp-matrix");
   const gveOut = document.getElementById("gve-output");
   if (warp && gveOut) {
-    gveOut.textContent = `Vector Integrity: ${Math.round(warp.value)}%`;
-  }
-}
-
-// ⬇ CSS KEYFRAMES (add in your main CSS file)
-/*
-@keyframes rotate {
-  from { transform: rotateY(0deg); }
-  to { transform: rotateY(360deg); }
-}
-*/
+    gveOut.textContent = `Vector Integrity: ${Math.round(warp.value)}
