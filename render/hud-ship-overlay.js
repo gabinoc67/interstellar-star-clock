@@ -1,4 +1,4 @@
-// ✅ render/hud-ship-overlay.js – Final Enhancements: CSV Button + Sync Rotation + HUD-Curve Integration
+// ✅ render/hud-ship-overlay.js – Console, Life Support, HUD Mirror Integration
 
 window.addEventListener("DOMContentLoaded", () => {
   const hud = document.getElementById("hud");
@@ -28,63 +28,44 @@ window.addEventListener("DOMContentLoaded", () => {
   exportBtn.addEventListener("click", exportVitalsCSV);
   hud.appendChild(exportBtn);
 
-  // 📦 Toggleable Menu
-  const tabBar = document.createElement("div");
-  tabBar.style.display = "flex";
-  tabBar.style.flexWrap = "wrap";
-  tabBar.style.gap = "6px";
-  tabBar.style.marginBottom = "4px";
+  // 🎛 Command Override Console
+  const consoleBox = document.createElement("div");
+  consoleBox.innerHTML = `
+    <h4 style="color:#f0f;">🎛 Command Console</h4>
+    <input type="text" id="cmdInput" placeholder="Enter command..." style="width:80%; padding:4px;">
+    <button onclick="runConsoleCommand()">Run</button>
+    <div id="cmdLog" style="font-size:0.9rem; margin-top:6px; max-height:80px; overflow:auto; background:#111; padding:4px; border-radius:4px;"></div>
+  `;
+  hud.appendChild(consoleBox);
 
-  const tabs = ["Core", "Shield", "Sensors"];
-  const tabContent = document.createElement("div");
-  tabContent.id = "systems-box";
-  tabContent.style.display = "block";
+  // 🧪 Life Support Panel
+  const lifeSupport = document.createElement("div");
+  lifeSupport.innerHTML = `
+    <h4 style="color:#0cf;">🧪 Life Support</h4>
+    O₂ Level: <progress id="o2-bar" value="98" max="100"></progress><br>
+    CO₂ Level: <progress id="co2-bar" value="10" max="100"></progress><br>
+    Temp (°F): <progress id="temp-bar" value="72" max="120"></progress>
+  `;
+  hud.appendChild(lifeSupport);
 
-  tabs.forEach(name => {
-    const btn = document.createElement("button");
-    btn.textContent = name;
-    btn.style.padding = "4px 8px";
-    btn.addEventListener("click", () => switchTab(name));
-    tabBar.appendChild(btn);
-  });
+  // 🌐 HUD Mirror (right panel)
+  const mirror = document.createElement("iframe");
+  mirror.srcdoc = `
+    <html><body style='background:#000; color:#0f0; font-family:monospace;'>
+    <h3>📡 HUD Mirror Active</h3>
+    <div id='mirror-content'>Waiting for sync...</div>
+    <script>
+      window.addEventListener('message', e => {
+        document.getElementById('mirror-content').innerHTML = e.data;
+      });
+    </script>
+    </body></html>
+  `;
+  mirror.style.width = "100%";
+  mirror.style.height = "180px";
+  hud.appendChild(mirror);
 
-  const menuToggle = document.createElement("button");
-  menuToggle.textContent = "📦 Menu";
-  menuToggle.style.margin = "4px 0";
-  menuToggle.addEventListener("click", () => {
-    tabContent.style.display = tabContent.style.display === "none" ? "block" : "none";
-  });
-
-  hud.appendChild(menuToggle);
-  hud.appendChild(tabBar);
-  hud.appendChild(tabContent);
-
-  const tabData = {
-    Core: `
-      <h4 style="color:#0ff;">Ship Core ⚙️</h4>
-      <div title="Displays internal energy distribution">
-        ⚡ Core Load: <progress id="core-load" value="60" max="100"></progress><br>
-        🌀 Warp Matrix: <progress id="warp-matrix" value="40" max="100"></progress>
-      </div>
-    `,
-    Shield: `
-      <h4 style="color:#6f6;">Shield Integrity 🛡</h4>
-      <div title="Protects from cosmic debris and radiation">
-        Status: <progress id="shield-bar" value="80" max="100"></progress>
-      </div>
-    `,
-    Sensors: `
-      <h4 style="color:#ffa500;">Deep Space Sensors 📡</h4>
-      <div title="Monitors external conditions and hazards">
-        ☢️ Radiation Level: <progress id="rad-bar" value="15" max="100"></progress><br>
-        📡 Signal Strength: <progress id="signal-bar" value="50" max="100"></progress>
-      </div>
-    `
-  };
-
-  function switchTab(name) {
-    tabContent.innerHTML = tabData[name];
-  }
+  setInterval(() => mirror.contentWindow.postMessage(document.getElementById("systems-box")?.innerHTML || "", "*"), 2000);
 
   switchTab("Core");
   simulateVitals();
@@ -157,12 +138,19 @@ function simulateVitals() {
       data.heading = ang;
     }
 
-    // 🌀 Sync HUD compass to curve and rotate ship image
-    curveAngle += 5;
     if (ship3d) {
       ship3d.style.transform = `rotateZ(${curveAngle}deg)`;
     }
 
+    // 🧪 Life Support values
+    const o2 = document.getElementById("o2-bar");
+    const co2 = document.getElementById("co2-bar");
+    const temp = document.getElementById("temp-bar");
+    if (o2) o2.value = 95 + Math.random() * 5;
+    if (co2) co2.value = 10 + Math.random() * 30;
+    if (temp) temp.value = 70 + Math.random() * 20;
+
+    curveAngle += 5;
     vitalsLog.push(data);
     updateVectorDisplay();
   }, 2000);
@@ -186,4 +174,27 @@ function exportVitalsCSV() {
   a.href = URL.createObjectURL(blob);
   a.download = "vitals-log.csv";
   a.click();
+}
+
+function runConsoleCommand() {
+  const cmd = document.getElementById("cmdInput").value.trim().toLowerCase();
+  const log = document.getElementById("cmdLog");
+  if (!cmd) return;
+  const out = document.createElement("div");
+
+  if (cmd.includes("shutdown")) {
+    out.textContent = "🛑 Systems shutting down...";
+  } else if (cmd.includes("boost")) {
+    out.textContent = "⚡ Warp boosted to max!";
+    const warp = document.getElementById("warp-matrix");
+    if (warp) warp.value = 100;
+  } else if (cmd.includes("log")) {
+    exportVitalsCSV();
+    out.textContent = "📤 Log exported.";
+  } else {
+    out.textContent = `❓ Unknown command: ${cmd}`;
+  }
+
+  log.appendChild(out);
+  document.getElementById("cmdInput").value = "";
 }
