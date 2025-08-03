@@ -12,7 +12,15 @@ hudBox.style.overflowY = "auto";
 
 // Attach to flight plan panel on load
 window.addEventListener("DOMContentLoaded", () => {
-  document.getElementById("flight-plan").appendChild(hudBox);
+  const panel = document.getElementById("flight-plan");
+  panel.appendChild(hudBox);
+
+  const dlBtn = document.createElement("button");
+  dlBtn.textContent = "Download Log";
+  dlBtn.style.marginTop = "8px";
+  dlBtn.onclick = downloadFlightLog;
+  panel.appendChild(dlBtn);
+
   logStatus("📡 Warp HUD initialized.");
 });
 
@@ -23,4 +31,17 @@ function logStatus(msg) {
   line.textContent = `[${timestamp}] ${msg}`;
   hudBox.appendChild(line);
   hudBox.scrollTop = hudBox.scrollHeight;
+}
+
+// 📥 Export log as CSV
+function downloadFlightLog() {
+  const lines = Array.from(hudBox.children).map(line => line.textContent);
+  const csvContent = "data:text/csv;charset=utf-8," + lines.join("\n");
+  const encodedUri = encodeURI(csvContent);
+  const link = document.createElement("a");
+  link.setAttribute("href", encodedUri);
+  link.setAttribute("download", "warp_flight_log.csv");
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
