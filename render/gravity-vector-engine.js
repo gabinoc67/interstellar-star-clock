@@ -9,13 +9,22 @@ gveCanvas.style.background = "#000";
 const gveCtx = gveCanvas.getContext("2d");
 
 const gveImages = {};
-const gvePlanets = ["Mercury", "Venus", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto"];
+const gvePlanets = {
+  Mercury: "mercury2",
+  Venus: "venus2",
+  Mars: "mars",
+  Jupiter: "jupiter",
+  Saturn: "saturn",
+  Uranus: "uranus",
+  Neptune: "neptune2",
+  Pluto: "pluto2"
+};
 
-// ✅ Load planet icons from GitHub-hosted assets (user must match these)
+// ✅ Load planet icons from GitHub-hosted assets
 function loadGVEImages() {
-  gvePlanets.forEach(name => {
+  Object.entries(gvePlanets).forEach(([name, file]) => {
     const img = new Image();
-    img.src = `https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/${name.toLowerCase()}.png`;
+    img.src = `https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/${file}.png`;
     gveImages[name] = img;
   });
 }
