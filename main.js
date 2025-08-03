@@ -42,24 +42,33 @@ function initClockSync() {
 
 // ✅ Init visual/physics systems
 function initSimulation() {
-  // Placeholder for future draw/orbit/init logic
   console.log("🧠 Physics + Visuals ready");
+  drawCurve();
+  renderOrbits();
 }
 
 // 🚀 Start Simulation Logic
 function startSimulation() {
   console.log("🟢 Starting simulation...");
-  // Future: activate physics, ship movement, tracking
+  logStatus("🟢 Simulation started.");
 }
 
 // ⛔ Stop Simulation Logic
 function stopSimulation() {
   console.log("🔴 Stopping simulation...");
-  // Future: stop timers, animations
+  logStatus("🔴 Simulation stopped.");
 }
 
 // ⚡ Engage Warp
 function engageWarp() {
   console.log("⚡ Warp engaged!");
-  // Future: draw curve, start ETA, sync clocks
+  logStatus("⚡ Warp engaged.");
+
+  autoCalculateGVE();
+
+  const { etaSeconds, dAU } = computeETASeconds();
+  logStatus(`⏳ ETA: ${Math.round(etaSeconds)} sec | Distance: ${dAU} AU`);
+
+  drawCurve(); // start ship animation
+  validateGR();
 }
