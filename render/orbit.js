@@ -1,4 +1,4 @@
-// ✅ render/orbit.js – Animated Heliocentric Map & Planet Positions
+// ✅ render/orbit.js – Animated Heliocentric Map with Vector Tracking & Selection
 
 const planets = [
   { name: "Mercury", color: "#aaa", angle: 30, speed: 4.74 },
@@ -22,13 +22,12 @@ const mapCtx = mapCanvas.getContext("2d");
 
 window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("heliocentric-map").appendChild(mapCanvas);
+  mapCanvas.addEventListener("click", handlePlanetClick);
   animateOrbits();
 });
 
-// ✅ Animate planets orbiting around the Sun
 function animateOrbits() {
   mapCtx.clearRect(0, 0, mapCanvas.width, mapCanvas.height);
-
   const cx = mapCanvas.width / 2;
   const cy = mapCanvas.height / 2;
   const radiusStep = 20;
@@ -39,7 +38,10 @@ function animateOrbits() {
   mapCtx.fillStyle = "yellow";
   mapCtx.fill();
 
-  // Update and draw each planet
+  let earthX = cx, earthY = cy;
+  let destX = null, destY = null;
+  const selected = document.getElementById("destination").value;
+
   planets.forEach((planet, i) => {
     planet.angle += planet.speed * 0.01;
     const r = 50 + i * radiusStep;
@@ -47,17 +49,59 @@ function animateOrbits() {
     const x = cx + r * Math.cos(angleRad);
     const y = cy + r * Math.sin(angleRad);
 
-    // Planet body
+    planet.x = x;
+    planet.y = y;
+    planet.radius = 6;
+
+    // Save Earth and Destination positions
+    if (planet.name === "Earth") {
+      earthX = x;
+      earthY = y;
+    }
+    if (planet.name === selected) {
+      destX = x;
+      destY = y;
+    }
+
+    // Draw planet
     mapCtx.beginPath();
-    mapCtx.arc(x, y, 6, 0, 2 * Math.PI);
+    mapCtx.arc(x, y, planet.radius, 0, 2 * Math.PI);
     mapCtx.fillStyle = planet.color;
     mapCtx.fill();
 
     // Label
-    mapCtx.fillStyle = "white";
+    mapCtx.fillStyle = planet.name === selected ? "#0f0" : "white";
     mapCtx.font = "10px sans-serif";
     mapCtx.fillText(planet.name, x + 8, y);
   });
 
+  // Draw vector from Earth to destination
+  if (destX !== null && destY !== null) {
+    mapCtx.beginPath();
+    mapCtx.moveTo(earthX, earthY);
+    mapCtx.lineTo(destX, destY);
+    mapCtx.strokeStyle = "red";
+    mapCtx.lineWidth = 1.5;
+    mapCtx.stroke();
+  }
+
   requestAnimationFrame(animateOrbits);
+}
+
+// 🎯 Detect planet click and set as destination
+function handlePlanetClick(e) {
+  const rect = mapCanvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+
+  for (const planet of planets) {
+    const dx = x - planet.x;
+    const dy = y - planet.y;
+    if (Math.sqrt(dx * dx + dy * dy) <= planet.radius + 5) {
+      document.getElementById("destination").value = planet.name;
+      drawGVE();
+      logStatus(`🪐 Selected ${planet.name} as destination.`);
+      break;
+    }
+  }
 }
