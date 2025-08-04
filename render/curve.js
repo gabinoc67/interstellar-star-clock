@@ -1,96 +1,69 @@
-// ✅ render/curve.js - Draw curved trajectory & ship movement
+// curve.js
 
-const canvas = document.createElement("canvas");
-canvas.width = 400;
-canvas.height = 200;
-canvas.style.width = "100%";
-canvas.style.height = "150px";
-canvas.style.background = "black";
+let warpLevel = 1;
+let curveCanvas;
+let ctx;
+let shipPos = 0;
+let isWarping = false;
+let frontView = true;
 
-const ctx = canvas.getContext("2d");
-const ship = { x: 0, y: 0, t: 0, moving: false, reverse: false };
+function setupCurveCanvas() {
+  curveCanvas = document.createElement('canvas');
+  curveCanvas.width = 300;
+  curveCanvas.height = 100;
+  curveCanvas.style.border = '1px solid #0f0';
+  curveCanvas.style.display = 'block';
+  curveCanvas.style.margin = '4px auto';
+  document.getElementById('trajectory-vectors').appendChild(curveCanvas);
+  ctx = curveCanvas.getContext('2d');
+  drawCurve();
+}
 
-// Attach canvas and toggle button
-window.addEventListener("DOMContentLoaded", () => {
-  const container = document.getElementById("ship-view");
-  container.appendChild(canvas);
-
-  const toggleBtn = document.createElement("button");
-  toggleBtn.textContent = "Toggle View: Front";
-  toggleBtn.style.marginTop = "8px";
-  toggleBtn.onclick = () => {
-    ship.reverse = !ship.reverse;
-    toggleBtn.textContent = `Toggle View: ${ship.reverse ? "Rear" : "Front"}`;
-    drawCurve();
-  };
-  container.appendChild(toggleBtn);
-});
-
-// ✅ Main curve drawing function
 function drawCurve() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  const { dAU } = computeETASeconds();
-  const warp = Number(document.getElementById("warpSpeed").value || 1);
-
-  const startX = 50;
-  const endX = canvas.width - 50;
-  const midX = (startX + endX) / 2;
-  const baseHeight = canvas.height / 2;
-  const arcHeight = Math.max(10, 80 - warp * 6);
-
-  const startY = baseHeight;
-  const endY = baseHeight;
-  const cpX = midX;
-  const cpY = baseHeight - arcHeight;
-
-  ship.path = { startX, startY, cpX, cpY, endX, endY };
-  ship.t = ship.reverse ? 1 : 0;
-  ship.moving = true;
-
-  // Draw curve
+  if (!ctx) return;
+  ctx.clearRect(0, 0, curveCanvas.width, curveCanvas.height);
+  ctx.strokeStyle = '#0f0';
   ctx.beginPath();
-  ctx.moveTo(startX, startY);
-  ctx.quadraticCurveTo(cpX, cpY, endX, endY);
-  ctx.strokeStyle = "white";
-  ctx.lineWidth = 2;
-  ctx.stroke();
-
-  drawShip();
-}
-
-// ✅ Animate ship along curve
-function drawShip() {
-  if (!ship.moving) return;
-
-  ship.t += ship.reverse ? -0.005 : 0.005;
-  if ((!ship.reverse && ship.t > 1) || (ship.reverse && ship.t < 0)) {
-    ship.t = ship.reverse ? 0 : 1;
-    ship.moving = false;
+  ctx.moveTo(0, curveHeight(warpLevel, 0));
+  for (let x = 0; x <= 300; x++) {
+    let y = curveHeight(warpLevel, x);
+    ctx.lineTo(x, y);
   }
-
-  const { startX, startY, cpX, cpY, endX, endY } = ship.path;
-  const t = ship.t;
-  const x = (1 - t) ** 2 * startX + 2 * (1 - t) * t * cpX + t ** 2 * endX;
-  const y = (1 - t) ** 2 * startY + 2 * (1 - t) * t * cpY + t ** 2 * endY;
-
-  ship.x = x;
-  ship.y = y;
-
-  // Redraw
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.beginPath();
-  ctx.moveTo(startX, startY);
-  ctx.quadraticCurveTo(cpX, cpY, endX, endY);
-  ctx.strokeStyle = "white";
-  ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Ship icon (circle)
+  // Draw ship
+  let shipX = shipPos;
+  let shipY = curveHeight(warpLevel, shipX);
+  ctx.fillStyle = '#f00';
   ctx.beginPath();
-  ctx.arc(x, y, 6, 0, 2 * Math.PI);
-  ctx.fillStyle = "cyan";
+  ctx.arc(shipX, shipY, 4, 0, Math.PI * 2);
   ctx.fill();
-
-  if (ship.moving) requestAnimationFrame(drawShip);
 }
+
+function curveHeight(warp, x) {
+  const maxHeight = 40;
+  const flatness = 10 - warp;
+  return 50 - Math.sin((x / 300) * Math.PI) * maxHeight / flatness;
+}
+
+function startWarpAnimation() {
+  if (!ctx || isWarping) return;
+  isWarping = true;
+  shipPos = 0;
+  const interval = setInterval(() => {
+    shipPos += 2;
+    drawCurve();
+    if (shipPos >= 300) {
+      clearInterval(interval);
+      isWarping = false;
+    }
+  }, 30);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  setupCurveCanvas();
+  document.getElementById('engageBtn').addEventListener('click', () => {
+    warpLevel = parseInt(document.getElementById('warpSpeed').value);
+    startWarpAnimation();
+  });
+});
