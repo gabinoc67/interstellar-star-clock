@@ -13,7 +13,7 @@
     .viewBoxContainer { display:flex; flex-direction:column; align-items:center; }
     .label { margin-bottom:6px; font-size:16px; color:#00ffff; }
     .viewBox { background:url('https://upload.wikimedia.org/wikipedia/commons/4/47/StarfieldSimulation.jpg') center/cover no-repeat; border:2px solid #00ffff; width:400px; height:300px; position:relative; overflow:hidden; }
-    .planetImage { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%) scale(1); max-width:100%; max-height:100%; transition:transform .2s ease, opacity .2s ease; }
+    .planetImage { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%) scale(1); max-width:100%; max-height:100%; transition:transform .5s ease; }
     #controls { margin-top:20px; display:flex; flex-direction:column; align-items:center; gap:12px; }
     .control-row { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; }
     select, button { padding:9px 18px; font-size:14.4px; border-radius:5px; border:none; }
@@ -38,15 +38,13 @@
     <div class="viewBoxContainer">
       <div class="label">🔙 Rear View – Earth</div>
       <div class="viewBox" id="rearView">
-        <img class="planetImage" id="rearEarth"
-          src="https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/earth.png" />
+        <img class="planetImage" id="rearEarth" src="https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/earth.png" />
       </div>
     </div>
     <div class="viewBoxContainer">
       <div class="label" id="frontLabel">🔭 Front View – Destination: Mercury</div>
       <div class="viewBox" id="frontView">
-        <img class="planetImage" id="frontPlanet"
-          src="https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/mercury2.png" />
+        <img class="planetImage" id="frontPlanet" src="https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/mercury2.png" />
       </div>
     </div>
   </div>
@@ -87,9 +85,8 @@
   </div>
 
   <!-- Clock Sync Table -->
-  <table id="clockTable">
-    <tr><th>Clock</th><th>Status</th><th>Purpose</th><th>CST</th><th>Local</th><th>Δ (ms)</th>
-        <th>Arrival CST</th><th>Arrival IST</th></tr>
+  <table>
+    <tr><th>Clock</th><th>Status</th><th>Purpose</th><th>CST</th><th>Local</th><th>Δ (ms)</th><th>Arrival CST</th><th>Arrival IST</th></tr>
     <tbody id="clockBody"></tbody>
   </table>
 
@@ -104,40 +101,59 @@
       { id: 'C5', label: 'DriftEye', purpose: 'Diagnostics' }
     ];
 
-    let warpInterval, clockInterval;
+    const imageMap = {
+      mercury: 'mercury2.png',
+      venus: 'venus.png',
+      mars: 'mars.png',
+      jupiter: 'jupiter.png',
+      saturn: 'saturn.png',
+      uranus: 'uranus.png',
+      neptune: 'neptune.png',
+      pluto: 'pluto.png'
+    };
+
+    let warpInterval = null;
+    let clockInterval = null;
     let warpActive = false;
+    let clockStartTime = null;
 
-    function pad(n) { return n.toString().padStart(2, '0'); }
-
-    function getTimeStr(date = new Date()) {
-      return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${date.getMilliseconds().toString().padStart(3, '0')}`;
+    function formatTime(ms) {
+      const date = new Date(ms);
+      const h = String(date.getUTCHours()).padStart(2, '0');
+      const m = String(date.getUTCMinutes()).padStart(2, '0');
+      const s = String(date.getUTCSeconds()).padStart(2, '0');
+      const msStr = String(date.getUTCMilliseconds()).padStart(3, '0');
+      return `${h}:${m}:${s}.${msStr}`;
     }
 
     function updateClocks() {
+      const elapsed = Date.now() - clockStartTime;
       const now = new Date();
       const table = document.getElementById('clockBody');
       table.innerHTML = '';
       clocks.forEach(clock => {
-        const local = new Date(now.getTime() + Math.random() * 5 - 2.5); // simulate drift
-        const delta = (local - now).toFixed(2);
-        const arrivalCST = new Date(now.getTime() + 4700000); // ~1hr 18min
-        const row = `
+        const localOffset = Math.random() * 5 - 2.5;
+        const delta = localOffset.toFixed(2);
+        const arrivalTime = new Date(clockStartTime + 4700000);
+        table.innerHTML += `
           <tr>
-            <td>${clock.id} • ${clock.label}</td><td>✅ Synced</td><td>${clock.purpose}</td>
-            <td>${getTimeStr(now)}</td>
-            <td>${getTimeStr(local)}</td>
+            <td>${clock.id} • ${clock.label}</td>
+            <td>✅ Synced</td>
+            <td>${clock.purpose}</td>
+            <td>${formatTime(clockStartTime + elapsed)}</td>
+            <td>${formatTime(clockStartTime + elapsed + localOffset)}</td>
             <td>${delta}</td>
-            <td>${getTimeStr(arrivalCST)}</td>
+            <td>${formatTime(arrivalTime)}</td>
             <td>45,500,000,000 y</td>
           </tr>
         `;
-        table.innerHTML += row;
       });
     }
 
     function updatePlanet() {
       const planet = document.getElementById("planetSelect").value;
-      document.getElementById("frontPlanet").src = `https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/${planet}.png`;
+      const imageName = imageMap[planet];
+      document.getElementById("frontPlanet").src = `https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/${imageName}`;
       document.getElementById("frontLabel").innerText = `🔭 Front View – Destination: ${planet.charAt(0).toUpperCase() + planet.slice(1)}`;
     }
 
@@ -146,10 +162,17 @@
       warpActive = true;
       document.getElementById('emergencyAbort').style.display = 'inline-block';
 
+      clockStartTime = Date.now();
+      updateClocks();
+      clockInterval = setInterval(updateClocks, 1000);
+
       const warpLevel = parseInt(document.getElementById("warpLevelSelect").value);
       const speedDisplay = document.getElementById("speedDisplay");
       const vectorDisplay = document.getElementById("vectorDisplay");
       const fill = document.getElementById("warpLoadFill");
+
+      const planetImage = document.getElementById("frontPlanet");
+      planetImage.style.transform = "translate(-50%, -50%) scale(1.6)";
 
       let t = 0;
       warpInterval = setInterval(() => {
@@ -159,13 +182,14 @@
         fill.style.width = `${Math.min(t, 100)}%`;
         fill.style.background = warpLevel > 7 ? 'orange' : 'lime';
         document.getElementById("vectorSafety").innerText = warpLevel > 7 ? "⚠️ Risk" : "Safe";
-        t += 4;
+        t += 5;
         if (t > 100) clearInterval(warpInterval);
       }, 100);
     }
 
     function resetWarp() {
       clearInterval(warpInterval);
+      clearInterval(clockInterval);
       warpActive = false;
       document.getElementById("speedDisplay").innerText = "0.00c";
       document.getElementById("vectorDisplay").innerText = "0°";
@@ -173,6 +197,12 @@
       document.getElementById("vectorSafety").innerText = "Safe";
       document.getElementById("warpLoadFill").style.background = "green";
       document.getElementById('emergencyAbort').style.display = 'none';
+      document.getElementById("frontPlanet").style.transform = "translate(-50%, -50%) scale(1)";
+      document.getElementById("clockBody").innerHTML = clocks.map(c => `
+        <tr>
+          <td>${c.id} • ${c.label}</td><td>❌</td><td>${c.purpose}</td>
+          <td>00:00:00.000</td><td>00:00:00.000</td><td>0.00</td><td>00:00:00.000</td><td>0</td>
+        </tr>`).join('');
     }
 
     function abortWarp() {
@@ -180,10 +210,9 @@
       resetWarp();
     }
 
-    // Initial load
+    // Init
     updatePlanet();
-    updateClocks();
-    clockInterval = setInterval(updateClocks, 1000);
+    resetWarp();
   </script>
 </body>
 </html>
