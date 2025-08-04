@@ -15,10 +15,15 @@
     }
 
     #directionSpeedDisplay {
-      font-size: 24px;
+      font-size: 20px;
       font-weight: bold;
       margin: 16px;
       color: #00ffff;
+    }
+
+    #vectorStatus {
+      font-size: 16px;
+      margin-bottom: 10px;
     }
 
     #shipViews {
@@ -59,17 +64,38 @@
       transition: transform 0.2s ease, opacity 0.2s ease;
     }
 
+    canvas {
+      margin-top: 20px;
+      border: 1px solid #00ffff;
+      background-color: #111;
+    }
+
+    #warpLoadBar {
+      margin-top: 15px;
+      width: 400px;
+      height: 25px;
+      border: 2px solid #ccc;
+      background: #222;
+    }
+
+    #warpLoadFill {
+      height: 100%;
+      width: 0%;
+      background: green;
+      transition: width 0.3s, background 0.3s;
+    }
+
     #controls {
-      margin-top: 30px;
+      margin-top: 20px;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
     }
 
     .control-row {
       display: flex;
-      gap: 10px;
+      gap: 12px;
       flex-wrap: wrap;
       justify-content: center;
     }
@@ -91,6 +117,12 @@
       background-color: #00cccc;
     }
 
+    #emergencyAbort {
+      display: none;
+      background-color: red;
+      color: white;
+    }
+
     #footer {
       margin-top: 30px;
       font-size: 12px;
@@ -101,11 +133,11 @@
 <body>
 
   <div id="directionSpeedDisplay">
-    🚀 Speed: <span id="speedDisplay">0.59c</span> | Vector: <span id="vectorDisplay">90° Course</span>
+    🚀 Speed: <span id="speedDisplay">0.00c</span> | Vector: <span id="vectorDisplay">0°</span>
   </div>
+  <div id="vectorStatus">🟢 Vector Status: <span id="vectorSafety">Safe</span></div>
 
   <div id="shipViews">
-    <!-- Rear View Container -->
     <div class="viewBoxContainer">
       <div class="label">🔙 Rear View – Earth</div>
       <div class="viewBox" id="rearView">
@@ -113,7 +145,6 @@
       </div>
     </div>
 
-    <!-- Front View Container -->
     <div class="viewBoxContainer">
       <div class="label" id="frontLabel">🔭 Front View – Destination: Mercury</div>
       <div class="viewBox" id="frontView">
@@ -122,6 +153,15 @@
     </div>
   </div>
 
+  <!-- Visual Arc Path Preview -->
+  <canvas id="arcCanvas" width="820" height="120"></canvas>
+
+  <!-- Warp Load Meter -->
+  <div id="warpLoadBar">
+    <div id="warpLoadFill"></div>
+  </div>
+
+  <!-- Controls -->
   <div id="controls">
     <div class="control-row">
       <label>
@@ -156,11 +196,12 @@
 
       <button onclick="startWarp()">🚀 Engage</button>
       <button onclick="resetWarp()">🔄 Reset</button>
+      <button id="emergencyAbort" onclick="abortWarp()">🛑 Emergency Abort</button>
     </div>
   </div>
 
   <div id="footer">
-    Earth shrinks in rear view | Destination planet zooms in centered | Vector shows warp curvature course
+    Warp Arc | Field Load | Safe/Unsafe Vector with Abort Button
   </div>
 
   <script>
@@ -180,20 +221,50 @@
     const frontLabel = document.getElementById('frontLabel');
     const speedDisplay = document.getElementById('speedDisplay');
     const vectorDisplay = document.getElementById('vectorDisplay');
+    const vectorSafety = document.getElementById('vectorSafety');
     const planetSelect = document.getElementById('planetSelect');
     const warpSelect = document.getElementById('warpLevelSelect');
+    const arcCanvas = document.getElementById('arcCanvas');
+    const ctx = arcCanvas.getContext('2d');
+    const warpLoadFill = document.getElementById('warpLoadFill');
+    const emergencyAbort = document.getElementById('emergencyAbort');
 
     let distanceAU = 0;
     const maxAU = 100;
     let interval;
 
     function getVectorCourse(warpLevel) {
-      const minDeg = 80;
-      const maxDeg = 180;
-      return Math.round(minDeg + ((warpLevel - 1) / 9) * (maxDeg - minDeg));
+      return Math.round(80 + ((warpLevel - 1) / 9) * 100); // 80° to 180°
     }
 
-    function updateViews() {
+    function checkVectorSafety(vector, warp) {
+      if (warp <= 4 && (vector >= 80 && vector <= 140)) return "🟢 Safe";
+      if (warp >= 5 && warp <= 7 && (vector >= 130 && vector <= 165)) return "🟢 Safe";
+      if (warp >= 8 && warp <= 10 && (vector >= 160 && vector <= 180)) return "🟢 Safe";
+      return "⚠️ Unsafe";
+    }
+
+    function updateWarpLoad(vector, warp) {
+      let loadPercent = Math.abs(vector - 130); // center 130° is safe
+      let fill = Math.min(100, loadPercent);
+      warpLoadFill.style.width = fill + "%";
+      warpLoadFill.style.background = fill > 50 ? "red" : "lime";
+    }
+
+    function updateArc(vector) {
+      ctx.clearRect(0, 0, arcCanvas.width, arcCanvas.height);
+      ctx.beginPath();
+      const centerX = 410;
+      const centerY = 100;
+      const radius = 60;
+      const angle = (vector - 80) / 100 * Math.PI;
+      ctx.arc(centerX, centerY, radius, Math.PI, Math.PI + angle, false);
+      ctx.strokeStyle = "#00ffff";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+
+    function updateViews(warpLevel) {
       const progress = distanceAU / maxAU;
 
       const rearScale = 1.0 - progress;
@@ -205,12 +276,15 @@
       frontPlanet.style.transform = `translate(-50%, -50%) scale(${frontScale})`;
 
       const speed = (1 - progress) * 0.59;
+      const vector = getVectorCourse(warpLevel);
       speedDisplay.textContent = speed.toFixed(2) + "c";
-    }
+      vectorDisplay.textContent = `${vector}°`;
+      vectorSafety.textContent = checkVectorSafety(vector, warpLevel);
 
-    function updateVectorDisplay(warpLevel) {
-      const vectorAngle = getVectorCourse(warpLevel);
-      vectorDisplay.textContent = `${vectorAngle}° Course`;
+      updateArc(vector);
+      updateWarpLoad(vector, warpLevel);
+
+      emergencyAbort.style.display = checkVectorSafety(vector, warpLevel).includes("⚠️") ? "inline-block" : "none";
     }
 
     function startWarp() {
@@ -230,7 +304,7 @@
       const warpLevel = parseInt(warpSelect.value);
       const speedFactor = 11 - warpLevel;
 
-      updateVectorDisplay(warpLevel);
+      updateViews(warpLevel);
 
       interval = setInterval(() => {
         if (distanceAU >= maxAU) {
@@ -238,7 +312,7 @@
           return;
         }
         distanceAU += 1;
-        updateViews();
+        updateViews(warpLevel);
       }, speedFactor * 10);
     }
 
@@ -248,6 +322,7 @@
 
       planetSelect.value = "mercury";
       warpSelect.value = "1";
+      emergencyAbort.style.display = "none";
 
       frontPlanet.src = planetImageMap["mercury"];
       frontLabel.textContent = "🔭 Front View – Destination: Mercury";
@@ -257,12 +332,20 @@
       frontPlanet.style.opacity = 0;
       frontPlanet.style.transform = 'translate(-50%, -50%) scale(0.1)';
 
-      speedDisplay.textContent = "0.59c";
-      updateVectorDisplay(1);
+      speedDisplay.textContent = "0.00c";
+      vectorDisplay.textContent = "0°";
+      vectorSafety.textContent = "🟢 Safe";
+      warpLoadFill.style.width = "0%";
+      updateArc(0);
     }
 
-    updateViews();
-    updateVectorDisplay(1);
+    function abortWarp() {
+      clearInterval(interval);
+      emergencyAbort.style.display = "none";
+      alert("⚠️ Emergency Abort Activated – Warp Sequence Halted");
+    }
+
+    resetWarp(); // initialize
   </script>
 
 </body>
