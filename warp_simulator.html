@@ -4,20 +4,16 @@
   <meta charset="UTF-8" />
   <title>Warp Drive Simulator with Clock Sync</title>
   <style>
-    body { margin:0; font-family:Arial,sans-serif; background:#000; color:#fff;
-      display:flex; flex-direction:column; align-items:center; }
-    #directionSpeedDisplay { display:flex; align-items:center; gap:20px;
-      font-size:20px; margin:16px; color:#00ffff; }
+    body { margin:0; font-family:Arial,sans-serif; background:#000; color:#fff; display:flex; flex-direction:column; align-items:center; }
+    #directionSpeedDisplay { display:flex; align-items:center; gap:20px; font-size:20px; margin:16px; color:#00ffff; }
     #warpLoadBar { width:120px; height:12px; border:1px solid #ccc; background:#222; }
     #warpLoadFill { height:100%; width:0%; background:green; transition:width .3s, background .3s; }
     #vectorStatus { font-size:16px; margin-bottom:10px; }
     #shipViews { display:flex; justify-content:center; gap:40px; margin-top:10px; }
     .viewBoxContainer { display:flex; flex-direction:column; align-items:center; }
     .label { margin-bottom:6px; font-size:16px; color:#00ffff; }
-    .viewBox { background:url('https://upload.wikimedia.org/wikipedia/commons/4/47/StarfieldSimulation.jpg') center/cover no-repeat;
-      border:2px solid #00ffff; width:400px; height:300px; position:relative; overflow:hidden; }
-    .planetImage { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%) scale(1);
-      max-width:100%; max-height:100%; transition:transform .2s ease, opacity .2s ease; }
+    .viewBox { background:url('https://upload.wikimedia.org/wikipedia/commons/4/47/StarfieldSimulation.jpg') center/cover no-repeat; border:2px solid #00ffff; width:400px; height:300px; position:relative; overflow:hidden; }
+    .planetImage { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%) scale(1); max-width:100%; max-height:100%; transition:transform .2s ease, opacity .2s ease; }
     #controls { margin-top:20px; display:flex; flex-direction:column; align-items:center; gap:12px; }
     .control-row { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; }
     select, button { padding:9px 18px; font-size:14.4px; border-radius:5px; border:none; }
@@ -59,7 +55,7 @@
   <div id="controls">
     <div class="control-row">
       <label>🪐 Planet:
-        <select id="planetSelect">
+        <select id="planetSelect" onchange="updatePlanet()">
           <option value="mercury" selected>Mercury</option>
           <option value="venus">Venus</option>
           <option value="mars">Mars</option>
@@ -91,38 +87,103 @@
   </div>
 
   <!-- Clock Sync Table -->
-  <table>
+  <table id="clockTable">
     <tr><th>Clock</th><th>Status</th><th>Purpose</th><th>CST</th><th>Local</th><th>Δ (ms)</th>
         <th>Arrival CST</th><th>Arrival IST</th></tr>
-    <tr><td>C1 • Biometric</td><td>✅ Synced</td><td>Crew/Local</td>
-        <td id="c1cst">02:30:34.690</td><td id="c1loc">02:30:34.689</td><td id="c1delta">-0.91</td>
-        <td id="c1acst">03:47:53.399</td><td id="c1aist">45,500,000,000 y</td></tr>
-    <tr><td>C2 • Warp Edge</td><td>✅ Synced</td><td>Phase Monitor</td>
-        <td id="c2cst">02:30:34.690</td><td id="c2loc">02:30:34.689</td><td id="c2delta">-0.64</td>
-        <td id="c2acst">03:47:53.399</td><td id="c2aist">45,500,000,000 y</td></tr>
-    <tr><td>C3 • NavCore</td><td>✅ Synced</td><td>Navigation</td>
-        <td id="c3cst">02:30:34.690</td><td id="c3loc">02:30:34.689</td><td id="c3delta">-0.47</td>
-        <td id="c3acst">03:47:53.399</td><td id="c3aist">45,500,000,000 y</td></tr>
-    <tr><td>C4 • CST Earth</td><td>✅ Synced</td><td>Master Anchor</td>
-        <td id="c4cst">02:30:34.690</td><td id="c4loc">02:30:34.693</td><td id="c4delta">3.02</td>
-        <td id="c4acst">03:47:53.399</td><td id="c4aist">45,500,000,000 y</td></tr>
-    <tr><td>C5 • DriftEye</td><td>✅ Synced</td><td>Diagnostics</td>
-        <td id="c5cst">02:30:34.690</td><td id="c5loc">02:30:34.689</td><td id="c5delta">-0.15</td>
-        <td id="c5acst">03:47:53.399</td><td id="c5aist">45,500,000,000 y</td></tr>
+    <tbody id="clockBody"></tbody>
   </table>
 
-  <div id="footer">
-    Clock Sync (C1–C5), Arrival CST/IST, compact view under controls
-  </div>
+  <div id="footer">Clock Sync (C1–C5), Arrival CST/IST, compact view under controls</div>
 
   <script>
-    // Existing warp simulation code goes here...
-    // (Use your previous logic: startWarp, resetWarp, etc.)
-    function startWarp(){ /* ... */ }
-    function resetWarp(){ /* ... */ }
-    function abortWarp(){ /* ... alert and clear interval ... */ }
-    // Clock values are static here; real sync logic not included.
-  </script>
+    const clocks = [
+      { id: 'C1', label: 'Biometric', purpose: 'Crew/Local' },
+      { id: 'C2', label: 'Warp Edge', purpose: 'Phase Monitor' },
+      { id: 'C3', label: 'NavCore', purpose: 'Navigation' },
+      { id: 'C4', label: 'CST Earth', purpose: 'Master Anchor' },
+      { id: 'C5', label: 'DriftEye', purpose: 'Diagnostics' }
+    ];
 
+    let warpInterval, clockInterval;
+    let warpActive = false;
+
+    function pad(n) { return n.toString().padStart(2, '0'); }
+
+    function getTimeStr(date = new Date()) {
+      return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${date.getMilliseconds().toString().padStart(3, '0')}`;
+    }
+
+    function updateClocks() {
+      const now = new Date();
+      const table = document.getElementById('clockBody');
+      table.innerHTML = '';
+      clocks.forEach(clock => {
+        const local = new Date(now.getTime() + Math.random() * 5 - 2.5); // simulate drift
+        const delta = (local - now).toFixed(2);
+        const arrivalCST = new Date(now.getTime() + 4700000); // ~1hr 18min
+        const row = `
+          <tr>
+            <td>${clock.id} • ${clock.label}</td><td>✅ Synced</td><td>${clock.purpose}</td>
+            <td>${getTimeStr(now)}</td>
+            <td>${getTimeStr(local)}</td>
+            <td>${delta}</td>
+            <td>${getTimeStr(arrivalCST)}</td>
+            <td>45,500,000,000 y</td>
+          </tr>
+        `;
+        table.innerHTML += row;
+      });
+    }
+
+    function updatePlanet() {
+      const planet = document.getElementById("planetSelect").value;
+      document.getElementById("frontPlanet").src = `https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/${planet}.png`;
+      document.getElementById("frontLabel").innerText = `🔭 Front View – Destination: ${planet.charAt(0).toUpperCase() + planet.slice(1)}`;
+    }
+
+    function startWarp() {
+      if (warpActive) return;
+      warpActive = true;
+      document.getElementById('emergencyAbort').style.display = 'inline-block';
+
+      const warpLevel = parseInt(document.getElementById("warpLevelSelect").value);
+      const speedDisplay = document.getElementById("speedDisplay");
+      const vectorDisplay = document.getElementById("vectorDisplay");
+      const fill = document.getElementById("warpLoadFill");
+
+      let t = 0;
+      warpInterval = setInterval(() => {
+        const speed = (warpLevel * (t / 100)).toFixed(2);
+        speedDisplay.innerText = `${speed}c`;
+        vectorDisplay.innerText = `${(warpLevel * 10 + t).toFixed(0)}°`;
+        fill.style.width = `${Math.min(t, 100)}%`;
+        fill.style.background = warpLevel > 7 ? 'orange' : 'lime';
+        document.getElementById("vectorSafety").innerText = warpLevel > 7 ? "⚠️ Risk" : "Safe";
+        t += 4;
+        if (t > 100) clearInterval(warpInterval);
+      }, 100);
+    }
+
+    function resetWarp() {
+      clearInterval(warpInterval);
+      warpActive = false;
+      document.getElementById("speedDisplay").innerText = "0.00c";
+      document.getElementById("vectorDisplay").innerText = "0°";
+      document.getElementById("warpLoadFill").style.width = "0%";
+      document.getElementById("vectorSafety").innerText = "Safe";
+      document.getElementById("warpLoadFill").style.background = "green";
+      document.getElementById('emergencyAbort').style.display = 'none';
+    }
+
+    function abortWarp() {
+      alert("⚠️ Warp aborted!");
+      resetWarp();
+    }
+
+    // Initial load
+    updatePlanet();
+    updateClocks();
+    clockInterval = setInterval(updateClocks, 1000);
+  </script>
 </body>
 </html>
