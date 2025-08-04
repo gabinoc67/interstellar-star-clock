@@ -1,59 +1,24 @@
-// ✅ render/shipView.js – Starfield background + direction toggle + screenshot
+// ✅ Final Recommended: shipView.js
 
-window.addEventListener("DOMContentLoaded", () => {
-  const viewPanel = document.getElementById("ship-view");
+let frontView = true;
+const shipRender = document.getElementById("ship-render");
+const toggleViewBtn = document.getElementById("toggleView");
+const compassHeading = document.getElementById("compass-heading");
 
-  // 🌌 Starfield Canvas
-  const starCanvas = document.createElement("canvas");
-  starCanvas.width = 380;
-  starCanvas.height = 120;
-  starCanvas.style.width = "100%";
-  starCanvas.style.background = "black";
-  viewPanel.appendChild(starCanvas);
+let heading = 0;
+function updateHeading() {
+  heading = (heading + 1) % 360;
+  compassHeading.textContent = `🧭 Heading: ${heading.toString().padStart(3, "0")}°`;
+  updateVectorDirection?.(heading); // Optional external hook
+}
 
-  const ctx = starCanvas.getContext("2d");
+function toggleShipView() {
+  frontView = !frontView;
+  toggleViewBtn.textContent = `Toggle View: ${frontView ? "Front" : "Rear"}`;
+  shipRender.style.transform = frontView ? "scaleX(1)" : "scaleX(-1)";
+}
 
-  function drawStars() {
-    ctx.clearRect(0, 0, starCanvas.width, starCanvas.height);
-    for (let i = 0; i < 80; i++) {
-      const x = Math.random() * starCanvas.width;
-      const y = Math.random() * starCanvas.height;
-      const r = Math.random() * 1.5;
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, 2 * Math.PI);
-      ctx.fillStyle = "#fff";
-      ctx.fill();
-    }
-  }
-
-  drawStars();
-  setInterval(drawStars, 3000); // Refresh every 3 sec
-
-  // 🔁 Direction Toggle
-  const toggleBtn = document.createElement("button");
-  toggleBtn.textContent = "View: Front";
-  toggleBtn.style.marginTop = "6px";
-  toggleBtn.addEventListener("click", () => {
-    if (toggleBtn.textContent.includes("Front")) {
-      toggleBtn.textContent = "View: Rear";
-    } else {
-      toggleBtn.textContent = "View: Front";
-    }
-    // Optional: update direction logic globally here
-  });
-  viewPanel.appendChild(toggleBtn);
-
-  // 📷 Screenshot Button
-  const screenshotBtn = document.createElement("button");
-  screenshotBtn.textContent = "📸 Screenshot";
-  screenshotBtn.style.marginLeft = "10px";
-  screenshotBtn.addEventListener("click", () => {
-    html2canvas(document.body).then(canvas => {
-      const link = document.createElement("a");
-      link.download = "warp_screenshot.png";
-      link.href = canvas.toDataURL();
-      link.click();
-    });
-  });
-  viewPanel.appendChild(screenshotBtn);
-});
+if (shipRender && toggleViewBtn) {
+  toggleViewBtn.addEventListener("click", toggleShipView);
+  setInterval(updateHeading, 300);
+}
