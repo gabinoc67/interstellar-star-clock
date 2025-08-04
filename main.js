@@ -1,176 +1,81 @@
-// ✅ main.js - Bootstrap Warp Simulator with HUD, Lock, Screenshot
+// ✅ main.js — Core Warp Drive Simulation Logic
 
-let warpCountdownInterval = null;
-let controlsLocked = false;
-let fastMode = false;
+let warpSpeed = 1;
+let destination = "Mars";
+let isEngaged = false;
+let travelLog = [];
 
-window.addEventListener("DOMContentLoaded", () => {
-  console.log("🌌 Warp Control Simulator Booting...");
+const clocks = ["c1", "c2", "c3", "c4", "c5"];
 
-  initUI();
-  initClockSync();
-  initSimulation();
-  addHUDIndicators();
-  addScreenshotButton();
-});
-
-function initUI() {
-  const scaleInput = document.getElementById("ui-scale");
-  scaleInput.addEventListener("input", () => {
-    document.body.style.zoom = `${scaleInput.value}%`;
-  });
-
-  const soundToggle = document.getElementById("sound");
-  soundToggle.addEventListener("change", () => {
-    console.log("🔊 Sound", soundToggle.checked ? "On" : "Off");
-  });
-
-  document.getElementById("startBtn").addEventListener("click", startSimulation);
-  document.getElementById("stopBtn").addEventListener("click", stopSimulation);
-  document.getElementById("engageBtn").addEventListener("click", engageWarp);
-
-  document.getElementById("fastWarpToggle").addEventListener("change", e => {
-    fastMode = e.target.checked;
-    console.log("⏩ Fast warp mode:", fastMode);
-  });
-
-  addMissionStatusBox();
+function updateClocks() {
+  const now = new Date().toLocaleTimeString();
+  clocks.forEach(id => document.getElementById(id).innerText = now);
 }
 
-function initClockSync() {
-  setInterval(() => {
-    const now = new Date();
-    for (let i = 1; i <= 5; i++) {
-      document.getElementById(`c${i}`).textContent = now.toLocaleTimeString();
-    }
-    updateMissionStatusTime(now);
-  }, 1000);
+function updateCompassHeading(degrees) {
+  const heading = document.getElementById("compass-heading");
+  heading.textContent = `🧭 Heading: ${degrees}°`;
 }
 
-function initSimulation() {
-  console.log("🧠 Physics + Visuals ready");
-  drawCurve();
-  renderOrbits();
+function updateLog(message) {
+  const log = document.getElementById("cmdLog");
+  if (log) {
+    const time = new Date().toLocaleTimeString();
+    log.innerHTML += `&bull; [${time}] ${message}<br>`;
+    log.scrollTop = log.scrollHeight;
+  }
 }
 
-function startSimulation() {
-  console.log("🟢 Starting simulation...");
-  logStatus("🟢 Simulation started.");
+function downloadLog() {
+  const log = document.getElementById("cmdLog").innerText;
+  const blob = new Blob([log], { type: "text/plain" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "warp_log.txt";
+  a.click();
 }
 
-function stopSimulation() {
-  console.log("🔴 Stopping simulation...");
-  logStatus("🔴 Simulation stopped.");
-  if (warpCountdownInterval) clearInterval(warpCountdownInterval);
-  controlsLocked = false;
-  updateControlState();
-  updateHUDStatus("🟠 Idle");
+function startSequence() {
+  warpSpeed = parseInt(document.getElementById("warpSpeed").value);
+  destination = document.getElementById("destination").value;
+  updateLog(`Initialized warp sequence to ${destination} at Warp ${warpSpeed}`);
+  isEngaged = false;
 }
 
 function engageWarp() {
-  console.log("⚡ Warp engaged!");
-  logStatus("⚡ Warp engaged.");
-
-  autoCalculateGVE();
-  const { etaSeconds, dAU } = computeETASeconds();
-  logStatus(`⏳ ETA: ${Math.round(etaSeconds)} sec | Distance: ${dAU} AU`);
-
-  drawCurve();
-  validateGR();
-
-  startWarpCountdown(etaSeconds);
-  controlsLocked = true;
-  updateControlState();
-  updateMissionStatusETA(etaSeconds);
-  updateHUDStatus("🚀 In Warp");
+  if (isEngaged) return;
+  isEngaged = true;
+  updateLog(`Engaging warp drive to ${destination}...`);
+  document.getElementById("ship-render").style.animationPlayState = "running";
+  // Trigger animation/simulation from render modules
+  simulateTravel();
 }
 
-function startWarpCountdown(duration) {
-  let remaining = Math.round(duration);
-  if (warpCountdownInterval) clearInterval(warpCountdownInterval);
-
-  logStatus(`🕒 Warp countdown started: ${remaining} sec`);
-
-  warpCountdownInterval = setInterval(() => {
-    remaining -= fastMode ? 5 : 1;
-    remaining = Math.max(remaining, 0);
-
-    logStatus(`⏳ Time left: ${remaining} sec`);
-    updateMissionStatusETA(remaining);
-
-    if (remaining <= 0) {
-      clearInterval(warpCountdownInterval);
-      logStatus("✅ Arrived at destination. Warp complete.");
-      controlsLocked = false;
-      updateControlState();
-      updateHUDStatus("✅ Arrived");
-    }
-  }, 1000);
+function stopWarp() {
+  if (!isEngaged) return;
+  isEngaged = false;
+  updateLog("Warp sequence aborted.");
+  document.getElementById("ship-render").style.animationPlayState = "paused";
+  // Reset animations if needed
 }
 
-function updateControlState() {
-  ["startBtn", "engageBtn", "destination", "warpSpeed"].forEach(id => {
-    document.getElementById(id).disabled = controlsLocked;
-  });
+function simulateTravel() {
+  // Placeholder — connected to curve.js, orbit.js, and gravity-vector-engine.js
+  updateCompassHeading(Math.floor(Math.random() * 360));
+  updateLog(`Calculating optimal curve to ${destination} at Warp ${warpSpeed}...`);
+  // Add actual path animation / arrival triggers here
 }
 
-function addMissionStatusBox() {
-  const panel = document.getElementById("flight-plan");
-  const box = document.createElement("div");
-  box.id = "mission-status";
-  box.style.background = "#111";
-  box.style.color = "#0f0";
-  box.style.padding = "6px";
-  box.style.marginTop = "8px";
-  box.style.fontSize = "12px";
-  box.innerHTML = `CST: --:--<br>ETA: -- sec`;
-  panel.appendChild(box);
-}
+// Event Bindings
+document.getElementById("startBtn").onclick = startSequence;
+document.getElementById("engageBtn").onclick = engageWarp;
+document.getElementById("stopBtn").onclick = stopWarp;
+document.getElementById("toggleView").onclick = () => {
+  const toggleBtn = document.getElementById("toggleView");
+  const mode = toggleBtn.textContent.includes("Front") ? "Rear" : "Front";
+  toggleBtn.textContent = `Toggle View: ${mode}`;
+  updateLog(`Switched ship view to ${mode}`);
+};
 
-function updateMissionStatusTime(now) {
-  const box = document.getElementById("mission-status");
-  if (box) {
-    const lines = box.innerHTML.split("<br>");
-    box.innerHTML = `CST: ${now.toLocaleTimeString()}<br>` + lines[1];
-  }
-}
-
-function updateMissionStatusETA(seconds) {
-  const box = document.getElementById("mission-status");
-  if (box) {
-    const lines = box.innerHTML.split("<br>");
-    box.innerHTML = lines[0] + `<br>ETA: ${seconds} sec`;
-  }
-}
-
-function addHUDIndicators() {
-  const hud = document.getElementById("hud");
-  const phase = document.createElement("div");
-  phase.id = "hud-status";
-  phase.style.margin = "6px 0";
-  phase.style.fontWeight = "bold";
-  phase.style.color = "#fff";
-  phase.textContent = "🟠 Idle";
-  hud.prepend(phase);
-}
-
-function updateHUDStatus(statusText) {
-  const label = document.getElementById("hud-status");
-  if (label) label.textContent = statusText;
-}
-
-function addScreenshotButton() {
-  const panel = document.getElementById("ship-view");
-  const btn = document.createElement("button");
-  btn.textContent = "📷 Screenshot";
-  btn.style.marginTop = "6px";
-  btn.addEventListener("click", () => {
-    html2canvas(document.body).then(canvas => {
-      const link = document.createElement("a");
-      link.download = "warp_screenshot.png";
-      link.href = canvas.toDataURL();
-      link.click();
-    });
-  });
-  panel.appendChild(btn);
-}
+// Clock Sync
+setInterval(updateClocks, 1000);
