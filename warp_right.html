@@ -32,15 +32,12 @@
       color: #00ffff;
     }
 
-    .map-canvas, .shield-bubble, .starfield-window, .defense-field {
+    canvas {
+      display: block;
       width: 100%;
       height: 140px;
       background: #000819;
       border-radius: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      position: relative;
     }
 
     .map-label, .bubble-label, .star-label, .defense-label {
@@ -50,36 +47,57 @@
       color: #aaa;
     }
 
-    .glow-dot {
-      width: 10px;
-      height: 10px;
-      background: #00ffffaa;
-      border-radius: 50%;
-      animation: pulse 2s infinite;
+    .starfield-window, .defense-field, .shield-bubble {
+      position: relative;
+      width: 100%;
+      height: 140px;
+      background: #000819;
+      border-radius: 8px;
+      overflow: hidden;
     }
 
-    @keyframes pulse {
+    .ship {
+      width: 48px;
+      height: 48px;
+      background: #00ffff;
+      border-radius: 50%;
+      position: absolute;
+      top: 46px;
+      left: 140px;
+      animation: pulseShip 2s infinite;
+    }
+
+    @keyframes pulseShip {
       0% { transform: scale(1); opacity: 1; }
-      50% { transform: scale(1.5); opacity: 0.5; }
+      50% { transform: scale(1.1); opacity: 0.6; }
       100% { transform: scale(1); opacity: 1; }
     }
 
-    .arrow {
-      width: 24px;
-      height: 24px;
-      border: 4px solid #00ffff88;
+    .debris {
+      width: 4px;
+      height: 4px;
+      background: red;
       border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      position: absolute;
+      animation: fall 3s linear infinite;
     }
 
-    .arrow::after {
-      content: '';
-      width: 6px;
-      height: 12px;
-      background: #00ffff;
-      clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+    @keyframes fall {
+      0% { transform: translateY(0); opacity: 1; }
+      100% { transform: translateY(140px); opacity: 0; }
+    }
+
+    .shield-glow {
+      width: 80px;
+      height: 80px;
+      border: 2px dashed #00ffffaa;
+      border-radius: 50%;
+      animation: rotate 4s linear infinite;
+    }
+
+    @keyframes rotate {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
     }
   </style>
 </head>
@@ -88,9 +106,7 @@
   <!-- Heliocentric Polar Map -->
   <div class="panel-box">
     <h2>Heliocentric Polar Map (Now vs Arrival)</h2>
-    <div class="map-canvas">
-      <canvas id="polarMap" width="300" height="140"></canvas>
-    </div>
+    <canvas id="polarMap" width="300" height="140"></canvas>
     <div class="map-label">Now 40.3° → ETA 40.3° • Δ 0.0°</div>
   </div>
 
@@ -98,7 +114,7 @@
   <div class="panel-box">
     <h2>Shield Bubble Box</h2>
     <div class="shield-bubble">
-      <div class="arrow"></div>
+      <div class="shield-glow"></div>
     </div>
     <div class="bubble-label">Shield 100% • R 31.3 • warp 1</div>
   </div>
@@ -107,7 +123,7 @@
   <div class="panel-box">
     <h2>Warp Starfield Window</h2>
     <div class="starfield-window">
-      <div class="arrow"></div>
+      <div class="ship"></div>
     </div>
     <div class="star-label">Visual ×0.59 (warp 1)</div>
   </div>
@@ -115,79 +131,104 @@
   <!-- Debris Defense Field -->
   <div class="panel-box">
     <h2>Debris Defense Field</h2>
-    <div class="defense-field">
-      <div class="glow-dot"></div>
-    </div>
+    <div class="defense-field" id="debrisField"></div>
     <div class="defense-label">Defense MW — Pre:1987 | Skin:1293 | Grid:1720 • CLEAR</div>
   </div>
 
   <script>
-    const polarMapCanvas = document.getElementById("polarMap");
-    const ctx = polarMapCanvas.getContext("2d");
+    const planetAngles = {
+      mercury: 20, venus: 30, earth: 40.3, mars: 60,
+      jupiter: 120, saturn: 180, uranus: 240, neptune: 300, pluto: 330
+    };
 
-    function drawPolarMap() {
-      const w = polarMapCanvas.width;
-      const h = polarMapCanvas.height;
+    function drawPolarMap(planet = "mars") {
+      const canvas = document.getElementById("polarMap");
+      const ctx = canvas.getContext("2d");
+      const w = canvas.width, h = canvas.height;
       ctx.clearRect(0, 0, w, h);
+
+      const cx = w / 2, cy = h / 2;
 
       // Sun
       ctx.fillStyle = "yellow";
       ctx.beginPath();
-      ctx.arc(w / 2, h / 2, 6, 0, 2 * Math.PI);
+      ctx.arc(cx, cy, 6, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillText("Sun", w / 2 - 10, h / 2 - 10);
+      ctx.fillText("Sun", cx - 10, cy - 12);
 
-      // Earth orbit
+      // Orbits
       ctx.strokeStyle = "#00ffff55";
       ctx.beginPath();
-      ctx.arc(w / 2, h / 2, 40, 0, 2 * Math.PI);
+      ctx.arc(cx, cy, 40, 0, Math.PI * 2);
       ctx.stroke();
 
-      // Mars orbit
       ctx.strokeStyle = "#ff660055";
       ctx.beginPath();
-      ctx.arc(w / 2, h / 2, 65, 0, 2 * Math.PI);
+      ctx.arc(cx, cy, 65, 0, Math.PI * 2);
       ctx.stroke();
 
-      // Earth position
+      // Earth
       ctx.fillStyle = "#00ffff";
       ctx.beginPath();
-      ctx.arc(w / 2 + 40, h / 2, 5, 0, 2 * Math.PI);
+      ctx.arc(cx + 40, cy, 5, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillText("Earth", w / 2 + 30, h / 2 + 16);
+      ctx.fillText("Earth", cx + 28, cy + 16);
 
-      // Mars position
+      // Destination
+      const angle = (planetAngles[planet] || 60) * Math.PI / 180;
+      const radius = planet === "earth" ? 40 : 65;
+      const dx = cx + radius * Math.cos(angle);
+      const dy = cy + radius * Math.sin(angle);
+
       ctx.fillStyle = "#ff9900";
       ctx.beginPath();
-      ctx.arc(w / 2 - 65, h / 2, 5, 0, 2 * Math.PI);
+      ctx.arc(dx, dy, 5, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillText("Mars", w / 2 - 75, h / 2 + 16);
+      ctx.fillText(planet.charAt(0).toUpperCase() + planet.slice(1), dx - 15, dy + 15);
     }
 
-    window.onload = drawPolarMap;
+    function generateDebris() {
+      const field = document.getElementById("debrisField");
+      field.innerHTML = ""; // clear old
+      for (let i = 0; i < 8; i++) {
+        const dot = document.createElement("div");
+        dot.className = "debris";
+        dot.style.left = Math.random() * 90 + "%";
+        dot.style.top = -10 + "px";
+        dot.style.animationDelay = Math.random() * 2 + "s";
+        field.appendChild(dot);
+      }
+    }
 
-    // ✅ Add postMessage listener
     window.addEventListener("message", (event) => {
-      if (!event.data || !event.data.action) return;
+      const data = event.data;
+      if (!data || !data.action) return;
 
-      if (event.data.action === "engage") {
-        const planet = event.data.planet;
-        const warp = event.data.warp;
+      if (data.action === "engage") {
+        const planet = data.planet || "mars";
+        const warp = data.warp || 1;
+        drawPolarMap(planet);
+        generateDebris();
 
-        drawPolarMap();
-
-        document.querySelector(".map-label").textContent = `Now 40.3° → ETA 40.3° • Δ 0.0°`;
+        document.querySelector(".map-label").textContent = `Now 40.3° → ETA ${planetAngles[planet] || 60}° • Δ ${(planetAngles[planet] || 60) - 40.3}°`;
         document.querySelector(".bubble-label").textContent = `Shield 100% • R 31.3 • warp ${warp}`;
-        document.querySelector(".star-label").textContent = `Visual ×0.59 (warp ${warp})`;
+        document.querySelector(".star-label").textContent = `Visual ×${(warp * 0.59).toFixed(2)} (warp ${warp})`;
         document.querySelector(".defense-label").textContent = `Defense MW — Pre:1987 | Skin:1293 | Grid:1720 • CLEAR`;
-      } else if (event.data.action === "reset") {
-        drawPolarMap();
-        document.querySelector(".map-label").textContent = `Now 40.3° → ETA 40.3° • Δ 0.0°`;
+      }
+
+      if (data.action === "reset") {
+        drawPolarMap("mercury");
+        document.querySelector(".map-label").textContent = `Now 40.3° → ETA 20° • Δ -20.3°`;
         document.querySelector(".bubble-label").textContent = `Shield 100% • R 31.3 • warp 1`;
         document.querySelector(".star-label").textContent = `Visual ×0.59 (warp 1)`;
         document.querySelector(".defense-label").textContent = `Defense MW — Pre:1987 | Skin:1293 | Grid:1720 • CLEAR`;
       }
     });
+
+    window.onload = () => {
+      drawPolarMap("mars");
+      generateDebris();
+    };
   </script>
 </body>
 </html>
