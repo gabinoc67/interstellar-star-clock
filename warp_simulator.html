@@ -3,55 +3,47 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Warp Simulator with Wide Panels</title>
+  <title>Warp Front View + Trajectory</title>
   <style>
-    * { box-sizing: border-box; }
     body {
       margin: 0;
-      padding: 0;
       background: #000;
       color: #fff;
       font-family: sans-serif;
-      display: flex;
       height: 100vh;
+      display: flex;
+      flex-direction: row;
       overflow: hidden;
     }
 
-    /* Left & Right Panels */
-    .side-panel {
-      width: 400px;
-      background: #111;
-      padding: 15px;
+    /* Panels */
+    .panel {
+      width: 300px;
+      padding: 10px;
+      background-color: #111;
       border-right: 2px solid #0ff;
       display: flex;
       flex-direction: column;
-      overflow-y: auto;
+      align-items: center;
+      gap: 10px;
     }
 
-    .side-panel.right {
-      border-right: none;
+    .right-panel {
       border-left: 2px solid #0ff;
     }
 
-    .side-panel h2 {
-      color: #0ff;
-      font-size: 18px;
-      margin-bottom: 10px;
-      text-align: center;
-    }
-
-    /* Center Main Panel */
-    .main-content {
+    /* Center Section */
+    .main {
       flex: 1;
       display: flex;
       flex-direction: column;
       align-items: center;
-      overflow: hidden;
+      padding: 10px;
     }
 
     #arrivalStatus {
       font-size: 18px;
-      margin-top: 20px;
+      margin-top: 10px;
       color: #00ffff;
     }
 
@@ -60,17 +52,11 @@
       justify-content: center;
       align-items: center;
       gap: 30px;
-      margin-top: 5px;
+      margin: 10px 0;
     }
 
-    #clock {
+    #clock, #etaTimer {
       font-size: 16px;
-      color: #ffcc00;
-    }
-
-    #etaTimer {
-      font-size: 16px;
-      color: #00ff00;
     }
 
     #progressBarContainer {
@@ -90,7 +76,6 @@
     }
 
     #frontView {
-      margin-top: 10px;
       background: #111;
       border: 2px solid #0ff;
       border-radius: 10px;
@@ -117,12 +102,9 @@
     }
 
     .controls {
-      margin-top: 20px;
+      margin-top: 15px;
       display: flex;
       gap: 10px;
-      align-items: center;
-      flex-wrap: wrap;
-      justify-content: center;
     }
 
     select, button {
@@ -133,23 +115,30 @@
       cursor: pointer;
     }
 
-    button:hover, select:hover {
-      box-shadow: 0 0 5px #0ff;
+    canvas {
+      background: #222;
+      border: 1px solid #0ff;
+    }
+
+    .panel-title {
+      font-weight: bold;
+      font-size: 16px;
+      color: #0ff;
     }
   </style>
 </head>
 <body>
 
-  <!-- LEFT PANEL -->
-  <div class="side-panel">
-    <h2>Left Panel</h2>
-    <p>This panel is ready for content like logs, mission status, or custom controls.</p>
+  <!-- Left Panel -->
+  <div class="panel">
+    <div class="panel-title">Trajectory & Einstein Tensor</div>
+    <canvas id="trajectoryCanvas" width="260" height="260"></canvas>
+    <div id="tensorDisplay">Curvature: --</div>
   </div>
 
-  <!-- CENTER MAIN CONTENT -->
-  <div class="main-content">
+  <!-- Center Main -->
+  <div class="main">
     <div id="arrivalStatus">Arrived at Mercury | ETA: 00:00:000</div>
-
     <div class="top-bar">
       <div id="clock">Clock: --:--:--</div>
       <div id="etaTimer">ETA: 00:00:000</div>
@@ -189,10 +178,9 @@
     </div>
   </div>
 
-  <!-- RIGHT PANEL -->
-  <div class="side-panel right">
-    <h2>Right Panel</h2>
-    <p>Use this for radar, shields, mission data, or warp system monitoring.</p>
+  <!-- Right Panel -->
+  <div class="panel right-panel">
+    <div class="panel-title">Right Panel (Future)</div>
   </div>
 
   <script>
@@ -203,10 +191,11 @@
     const clock = document.getElementById("clock");
     const etaTimer = document.getElementById("etaTimer");
     const progressBar = document.getElementById("progressBar");
+    const tensorDisplay = document.getElementById("tensorDisplay");
+    const canvas = document.getElementById("trajectoryCanvas");
+    const ctx = canvas.getContext("2d");
 
-    let clockInterval = null;
-    let progressInterval = null;
-    let etaInterval = null;
+    let clockInterval = null, etaInterval = null, progressInterval = null, ballInterval = null;
 
     function formatAMPM(date) {
       let hours = date.getHours();
@@ -220,10 +209,49 @@
       return `${hh}:${mm}:${ss} ${ampm}`;
     }
 
-    function startClockAndProgress(duration) {
+    function drawCurveAndBall(warp, duration) {
+      clearInterval(ballInterval);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Adjust curvature: low warp = steep, high warp = flatter
+      const cpY = 200 - warp * 15; // Control point Y
+      tensorDisplay.textContent = `Curvature: ${cpY}`;
+
+      let t = 0;
+
+      ballInterval = setInterval(() => {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Draw curve
+        ctx.beginPath();
+        ctx.moveTo(20, 230);
+        ctx.quadraticCurveTo(130, cpY, 240, 30);
+        ctx.strokeStyle = "#0ff";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Ball position on curve
+        const x0 = 20, y0 = 230;
+        const x1 = 130, y1 = cpY;
+        const x2 = 240, y2 = 30;
+
+        const x = (1 - t) * (1 - t) * x0 + 2 * (1 - t) * t * x1 + t * t * x2;
+        const y = (1 - t) * (1 - t) * y0 + 2 * (1 - t) * t * y1 + t * t * y2;
+
+        ctx.beginPath();
+        ctx.arc(x, y, 5, 0, 2 * Math.PI);
+        ctx.fillStyle = "#fff";
+        ctx.fill();
+
+        t += 0.01 / warp;
+        if (t >= 1) clearInterval(ballInterval);
+      }, duration * 10);
+    }
+
+    function startClockAndProgress(duration, warp) {
       clearInterval(clockInterval);
-      clearInterval(progressInterval);
       clearInterval(etaInterval);
+      clearInterval(progressInterval);
 
       const startTime = Date.now();
       const durationMs = duration * 1000;
@@ -236,9 +264,7 @@
       etaInterval = setInterval(() => {
         const now = Date.now();
         const elapsed = now - startTime;
-        if (elapsed >= durationMs) {
-          clearInterval(etaInterval);
-        }
+        if (elapsed >= durationMs) clearInterval(etaInterval);
         const mins = String(Math.floor(elapsed / 60000)).padStart(2, '0');
         const secs = String(Math.floor((elapsed % 60000) / 1000)).padStart(2, '0');
         const ms = String(elapsed % 1000).padStart(3, '0');
@@ -248,10 +274,12 @@
       progressBar.style.width = "0%";
       progressInterval = setInterval(() => {
         const now = Date.now();
-        let percent = Math.min(100, ((now - startTime) / durationMs) * 100);
+        const percent = Math.min(100, ((now - startTime) / durationMs) * 100);
         progressBar.style.width = percent + "%";
         if (percent >= 100) clearInterval(progressInterval);
       }, 100);
+
+      drawCurveAndBall(warp, duration);
     }
 
     function engageWarp() {
@@ -265,14 +293,13 @@
       img.style.transform = "translate(-50%, -50%) scale(0.1)";
       void img.offsetWidth;
       img.style.transitionDuration = `${eta}s`;
-      img.style.transform = "translate(-50%, -50%) scale(8.8)";
-      startClockAndProgress(eta);
+      img.style.transform = "translate(-50%, -50%) scale(8.8)`;
+
+      startClockAndProgress(eta, warp);
     }
 
     function resetWarp() {
-      clearInterval(clockInterval);
-      clearInterval(progressInterval);
-      clearInterval(etaInterval);
+      [clockInterval, etaInterval, progressInterval, ballInterval].forEach(clearInterval);
       planetSel.selectedIndex = 0;
       warpSel.value = "1";
       img.src = planetSel.value;
@@ -282,6 +309,8 @@
       clock.textContent = "Clock: --:--:--";
       etaTimer.textContent = "ETA: 00:00:000";
       progressBar.style.width = "0%";
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      tensorDisplay.textContent = "Curvature: --";
     }
   </script>
 
