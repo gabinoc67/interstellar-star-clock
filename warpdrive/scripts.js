@@ -21,31 +21,31 @@ planetNames.forEach(name => {
 // --- Helpers ---
 function drawPlanet(ctx, img, scale) {
   const cw = ctx.canvas.width, ch = ctx.canvas.height;
-  const w = img.width*scale, h = img.height*scale;
+  const w = img.width * scale, h = img.height * scale;
   ctx.clearRect(0, 0, cw, ch);
-  ctx.drawImage(img, (cw-w)/2, (ch-h)/2, w, h);
+  ctx.drawImage(img, (cw - w)/2, (ch - h)/2, w, h);
 }
 function drawStaticPath(speed) {
   const w = tCtx.canvas.width, h = tCtx.canvas.height;
-  const start = {x:60,y:h/2}, end = {x:w-60,y:h/2};
-  const cp = {x:w/2, y:h/2 - (speed/10)*(h/3)};
-  tCtx.clearRect(0,0,w,h);
-  tCtx.strokeStyle='#0f0'; tCtx.lineWidth=2;
+  const start = { x:60, y:h/2 }, end = { x:w-60, y:h/2 };
+  const cp = { x:w/2, y:h/2 - (speed/10)*(h/3) };
+  tCtx.clearRect(0, 0, w, h);
+  tCtx.strokeStyle = '#0f0'; tCtx.lineWidth = 2;
   tCtx.beginPath();
   tCtx.moveTo(start.x, start.y);
   tCtx.quadraticCurveTo(cp.x, cp.y, end.x, end.y);
   tCtx.stroke();
-  return {start, cp, end};
+  return { start, cp, end };
 }
-function animateTravel({start,cp,end}) {
+function animateTravel({ start, cp, end }) {
   const speed = +speedInput.value;
-  const duration = 2000/speed;
+  const duration = 2000 / speed;
   const t0 = performance.now();
   function frame(now) {
-    const t = ((now - t0)/duration).clamp(0,1);
-    tCtx.clearRect(0,0,tCtx.canvas.width, tCtx.canvas.height);
+    const t = Math.min((now - t0) / duration, 1);
+    tCtx.clearRect(0, 0, tCtx.canvas.width, tCtx.canvas.height);
     // redraw path
-    tCtx.strokeStyle='#0f0'; tCtx.lineWidth=2;
+    tCtx.strokeStyle = '#0f0'; tCtx.lineWidth = 2;
     tCtx.beginPath();
     tCtx.moveTo(start.x, start.y);
     tCtx.quadraticCurveTo(cp.x, cp.y, end.x, end.y);
@@ -53,9 +53,9 @@ function animateTravel({start,cp,end}) {
     // ship dot
     const x = (1-t)*(1-t)*start.x + 2*(1-t)*t*cp.x + t*t*end.x;
     const y = (1-t)*(1-t)*start.y + 2*(1-t)*t*cp.y + t*t*end.y;
-    tCtx.fillStyle='#f00';
-    tCtx.beginPath(); tCtx.arc(x,y,6,0,Math.PI*2); tCtx.fill();
-    if(t<1) requestAnimationFrame(frame);
+    tCtx.fillStyle = '#f00';
+    tCtx.beginPath(); tCtx.arc(x, y, 6, 0, Math.PI*2); tCtx.fill();
+    if (t < 1) requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
 }
@@ -73,10 +73,10 @@ engageBtn.addEventListener('click', () => {
 
   // zoom panels
   drawPlanet(rearCtx,  images['earth'],  rearScale);
-  if(dest && images[dest]) {
+  if (dest && images[dest]) {
     drawPlanet(frontCtx, images[dest], frontScale);
     document.getElementById('front-title').innerText =
-      dest.charAt(0).toUpperCase()+dest.slice(1);
+      dest.charAt(0).toUpperCase() + dest.slice(1);
   }
 
   // animate ship
@@ -90,12 +90,12 @@ engageBtn.addEventListener('click', () => {
 
 resetBtn.addEventListener('click', () => {
   planetSelect.value = 'mercury';
-  speedInput.value    = 1;
+  speedInput.value   = 1;
   document.getElementById('front-title').innerText = 'Front View';
   updateStats(0.9, 0.1);
-  drawPlanet(rearCtx, images['earth'], 0.9);
+  drawPlanet(rearCtx,  images['earth'],  0.9);
   drawPlanet(earthMini, images['earth'], 0.5);
-  tCtx.clearRect(0,0,tCtx.canvas.width, tCtx.canvas.height);
+  tCtx.clearRect(0, 0, tCtx.canvas.width, tCtx.canvas.height);
 });
 
 window.addEventListener('load', () => {
