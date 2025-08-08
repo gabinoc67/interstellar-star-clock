@@ -1,1 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Warp Drive Console</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100vh;
+      overflow: hidden;
+      background: #000;
+      font-family: 'Segoe UI', sans-serif;
+    }
 
+    body::before {
+      content: "";
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: radial-gradient(#fff 1px, transparent 1px),
+                  radial-gradient(#fff 1px, transparent 1px);
+      background-size: 50px 50px;
+      background-position: 0 0, 25px 25px;
+      opacity: 0.08;
+      z-index: 0;
+      animation: starDrift 60s linear infinite;
+    }
+
+    @keyframes starDrift {
+      from { background-position: 0 0, 25px 25px; }
+      to { background-position: 500px 1000px, 525px 1025px; }
+    }
+
+    #controls {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      z-index: 100;
+      background: rgba(0,0,0,0.7);
+      padding: 12px 16px;
+      border-radius: 8px;
+      color: #fff;
+    }
+
+    #controls select, #controls button {
+      margin-left: 8px;
+      font-size: 14px;
+      padding: 4px 6px;
+    }
+
+    #viewport {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      overflow: hidden;
+      z-index: 1;
+    }
+
+    .planet {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 100px;
+      height: 100px;
+      transform: translate(-50%, -50%) scale(1);
+      will-change: transform, opacity;
+      transition: filter 0.2s ease;
+      animation: rotatePlanet 60s linear infinite;
+    }
+
+    @keyframes rotatePlanet {
+      from { transform: translate(-50%, -50%) scale(1) rotate(0deg); }
+      to   { transform: translate(-50%, -50%) scale(1) rotate(360deg); }
+    }
+
+    .fade-out { opacity: 0; transition: opacity 0.4s ease-out; }
+    .fade-in { opacity: 1; transition: opacity 0.4s ease-in; }
+    .zooming { filter: blur(2px) brightness(1.2); }
+
+    #hud {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: rgba(0,0,0,0.6);
+      color: #0ff;
+      padding: 10px 14px;
+      font-family: monospace;
+      font-size: 14px;
+      border: 1px solid #0ff;
+      border-radius: 6px;
+      z-index: 100;
+    }
+
+    #hud div { margin: 4px 0; }
+  </style>
+</head>
+<body>
+
+<div id="controls">
+  Warp Drive:
+  <select id="warp">
+    <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option>
+    <option>6</option><option>7</option><option>8</option><option>9</option><option>10</option>
+  </select>
+  Destination:
+  <select id="destination">
+    <option>mercury2</option>
+    <option>venus2</option>
+    <option selected>earth</option>
+    <option>mars</option>
+    <option>jupiter</option>
+    <option>saturn</option>
+    <option>uranus</option>
+    <option>neptune2</option>
+    <option>pluto2</option>
+    <option>moon</option>
+  </select>
+  <button id="engage">Engage</button>
+  <button id="reset">Reset</button>
+</div>
+
+<div id="viewport">
+  <img id="planet" class="planet" src="earth.png" alt="Planet">
+</div>
+
+<div id="hud">
+  <div>🌐 Warp Level: <span id="hudWarp">1</span></div>
+  <div>🚀 Target: <span id="hudDest">earth</span></div>
+  <div>🌀 Zoom Scale: <span id="hudZoom">1.00</span></div>
+  <div>🕒 ETA: <span id="hudETA">0.0s</span></div>
+  <div>📏 Distance: <span id="hudDist">1.0 AU</span></div>
+  <div>⚡ Speed: <span id="hudSpeed">1.00c</span></div>
+</div>
+
+<audio id="soundWarp" src="warp.mp3" preload="auto"></audio>
+<audio id="soundArrive" src="arrive.mp3" preload="auto"></audio>
+<audio id="soundHum" src="hum.mp3" preload="auto" loop autoplay></audio>
+
+<script>
+  const planetImg = document.getElementById('planet');
+  const warpSelect = document.getElementById('warp');
+  const destinationSelect = document.getElementById('destination');
+  const engageBtn = document.getElementById('engage');
+  const resetBtn = document.getElementById('reset');
+
+  const hudWarp = document.getElementById('hudWarp');
+  const hudDest = document.getElementById('hudDest');
+  const hudZoom = document.getElementById('hudZoom');
+  const hudETA = document.getElementById('hudETA');
+  const hudDist = document.getElementById('hudDist');
+  const hudSpeed = document.getElementById('hudSpeed');
+
+  const soundWarp = document.getElementById('soundWarp');
+  const soundArrive = document.getElementById('soundArrive');
+  const soundHum = document.getElementById('soundHum');
+
+  let zoom = 1;
+  let zooming = false;
+  let animationFrame;
+
+  const AU_DISTANCES = {
+    mercury2: 0.39, venus2: 0.72, earth: 1.0, mars: 1.52,
+    jupiter: 5.2, saturn: 9.5, uranus: 19.8, neptune2: 30,
+    pluto2: 39.5, moon: 0.00257
+  };
+
+  function updateHUD(eta = 0, dist = 1, speed = 1) {
+    hudWarp.textContent = warpSelect.value;
+    hudDest.textContent = destinationSelect.value;
+    hudZoom.textContent = zoom.toFixed(2);
+    hudETA.textContent = `${eta.toFixed(1)}s`;
+    hudDist.textContent = `${dist.toFixed(2)} AU`;
+    hudSpeed.textContent = `${speed.toFixed(2)}c`;
+  }
+
+  function computeETA(warp, dest) {
+    const dist = AU_DISTANCES[dest] || 1;
+    const speed = Math.pow(warp, 3);
+    const eta = (dist * 500) / speed;
+    return { eta, dist, speed };
+  }
+
+  function animateZoomOut(speed, callback) {
+    cancelAnimationFrame(animationFrame);
+    zoom = 1;
+    zooming = true;
+    planetImg.classList.add('zooming');
+
+    function frame() {
+      if (!zooming) return;
+      zoom += speed;
+      planetImg.style.transform = `translate(-50%, -50%) scale(${zoom})`;
+      updateHUD();
+      if (zoom < 10) {
+        animationFrame = requestAnimationFrame(frame);
+      } else {
+        zooming = false;
+        callback();
+      }
+    }
+
+    frame();
+  }
+
+  function animateZoomIn(callback) {
+    cancelAnimationFrame(animationFrame);
+    zoom = 10;
+    zooming = true;
+    planetImg.classList.add('zooming');
+
+    function frame() {
+      if (!zooming) return;
+      zoom -= 0.05;
+      planetImg.style.transform = `translate(-50%, -50%) scale(${zoom})`;
+      updateHUD();
+      if (zoom > 1) {
+        animationFrame = requestAnimationFrame(frame);
+      } else {
+        zooming = false;
+        planetImg.classList.remove('zooming');
+        if (callback) callback();
+      }
+    }
+
+    frame();
+  }
+
+  engageBtn.addEventListener('click', () => {
+    const warp = parseInt(warpSelect.value);
+    const destination = destinationSelect.value;
+    const zoomSpeed = 0.01 * warp;
+
+    const { eta, dist, speed } = computeETA(warp, destination);
+    updateHUD(eta, dist, speed);
+
+    soundWarp.currentTime = 0;
+    soundWarp.play();
+
+    animateZoomOut(zoomSpeed, () => {
+      planetImg.classList.add('fade-out');
+      setTimeout(() => {
+        planetImg.src = `${destination}.png`;
+        planetImg.classList.remove('fade-out');
+        planetImg.classList.add('fade-in');
+
+        soundArrive.currentTime = 0;
+        soundArrive.play();
+
+        animateZoomIn(() => {
+          planetImg.classList.remove('fade-in');
+        });
+      }, 500);
+    });
+  });
+
+  resetBtn.addEventListener('click', () => {
+    warpSelect.value = '1';
+    destinationSelect.value = 'mercury2';
+    planetImg.src = 'mercury2.png';
+    zoom = 1;
+    planetImg.style.transform = `translate(-50%, -50%) scale(1)`;
+    planetImg.classList.remove('fade-in', 'fade-out', 'zooming');
+    updateHUD(0, AU_DISTANCES['mercury2'], 1);
+  });
+
+  resetBtn.click();
+</script>
+
+</body>
+</html>
