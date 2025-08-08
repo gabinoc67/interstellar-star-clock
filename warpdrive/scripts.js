@@ -1,105 +1,125 @@
-// --- Element refs ---
-const engageBtn    = document.querySelector('.engage-warp');
-const resetBtn     = document.getElementById('reset-btn');
-const speedInput   = document.getElementById('warp-speed');
-const planetSelect = document.getElementById('planet-select');
-const rearCtx      = document.getElementById('rear-canvas').getContext('2d');
-const frontCtx     = document.getElementById('front-canvas').getContext('2d');
-const tCtx         = document.getElementById('trajectory-canvas').getContext('2d');
-const earthMini    = document.getElementById('earth-canvas').getContext('2d');
-const destMini     = document.getElementById('dest-canvas').getContext('2d');
+// ELEMENTS
+const engageBtn  = document.getElementById('engage-btn');
+const resetBtn   = document.getElementById('reset-btn');
+const planetSel  = document.getElementById('planet-select');
+const speedInput = document.getElementById('warp-speed');
+const speedDisp  = document.getElementById('speed-display');
 
-// --- Load images ---
-const planetNames = ['mercury','venus','earth','mars','jupiter','saturn','uranus','neptune','pluto','moon'];
-const images = {};
-planetNames.forEach(name => {
-  const img = new Image();
-  img.src = `${name}.png`;
-  images[name] = img;
+const rearCtx   = document.getElementById('rear-canvas').getContext('2d');
+const frontCtx  = document.getElementById('front-canvas').getContext('2d');
+const miniEarth = document.getElementById('mini-earth').getContext('2d');
+const miniDest  = document.getElementById('mini-dest').getContext('2d');
+
+const trajCtx   = document.getElementById('traj-canvas').getContext('2d');
+
+const statRear  = document.getElementById('stat-rear');
+const statFront = document.getElementById('stat-front');
+const angX      = document.getElementById('ang-x');
+const angY      = document.getElementById('ang-y');
+const angT      = document.getElementById('ang-t');
+const destLabel = document.getElementById('dest-label');
+const frontTitle= document.getElementById('front-title');
+
+// LOAD IMAGES
+const planets = ['mercury','venus','earth','mars','jupiter','saturn','uranus','neptune','pluto','moon'];
+const imgs = {};
+planets.forEach(name=>{
+  const i=new Image();
+  i.src = name + '.png';
+  imgs[name]=i;
 });
 
-// --- Helpers ---
-function drawPlanet(ctx, img, scale) {
-  const cw = ctx.canvas.width, ch = ctx.canvas.height;
-  const w = img.width * scale, h = img.height * scale;
-  ctx.clearRect(0, 0, cw, ch);
-  ctx.drawImage(img, (cw - w)/2, (ch - h)/2, w, h);
+// DRAW HELPERS
+function drawPlanet(ctx,img,scale){
+  const W=ctx.canvas.width, H=ctx.canvas.height;
+  const w=img.width*scale, h=img.height*scale;
+  ctx.clearRect(0,0,W,H);
+  ctx.drawImage(img,(W-w)/2,(H-h)/2,w,h);
 }
-function drawStaticPath(speed) {
-  const w = tCtx.canvas.width, h = tCtx.canvas.height;
-  const start = { x:60, y:h/2 }, end = { x:w-60, y:h/2 };
-  const cp = { x:w/2, y:h/2 - (speed/10)*(h/3) };
-  tCtx.clearRect(0, 0, w, h);
-  tCtx.strokeStyle = '#0f0'; tCtx.lineWidth = 2;
-  tCtx.beginPath();
-  tCtx.moveTo(start.x, start.y);
-  tCtx.quadraticCurveTo(cp.x, cp.y, end.x, end.y);
-  tCtx.stroke();
-  return { start, cp, end };
+
+function drawCurve(speed){
+  const W=trajCtx.canvas.width, H=trajCtx.canvas.height;
+  const start={x:40,y:H/2}, end={x:W-40,y:H/2};
+  const cpY = H/2 - (speed/10)*(H/3);
+  trajCtx.clearRect(0,0,W,H);
+  trajCtx.strokeStyle='#0f0'; trajCtx.lineWidth=2;
+  trajCtx.beginPath();
+  trajCtx.moveTo(start.x,start.y);
+  trajCtx.quadraticCurveTo(W/2,cpY,end.x,end.y);
+  trajCtx.stroke();
+  return {start,cp:{x:W/2,y:cpY},end};
 }
-function animateTravel({ start, cp, end }) {
-  const speed = +speedInput.value;
-  const duration = 2000 / speed;
-  const t0 = performance.now();
-  function frame(now) {
-    const t = Math.min((now - t0) / duration, 1);
-    tCtx.clearRect(0, 0, tCtx.canvas.width, tCtx.canvas.height);
-    // redraw path
-    tCtx.strokeStyle = '#0f0'; tCtx.lineWidth = 2;
-    tCtx.beginPath();
-    tCtx.moveTo(start.x, start.y);
-    tCtx.quadraticCurveTo(cp.x, cp.y, end.x, end.y);
-    tCtx.stroke();
-    // ship dot
-    const x = (1-t)*(1-t)*start.x + 2*(1-t)*t*cp.x + t*t*end.x;
-    const y = (1-t)*(1-t)*start.y + 2*(1-t)*t*cp.y + t*t*end.y;
-    tCtx.fillStyle = '#f00';
-    tCtx.beginPath(); tCtx.arc(x, y, 6, 0, Math.PI*2); tCtx.fill();
-    if (t < 1) requestAnimationFrame(frame);
+
+function animateShip(path,speed){
+  const {start,cp,end}=path;
+  const dur = 2000/speed;
+  const t0=performance.now();
+  function frame(now){
+    let t=(now-t0)/dur; if(t>1)t=1;
+    drawCurve(speed);
+    // interpolate
+    const x=(1-t)**2*start.x + 2*(1-t)*t*cp.x + t**2*end.x;
+    const y=(1-t)**2*start.y + 2*(1-t)*t*cp.y + t**2*end.y;
+    trajCtx.fillStyle='#f00';
+    trajCtx.beginPath(); trajCtx.arc(x,y,5,0,2*Math.PI); trajCtx.fill();
+    if(t<1) requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
 }
-function updateStats(rearScale, frontScale) {
-  document.getElementById('stat-rear').innerText  = Math.round(rearScale*100) + '%';
-  document.getElementById('stat-front').innerText = Math.round(frontScale*100) + '%';
+
+function updateStats(r,f){
+  statRear.textContent  = Math.round(r*100)+'%';
+  statFront.textContent = Math.round(f*100)+'%';
 }
 
-// --- Event handlers ---
-engageBtn.addEventListener('click', () => {
+// ENGAGE
+engageBtn.addEventListener('click',()=>{
   const speed = +speedInput.value;
-  const dest  = planetSelect.value;
+  const dest  = planetSel.value;
+  speedDisp.textContent = speed;
+
+  // zoom scales
   const rearScale  = 1 - speed/10;
   const frontScale = speed/10;
 
-  // zoom panels
-  drawPlanet(rearCtx,  images['earth'],  rearScale);
-  if (dest && images[dest]) {
-    drawPlanet(frontCtx, images[dest], frontScale);
-    document.getElementById('front-title').innerText =
-      dest.charAt(0).toUpperCase() + dest.slice(1);
+  // redraw panels
+  drawPlanet(rearCtx, imgs.earth, rearScale);
+  if(dest){
+    drawPlanet(frontCtx, imgs[dest], frontScale);
+    frontTitle.textContent = dest.charAt(0).toUpperCase()+dest.slice(1);
   }
 
-  // animate ship
-  const path = drawStaticPath(speed);
-  animateTravel(path);
+  // minis
+  drawPlanet(miniEarth, imgs.earth, 0.6);
+  if(dest) drawPlanet(miniDest, imgs[dest], 0.6);
+  destLabel.textContent = dest.charAt(0).toUpperCase()+dest.slice(1);
 
-  // update UI
+  // stats
   updateStats(rearScale, frontScale);
-  engageBtn.style.transform = 'scale(1.57)';
+
+  // trajectory
+  const path = drawCurve(speed);
+  animateShip(path,speed);
 });
 
-resetBtn.addEventListener('click', () => {
-  planetSelect.value = 'mercury';
-  speedInput.value   = 1;
-  document.getElementById('front-title').innerText = 'Front View';
-  updateStats(0.9, 0.1);
-  drawPlanet(rearCtx,  images['earth'],  0.9);
-  drawPlanet(earthMini, images['earth'], 0.5);
-  tCtx.clearRect(0, 0, tCtx.canvas.width, tCtx.canvas.height);
+// RESET
+resetBtn.addEventListener('click',()=>{
+  planetSel.value = 'mercury';
+  speedInput.value = 1;
+  speedDisp.textContent = '1';
+  frontTitle.textContent = 'Front View';
+  destLabel.textContent = 'Destination';
+  updateStats(0.9,0.1);
+  drawPlanet(rearCtx, imgs.earth, 0.9);
+  drawPlanet(frontCtx, imgs.mercury, 0); // hidden until engage
+  trajCtx.clearRect(0,0, trajCtx.canvas.width, trajCtx.canvas.height);
+  drawPlanet(miniEarth, imgs.earth, 0.6);
+  miniDest.clearRect(0,0, miniDest.canvas.width, miniDest.canvas.height);
 });
 
-window.addEventListener('load', () => {
-  // initial draw
-  drawPlanet(rearCtx, images['earth'], 0.9);
-  updateStats(0.9, 0.1);
+// INITIAL STATE
+window.addEventListener('load',()=>{
+  drawPlanet(rearCtx, imgs.earth, 0.9);
+  drawPlanet(miniEarth, imgs.earth, 0.6);
+  updateStats(0.9,0.1);
 });
