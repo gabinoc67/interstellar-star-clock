@@ -29,7 +29,7 @@
     .metric .value{font-size:18px;font-weight:800;margin-top:4px}
     #log{height:260px;overflow:auto;background:#0a0f1a;border:1px dashed #2a3340;border-radius:10px;padding:10px;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-size:12px}
     .grid-rows{display:grid;gap:16px}
-    .map{height:340px;border-radius:12px;border:1px solid #232a36;background:radial-gradient(600px 300px at 20% 10%, rgba(88,122,255,.18), transparent 60%), linear-gradient(180deg,#0b0f19,#0a0e16)}
+    .map{position:relative;height:340px;border-radius:12px;border:1px solid #232a36;background:#000}
     .badge{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;font-size:12px;border:1px solid #2a3340;background:#0f1420;color:var(--muted)}
     .badge.ok{color:#b7f7c1;border-color:#14532d;background:linear-gradient(180deg,#0c1b11,#0b1510)}
     .badge.warn{color:#fff0b4;border-color:#7a5c05;background:linear-gradient(180deg,#1b1709,#141004)}
@@ -39,8 +39,16 @@
     footer{padding:12px 16px;color:var(--muted);font-size:12px;border-top:1px solid #222}
     .saved-tag{display:inline-block;background:#0f1420;border:1px solid #2a3340;border-radius:8px;padding:4px 8px;margin:4px;font-size:12px}
 
-    /* Starfield video fills the map */
-    #map video{width:100%;height:100%;display:block;object-fit:cover;border-radius:12px;opacity:1;background:#000}
+    /* Starfield layers */
+    #starVideo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:12px;display:block}
+    #starImgWrap{position:absolute;inset:0;overflow:hidden;border-radius:12px;display:none;background:#000}
+    #starImg{position:absolute;left:0;top:0;width:100%;height:calc(100% + 600px);object-fit:cover;opacity:1}
+
+    /* PNG fallback scrolling (JS adjusts duration) */
+    @keyframes starScroll {
+      from { transform: translateY(0); }
+      to   { transform: translateY(-600px); }
+    }
 
     /* Saved Missions scroll box */
     #savedBox{
@@ -113,7 +121,6 @@
         <span id="persistBadge" class="badge">Not saved</span>
       </div>
 
-      <!-- Reset metrics only -->
       <div style="margin-top:8px" class="flex">
         <button id="resetMetrics" class="ghost">Reset Metrics Only</button>
       </div>
@@ -123,8 +130,14 @@
     <section class="panel grid-rows">
       <h2>Navigation Map (Concept)</h2>
       <div id="map" class="map">
-        <!-- Starfield video background -->
-        <video id="starVideo" src="./warp/starsmoving.mp4" preload="auto" autoplay muted playsinline loop></video>
+        <!-- VIDEO first (MOV then MP4), PNG fallback below -->
+        <video id="starVideo" preload="auto" autoplay muted playsinline loop>
+          <source src="./warp/starsmoving.mov" type="video/quicktime" />
+          <source src="./warp/starsmoving.mp4" type="video/mp4" />
+        </video>
+        <div id="starImgWrap">
+          <img id="starImg" src="./warp/starsmoving.png" alt="Starfield" />
+        </div>
       </div>
       <div class="row">
         <div class="metric"><div class="label">Bubble Velocity (eff.)</div><div id="vEff" class="value">0.00 c</div></div>
@@ -185,7 +198,10 @@
     const persistBadge = document.getElementById('persistBadge');
     const rhythmBadge = document.getElementById('rhythmBadge');
 
-    const starVideo = document.getElementById('starVideo');
+    // Starfield layers
+    const starVideo   = document.getElementById('starVideo');
+    const starImgWrap = document.getElementById('starImgWrap');
+    const starImg     = document.getElementById('starImg');
     const arriveAudio = document.getElementById('arriveAudio');
     const warpAudio   = document.getElementById('warpAudio');
 
@@ -230,22 +246,70 @@
       vEff.textContent="0.00 c"; pulse.textContent="0.0 MHz"; eta.textContent="0.000";
     }
 
-    // ---- Starfield speed control ----
+    // ---- Starfield control (video or PNG fallback) ----
+    let starMode = 'video'; // 'video' or 'image'
+
     // Warp 1 -> very slow, Warp 10 -> fast (smooth curve)
     function warpToPlaybackRate(w){
       const t = (w-1)/9;                // 0..1
-      const curved = 0.12 + 2.88*(t*t); // ease-in: ~0.12x → 3.0x
+      const curved = 0.12 + 2.88*(t*t); // ~0.12x → 3.0x
       return Math.max(0.12, Math.min(curved, 3.0));
     }
-    function updateVideoRate(){
-      const w = Number(warpSel.value);
-      const rate = warpToPlaybackRate(w);
-      try { starVideo.playbackRate = rate; } catch(e){}
-      starVideo.muted = true;
-      starVideo.play().catch(()=>{});
+    // For image fallback: longer duration at low warp (slower)
+    function warpToImageDuration(w){
+      const t = (w-1)/9; // 0..1
+      const slow = 40, fast = 3; // seconds per loop
+      const dur = slow - (slow-fast)* (t*t); // ease-in
+      return Math.max(fast, Math.min(dur, slow));
     }
-    starVideo.addEventListener('loadeddata', ()=>{ updateVideoRate(); });
-    starVideo.addEventListener('error', ()=>{ log('Starfield video error: check warp/starsmoving.mp4 path/codec.'); });
+
+    function setStarMode(mode){
+      starMode = mode;
+      if(mode==='video'){
+        starVideo.style.display = 'block';
+        starImgWrap.style.display = 'none';
+      }else{
+        starVideo.style.display = 'none';
+        starImgWrap.style.display = 'block';
+      }
+    }
+
+    function startStarfield(){
+      if(starMode==='video'){
+        try { starVideo.muted = true; starVideo.playbackRate = warpToPlaybackRate(Number(warpSel.value)); starVideo.play().catch(()=>{}); } catch(e){}
+      } else {
+        starImg.style.animationName = 'starScroll';
+        starImg.style.animationTimingFunction = 'linear';
+        starImg.style.animationIterationCount = 'infinite';
+        starImg.style.animationDuration = warpToImageDuration(Number(warpSel.value)) + 's';
+        starImg.style.animationPlayState = 'running';
+      }
+    }
+    function stopStarfield(resetTime=true){
+      if(starMode==='video'){
+        try { starVideo.pause(); if(resetTime) starVideo.currentTime = 0; } catch(e){}
+      } else {
+        starImg.style.animationPlayState = 'paused';
+        if(resetTime) starImg.style.transform = 'translateY(0)';
+      }
+    }
+    function updateStarSpeed(){
+      if(starMode==='video'){
+        try { starVideo.playbackRate = warpToPlaybackRate(Number(warpSel.value)); } catch(e){}
+      } else {
+        starImg.style.animationDuration = warpToImageDuration(Number(warpSel.value)) + 's';
+      }
+    }
+
+    // Decide mode based on whether video can play
+    let videoReady = false;
+    starVideo.addEventListener('canplay', ()=>{ videoReady = true; setStarMode('video'); updateStarSpeed(); });
+    starVideo.addEventListener('error', ()=>{
+      setStarMode('image');
+      log('Video not available; using PNG starfield.');
+    });
+    // Failsafe: if video didn’t become ready quickly, switch to image
+    setTimeout(()=>{ if(!videoReady){ setStarMode('image'); } }, 2000);
 
     // ---- Logging ----
     function log(msg){
@@ -257,7 +321,7 @@
     let engagedState = null; // {warp, class, target, when}
     function clearEngaged(){ engagedState = null; }
     function currentState(){ return { warp: warpSel.value, class: classSel.value, target: targetInput.value || '(unspecified)' }; }
-    warpSel.addEventListener('change', clearEngaged);
+    warpSel.addEventListener('change', ()=>{ clearEngaged(); updateStarSpeed(); });
     classSel.addEventListener('change', clearEngaged);
     targetInput.addEventListener('input', clearEngaged);
 
@@ -282,7 +346,7 @@
     }
     function arrive(){
       clearFlightTimer();
-      try { starVideo.pause(); } catch(e){}
+      stopStarfield(false);
       if(arriveAudio){ arriveAudio.currentTime = 0; arriveAudio.play().catch(()=>{}); }
       log(`ARRIVED → ${classSel.value}:${targetInput.value || '(unspecified)'}`);
       clearEngaged();
@@ -291,10 +355,8 @@
     // ---- Actions ----
     engageBtn.onclick = ()=>{
       updateMetrics();
-      updateVideoRate();
-      // start the starfield from current position (or restart if paused)
-      try { starVideo.currentTime = starVideo.currentTime; } catch(e){}
-      starVideo.play().catch(()=>{});
+      updateStarSpeed();
+      startStarfield();
       engagedState = { ...currentState(), when: new Intl.DateTimeFormat('en-US', { timeZone: tz, dateStyle:'medium', timeStyle:'medium' }).format(new Date()) };
       log(`ENGAGE → Warp ${engagedState.warp} to ${engagedState.class}:${engagedState.target}`);
       if (warpAudio){ warpAudio.currentTime = 0; warpAudio.play().catch(()=>{}); }
@@ -318,7 +380,7 @@
       log('Mission saved.');
     };
 
-    // Reset: stop video, reset time, clear everything
+    // Reset: stop starfield, reset time, clear everything
     resetBtn.onclick = ()=>{
       localStorage.removeItem(KEY);
       renderSaves();
@@ -327,23 +389,20 @@
       logEl.innerHTML = "";
       clearEngaged();
       clearFlightTimer();
-      try { starVideo.pause(); starVideo.currentTime = 0; } catch(e){}
+      stopStarfield(true);
       updateMetrics();
-      updateVideoRate();
+      updateStarSpeed();
     };
 
     // Reset Metrics Only
     resetMetricsBtn.onclick = ()=>{ zeroMetrics(); log('Metrics reset to zero.'); };
 
-    // Update video speed immediately when warp changes
-    warpSel.addEventListener('change', updateVideoRate);
-
     // ---- Init ----
     renderSaves();
     updateMetrics();
-    updateVideoRate();
-    // try to play on load; Engage will also play
-    starVideo.play().catch(()=>{});
+    updateStarSpeed();
+    // Try to start video quietly; Engage will definitely start starfield
+    try { starVideo.muted = true; starVideo.play().catch(()=>{}); } catch(e){}
     log('System initialized. CST sync engaged.');
   </script>
 </body>
