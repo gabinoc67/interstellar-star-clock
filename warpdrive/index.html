@@ -38,8 +38,21 @@
     .right{justify-content:flex-end}
     footer{padding:12px 16px;color:var(--muted);font-size:12px;border-top:1px solid #222}
     .saved-tag{display:inline-block;background:#0f1420;border:1px solid #2a3340;border-radius:8px;padding:4px 8px;margin:4px;font-size:12px}
+
     /* Starfield video fills the map */
     #map video{width:100%;height:100%;display:block;object-fit:cover;border-radius:12px}
+
+    /* Make Saved Missions scrollable like Status & Log */
+    #saved{
+      height:260px;
+      overflow:auto;
+      background:#0a0f1a;
+      border:1px dashed #2a3340;
+      border-radius:10px;
+      padding:10px;
+      font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size:12px;
+    }
   </style>
 </head>
 <body>
@@ -181,6 +194,7 @@
           classSel.value = m.class;
           targetInput.value = m.target;
           log(`Loaded mission #${i+1}`);
+          clearEngaged();
         };
         savedEl.appendChild(tag);
       });
@@ -215,44 +229,58 @@
       const w = Number(warpSel.value);
       const rate = 0.5 + (w-1) * ((3.0 - 0.5) / 9); // Warp 1..10 => 0.5x..3.0x
       starVideo.playbackRate = rate;
+      starVideo.style.animation = 'none'; // ensure map never moves
     }
     starVideo.addEventListener('canplay', ()=> { starVideo.play().catch(()=>{}); });
+
+    // ---- Require Engage before Save ----
+    let engagedState = null; // {warp, class, target, when}
+    function clearEngaged(){ engagedState = null; }
+    function currentState(){
+      return {
+        warp: warpSel.value,
+        class: classSel.value,
+        target: targetInput.value || '(unspecified)'
+      };
+    }
+    warpSel.addEventListener('change', clearEngaged);
+    classSel.addEventListener('change', clearEngaged);
+    targetInput.addEventListener('input', clearEngaged);
 
     // ---- Actions ----
     engageBtn.onclick = ()=>{
       updateMetrics();
       updateVideoRate();
-      const m = {
-        warp: warpSel.value,
-        class: classSel.value,
-        target: targetInput.value || '(unspecified)',
-        when: new Intl.DateTimeFormat('en-US', { timeZone: tz, dateStyle:'medium', timeStyle:'medium' }).format(new Date())
-      };
-      log(`ENGAGE → Warp ${m.warp} to ${m.class}:${m.target}`);
+      engagedState = { ...currentState(), when: new Intl.DateTimeFormat('en-US', { timeZone: tz, dateStyle:'medium', timeStyle:'medium' }).format(new Date()) };
+      log(`ENGAGE → Warp ${engagedState.warp} to ${engagedState.class}:${engagedState.target}`);
     };
 
     saveBtn.onclick = ()=>{
+      // Require a matching Engage first
+      const nowState = currentState();
+      if(!engagedState || engagedState.warp !== nowState.warp || engagedState.class !== nowState.class || engagedState.target !== nowState.target){
+        log('Save blocked: please click ENGAGE first for the current settings.');
+        return;
+      }
       const arr = loadSaves();
       const m = {
-        warp: warpSel.value,
-        class: classSel.value,
-        target: targetInput.value || '(unspecified)',
+        ...engagedState,
         when: new Intl.DateTimeFormat('en-US', { timeZone: tz, dateStyle:'medium', timeStyle:'short' }).format(new Date())
       };
       arr.unshift(m);
       saveSaves(arr.slice(0,25));
       renderSaves();
       log('Mission saved.');
-      // (No pan-down effect)
     };
 
-    // Reset: warp→1, clear target, clear log, clear saved missions, refresh metrics/video
+    // Reset: warp→1, clear target, clear log, clear saved missions, refresh metrics/video, clear engaged
     resetBtn.onclick = ()=>{
       localStorage.removeItem(KEY);
       renderSaves();
       warpSel.value = "1";
       targetInput.value = "";
       logEl.innerHTML = "";
+      clearEngaged();
       updateMetrics();
       updateVideoRate();
     };
