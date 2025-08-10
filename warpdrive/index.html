@@ -56,16 +56,17 @@
     .ops {display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
     .lights {display:flex;gap:12px;flex-wrap:wrap}
     .light {display:flex;align-items:center;gap:8px;background:#0f1420;border:1px solid #232a36;border-radius:999px;padding:6px 10px}
-    .dot {width:10px;height:10px;border-radius:50%}
+    .dot {width:12px;height:12px;border-radius:50%}
     .dot.ok {background:var(--ok)}
     .dot.warn {background:var(--warn)}
     .dot.bad {background:var(--bad)}
-    .name {font-size:12px;color:#cdd6e3}
     .route {font-size:12px;color:#94a3b8;display:flex;gap:12px;flex-wrap:wrap;align-items:center}
     .route strong {color:#e6edf3}
     .kv {display:inline-flex;gap:6px;align-items:center}
     .kv label{font-size:12px;color:#94a3b8}
     .kv .val{font-size:12px;color:#e6edf3}
+    /* hide any text labels for lights (no words) */
+    .light .name{display:none}
   </style>
 </head>
 <body>
@@ -143,10 +144,11 @@
       <!-- Ops Status + Route -->
       <div class="ops">
         <div class="lights">
-          <div class="light" id="lightBubble"><span class="dot ok"></span><span class="name">Bubble</span></div>
-          <div class="light" id="lightPower"><span class="dot ok"></span><span class="name">Power</span></div>
-          <div class="light" id="lightVector"><span class="dot ok"></span><span class="name">Vector</span></div>
-          <div class="light" id="lightNav"><span class="dot warn"></span><span class="name">Nav</span></div>
+          <!-- dots only; titles help identify on hover -->
+          <div class="light" id="lightBubble" title="Bubble"><span class="dot ok"></span></div>
+          <div class="light" id="lightPower"  title="Power"><span class="dot ok"></span></div>
+          <div class="light" id="lightVector" title="Vector"><span class="dot ok"></span></div>
+          <div class="light" id="lightNav"    title="Nav"><span class="dot warn"></span></div>
         </div>
         <div class="route">
           <span class="kv"><label>Departure:</label><strong id="depTxt">(unspecified)</strong></span>
@@ -208,7 +210,6 @@
       const day = parseInt(parts.find(p=>p.type==='day').value,10);
       const hh = parts.find(p=>p.type==='hour').value;
       const mm = parts.find(p=>p.type==='minute').value;
-      // Derive a 12-digit pseudo picosecond stamp from performance.now()
       const frac = performance.now() - Math.floor(performance.now());
       const pico = pad(Math.floor(frac * 1e12), 12);
       return `${monthName(d)} ${day}, ${y}, ${hh}:${mm}, ${pico}`;
@@ -274,7 +275,7 @@
 
     // ---- Metrics / readouts ----
     function computeVEffFromWarp(w){
-      return Math.min(0.2*w + 0.1*w*w/10, 10); // same curve as before
+      return Math.min(0.2*w + 0.1*w*w/10, 10);
     }
     function updateMetricsStatic(){
       const w = Number(warpSel.value);
@@ -287,18 +288,16 @@
       eta.textContent    = (0.995 + w*0.0004).toFixed(3);
       rhythmBadge.className = 'badge ok';
       rhythmBadge.textContent = 'Bio Rhythm: CST-Locked';
-      // Ops readouts
       solTxt.textContent = v.toFixed(2) + ' c';
       pcTxt.textContent  = (v/3.26156).toFixed(3) + ' pc/yr';
     }
     function zeroMetrics(){
       frontE.textContent="0.00"; midE.textContent="0.00"; rearE.textContent="0.00";
       vEff.textContent="0.00 c"; pulse.textContent="0.0 MHz"; eta.textContent="0.000";
-      solTxt.textContent="0.00 c";
-      pcTxt.textContent="0.000 pc/yr";
+      solTxt.textContent="0.00 c"; pcTxt.textContent="0.000 pc/yr";
     }
 
-    // Live travel ticker (updates vEff, SOL, Parsec while engaged)
+    // Live travel ticker (updates SoL/Parsec while engaged)
     let travelTicker = null;
     function startTravelTicker(){
       stopTravelTicker();
@@ -308,7 +307,6 @@
         vEff.textContent = v.toFixed(2) + ' c';
         solTxt.textContent = v.toFixed(2) + ' c';
         pcTxt.textContent  = (v/3.26156).toFixed(3) + ' pc/yr';
-        // (Pulse/eta could be live too, but you asked only for SoL/Parsec/clocks)
       }, 200);
     }
     function stopTravelTicker(){
@@ -337,20 +335,14 @@
       const stars = [];
       function rand(min,max){ return Math.random()*(max-min)+min; }
       function makeStar(){
-        return {
-          x: rand(0, cvs.clientWidth),
-          y: rand(0, cvs.clientHeight),
-          z: rand(0.2, 1.0),
-          r: rand(0.4, 1.4),
-          tw: rand(0.5, 1.0)
-        };
+        return { x: rand(0, cvs.clientWidth), y: rand(0, cvs.clientHeight), z: rand(0.2, 1.0), r: rand(0.4, 1.4), tw: rand(0.5, 1.0) };
       }
       for(let i=0;i<STAR_COUNT;i++) stars.push(makeStar());
 
       function warpSpeed(){
         const w = Number(warpSel.value||1);
-        const t = (w-1)/9; // 0..1
-        return 0.15 + 2.85*(t*t); // px/frame
+        const t = (w-1)/9;
+        return 0.15 + 2.85*(t*t);
       }
 
       let running = false;
@@ -401,7 +393,7 @@
             ctx.clearRect(0,0,cvs.clientWidth,cvs.clientHeight);
           }
         },
-        update(){ /* speed read each frame */ }
+        update(){ /* speed read per frame */ }
       };
     })();
 
@@ -411,14 +403,9 @@
       logEl.insertAdjacentHTML('afterbegin', `[${ts}] ${msg}<br/>`);
     }
 
-    // ---- Lights helpers ----
-    function setDot(el, state){ // 'ok' | 'warn' | 'bad'
-      el.classList.remove('ok','warn','bad');
-      el.classList.add(state);
-    }
-    function setAllGreen(){
-      setDot(lightBubble,'ok'); setDot(lightPower,'ok'); setDot(lightVector,'ok'); setDot(lightNav,'ok');
-    }
+    // ---- Lights helpers (dots only) ----
+    function setDot(el, state){ el.classList.remove('ok','warn','bad'); el.classList.add(state); }
+    function setAllGreen(){ setDot(lightBubble,'ok'); setDot(lightPower,'ok'); setDot(lightVector,'ok'); setDot(lightNav,'ok'); }
     function updatePreEngageStatus(){
       setDot(lightBubble,'ok'); setDot(lightPower,'ok'); setDot(lightVector,'ok');
       const hasTarget = !!(targetInput.value && targetInput.value.trim());
@@ -455,7 +442,7 @@
     }
     function arrive(){
       clearFlightTimer();
-      stopTravelTicker();                // stop live SoL/Parsec updates (freeze values)
+      stopTravelTicker(); // freeze readouts
       if(window.starfield) window.starfield.stop(false);
       if(arriveAudio){ arriveAudio.currentTime = 0; arriveAudio.play().catch(()=>{}); }
       const arrStamp = cstTimestampWithPico(new Date());
@@ -464,7 +451,7 @@
       log(`ARRIVED → ${classSel.value}:${name}`);
       setAllGreen();
       clearEngaged();
-      // DO NOT zero metrics here — you asked to freeze values on arrival
+      // freeze metrics at arrival (do not zero)
     }
 
     // ---- Actions ----
@@ -472,8 +459,7 @@
       updateMetricsStatic();
       if(window.starfield) window.starfield.start();
       engagedState = { ...currentState(), when: new Date() };
-      const depStamp = cstTimestampWithPico(engagedState.when);
-      depTxt.textContent = depStamp;
+      depTxt.textContent = cstTimestampWithPico(engagedState.when);
       arrTxt.textContent = (targetInput.value || '(unspecified)');
       log(`ENGAGE → Warp ${engagedState.warp} to ${engagedState.class}:${engagedState.target}`);
       if (warpAudio){ warpAudio.currentTime = 0; warpAudio.play().catch(()=>{}); }
@@ -481,7 +467,7 @@
       const etaSec = computeEtaSec();
       log(`ETA ~ ${etaSec.toFixed(0)}s`);
       setAllGreen();
-      startTravelTicker();               // start live SoL/Parsec updates
+      startTravelTicker();
       flightTimer = setTimeout(arrive, etaSec*1000);
     };
 
@@ -508,13 +494,12 @@
       logEl.innerHTML = "";
       clearEngaged();
       clearFlightTimer();
-      stopTravelTicker();                // stop live updates
+      stopTravelTicker();
       if(window.starfield) window.starfield.stop(true);
-      // reset ops
       depTxt.textContent = "(unspecified)";
       arrTxt.textContent = "(unspecified)";
       updateMetricsStatic(); // recompute for Warp 1
-      zeroMetrics();         // and clear readouts visually
+      zeroMetrics();         // but clear readouts visually per your reset rule
       updatePreEngageStatus();
     };
 
