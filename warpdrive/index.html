@@ -40,22 +40,17 @@
     .saved-tag{display:inline-block;background:#0f1420;border:1px solid #2a3340;border-radius:8px;padding:4px 8px;margin:4px;font-size:12px}
 
     /* Starfield video fills the map */
-    #map video{width:100%;height:100%;display:block;object-fit:cover;border-radius:12px}
+    #map video{width:100%;height:100%;display:block;object-fit:cover;border-radius:12px;opacity:1;background:#000}
 
     /* Saved Missions scroll box (matches Status & Log) */
     #savedBox{
-      height:260px;
-      overflow-y:auto;
-      background:#0a0f1a;
-      border:1px dashed #2a3340;
-      border-radius:10px;
-      padding:10px;
+      height:260px; overflow-y:auto; background:#0a0f1a; border:1px dashed #2a3340; border-radius:10px; padding:10px;
+      scrollbar-color:#2a3340 #0a0f1a; scrollbar-width:thin;
     }
     #savedBox::-webkit-scrollbar { width: 10px; }
     #savedBox::-webkit-scrollbar-track { background:#0a0f1a; }
     #savedBox::-webkit-scrollbar-thumb { background:#2a3340; border-radius:8px; }
     #savedBox::-webkit-scrollbar-thumb:hover { background:#3a4558; }
-    #savedBox{ scrollbar-color:#2a3340 #0a0f1a; scrollbar-width:thin; }
   </style>
 </head>
 <body>
@@ -118,9 +113,10 @@
         <span id="persistBadge" class="badge">Not saved</span>
       </div>
 
-      <!-- NEW: metrics-only reset button -->
+      <!-- Reset metrics only + Stop -->
       <div style="margin-top:8px" class="flex">
-        <button id="resetMetrics" class="ghost">Reset Clock Metrics Only</button>
+        <button id="resetMetrics" class="ghost">Reset Metrics Only</button>
+        <button id="arrive" class="ghost">Stop at Destination</button>
       </div>
     </section>
 
@@ -129,7 +125,7 @@
       <h2>Navigation Map (Concept)</h2>
       <div id="map" class="map">
         <!-- Starfield video background -->
-        <video id="starVideo" src="./warp/starsmoving.mp4" autoplay loop muted playsinline></video>
+        <video id="starVideo" src="./warp/starsmoving.mp4" preload="auto" autoplay muted playsinline loop></video>
       </div>
       <div class="row">
         <div class="metric"><div class="label">Bubble Velocity (eff.)</div><div id="vEff" class="value">0.00 c</div></div>
@@ -143,9 +139,7 @@
       <h2>Status & Log</h2>
       <div id="log"></div>
       <h2>Saved Missions</h2>
-      <div id="savedBox">
-        <div id="saved"></div>
-      </div>
+      <div id="savedBox"><div id="saved"></div></div>
     </aside>
   </main>
 
@@ -153,22 +147,26 @@
     Demo only. Timebase is locked to America/Chicago (CST/CDT) to illustrate circadian equilibrium while traveling. Selections persist via localStorage for GitHub Pages deployments.
   </footer>
 
-  <script>
-    // ---- Time: force CST/CDT display no matter user's locale ----
-    const tz = 'America/Chicago';
-    function cstNow(){ return new Date(); }
-    function fmtCST(d){
-      const f = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
-      return f.format(d);
-    }
+  <!-- Optional sounds if present -->
+  <audio id="arriveAudio" src="./warp/arrive.mp3" preload="auto"></audio>
+  <audio id="warpAudio"   src="./warp/warp.mp3" preload="auto"></audio>
 
+  <script>
+    // ---- Time: CST/CDT display ----
+    const tz = 'America/Chicago';
     const cstClockEl = document.getElementById('cstClock');
+    function fmtCST(d){
+      return new Intl.DateTimeFormat('en-US', { timeZone: tz, hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'}).format(d);
+    }
     setInterval(()=>{
-      const d = cstNow();
-      cstClockEl.textContent = fmtCST(d) + (new Intl.DateTimeFormat('en-US',{timeZoneName:'short', timeZone:tz}).formatToParts(d).find(p=>p.type==='timeZoneName')?.value.replace('GMT','')||'');
+      const d = new Date();
+      cstClockEl.textContent = fmtCST(d) + (
+        new Intl.DateTimeFormat('en-US',{timeZoneName:'short', timeZone:tz})
+          .formatToParts(d).find(p=>p.type==='timeZoneName')?.value.replace('GMT','')||''
+      );
     }, 250);
 
-    // ---- UI elements ----
+    // ---- Elements ----
     const warpSel = document.getElementById('warp');
     const classSel = document.getElementById('class');
     const targetInput = document.getElementById('target');
@@ -176,6 +174,8 @@
     const saveBtn = document.getElementById('save');
     const resetBtn = document.getElementById('reset');
     const resetMetricsBtn = document.getElementById('resetMetrics');
+    const arriveBtn = document.getElementById('arrive');
+
     const frontE = document.getElementById('frontE');
     const midE = document.getElementById('midE');
     const rearE = document.getElementById('rearE');
@@ -187,11 +187,14 @@
     const persistBadge = document.getElementById('persistBadge');
     const rhythmBadge = document.getElementById('rhythmBadge');
 
-    // ---- Persistence (localStorage) ----
+    const starVideo = document.getElementById('starVideo');
+    const arriveAudio = document.getElementById('arriveAudio');
+    const warpAudio   = document.getElementById('warpAudio');
+
+    // ---- Saved missions (localStorage) ----
     const KEY = 'warp-demo:saves';
     function loadSaves(){ try { return JSON.parse(localStorage.getItem(KEY))||[] } catch(e){ return [] } }
     function saveSaves(arr){ localStorage.setItem(KEY, JSON.stringify(arr)); }
-
     function renderSaves(){
       const arr = loadSaves();
       savedEl.innerHTML = arr.length? '' : '<span class="muted">No saved missions yet.</span>';
@@ -212,68 +215,96 @@
       persistBadge.textContent = arr.length? 'Saved ✓' : 'Not saved';
     }
 
-    // ---- Metrics tied to warp ----
+    // ---- Metrics ----
     function updateMetrics(){
       const w = Number(warpSel.value);
-      const plus = (w*0.11).toFixed(2);
-      const minus = (-w*0.11).toFixed(2);
-      const mid = (0).toFixed(2);
-      frontE.textContent = plus;
-      rearE.textContent = minus;
-      midE.textContent = mid;
-      vEff.textContent = (Math.min(0.2*w + 0.1*w*w/10, 10)).toFixed(2) + ' c';
-      pulse.textContent = (w*0.5).toFixed(1) + ' MHz';
-      eta.textContent = (0.995 + w*0.0004).toFixed(3);
-
+      frontE.textContent = (w*0.11).toFixed(2);
+      rearE.textContent  = (-w*0.11).toFixed(2);
+      midE.textContent   = "0.00";
+      vEff.textContent   = (Math.min(0.2*w + 0.1*w*w/10, 10)).toFixed(2) + ' c';
+      pulse.textContent  = (w*0.5).toFixed(1) + ' MHz';
+      eta.textContent    = (0.995 + w*0.0004).toFixed(3);
       rhythmBadge.className = 'badge ok';
       rhythmBadge.textContent = 'Bio Rhythm: CST-Locked';
     }
-
-    // Zero-out metrics only
     function zeroMetrics(){
-      frontE.textContent = "0.00";
-      midE.textContent   = "0.00";
-      rearE.textContent  = "0.00";
-      vEff.textContent   = "0.00 c";
-      pulse.textContent  = "0.0 MHz";
-      eta.textContent    = "0.000";
+      frontE.textContent="0.00"; midE.textContent="0.00"; rearE.textContent="0.00";
+      vEff.textContent="0.00 c"; pulse.textContent="0.0 MHz"; eta.textContent="0.000";
     }
 
+    // ---- Starfield speed control ----
+    // Warp 1 -> ~0.12x, Warp 10 -> 3.0x (smooth increase)
+    function warpToPlaybackRate(w){
+      const t = (w-1)/9;          // 0..1
+      const curved = 0.12 + 2.88*(t*t); // ease-in
+      return Math.max(0.12, Math.min(curved, 3.0));
+    }
+    function updateVideoRate(){
+      const w = Number(warpSel.value);
+      const rate = warpToPlaybackRate(w);
+      try { starVideo.playbackRate = rate; } catch(e){}
+      // try to ensure it's playing/visible
+      starVideo.muted = true;
+      starVideo.play().catch(()=>{ /* some browsers need user gesture; Engage will play it */ });
+    }
+    // If video loads later, keep it running
+    starVideo.addEventListener('loadeddata', ()=>{ updateVideoRate(); });
+    starVideo.addEventListener('error', ()=>{ log('Starfield video error: check warp/starsmoving.mp4 path/codec.'); });
+
+    // ---- Logging ----
     function log(msg){
       const ts = fmtCST(new Date());
       logEl.insertAdjacentHTML('afterbegin', `[${ts}] ${msg}<br/>`);
     }
 
-    // ---- Starfield video rate tied to Warp ----
-    const starVideo = document.getElementById('starVideo');
-    function updateVideoRate(){
-      const w = Number(warpSel.value);
-      const rate = 0.5 + (w-1) * ((3.0 - 0.5) / 9); // Warp 1..10 => 0.5x..3.0x
-      starVideo.playbackRate = rate;
-      starVideo.style.animation = 'none'; // ensure map never moves
-    }
-    starVideo.addEventListener('canplay', ()=> { starVideo.play().catch(()=>{}); });
-
     // ---- Require Engage before Save ----
     let engagedState = null; // {warp, class, target, when}
     function clearEngaged(){ engagedState = null; }
-    function currentState(){
-      return {
-        warp: warpSel.value,
-        class: classSel.value,
-        target: targetInput.value || '(unspecified)'
-      };
-    }
+    function currentState(){ return { warp: warpSel.value, class: classSel.value, target: targetInput.value || '(unspecified)' }; }
     warpSel.addEventListener('change', clearEngaged);
     classSel.addEventListener('change', clearEngaged);
     targetInput.addEventListener('input', clearEngaged);
+
+    // ---- Flight timing / arrival ----
+    let flightTimer = null;
+    function clearFlightTimer(){ if(flightTimer){ clearTimeout(flightTimer); flightTimer = null; } }
+    function destDistanceUnits(){
+      switch(classSel.value){
+        case 'moon':   return 6;
+        case 'planet': return 12;
+        case 'star':   return 60;
+        case 'galaxy': return 200;
+        default:       return 20; // custom
+      }
+    }
+    function vEffNumber(){ return parseFloat(vEff.textContent); }
+    function computeEtaSec(){
+      const dist = destDistanceUnits();
+      const v = Math.max(0.05, vEffNumber());  // avoid zero
+      const seconds = dist / v;
+      return Math.max(4, Math.min(seconds, 22)); // clamp 4..22s for demo
+    }
+    function arrive(){
+      clearFlightTimer();
+      try { starVideo.pause(); } catch(e){}
+      if(arriveAudio){ arriveAudio.currentTime = 0; arriveAudio.play().catch(()=>{}); }
+      log(`ARRIVED → ${classSel.value}:${targetInput.value || '(unspecified)'}`);
+      clearEngaged();
+    }
 
     // ---- Actions ----
     engageBtn.onclick = ()=>{
       updateMetrics();
       updateVideoRate();
+      // ensure visible + play on gesture
+      starVideo.play().catch(()=>{});
       engagedState = { ...currentState(), when: new Intl.DateTimeFormat('en-US', { timeZone: tz, dateStyle:'medium', timeStyle:'medium' }).format(new Date()) };
       log(`ENGAGE → Warp ${engagedState.warp} to ${engagedState.class}:${engagedState.target}`);
+      if (warpAudio){ warpAudio.currentTime = 0; warpAudio.play().catch(()=>{}); }
+      clearFlightTimer();
+      const etaSec = computeEtaSec();
+      log(`ETA ~ ${etaSec.toFixed(0)}s`);
+      flightTimer = setTimeout(arrive, etaSec*1000);
     };
 
     saveBtn.onclick = ()=>{
@@ -283,17 +314,17 @@
         return;
       }
       const arr = loadSaves();
-      const m = {
-        ...engagedState,
-        when: new Intl.DateTimeFormat('en-US', { timeZone: tz, dateStyle:'medium', timeStyle:'short' }).format(new Date())
-      };
+      const m = { ...engagedState, when: new Intl.DateTimeFormat('en-US', { timeZone: tz, dateStyle:'medium', timeStyle:'short' }).format(new Date()) };
       arr.unshift(m);
       saveSaves(arr.slice(0,25));
       renderSaves();
       log('Mission saved.');
     };
 
-    // Reset: warp→1, clear target, clear log, clear saved missions, refresh metrics/video, clear engaged
+    // Stop at Destination (manual arrival)
+    arriveBtn.onclick = ()=>{ arrive(); };
+
+    // Reset: stop video, reset time, clear everything
     resetBtn.onclick = ()=>{
       localStorage.removeItem(KEY);
       renderSaves();
@@ -301,23 +332,24 @@
       targetInput.value = "";
       logEl.innerHTML = "";
       clearEngaged();
+      clearFlightTimer();
+      try { starVideo.pause(); starVideo.currentTime = 0; } catch(e){}
       updateMetrics();
       updateVideoRate();
     };
 
-    // NEW: Reset Clock Metrics Only (zero the readouts, nothing else)
-    resetMetricsBtn.onclick = ()=>{
-      zeroMetrics();
-      log('Metrics reset to zero.');
-    };
+    // Reset Metrics Only
+    resetMetricsBtn.onclick = ()=>{ zeroMetrics(); log('Metrics reset to zero.'); };
 
     // Update video speed immediately when warp changes
     warpSel.addEventListener('change', updateVideoRate);
 
-    // init
+    // ---- Init ----
     renderSaves();
     updateMetrics();
     updateVideoRate();
+    // Attempt to play on load (muted autoplay should work; Engage also triggers play)
+    starVideo.play().catch(()=>{});
     log('System initialized. CST sync engaged.');
   </script>
 </body>
