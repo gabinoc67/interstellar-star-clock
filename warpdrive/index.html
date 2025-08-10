@@ -51,6 +51,21 @@
 
     /* Canvas fills map */
     #starCanvas{position:absolute; inset:0; width:100%; height:100%; display:block; border-radius:12px}
+
+    /* Ops strip */
+    .ops {display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+    .lights {display:flex;gap:12px;flex-wrap:wrap}
+    .light {display:flex;align-items:center;gap:8px;background:#0f1420;border:1px solid #232a36;border-radius:999px;padding:6px 10px}
+    .dot {width:10px;height:10px;border-radius:50%}
+    .dot.ok {background:var(--ok)}
+    .dot.warn {background:var(--warn)}
+    .dot.bad {background:var(--bad)}
+    .name {font-size:12px;color:#cdd6e3}
+    .route {font-size:12px;color:#94a3b8;display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    .route strong {color:#e6edf3}
+    .kv {display:inline-flex;gap:6px;align-items:center}
+    .kv label{font-size:12px;color:#94a3b8}
+    .kv .val{font-size:12px;color:#e6edf3}
   </style>
 </head>
 <body>
@@ -113,7 +128,6 @@
         <span id="persistBadge" class="badge">Not saved</span>
       </div>
 
-      <!-- Reset metrics only -->
       <div style="margin-top:8px" class="flex">
         <button id="resetMetrics" class="ghost">Reset Metrics Only</button>
       </div>
@@ -125,6 +139,24 @@
       <div id="map" class="map">
         <canvas id="starCanvas"></canvas>
       </div>
+
+      <!-- Ops Status + Route -->
+      <div class="ops">
+        <div class="lights">
+          <div class="light" id="lightBubble"><span class="dot ok"></span><span class="name">Bubble</span></div>
+          <div class="light" id="lightPower"><span class="dot ok"></span><span class="name">Power</span></div>
+          <div class="light" id="lightVector"><span class="dot ok"></span><span class="name">Vector</span></div>
+          <div class="light" id="lightNav"><span class="dot warn"></span><span class="name">Nav</span></div>
+        </div>
+        <div class="route">
+          <span class="kv"><label>Departure:</label><strong id="depTxt">(unspecified)</strong></span>
+          <span>· Earth</span>
+          <span class="kv"><label>Arrival:</label><strong id="arrTxt">(unspecified)</strong></span>
+          <span class="kv"><label>Speed of Light:</label><span class="val" id="solTxt">0.00 c</span></span>
+          <span class="kv"><label>Parsec:</label><span class="val" id="pcTxt">0.000 pc/yr</span></span>
+        </div>
+      </div>
+
       <div class="row">
         <div class="metric"><div class="label">Bubble Velocity (eff.)</div><div id="vEff" class="value">0.00 c</div></div>
         <div class="metric"><div class="label">Pulse Rate</div><div id="pulse" class="value">0.0 MHz</div></div>
@@ -145,24 +177,42 @@
     Demo only. Timebase is locked to America/Chicago (CST/CDT) to illustrate circadian equilibrium while traveling. Selections persist via localStorage for GitHub Pages deployments.
   </footer>
 
-  <!-- Optional sounds if present -->
+  <!-- Optional sounds -->
   <audio id="arriveAudio" src="./warp/arrive.mp3" preload="auto"></audio>
   <audio id="warpAudio"   src="./warp/warp.mp3" preload="auto"></audio>
 
   <script>
-    // ---- Time: CST/CDT display ----
+    // ---- Time: CST display ----
     const tz = 'America/Chicago';
     const cstClockEl = document.getElementById('cstClock');
-    function fmtCST(d){
+    function fmtCSTClock(d){
       return new Intl.DateTimeFormat('en-US', { timeZone: tz, hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'}).format(d);
     }
     setInterval(()=>{
       const d = new Date();
-      cstClockEl.textContent = fmtCST(d) + (
+      cstClockEl.textContent = fmtCSTClock(d) + (
         new Intl.DateTimeFormat('en-US',{timeZoneName:'short', timeZone:tz})
           .formatToParts(d).find(p=>p.type==='timeZoneName')?.value.replace('GMT','')||''
       );
     }, 250);
+
+    // Helper: CST formatted with Month Day, Year, HH:MM and pseudo-picoseconds
+    function pad(n, w){ return String(n).padStart(w,'0'); }
+    function monthName(d){
+      return new Intl.DateTimeFormat('en-US', { timeZone: tz, month:'long' }).format(d);
+    }
+    function cstTimestampWithPico(d){
+      const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour12:false, year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' }).formatToParts(d);
+      const y = parts.find(p=>p.type==='year').value;
+      const m = parseInt(parts.find(p=>p.type==='month').value,10);
+      const day = parseInt(parts.find(p=>p.type==='day').value,10);
+      const hh = parts.find(p=>p.type==='hour').value;
+      const mm = parts.find(p=>p.type==='minute').value;
+      // Derive a 12-digit pseudo picosecond stamp from performance.now()
+      const frac = performance.now() - Math.floor(performance.now());
+      const pico = pad(Math.floor(frac * 1e12), 12);
+      return `${monthName(d)} ${day}, ${y}, ${hh}:${mm}, ${pico}`;
+    }
 
     // ---- Elements ----
     const warpSel = document.getElementById('warp');
@@ -183,6 +233,16 @@
     const savedEl = document.getElementById('saved');
     const persistBadge = document.getElementById('persistBadge');
     const rhythmBadge = document.getElementById('rhythmBadge');
+
+    // Ops strip elements
+    const depTxt = document.getElementById('depTxt');
+    const arrTxt = document.getElementById('arrTxt');
+    const solTxt = document.getElementById('solTxt');
+    const pcTxt  = document.getElementById('pcTxt');
+    const lightBubble = document.querySelector('#lightBubble .dot');
+    const lightPower  = document.querySelector('#lightPower .dot');
+    const lightVector = document.querySelector('#lightVector .dot');
+    const lightNav    = document.querySelector('#lightNav .dot');
 
     const arriveAudio = document.getElementById('arriveAudio');
     const warpAudio   = document.getElementById('warpAudio');
@@ -205,6 +265,7 @@
           targetInput.value = m.target;
           log(`Loaded mission #${i+1}`);
           clearEngaged();
+          updatePreEngageStatus();
         };
         savedEl.appendChild(tag);
       });
@@ -217,18 +278,24 @@
       frontE.textContent = (w*0.11).toFixed(2);
       rearE.textContent  = (-w*0.11).toFixed(2);
       midE.textContent   = "0.00";
-      vEff.textContent   = (Math.min(0.2*w + 0.1*w*w/10, 10)).toFixed(2) + ' c';
+      const v = Math.min(0.2*w + 0.1*w*w/10, 10);
+      vEff.textContent   = v.toFixed(2) + ' c';
       pulse.textContent  = (w*0.5).toFixed(1) + ' MHz';
       eta.textContent    = (0.995 + w*0.0004).toFixed(3);
       rhythmBadge.className = 'badge ok';
       rhythmBadge.textContent = 'Bio Rhythm: CST-Locked';
+      // Ops readouts
+      solTxt.textContent = v.toFixed(2) + ' c';
+      pcTxt.textContent  = (v/3.26156).toFixed(3) + ' pc/yr';
     }
     function zeroMetrics(){
       frontE.textContent="0.00"; midE.textContent="0.00"; rearE.textContent="0.00";
       vEff.textContent="0.00 c"; pulse.textContent="0.0 MHz"; eta.textContent="0.000";
+      solTxt.textContent="0.00 c";
+      pcTxt.textContent="0.000 pc/yr";
     }
 
-    // ---- Canvas starfield (no media files) ----
+    // ---- Canvas starfield ----
     (function initStarfield(){
       const map = document.getElementById('map');
       const cvs = document.getElementById('starCanvas');
@@ -263,7 +330,7 @@
       function warpSpeed(){
         const w = Number(warpSel.value||1);
         const t = (w-1)/9; // 0..1
-        return 0.15 + 2.85*(t*t); // px/frame baseline (ease-in)
+        return 0.15 + 2.85*(t*t); // px/frame
       }
 
       let running = false;
@@ -278,8 +345,7 @@
 
         const now = performance.now();
         for(const s of stars){
-          s.x -= base * (0.4 + 0.6*s.z); // nearer stars move faster
-
+          s.x -= base * (0.4 + 0.6*s.z);
           if(s.x < -4){
             s.x = cvs.clientWidth + rand(0, 40);
             s.y = rand(0, cvs.clientHeight);
@@ -287,7 +353,6 @@
             s.r = rand(0.4, 1.4);
             s.tw = rand(0.5, 1.0);
           }
-
           const alpha = 0.5 + 0.5 * Math.sin((now/600) * s.tw + s.x*0.002);
           ctx.fillStyle = `rgba(210,225,255,${alpha})`;
           ctx.beginPath();
@@ -304,42 +369,51 @@
             ctx.stroke();
           }
         }
-
         raf = requestAnimationFrame(frame);
       }
 
       window.starfield = {
-        start(){
-          if(running) return;
-          running = true;
-          cancelAnimationFrame(raf);
-          raf = requestAnimationFrame(frame);
-        },
+        start(){ if(running) return; running = true; cancelAnimationFrame(raf); raf = requestAnimationFrame(frame); },
         stop(reset=true){
-          running = false;
-          cancelAnimationFrame(raf);
+          running = false; cancelAnimationFrame(raf);
           if(reset){
             for(let i=0;i<stars.length;i++) stars[i] = makeStar();
             ctx.clearRect(0,0,cvs.clientWidth,cvs.clientHeight);
           }
         },
-        update(){ /* speed is read per-frame from warp */ }
+        update(){ /* speed read each frame */ }
       };
     })();
 
     // ---- Logging ----
     function log(msg){
-      const ts = fmtCST(new Date());
+      const ts = new Intl.DateTimeFormat('en-US',{ timeZone: tz, hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'}).format(new Date());
       logEl.insertAdjacentHTML('afterbegin', `[${ts}] ${msg}<br/>`);
     }
 
+    // ---- Lights helpers ----
+    function setDot(el, state){ // 'ok' | 'warn' | 'bad'
+      el.classList.remove('ok','warn','bad');
+      el.classList.add(state);
+    }
+    function setAllGreen(){
+      setDot(lightBubble,'ok'); setDot(lightPower,'ok'); setDot(lightVector,'ok'); setDot(lightNav,'ok');
+    }
+    function updatePreEngageStatus(){
+      setDot(lightBubble,'ok'); setDot(lightPower,'ok'); setDot(lightVector,'ok');
+      const hasTarget = !!(targetInput.value && targetInput.value.trim());
+      setDot(lightNav, hasTarget ? 'ok' : 'warn');
+      // Route texts (Departure stays unspecified until Engage)
+      arrTxt.textContent = hasTarget ? `${targetInput.value}` : '(unspecified)';
+    }
+
     // ---- Require Engage before Save ----
-    let engagedState = null; // {warp, class, target, when}
+    let engagedState = null; // {warp,class,target,when}
     function clearEngaged(){ engagedState = null; }
-    function currentState(){ return { warp: warpSel.value, class: classSel.value, target: targetInput.value || '(unspecified)' }; }
-    warpSel.addEventListener('change', ()=>{ clearEngaged(); if(window.starfield) window.starfield.update(); });
-    classSel.addEventListener('change', clearEngaged);
-    targetInput.addEventListener('input', clearEngaged);
+    function currentState(){ return { warp: warpSel.value, class: classSel.value, target: (targetInput.value||'(unspecified)') }; }
+    warpSel.addEventListener('change', ()=>{ clearEngaged(); if(window.starfield) window.starfield.update(); updatePreEngageStatus(); });
+    classSel.addEventListener('change', ()=>{ clearEngaged(); updatePreEngageStatus(); });
+    targetInput.addEventListener('input', ()=>{ clearEngaged(); updatePreEngageStatus(); });
 
     // ---- Flight timing / automatic arrival ----
     let flightTimer = null;
@@ -350,34 +424,46 @@
         case 'planet': return 12;
         case 'star':   return 60;
         case 'galaxy': return 200;
-        default:       return 20; // custom
+        default:       return 20;
       }
     }
-    function vEffNumber(){ return parseFloat(vEff.textContent); }
+    function vEffNumber(){ return parseFloat(vEff.textContent)||0; }
     function computeEtaSec(){
       const dist = destDistanceUnits();
-      const v = Math.max(0.05, vEffNumber()); // avoid zero
+      const v = Math.max(0.05, vEffNumber());
       const seconds = dist / v;
-      return Math.max(4, Math.min(seconds, 22)); // clamp for demo
+      return Math.max(4, Math.min(seconds, 22));
     }
     function arrive(){
       clearFlightTimer();
       if(window.starfield) window.starfield.stop(false);
       if(arriveAudio){ arriveAudio.currentTime = 0; arriveAudio.play().catch(()=>{}); }
-      log(`ARRIVED → ${classSel.value}:${targetInput.value || '(unspecified)'}`);
+      // stamp arrival time with CST + picoseconds
+      const arrStamp = cstTimestampWithPico(new Date());
+      const name = targetInput.value || '(unspecified)';
+      arrTxt.textContent = `${name} ${arrStamp}`;
+      log(`ARRIVED → ${classSel.value}:${name}`);
+      setAllGreen();
       clearEngaged();
+      // reset metric readouts as requested after arrival stop
+      zeroMetrics();
     }
 
     // ---- Actions ----
     engageBtn.onclick = ()=>{
       updateMetrics();
       if(window.starfield) window.starfield.start();
-      engagedState = { ...currentState(), when: new Intl.DateTimeFormat('en-US', { timeZone: tz, dateStyle:'medium', timeStyle:'medium' }).format(new Date()) };
+      engagedState = { ...currentState(), when: new Date() };
+      const depStamp = cstTimestampWithPico(engagedState.when);
+      depTxt.textContent = depStamp;
+      // set arrival placeholder to target name without time until arrival
+      arrTxt.textContent = (targetInput.value || '(unspecified)');
       log(`ENGAGE → Warp ${engagedState.warp} to ${engagedState.class}:${engagedState.target}`);
       if (warpAudio){ warpAudio.currentTime = 0; warpAudio.play().catch(()=>{}); }
       clearFlightTimer();
       const etaSec = computeEtaSec();
       log(`ETA ~ ${etaSec.toFixed(0)}s`);
+      setAllGreen();
       flightTimer = setTimeout(arrive, etaSec*1000);
     };
 
@@ -388,14 +474,14 @@
         return;
       }
       const arr = loadSaves();
-      const m = { ...engagedState, when: new Intl.DateTimeFormat('en-US', { timeZone: tz, dateStyle:'medium', timeStyle:'short' }).format(new Date()) };
+      const m = { warp: engagedState.warp, class: engagedState.class, target: engagedState.target,
+                  when: new Intl.DateTimeFormat('en-US', { timeZone: tz, dateStyle:'medium', timeStyle:'short' }).format(new Date()) };
       arr.unshift(m);
       saveSaves(arr.slice(0,25));
       renderSaves();
       log('Mission saved.');
     };
 
-    // Reset: stop starfield, clear everything
     resetBtn.onclick = ()=>{
       localStorage.removeItem(KEY);
       renderSaves();
@@ -405,15 +491,20 @@
       clearEngaged();
       clearFlightTimer();
       if(window.starfield) window.starfield.stop(true);
-      updateMetrics();
+      // reset ops
+      depTxt.textContent = "(unspecified)";
+      arrTxt.textContent = "(unspecified)";
+      updateMetrics(); // recompute live values (will be Warp 1)
+      zeroMetrics();   // but you asked to clear results on stop/reset
+      updatePreEngageStatus();
     };
 
-    // Reset Metrics Only
     resetMetricsBtn.onclick = ()=>{ zeroMetrics(); log('Metrics reset to zero.'); };
 
     // ---- Init ----
     renderSaves();
     updateMetrics();
+    updatePreEngageStatus();
     log('System initialized. CST sync engaged.');
   </script>
 </body>
