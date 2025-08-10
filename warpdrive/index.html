@@ -60,13 +60,12 @@
     .dot.ok {background:var(--ok)}
     .dot.warn {background:var(--warn)}
     .dot.bad {background:var(--bad)}
+    .name {font-size:12px;color:#cdd6e3}
     .route {font-size:12px;color:#94a3b8;display:flex;gap:12px;flex-wrap:wrap;align-items:center}
     .route strong {color:#e6edf3}
     .kv {display:inline-flex;gap:6px;align-items:center}
     .kv label{font-size:12px;color:#94a3b8}
     .kv .val{font-size:12px;color:#e6edf3}
-    /* hide any text labels for lights (no words) */
-    .light .name{display:none}
   </style>
 </head>
 <body>
@@ -144,16 +143,16 @@
       <!-- Ops Status + Route -->
       <div class="ops">
         <div class="lights">
-          <!-- dots only; titles help identify on hover -->
-          <div class="light" id="lightBubble" title="Bubble"><span class="dot ok"></span></div>
-          <div class="light" id="lightPower"  title="Power"><span class="dot ok"></span></div>
-          <div class="light" id="lightVector" title="Vector"><span class="dot ok"></span></div>
-          <div class="light" id="lightNav"    title="Nav"><span class="dot warn"></span></div>
+          <div class="light" id="lightBubble"><span class="dot ok"></span><span class="name">Bubble</span></div>
+          <div class="light" id="lightPower"><span class="dot ok"></span><span class="name">Power</span></div>
+          <div class="light" id="lightVector"><span class="dot ok"></span><span class="name">Vector</span></div>
+          <div class="light" id="lightNav"><span class="dot warn"></span><span class="name">Nav</span></div>
         </div>
         <div class="route">
           <span class="kv"><label>Departure:</label><strong id="depTxt">(unspecified)</strong></span>
           <span>· Earth</span>
           <span class="kv"><label>Arrival:</label><strong id="arrTxt">(unspecified)</strong></span>
+          <span class="kv"><label>Travel Clock:</label><span class="val" id="travelClock">00:00:00.000</span></span>
           <span class="kv"><label>Speed of Light:</label><span class="val" id="solTxt">0.00 c</span></span>
           <span class="kv"><label>Parsec:</label><span class="val" id="pcTxt">0.000 pc/yr</span></span>
         </div>
@@ -184,7 +183,7 @@
   <audio id="warpAudio"   src="./warp/warp.mp3" preload="auto"></audio>
 
   <script>
-    // ---- Time: CST display ----
+    // ---- Time: CST header clock ----
     const tz = 'America/Chicago';
     const cstClockEl = document.getElementById('cstClock');
     function fmtCSTClock(d){
@@ -198,7 +197,7 @@
       );
     }, 250);
 
-    // Helper: CST formatted with Month Day, Year, HH:MM and pseudo-picoseconds
+    // Helper: CST timestamp with Month Day, Year, HH:MM and pseudo-picoseconds
     function pad(n, w){ return String(n).padStart(w,'0'); }
     function monthName(d){
       return new Intl.DateTimeFormat('en-US', { timeZone: tz, month:'long' }).format(d);
@@ -240,6 +239,7 @@
     const arrTxt = document.getElementById('arrTxt');
     const solTxt = document.getElementById('solTxt');
     const pcTxt  = document.getElementById('pcTxt');
+    const travelClockEl = document.getElementById('travelClock');
     const lightBubble = document.querySelector('#lightBubble .dot');
     const lightPower  = document.querySelector('#lightPower .dot');
     const lightVector = document.querySelector('#lightVector .dot');
@@ -297,17 +297,39 @@
       solTxt.textContent="0.00 c"; pcTxt.textContent="0.000 pc/yr";
     }
 
-    // Live travel ticker (updates SoL/Parsec while engaged)
+    // Live travel ticker (SoL/Parsec + Travel Clock) while engaged
     let travelTicker = null;
+    let travelClockMs = 0;     // simulated mission clock (ms)
+    let lastTick = 0;
+    function formatClock(ms){
+      const h = Math.floor(ms/3600000);
+      const m = Math.floor((ms%3600000)/60000);
+      const s = Math.floor((ms%60000)/1000);
+      const z = Math.floor(ms%1000);
+      return `${pad(h,2)}:${pad(m,2)}:${pad(s,2)}.${pad(z,3)}`;
+    }
     function startTravelTicker(){
       stopTravelTicker();
+      travelClockMs = 0;
+      lastTick = performance.now();
+      travelClockEl.textContent = formatClock(travelClockMs);
       travelTicker = setInterval(()=>{
+        const now = performance.now();
+        const realDt = now - lastTick; // ms
+        lastTick = now;
+
+        // live speed readouts
         const w = Number(warpSel.value);
         const v = computeVEffFromWarp(w);
         vEff.textContent = v.toFixed(2) + ' c';
         solTxt.textContent = v.toFixed(2) + ' c';
         pcTxt.textContent  = (v/3.26156).toFixed(3) + ' pc/yr';
-      }, 200);
+
+        // travel clock runs slower as you go faster: rate = 1/(1+v)
+        const rate = 1/(1+v); // v in c, so at 1c => 0.5x, 10c => ~0.09x
+        travelClockMs += realDt * rate;
+        travelClockEl.textContent = formatClock(travelClockMs);
+      }, 100);
     }
     function stopTravelTicker(){
       if(travelTicker){ clearInterval(travelTicker); travelTicker = null; }
@@ -403,7 +425,7 @@
       logEl.insertAdjacentHTML('afterbegin', `[${ts}] ${msg}<br/>`);
     }
 
-    // ---- Lights helpers (dots only) ----
+    // ---- Lights helpers (labels visible) ----
     function setDot(el, state){ el.classList.remove('ok','warn','bad'); el.classList.add(state); }
     function setAllGreen(){ setDot(lightBubble,'ok'); setDot(lightPower,'ok'); setDot(lightVector,'ok'); setDot(lightNav,'ok'); }
     function updatePreEngageStatus(){
@@ -411,15 +433,16 @@
       const hasTarget = !!(targetInput.value && targetInput.value.trim());
       setDot(lightNav, hasTarget ? 'ok' : 'warn');
       arrTxt.textContent = hasTarget ? `${targetInput.value}` : '(unspecified)';
+      travelClockEl.textContent = "00:00:00.000";
     }
 
     // ---- Require Engage before Save ----
     let engagedState = null; // {warp,class,target,when}
     function clearEngaged(){ engagedState = null; }
     function currentState(){ return { warp: warpSel.value, class: classSel.value, target: (targetInput.value||'(unspecified)') }; }
-    warpSel.addEventListener('change', ()=>{ clearEngaged(); if(window.starfield) window.starfield.update(); updatePreEngageStatus(); });
-    classSel.addEventListener('change', ()=>{ clearEngaged(); updatePreEngageStatus(); });
-    targetInput.addEventListener('input', ()=>{ clearEngaged(); updatePreEngageStatus(); });
+    warpSel.addEventListener('change', ()=>{ clearEngaged(); if(window.starfield) window.starfield.update(); });
+    classSel.addEventListener('change', clearEngaged);
+    targetInput.addEventListener('input', clearEngaged);
 
     // ---- Flight timing / automatic arrival ----
     let flightTimer = null;
@@ -442,7 +465,7 @@
     }
     function arrive(){
       clearFlightTimer();
-      stopTravelTicker(); // freeze readouts
+      stopTravelTicker(); // freeze travel clock and readouts
       if(window.starfield) window.starfield.stop(false);
       if(arriveAudio){ arriveAudio.currentTime = 0; arriveAudio.play().catch(()=>{}); }
       const arrStamp = cstTimestampWithPico(new Date());
@@ -451,7 +474,7 @@
       log(`ARRIVED → ${classSel.value}:${name}`);
       setAllGreen();
       clearEngaged();
-      // freeze metrics at arrival (do not zero)
+      // freeze metrics at arrival (no zeroing here)
     }
 
     // ---- Actions ----
@@ -499,7 +522,7 @@
       depTxt.textContent = "(unspecified)";
       arrTxt.textContent = "(unspecified)";
       updateMetricsStatic(); // recompute for Warp 1
-      zeroMetrics();         // but clear readouts visually per your reset rule
+      zeroMetrics();         // clear readouts visually
       updatePreEngageStatus();
     };
 
