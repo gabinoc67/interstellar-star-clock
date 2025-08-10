@@ -29,7 +29,7 @@
     .metric .value{font-size:18px;font-weight:800;margin-top:4px}
     #log{height:260px;overflow:auto;background:#0a0f1a;border:1px dashed #2a3340;border-radius:10px;padding:10px;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-size:12px}
     .grid-rows{display:grid;gap:16px}
-    .map{position:relative;height:340px;border-radius:12px;border:1px solid #232a36;background:radial-gradient(600px 300px at 20% 10%, rgba(88,122,255,.18), transparent 60%), linear-gradient(180deg,#0b0f19,#0a0e16)}
+    .map{position:relative;height:380px;border-radius:12px;border:1px solid #232a36;background:radial-gradient(600px 300px at 20% 10%, rgba(88,122,255,.18), transparent 60%), linear-gradient(180deg,#0b0f19,#0a0e16)}
     .badge{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;font-size:12px;border:1px solid #2a3340;background:#0f1420;color:var(--muted)}
     .badge.ok{color:#b7f7c1;border-color:#14532d;background:linear-gradient(180deg,#0c1b11,#0b1510)}
     .badge.warn{color:#fff0b4;border-color:#7a5c05;background:linear-gradient(180deg,#1b1709,#141004)}
@@ -52,6 +52,14 @@
     /* Canvas fills map */
     #starCanvas{position:absolute; inset:0; width:100%; height:100%; display:block; border-radius:12px}
 
+    /* Heading overlay */
+    .headingOverlay{
+      position:absolute; top:8px; left:50%; transform:translateX(-50%);
+      font-weight:900; font-size:26px; letter-spacing:1px;
+      color:#e6f0ff; text-shadow:0 2px 8px rgba(0,0,0,.55);
+      background:rgba(10,14,22,.35); border:1px solid #223; padding:6px 12px; border-radius:12px;
+    }
+
     /* Ops strip */
     .ops {display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
     .lights {display:flex;gap:12px;flex-wrap:wrap}
@@ -66,6 +74,10 @@
     .kv {display:inline-flex;gap:6px;align-items:center}
     .kv label{font-size:12px;color:#94a3b8}
     .kv .val{font-size:12px;color:#e6edf3}
+
+    /* Time Scale control */
+    .mode {display:flex;align-items:center;gap:8px;margin-top:8px}
+    .mode .scale {width:100%}
   </style>
 </head>
 <body>
@@ -107,7 +119,7 @@
           </select>
         </div>
 
-        <!-- Target selector (optgroups) or custom text -->
+        <!-- Target selector (optgroups) or custom text) -->
         <div>
           <label for="targetSel">Target Name</label>
           <select id="targetSel"></select>
@@ -135,12 +147,24 @@
         <button id="resetMetrics" class="ghost">Reset Metrics Only</button>
         <button id="testAlarm" class="ghost" title="Dev: trigger a red status to test alarm">Test Alarm</button>
       </div>
+
+      <div class="mode">
+        <label for="timeScale">Time Scale:</label>
+        <select id="timeScale" class="scale">
+          <option value="1" selected>1× (real seconds)</option>
+          <option value="10">10×</option>
+          <option value="100">100×</option>
+          <option value="1000">1,000×</option>
+          <option value="1000000">1,000,000×</option>
+        </select>
+      </div>
     </section>
 
     <!-- Center: Visualization / Map -->
     <section class="panel grid-rows">
       <h2>Navigation Map (Concept)</h2>
       <div id="map" class="map">
+        <div id="headingOverlay" class="headingOverlay">HEADING: 000°</div>
         <canvas id="starCanvas"></canvas>
       </div>
 
@@ -188,7 +212,7 @@
   <audio id="alarmAudio"  src="./warp/alarm.mp3" preload="auto" loop></audio>
 
   <script>
-    // ---- Time: CST header clock ----
+    /* ======= CLOCK (CST) ======= */
     const tz = 'America/Chicago';
     const cstClockEl = document.getElementById('cstClock');
     function fmtCSTClock(d){
@@ -202,7 +226,6 @@
       );
     }, 250);
 
-    // Helper: CST timestamp with Month Day, Year, HH:MM and pseudo-picoseconds
     function pad(n, w){ return String(n).padStart(w,'0'); }
     function monthName(d){ return new Intl.DateTimeFormat('en-US', { timeZone: tz, month:'long' }).format(d); }
     function cstTimestampWithPico(d){
@@ -216,11 +239,12 @@
       return `${monthName(d)} ${day}, ${y}, ${hh}:${mm}, ${pico}`;
     }
 
-    // ---- Elements ----
+    /* ======= ELEMENTS ======= */
     const warpSel = document.getElementById('warp');
     const classSel = document.getElementById('class');
     const targetSel = document.getElementById('targetSel');
     const targetCustom = document.getElementById('targetCustom');
+    const timeScaleSel = document.getElementById('timeScale');
 
     const engageBtn = document.getElementById('engage');
     const saveBtn = document.getElementById('save');
@@ -239,12 +263,12 @@
     const persistBadge = document.getElementById('persistBadge');
     const rhythmBadge = document.getElementById('rhythmBadge');
 
-    // Ops strip elements
     const depTxt = document.getElementById('depTxt');
     const arrTxt = document.getElementById('arrTxt');
     const solTxt = document.getElementById('solTxt');
     const pcTxt  = document.getElementById('pcTxt');
     const travelClockEl = document.getElementById('travelClock');
+    const headingOverlay = document.getElementById('headingOverlay');
 
     const lightBubble = document.querySelector('#lightBubble .dot');
     const lightPower  = document.querySelector('#lightPower .dot');
@@ -255,20 +279,50 @@
     const warpAudio   = document.getElementById('warpAudio');
     const alarmAudio  = document.getElementById('alarmAudio');
 
-    // ---- Targets data (fallback) + load from /warp/targets.json ----
-    let targetsData = {
-      planet:["Mercury","Venus","Earth","Mars","Jupiter","Saturn","Uranus","Neptune"],
-      moon:["Moon","Europa","Ganymede","Callisto","Titan"],
-      galaxy:["Andromeda","Triangulum","Sombrero Galaxy"],
-      star:["Sirius","Betelgeuse","Proxima Centauri"],
-      custom:[]
-    };
-    fetch('./warp/targets.json').then(r=>r.ok?r.json():null).then(j=>{
-      if(j && typeof j==='object'){ targetsData = j; }
-      populateTargetOptgroups(); // initial render
-    }).catch(()=>{ populateTargetOptgroups(); });
+    /* ======= DATA (targets + distances + RA/Dec catalog) ======= */
+    // Defaults to keep planets/moons available even if targets.json only has stars/galaxies:
+    const defaultPlanets = ["Mercury","Venus","Earth","Mars","Jupiter","Saturn","Uranus","Neptune"];
+    const defaultMoons   = ["Moon","Europa","Ganymede","Callisto","Titan"];
 
-    // Build Target dropdown with optgroups for all categories (except custom)
+    let distancesData = { targets:{} };
+    let catalog = { stars:[], galaxies:[] };  // from /warp/targets.json
+    let raDecByName = {}; // name -> {ra_deg, dec_deg}
+
+    // Build dropdown lists (planets/moons from defaults; stars/galaxies from catalog)
+    function makeTargetsData(){
+      return {
+        planet: defaultPlanets.slice(),
+        moon: defaultMoons.slice(),
+        star: (catalog.stars||[]).map(s=>s.name),
+        galaxy: (catalog.galaxies||[]).map(g=>g.name),
+        custom: []
+      };
+    }
+    let targetsData = makeTargetsData();
+
+    // Fetch resources
+    Promise.all([
+      fetch('./warp/targets.json').then(r=>r.ok?r.json():catalog).catch(()=>catalog),
+      fetch('./warp/distances.json').then(r=>r.ok?r.json():distancesData).catch(()=>distancesData)
+    ]).then(([cat, dist])=>{
+      if(cat && typeof cat==='object'){
+        catalog = cat;
+        // Build RA/Dec lookup
+        raDecByName = {};
+        (catalog.stars||[]).forEach(o=>{ if(o && o.name) raDecByName[o.name] = { ra:o.ra_deg, dec:o.dec_deg }; });
+        (catalog.galaxies||[]).forEach(o=>{ if(o && o.name) raDecByName[o.name] = { ra:o.ra_deg, dec:o.dec_deg }; });
+      }
+      if(dist && typeof dist==='object') distancesData = dist;
+
+      targetsData = makeTargetsData();
+      populateTargetOptgroups("");
+      updateMetricsStatic();
+      updatePreEngageStatus();
+      renderSaves();
+      restoreFlightIfAny();
+      log('System initialized. CST sync engaged.');
+    });
+
     function populateTargetOptgroups(selectedValue = ""){
       const groups = ["planet","moon","galaxy","star"];
       let html = `<option value="">(select target)</option>`;
@@ -282,7 +336,6 @@
       }
       targetSel.innerHTML = html;
 
-      // Show/hide custom input depending on class
       if(classSel.value==='custom'){
         targetSel.value = "";
         targetSel.style.display='none';
@@ -293,11 +346,9 @@
         targetSel.style.display='block';
       }
       updatePreEngageStatus();
+      updateStarfieldHeading();
     }
 
-    // When class changes:
-    // - if custom: show text input
-    // - if not: keep optgroups visible; optional: auto-select first from that group
     classSel.addEventListener('change', ()=>{
       clearEngaged();
       if(classSel.value==='custom'){
@@ -315,24 +366,28 @@
         targetCustom.style.display='none';
       }
       updatePreEngageStatus();
+      updateStarfieldHeading();
     });
 
-    // When user picks any target, sync class selector to the optgroup the option belongs to
     targetSel.addEventListener('change', ()=>{
       clearEngaged();
       const opt = targetSel.selectedOptions[0];
       if(opt){
-        const og = opt.parentElement; // <optgroup>
+        const og = opt.parentElement;
         const group = og?.getAttribute('data-group');
         if(group && classSel.value !== group){
           classSel.value = group;
         }
       }
       updatePreEngageStatus();
+      updateStarfieldHeading();
     });
 
-    // Custom typing updates status
-    targetCustom.addEventListener('input', ()=>{ clearEngaged(); updatePreEngageStatus(); });
+    targetCustom.addEventListener('input', ()=>{
+      clearEngaged();
+      updatePreEngageStatus();
+      updateStarfieldHeading();
+    });
 
     function getSelectedTarget(){
       if(classSel.value==='custom'){
@@ -341,7 +396,71 @@
       return (targetSel.value||'').trim();
     }
 
-    // ---- Saved missions (localStorage) ----
+    /* ======= PHYSICS & ETA ======= */
+    const C_KM_S = 299792.458;
+    const SECONDS_PER_YEAR = 31557600;
+    function lookupDistance(targetName){
+      if(!targetName) return null;
+      const t = distancesData?.targets?.[targetName];
+      if(!t) return null;
+      return { distance: Number(t.distance), unit: t.unit }; // 'km' or 'ly'
+    }
+    function computeVEffFromWarp(w){ return Math.min(0.2*w + 0.1*w*w/10, 10); }
+    function baseMetricsFromWarp(w){
+      const v = computeVEffFromWarp(w);
+      return { vEff: v, pulse: w*0.5, eta: 0.995 + w*0.0004, front: w*0.11, mid: 0, rear: -w*0.11 };
+    }
+    function vEffNumber(){ return parseFloat((document.getElementById('vEff').textContent||'0').replace(' c',''))||0; }
+
+    function computeRealEtaSeconds(targetName){
+      const d = lookupDistance(targetName);
+      const v = Math.max(0.01, vEffNumber()); // in c
+      if(!d){
+        const fallbackUnits = { moon:6, planet:12, star:60, galaxy:200, custom:20 };
+        const distUnits = fallbackUnits[classSel.value] ?? 20;
+        return distUnits / v;
+      }
+      if(d.unit === 'ly'){
+        return (d.distance / v) * SECONDS_PER_YEAR;
+      }else if(d.unit === 'km'){
+        return d.distance / (v * C_KM_S);
+      }
+      return 10;
+    }
+
+    /* ======= WAYPOINTS ======= */
+    function classWaypoints(cls){
+      if(cls==='moon' || cls==='planet'){
+        return [
+          {p:0.01, label:'LEO Achieved'},
+          {p:0.05, label:'Injection Burn Complete'},
+          {p:0.50, label:'Mid-course'},
+          {p:0.90, label:'Approach'},
+          {p:0.98, label:'Orbit Insertion'}
+        ];
+      }else if(cls==='star'){
+        return [
+          {p:0.02, label:'Heliopause'},
+          {p:0.10, label:'Interstellar Cruise'},
+          {p:0.50, label:'Midway'},
+          {p:0.90, label:'Destination Approach'}
+        ];
+      }else if(cls==='galaxy'){
+        return [
+          {p:0.02, label:'Galactic Exit'},
+          {p:0.10, label:'Intergalactic Cruise'},
+          {p:0.50, label:'Intergalactic Midway'},
+          {p:0.95, label:'Target Galaxy Approach'}
+        ];
+      }
+      return [
+        {p:0.25, label:'Quarter'},
+        {p:0.50, label:'Halfway'},
+        {p:0.75, label:'Three-quarters'}
+      ];
+    }
+
+    /* ======= SAVED MISSIONS ======= */
     const KEY = 'warp-demo:saves';
     function loadSaves(){ try { return JSON.parse(localStorage.getItem(KEY))||[] } catch(e){ return [] } }
     function saveSaves(arr){ localStorage.setItem(KEY, JSON.stringify(arr)); }
@@ -369,18 +488,14 @@
           log(`Loaded mission #${i+1}`);
           clearEngaged();
           updatePreEngageStatus();
+          updateStarfieldHeading();
         };
         savedEl.appendChild(tag);
       });
       persistBadge.textContent = arr.length? 'Saved ✓' : 'Not saved';
     }
 
-    // ---- Metric helpers ----
-    function computeVEffFromWarp(w){ return Math.min(0.2*w + 0.1*w*w/10, 10); }
-    function baseMetricsFromWarp(w){
-      const v = computeVEffFromWarp(w);
-      return { vEff: v, pulse: w*0.5, eta: 0.995 + w*0.0004, front: w*0.11, mid: 0, rear: -w*0.11 };
-    }
+    /* ======= STATUS / METRICS ======= */
     function updateMetricsStatic(){
       const w = Number(warpSel.value);
       const m = baseMetricsFromWarp(w);
@@ -401,64 +516,24 @@
       solTxt.textContent="0.00 c"; pcTxt.textContent="0.000 pc/yr";
     }
 
-    // Live travel ticker (ALL metrics fluctuate) while engaged
-    let travelTicker = null;
-    let travelClockMs = 0;
-    let lastTick = 0;
-
-    function formatClock(ms){
-      const h = Math.floor(ms/3600000);
-      const m = Math.floor((ms%3600000)/60000);
-      const s = Math.floor((ms%60000)/1000);
-      const z = Math.floor(ms%1000);
-      return `${pad(h,2)}:${pad(m,2)}:${pad(s,2)}.${pad(z,3)}`;
+    function log(msg){
+      const ts = new Intl.DateTimeFormat('en-US',{ timeZone: tz, hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'}).format(new Date());
+      logEl.insertAdjacentHTML('afterbegin', `[${ts}] ${msg}<br/>`);
     }
 
-    function startTravelTicker(){
-      stopTravelTicker();
-      travelClockMs = 0;
-      lastTick = performance.now();
-      travelClockEl.textContent = formatClock(travelClockMs);
-      travelTicker = setInterval(()=>{
-        const now = performance.now();
-        const realDt = now - lastTick; lastTick = now;
-
-        const w = Number(warpSel.value);
-        const base = baseMetricsFromWarp(w);
-
-        // Gentle fluctuations
-        const t = now/1000;
-        const wobble = (amp)=> amp * Math.sin(t*2.1) * Math.cos(t*0.7);
-        const vNow = Math.max(0, base.vEff + wobble(0.05*base.vEff + 0.03));
-        const pNow = Math.max(0, base.pulse + wobble(0.06*base.pulse + 0.05));
-        const eNow = Math.min(1.005, Math.max(0.990, base.eta + wobble(0.0015)));
-
-        const fNow = base.front + wobble(0.03*base.front + 0.01);
-        const mNow = 0 + wobble(0.01);
-        const rNow = base.rear + wobble(0.03*(-base.rear) + 0.01);
-
-        // Update UI
-        vEff.textContent = vNow.toFixed(2) + ' c';
-        pulse.textContent = pNow.toFixed(1) + ' MHz';
-        eta.textContent = eNow.toFixed(3);
-        frontE.textContent = fNow.toFixed(2);
-        midE.textContent = mNow.toFixed(2);
-        rearE.textContent = rNow.toFixed(2);
-
-        solTxt.textContent = vNow.toFixed(2) + ' c';
-        pcTxt.textContent  = (vNow/3.26156).toFixed(3) + ' pc/yr';
-
-        // Travel clock runs slower at higher v: rate = 1/(1+v)
-        const rate = 1/(1+vNow);
-        travelClockMs += realDt * rate;
-        travelClockEl.textContent = formatClock(travelClockMs);
-      }, 100);
-    }
-    function stopTravelTicker(){
-      if(travelTicker){ clearInterval(travelTicker); travelTicker = null; }
+    function anyBad(){ return [lightBubble, lightPower, lightVector, lightNav].some(el => el.classList.contains('bad')); }
+    function updateAlarm(){ if(anyBad()){ alarmAudio.play().catch(()=>{}); } else { alarmAudio.pause(); alarmAudio.currentTime = 0; } }
+    function setDot(el, state){ el.classList.remove('ok','warn','bad'); el.classList.add(state); updateAlarm(); }
+    function setAllGreen(){ setDot(lightBubble,'ok'); setDot(lightPower,'ok'); setDot(lightVector,'ok'); setDot(lightNav,'ok'); }
+    function updatePreEngageStatus(){
+      setDot(lightBubble,'ok'); setDot(lightPower,'ok'); setDot(lightVector,'ok');
+      const t = getSelectedTarget();
+      setDot(lightNav, t ? 'ok' : 'warn');
+      arrTxt.textContent = t || '(unspecified)';
+      travelClockEl.textContent = "00:00:00.000";
     }
 
-    // ---- Canvas starfield ----
+    /* ======= STARFIELD with RA/Dec HEADING ======= */
     (function initStarfield(){
       const map = document.getElementById('map');
       const cvs = document.getElementById('starCanvas');
@@ -467,16 +542,14 @@
       function resize(){
         const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
         const w = map.clientWidth, h = map.clientHeight;
-        cvs.style.width = w+'px';
-        cvs.style.height = h+'px';
-        cvs.width = w * dpr;
-        cvs.height = h * dpr;
+        cvs.style.width = w+'px'; cvs.style.height = h+'px';
+        cvs.width = w * dpr; cvs.height = h * dpr;
         ctx.setTransform(dpr,0,0,dpr,0,0);
       }
       window.addEventListener('resize', resize);
       resize();
 
-      const STAR_COUNT = 350;
+      const STAR_COUNT = 420;
       const stars = [];
       function rand(min,max){ return Math.random()*(max-min)+min; }
       function makeStar(){
@@ -484,45 +557,78 @@
       }
       for(let i=0;i<STAR_COUNT;i++) stars.push(makeStar());
 
-      function warpSpeed(){
+      function warpBaseSpeed(){
         const w = Number(warpSel.value||1);
         const t = (w-1)/9;
         return 0.15 + 2.85*(t*t);
       }
 
-      let running = false;
-      let raf = null;
+      // Heading from RA/Dec if available; otherwise name-hash fallback
+      let heading = {vx:-1, vy:0, deg:180};
 
+      function raDecToHeading(name){
+        const rec = raDecByName[name];
+        if(!rec || rec.ra==null || rec.dec==null) return null;
+        // Convert RA/Dec (deg) to screen unit vector; screen X=right, Y=down.
+        const ra = rec.ra * Math.PI/180;
+        const dec = rec.dec * Math.PI/180;
+        const vx = Math.cos(dec) * Math.cos(ra);
+        const vy = Math.cos(dec) * Math.sin(ra);
+        // Map to degrees (0° at +X, increasing counter-clockwise). Screen Y is down, so flip sign if desired.
+        let deg = Math.atan2(vy, vx) * 180/Math.PI;
+        if(deg < 0) deg += 360;
+        return { vx, vy, deg: Math.round(deg) };
+      }
+
+      function nameHashHeading(name){
+        let h=0; for(let i=0;i<name.length;i++){ h = (h*31 + name.charCodeAt(i))>>>0; }
+        const angle = (h % 360) * Math.PI/180;
+        const vx = Math.cos(angle), vy = Math.sin(angle);
+        const mag = Math.hypot(vx,vy) || 1;
+        return { vx:vx/mag, vy:vy/mag, deg: Math.round(h % 360) };
+      }
+
+      function setHeadingFromTarget(name){
+        if(!name){ heading = {vx:-1, vy:0, deg:180}; updateHeadingOverlay(); return; }
+        const byRa = raDecToHeading(name);
+        heading = byRa || nameHashHeading(name);
+        updateHeadingOverlay();
+      }
+      function updateHeadingOverlay(){
+        headingOverlay.textContent = `HEADING: ${String(heading.deg).padStart(3,'0')}°`;
+      }
+      window._setHeadingFromTarget = setHeadingFromTarget;
+
+      let running = false, raf = null;
       function frame(){
         if(!running) return;
-        const base = warpSpeed();
-
+        const base = warpBaseSpeed();
         ctx.fillStyle = '#060a12';
         ctx.fillRect(0,0,cvs.clientWidth,cvs.clientHeight);
 
         const now = performance.now();
         for(const s of stars){
-          s.x -= base * (0.4 + 0.6*s.z);
-          if(s.x < -4){
-            s.x = cvs.clientWidth + rand(0, 40);
-            s.y = rand(0, cvs.clientHeight);
-            s.z = rand(0.2, 1.0);
-            s.r = rand(0.4, 1.4);
-            s.tw = rand(0.5, 1.0);
+          s.x -= base * (0.4 + 0.6*s.z) * heading.vx;
+          s.y -= base * (0.4 + 0.6*s.z) * heading.vy;
+
+          if(s.x < -8 || s.x > cvs.clientWidth+8 || s.y < -8 || s.y > cvs.clientHeight+8){
+            const edgeX = heading.vx>0 ? -6 : (heading.vx<0 ? cvs.clientWidth+6 : rand(-6, cvs.clientWidth+6));
+            const edgeY = heading.vy>0 ? -6 : (heading.vy<0 ? cvs.clientHeight+6 : rand(-6, cvs.clientHeight+6));
+            s.x = edgeX; s.y = edgeY;
+            s.z = rand(0.2, 1.0); s.r = rand(0.4, 1.4); s.tw = rand(0.5, 1.0);
           }
-          const alpha = 0.5 + 0.5 * Math.sin((now/600) * s.tw + s.x*0.002);
+
+          const alpha = 0.5 + 0.5 * Math.sin((now/600) * s.tw + (s.x+s.y)*0.002);
           ctx.fillStyle = `rgba(210,225,255,${alpha})`;
-          ctx.beginPath();
-          ctx.arc(s.x, s.y, s.r*(0.6+0.8*s.z), 0, Math.PI*2);
-          ctx.fill();
+          ctx.beginPath(); ctx.arc(s.x, s.y, s.r*(0.6+0.8*s.z), 0, Math.PI*2); ctx.fill();
 
           const w = Number(warpSel.value||1);
           if(w >= 7){
             ctx.strokeStyle = `rgba(210,225,255,${alpha*0.8})`;
             ctx.lineWidth = 1;
             ctx.beginPath();
-            ctx.moveTo(s.x+1, s.y);
-            ctx.lineTo(s.x + 1 + (w-6)*1.2, s.y);
+            ctx.moveTo(s.x, s.y);
+            ctx.lineTo(s.x + (w-6)*1.2 * (-heading.vx), s.y + (w-6)*1.2 * (-heading.vy));
             ctx.stroke();
           }
         }
@@ -538,100 +644,229 @@
             ctx.clearRect(0,0,cvs.clientWidth,cvs.clientHeight);
           }
         },
-        update(){ /* speed read per frame */ }
+        setHeading(name){ setHeadingFromTarget(name); },
+        update(){ /* speed read per frame via warp */ }
       };
     })();
 
-    // ---- Logging ----
-    function log(msg){
-      const ts = new Intl.DateTimeFormat('en-US',{ timeZone: tz, hour12:false, hour:'2-digit', minute:'2-digit', second:'2-digit'}).format(new Date());
-      logEl.insertAdjacentHTML('afterbegin', `[${ts}] ${msg}<br/>`);
+    function updateStarfieldHeading(){
+      const name = getSelectedTarget();
+      if(window.starfield) window.starfield.setHeading(name || 'forward');
     }
 
-    // ---- Alarm logic: play alarm.mp3 if ANY dot is red (bad) ----
-    function anyBad(){
-      return [lightBubble, lightPower, lightVector, lightNav].some(el => el.classList.contains('bad'));
+    /* ======= LIVE TRAVEL TICKER & FLIGHT STATE (SAVE/RESUME) ======= */
+    let travelTicker = null, travelClockMs = 0, lastTick = 0;
+
+    function formatClock(ms){
+      const h = Math.floor(ms/3600000);
+      const m = Math.floor((ms%3600000)/60000);
+      const s = Math.floor((ms%60000)/1000);
+      const z = Math.floor(ms%1000);
+      return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(z).padStart(3,'0')}`;
     }
-    function updateAlarm(){
-      if(anyBad()){
-        alarmAudio.play().catch(()=>{ /* user gesture may be needed; will play next time */ });
+
+    function startTravelTicker(){
+      stopTravelTicker();
+      lastTick = performance.now();
+      travelTicker = setInterval(()=>{
+        const now = performance.now();
+        const realDt = now - lastTick; lastTick = now;
+
+        const w = Number(warpSel.value);
+        const base = baseMetricsFromWarp(w);
+
+        const t = now/1000;
+        const wobble = (amp)=> amp * Math.sin(t*2.1) * Math.cos(t*0.7);
+        const vNow = Math.max(0, base.vEff + wobble(0.05*base.vEff + 0.03));
+        const pNow = Math.max(0, base.pulse + wobble(0.06*base.pulse + 0.05));
+        const eNow = Math.min(1.005, Math.max(0.990, base.eta + wobble(0.0015)));
+
+        const fNow = base.front + wobble(0.03*base.front + 0.01);
+        const mNow = 0 + wobble(0.01);
+        const rNow = base.rear + wobble(0.03*(-base.rear) + 0.01);
+
+        vEff.textContent = vNow.toFixed(2) + ' c';
+        pulse.textContent = pNow.toFixed(1) + ' MHz';
+        eta.textContent = eNow.toFixed(3);
+        frontE.textContent = fNow.toFixed(2);
+        midE.textContent = mNow.toFixed(2);
+        rearE.textContent = rNow.toFixed(2);
+
+        solTxt.textContent = vNow.toFixed(2) + ' c';
+        pcTxt.textContent  = (vNow/3.26156).toFixed(3) + ' pc/yr';
+
+        const rate = 1/(1+vNow);
+        travelClockMs += realDt * rate;
+        travelClockEl.textContent = formatClock(travelClockMs);
+
+        advanceFlightProgress();
+      }, 100);
+    }
+    function stopTravelTicker(){ if(travelTicker){ clearInterval(travelTicker); travelTicker = null; } }
+
+    const FLIGHT_KEY = 'warp-demo:flight';
+    function saveFlightState(state){ localStorage.setItem(FLIGHT_KEY, JSON.stringify(state)); }
+    function loadFlightState(){ try { return JSON.parse(localStorage.getItem(FLIGHT_KEY))||null } catch(e){ return null } }
+    function clearFlightState(){ localStorage.removeItem(FLIGHT_KEY); }
+
+    function makeHeadingDeg(name){
+      // Prefer RA/Dec; fallback to name-hash
+      const rec = raDecByName[name];
+      if(rec && rec.ra!=null && rec.dec!=null){
+        let deg = Math.atan2(Math.cos(rec.dec*Math.PI/180)*Math.sin(rec.ra*Math.PI/180),
+                             Math.cos(rec.dec*Math.PI/180)*Math.cos(rec.ra*Math.PI/180)) * 180/Math.PI;
+        if(deg<0) deg+=360;
+        return Math.round(deg);
+      }
+      let h=0; for(let i=0;i<name.length;i++){ h=(h*31 + name.charCodeAt(i))>>>0; }
+      return Math.round(h%360);
+    }
+
+    function startFlightRecord(){
+      const tgt = getSelectedTarget();
+      const now = Date.now();
+      const etaSec = computeRealEtaSeconds(tgt);
+      const scale = Number(timeScaleSel.value||1);
+      const headingDeg = makeHeadingDeg(tgt || 'forward');
+      const wp = classWaypoints(classSel.value);
+      const record = {
+        active:true,
+        startMs: now,
+        etaSec: etaSec,
+        timeScale: scale,
+        warp: warpSel.value,
+        class: classSel.value,
+        target: tgt,
+        waypoints: wp,
+        wpIndex: -1,
+        headingDeg: headingDeg
+      };
+      saveFlightState(record);
+      return record;
+    }
+
+    function restoreFlightIfAny(){
+      const r = loadFlightState();
+      if(!r || !r.active) return;
+      warpSel.value = r.warp;
+      classSel.value = r.class;
+      if(r.class==='custom'){
+        populateTargetOptgroups("");
+        targetCustom.value = r.target;
+        targetSel.style.display='none';
+        targetCustom.style.display='block';
       }else{
-        alarmAudio.pause(); alarmAudio.currentTime = 0;
+        populateTargetOptgroups(r.target);
+        targetSel.style.display='block';
+        targetCustom.style.display='none';
+      }
+      updateMetricsStatic();
+      updateStarfieldHeading();
+      depTxt.textContent = cstTimestampWithPico(new Date(r.startMs));
+      arrTxt.textContent = r.target;
+      log(`Resuming flight → Warp ${r.warp} to ${r.class}:${r.target} · Time Scale ${r.timeScale}×`);
+      if(window.starfield) window.starfield.start();
+      setAllGreen();
+      travelClockMs = 0;
+      startTravelTicker();
+    }
+
+    function currentFlight(){ return loadFlightState(); }
+
+    function fractionalProgress(r){
+      if(!r) return 0;
+      const elapsedRealSec = (Date.now() - r.startMs) / 1000;
+      const progressed = elapsedRealSec * (r.timeScale || 1);
+      const frac = Math.max(0, Math.min(1, progressed / (r.etaSec || 1)));
+      return frac;
+    }
+
+    function announceWaypoints(r, frac){
+      const wps = r.waypoints || [];
+      let idx = r.wpIndex || -1;
+      for(let i=idx+1; i<wps.length; i++){
+        if(frac >= wps[i].p){
+          log(`Waypoint: ${wps[i].label} (${Math.round(wps[i].p*100)}%)`);
+          r.wpIndex = i;
+          saveFlightState(r);
+        }else{
+          break;
+        }
       }
     }
 
-    // ---- Lights helpers ----
-    function setDot(el, state){
-      el.classList.remove('ok','warn','bad');
-      el.classList.add(state);
-      updateAlarm();
-    }
-    function setAllGreen(){ setDot(lightBubble,'ok'); setDot(lightPower,'ok'); setDot(lightVector,'ok'); setDot(lightNav,'ok'); }
-    function updatePreEngageStatus(){
-      setDot(lightBubble,'ok'); setDot(lightPower,'ok'); setDot(lightVector,'ok');
-      const t = getSelectedTarget();
-      setDot(lightNav, t ? 'ok' : 'warn'); // still yellow if no target
-      arrTxt.textContent = t || '(unspecified)';
-      travelClockEl.textContent = "00:00:00.000";
+    function arrive(){
+      const r = currentFlight();
+      if(!r || !r.active) return;
+      if(window.starfield) window.starfield.stop(false);
+      stopTravelTicker();
+      if(arriveAudio){ arriveAudio.currentTime = 0; arriveAudio.play().catch(()=>{}); }
+      const arrStamp = cstTimestampWithPico(new Date());
+      const name = r.target || '(unspecified)';
+      arrTxt.textContent = `${name} ${arrStamp}`;
+      log(`ARRIVED → ${r.class}:${name}`);
+      setAllGreen();
+      r.active = false; saveFlightState(r);
+      clearEngaged();
     }
 
-    // ---- Require Engage before Save ----
-    let engagedState = null; // {warp,class,target,when}
+    function advanceFlightProgress(){
+      const r = currentFlight();
+      if(!r || !r.active) return;
+      const frac = fractionalProgress(r);
+      announceWaypoints(r, frac);
+      if(frac >= 1){ arrive(); }
+    }
+
+    /* ======= ACTIONS ======= */
+    let engagedState = null;
     function clearEngaged(){ engagedState = null; }
     function currentState(){ return { warp: warpSel.value, class: classSel.value, target: (getSelectedTarget()||'(unspecified)') }; }
 
     warpSel.addEventListener('change', ()=>{ clearEngaged(); if(window.starfield) window.starfield.update(); });
-    // classSel change is above (syncs with optgroups)
-    // targetSel & targetCustom listeners are above
 
-    // ---- Flight timing / automatic arrival ----
-    let flightTimer = null;
-    function clearFlightTimer(){ if(flightTimer){ clearTimeout(flightTimer); flightTimer = null; } }
-    function destDistanceUnits(){
-      switch(classSel.value){
-        case 'moon':   return 6;
-        case 'planet': return 12;
-        case 'star':   return 60;
-        case 'galaxy': return 200;
-        default:       return 20;
+    timeScaleSel.addEventListener('change', ()=>{
+      const r = currentFlight();
+      if(r && r.active){
+        r.timeScale = Number(timeScaleSel.value||1);
+        saveFlightState(r);
+        log(`Time Scale set to ${r.timeScale}×`);
       }
-    }
-    function vEffNumber(){ return parseFloat(vEff.textContent)||0; }
-    function computeEtaSec(){
-      const dist = destDistanceUnits();
-      const v = Math.max(0.05, vEffNumber());
-      const seconds = dist / v;
-      return Math.max(4, Math.min(seconds, 22));
-    }
-    function arrive(){
-      clearFlightTimer();
-      stopTravelTicker(); // freeze ALL live readouts
-      if(window.starfield) window.starfield.stop(false);
-      if(arriveAudio){ arriveAudio.currentTime = 0; arriveAudio.play().catch(()=>{}); }
-      const arrStamp = cstTimestampWithPico(new Date());
-      const name = getSelectedTarget() || '(unspecified)';
-      arrTxt.textContent = `${name} ${arrStamp}`;
-      log(`ARRIVED → ${classSel.value}:${name}`);
-      setAllGreen();
-      clearEngaged();
+    });
+
+    function updateStarfieldHeading(){
+      const name = getSelectedTarget();
+      if(window.starfield) window.starfield.setHeading(name || 'forward');
     }
 
-    // ---- Actions ----
     engageBtn.onclick = ()=>{
+      const tgt = getSelectedTarget();
+      if(!tgt){
+        log('Please select a target before Engage.');
+        setDot(lightNav,'bad'); setTimeout(()=>updatePreEngageStatus(), 1200);
+        return;
+      }
+      const prev = currentFlight();
+      if(prev && prev.active){ prev.active = false; saveFlightState(prev); }
+
       updateMetricsStatic();
+      updateStarfieldHeading();
       if(window.starfield) window.starfield.start();
-      const name = getSelectedTarget() || '(unspecified)';
+
       engagedState = { ...currentState(), when: new Date() };
       depTxt.textContent = cstTimestampWithPico(engagedState.when);
-      arrTxt.textContent = name;
-      log(`ENGAGE → Warp ${engagedState.warp} to ${engagedState.class}:${name}`);
+      arrTxt.textContent = tgt;
+      log(`ENGAGE → Warp ${engagedState.warp} to ${engagedState.class}:${tgt} · Time Scale ${timeScaleSel.value}×`);
+
+      const etaSec = computeRealEtaSeconds(tgt);
+      log(`ETA (true physics) ~ ${etaSec.toLocaleString(undefined,{maximumFractionDigits:0})} s · Arrival CST shown on completion`);
+
       if (warpAudio){ warpAudio.currentTime = 0; warpAudio.play().catch(()=>{}); }
-      clearFlightTimer();
-      const etaSec = computeEtaSec();
-      log(`ETA ~ ${etaSec.toFixed(0)}s`);
       setAllGreen();
-      startTravelTicker();                         // LIVE updates begin
-      flightTimer = setTimeout(arrive, etaSec*1000);
+
+      const record = startFlightRecord();
+      travelClockMs = 0;
+      startTravelTicker();
     };
 
     saveBtn.onclick = ()=>{
@@ -658,31 +893,27 @@
       targetCustom.value = "";
       logEl.innerHTML = "";
       clearEngaged();
-      clearFlightTimer();
+
+      const r = currentFlight();
+      if(r && r.active){ r.active=false; saveFlightState(r); }
+      clearFlightState();
+
       stopTravelTicker();
       if(window.starfield) window.starfield.stop(true);
       depTxt.textContent = "(unspecified)";
       arrTxt.textContent = "(unspecified)";
-      updateMetricsStatic(); // recompute for Warp 1
-      zeroMetrics();         // clear readouts visually
+      updateMetricsStatic();
+      zeroMetrics();
       updatePreEngageStatus();
     };
 
     resetMetricsBtn.onclick = ()=>{ zeroMetrics(); log('Metrics reset to zero.'); };
 
-    // ---- Dev/Test: force a red status for 3s to test alarm ----
     testAlarmBtn.onclick = ()=>{
       log('Test alarm: setting Power indicator to RED for 3 seconds.');
       setDot(lightPower, 'bad');
       setTimeout(()=>{ setDot(lightPower, 'ok'); log('Test alarm: cleared.'); }, 3000);
     };
-
-    // ---- Init ----
-    renderSaves();
-    if(!targetSel.options.length) populateTargetOptgroups("");
-    updateMetricsStatic();
-    updatePreEngageStatus();
-    log('System initialized. CST sync engaged.');
   </script>
 </body>
 </html>
