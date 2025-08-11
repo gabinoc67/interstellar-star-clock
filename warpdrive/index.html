@@ -638,7 +638,13 @@ function angularSep(a,b){
 function updateStarfieldHeading(){ if(window.starfield) window.starfield.setHeading(); }
 
 /* ===================== TRAVEL TICKER & FLIGHT ===================== */
-let travelTicker = null, travelClockMs = 0, lastTick = 0;
+// Warp-independent clock (wall time × Time Scale)
+let travelTicker = null;
+let travelClockMs = 0;        // displayed time
+let travelStartRealMs = 0;    // performance.now() anchor for current run
+let travelAccumMs = 0;        // accumulated from previous runs/scale changes
+let lastTick = 0;             // used only for metrics wobble timing
+
 function formatClock(ms){
   const h = Math.floor(ms/3600000);
   const m = Math.floor((ms%3600000)/60000);
@@ -648,21 +654,22 @@ function formatClock(ms){
 }
 function startTravelTicker(){
   stopTravelTicker();
-  lastTick = performance.now();
+  travelStartRealMs = performance.now();
+  lastTick = travelStartRealMs;
+
   travelTicker = setInterval(()=>{
     const now = performance.now();
-    const realDt = now - lastTick; lastTick = now;
+    const realDt = now - lastTick; 
+    lastTick = now;
 
+    // ---- Metrics (can depend on warp) ----
     const w = Number(warpSel.value);
     const base = baseMetricsFromWarp(w);
-
-    // live metrics wobble (visual only)
     const t = now/1000;
     const wobble = (amp)=> amp * Math.sin(t*2.1) * Math.cos(t*0.7);
     const vNow = Math.max(0, base.vEff + wobble(0.05*base.vEff + 0.03));
     const pNow = Math.max(0, base.pulse + wobble(0.06*base.pulse + 0.05));
     const eNow = Math.min(1.005, Math.max(0.990, base.eta + wobble(0.0015)));
-
     const fNow = base.front + wobble(0.03*base.front + 0.01);
     const mNow = 0 + wobble(0.01);
     const rNow = base.rear + wobble(0.03*(-base.rear) + 0.01);
@@ -673,16 +680,16 @@ function startTravelTicker(){
     frontE.textContent = fNow.toFixed(2);
     midE.textContent = mNow.toFixed(2);
     rearE.textContent = rNow.toFixed(2);
-
     solTxt.textContent = `${vNow.toFixed(2)} c`;
     pcTxt.textContent  = `${(vNow/3.26156).toFixed(3)} pc/yr`;
 
-    // === ARRIVAL CONTROL: simple deterministic clock against ETA ===
-    const flight = loadFlightState();
+    // ---- Clock (independent of warp) ----
     const scale = Number(timeScaleSel.value || 1);
-    travelClockMs += realDt * scale; // Ship clock now matches Time Scale exactly
+    travelClockMs = travelAccumMs + (now - travelStartRealMs) * scale;
     travelClockEl.textContent = formatClock(travelClockMs);
 
+    // ---- Arrival check ----
+    const flight = loadFlightState();
     if (flight && flight.active) {
       const etaMs = (flight.etaSec||0) * 1000;
       if (travelClockMs >= etaMs) {
@@ -691,7 +698,11 @@ function startTravelTicker(){
     }
   }, 100);
 }
-function stopTravelTicker(){ if(travelTicker){ clearInterval(travelTicker); travelTicker = null; } }
+function stopTravelTicker(){
+  if(travelTicker){ clearInterval(travelTicker); travelTicker = null; }
+  // preserve current displayed time so we can resume correctly
+  travelAccumMs = travelClockMs;
+}
 
 const FLIGHT_KEY = 'warp-demo:flight';
 function saveFlightState(state){ localStorage.setItem(FLIGHT_KEY, JSON.stringify(state)); }
@@ -736,7 +747,12 @@ function restoreFlightIfAny(){
   arrTxt.textContent = r.target;
   if(window.starfield) window.starfield.start();
   setAllGreen();
+
+  // reset wall-time anchors for resumed session
+  travelAccumMs = 0;
   travelClockMs = 0;
+  travelStartRealMs = performance.now();
+
   startTravelTicker();
   setStatus(`Resuming → Warp ${r.warp} to ${r.class}:${r.target} · Scale ${r.timeScale}×`);
 }
@@ -873,7 +889,12 @@ engageBtn.onclick = ()=>{
   setAllGreen();
 
   const record = startFlightRecord();
+
+  // reset wall-time clock accumulators for a fresh run
+  travelAccumMs = 0;
   travelClockMs = 0;
+  travelStartRealMs = performance.now();
+
   startTravelTicker();
   updateDistanceBadges();
 
@@ -904,10 +925,29 @@ resetBtn.onclick = ()=>{
   updateDistanceBadges();
   setStatus('Reset complete.');
   localStorage.removeItem(UI_KEY);
+
+  // clear clock accumulators
+  travelAccumMs = 0;
+  travelClockMs = 0;
 };
 
 resetMetricsBtn.onclick = ()=>{ unlockAudioOnce(); zeroMetrics(); setStatus('Metrics reset to zero.'); };
-timeScaleSel.addEventListener('change', ()=>{ const r = loadFlightState(); if(r && r.active){ r.timeScale = Number(timeScaleSel.value||1); saveFlightState(r); setStatus(`Time Scale set to ${r.timeScale}×`); } saveUI(); });
+
+// Smooth time-scale changes (no clock jump)
+timeScaleSel.addEventListener('change', ()=>{
+  // lock in the current displayed time as new baseline, then restart the wall timer anchor
+  travelAccumMs = travelClockMs;
+  travelStartRealMs = performance.now();
+
+  const r = loadFlightState();
+  if(r && r.active){
+    r.timeScale = Number(timeScaleSel.value||1);
+    saveFlightState(r);
+    setStatus(`Time Scale set to ${r.timeScale}×`);
+  }
+  saveUI();
+});
+
 testAlarmBtn.onclick = ()=>{
   unlockAudioOnce();
   lightPower.classList.remove('ok','warn','bad'); lightPower.classList.add('bad');
