@@ -960,5 +960,257 @@ function evaluateHazards(){
   }
 }
 </script>
+  <!-- ===== Warp Grid (paste near the bottom of index.html, after your main header) ===== -->
+<style>
+  .wdp-wrap{max-width:1200px;margin:16px auto;padding:12px}
+  .wdp-sections{display:grid;gap:16px}
+  @media (min-width:720px){.wdp-sections{grid-template-columns:repeat(2,1fr)}}
+  @media (min-width:1024px){.wdp-sections{grid-template-columns:repeat(4,1fr)}}
+  .wdp-card{border:1.5px solid #e5e7eb;border-radius:16px;padding:12px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+  .wdp-title{display:flex;align-items:center;gap:8px;font-weight:700;font-size:14px;text-transform:uppercase;letter-spacing:.06em;color:#374151;margin:2px 0 10px}
+  .wdp-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  @media (min-width:900px){.wdp-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+  @media (min-width:1200px){.wdp-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+  .wdp-chip{display:flex;align-items:center;gap:8px;border:1px solid #e5e7eb;border-radius:9999px;padding:8px 10px;min-height:38px}
+  .wdp-chip.calc-yes{border-color:#22c55e33}
+  .wdp-dot{width:10px;height:10px;border-radius:50%;box-shadow:0 0 0 1px #d1d5db inset}
+  .wdp-dot.white{background:#fff}
+  .wdp-dot.green{background:#22c55e}
+  .wdp-abbr{font-weight:700;font-size:13px}
+  .wdp-type{font-size:11px;color:#6b7280}
+  .wdp-val{margin-left:auto;font-variant-numeric:tabular-nums;white-space:nowrap;font-size:13px}
+  .wdp-empty{border:1.5px dashed #e5e7eb;border-radius:12px;padding:16px;text-align:center;color:#6b7280;font-size:13px}
+</style>
+
+<div id="wdp-panel" class="wdp-wrap" aria-label="Warp Drive Demonstrator · CST-Synced Equilibrium">
+  <div id="wdp-sections" class="wdp-sections">
+    <!-- Sections are injected here in order: Navigation, Crew, Engine, Ship -->
+  </div>
+</div>
+
+<script type="module" data-src="navengreadings.csv">
+/**
+ * Warp Grid renderer (no dependencies)
+ * Expects CSV columns: Label Name, Abbreviation, Display Type, Circle, Location
+ * Notes:
+ *  - Display Type values normalized to lowercase (e.g., "Degrees" -> "degrees")
+ *  - Circle interpreted as boolean (yes/true/1 = true)
+ *  - Sections rendered in this order: Navigation, Crew, Engine, Ship
+ *  - Live values animate for: numbers, degrees, time, watts
+ *  - For calculation rows, a dot shows green if Circle=true else white
+ */
+
+/* ---------- tiny CSV parser with quote support ---------- */
+function parseCSV(text){
+  const rows=[]; let cur=[], val="", inQ=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i], n=text[i+1];
+    if(inQ){
+      if(c==='\"' && n==='\"'){ val+='\"'; i++; }
+      else if(c==='\"'){ inQ=false; }
+      else { val+=c; }
+    }else{
+      if(c==='\"'){ inQ=true; }
+      else if(c===','){ cur.push(val); val=""; }
+      else if(c==='\n'){ cur.push(val); rows.push(cur); cur=[]; val=""; }
+      else if(c==='\r'){ /* ignore */ }
+      else { val+=c; }
+    }
+  }
+  if(val.length || cur.length) { cur.push(val); rows.push(cur); }
+  const headers = rows.shift().map(h=>h.trim());
+  return rows.filter(r=>r.length && r.some(x=>String(x).trim()!=="")).map(r=>{
+    const obj={};
+    headers.forEach((h,idx)=>obj[h]=r[idx]??"");
+    return obj;
+  });
+}
+
+/* ---------- utilities ---------- */
+const ORDER = ["Navigation","Crew","Engine","Ship"];
+const normalizeType = s => String(s||"").trim().toLowerCase();
+const truthy = v => ["yes","true","1","y"].includes(String(v||"").trim().toLowerCase());
+const seedOf = s => Array.from(String(s)).reduce((a,c)=>a+c.charCodeAt(0),0);
+
+/* value formatters (live for numbers, degrees, time, watts) */
+function liveValue(row, t){
+  const typ = normalizeType(row["Display Type"]);
+  const seed = seedOf(row["Label Name"]||row["Abbreviation"]);
+  const base = (seed % 1000) / 10;             // 0..100
+  const wiggle = (Math.sin((seed + t)/7)+1)*0.5; // 0..1
+  const v = base * (0.9 + 0.2*wiggle);
+
+  const fmtInt = n => Intl.NumberFormat().format(Math.round(n));
+  const two = n => String(n).padStart(2,"0");
+
+  switch(typ){
+    case "degrees": {
+      const deg = Math.floor((v*3.6 + t) % 360);
+      return { value: `${deg}°`, aux: deg };
+    }
+    case "time": {
+      const secs = Math.floor((base*30 + t) % 86400);
+      const hh = two(Math.floor(secs/3600)), mm = two(Math.floor((secs%3600)/60)), ss = two(secs%60);
+      return { value: `${hh}:${mm}:${ss}` };
+    }
+    case "numbers": {
+      const num = Math.round(v*100 + (t%5));
+      return { value: fmtInt(num) };
+    }
+    case "watts": {
+      // Correlate watts to "heat": tie it loosely to a degrees-like curve
+      const degLike = Math.floor((v*3.6 + t) % 360); // 0..359
+      const watts = Math.round(50 + degLike * 0.8);  // ~50..338
+      return { value: `${watts} W`, aux: degLike };
+    }
+    /* non-live (stable preview) */
+    case "miles": return { value: `${(v*1.3).toFixed(1)} mi` };
+    case "frequency": return { value: `${(v*7).toFixed(2)} Hz` };
+    case "pressure": return { value: `${(v*2.3).toFixed(2)} psi` };
+    case "speed": return { value: `${(v*3.1).toFixed(2)} kn` };
+    case "date": case "date ": return { value: new Date(Date.now()+(seed%5)*86400000).toLocaleDateString() };
+    case "alarm": return { value: ((seed + t)%17 < 1) ? "ALARM" : "OK" };
+    case "calculation": return { value: (v*42).toFixed(2) };
+    case "none":
+    default: return { value: "—" };
+  }
+}
+
+/* ---------- render ---------- */
+const host = document.getElementById("wdp-sections");
+const csvSrc = document.currentScript.getAttribute("data-src") || "navengreadings.csv";
+
+function renderSections(groups){
+  host.innerHTML = "";
+  const orderKeys = ORDER.filter(k=>groups[k]?.length);
+  if(!orderKeys.length){
+    const div = document.createElement("div");
+    div.className="wdp-empty";
+    div.textContent = "No items found. Check your CSV path or headers.";
+    host.appendChild(div);
+    return;
+  }
+  for(const loc of orderKeys){
+    const card = document.createElement("section");
+    card.className = "wdp-card";
+    card.dataset.loc = loc;
+
+    const h = document.createElement("div");
+    h.className = "wdp-title";
+    h.textContent = loc;
+    card.appendChild(h);
+
+    const grid = document.createElement("div");
+    grid.className = "wdp-grid";
+
+    groups[loc].forEach(row=>{
+      const typ = normalizeType(row["Display Type"]);
+      const isCalc = typ === "calculation";
+      const calcOn = truthy(row["Circle"] || row["Circle "] || "");
+
+      const chip = document.createElement("div");
+      chip.className = "wdp-chip" + (isCalc && calcOn ? " calc-yes" : "");
+
+      if(isCalc){
+        const dot = document.createElement("span");
+        dot.className = "wdp-dot " + (calcOn ? "green" : "white");
+        chip.appendChild(dot);
+      }
+
+      const ab = document.createElement("span");
+      ab.className = "wdp-abbr";
+      ab.textContent = row["Abbreviation"];
+      chip.appendChild(ab);
+
+      const ty = document.createElement("span");
+      ty.className = "wdp-type";
+      ty.textContent = normalizeType(row["Display Type"]);
+      chip.appendChild(ty);
+
+      const val = document.createElement("span");
+      val.className = "wdp-val";
+      chip.appendChild(val);
+
+      // store references for live updates
+      chip._wdp = { row, valEl: val };
+      grid.appendChild(chip);
+    });
+
+    card.appendChild(grid);
+    host.appendChild(card);
+  }
+}
+
+function groupByLocation(rows){
+  const groups = {};
+  rows.forEach(r=>{
+    const loc = String(r["Location"]||"").trim() || "Crew";
+    groups[loc] = groups[loc] || [];
+    groups[loc].push(r);
+  });
+  // sort each group by Abbreviation for consistency
+  Object.keys(groups).forEach(k=>{
+    groups[k].sort((a,b)=>String(a["Abbreviation"]).localeCompare(String(b["Abbreviation"])));
+  });
+  return groups;
+}
+
+function normalizeRows(rows){
+  return rows.map(r=>{
+    // normalize header variants and trim
+    const obj = {};
+    for(const k in r){ obj[k.trim()] = typeof r[k]==="string" ? r[k].trim() : r[k]; }
+    // fix display type casing/spacing
+    if(obj["Display Type"]) obj["Display Type"] = normalizeType(obj["Display Type"]);
+    if(obj["Display Type"] === "date ") obj["Display Type"] = "date";
+    return obj;
+  });
+}
+
+/* live loop: update only the 4 requested types */
+function startLive(){
+  const liveSet = new Set(["numbers","degrees","time","watts"]);
+  const tickStart = performance.now();
+  function frame(){
+    const t = Math.floor((performance.now() - tickStart)/1000);
+    document.querySelectorAll(".wdp-chip").forEach(ch=>{
+      const { row, valEl } = ch._wdp || {};
+      if(!row || !valEl) return;
+      const typ = normalizeType(row["Display Type"]);
+      const { value } = liveValue(row, t);
+      if(liveSet.has(typ)){
+        valEl.textContent = value;
+      } else if(!valEl.textContent){
+        // initialize once for non-live
+        valEl.textContent = value;
+      }
+    });
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
+/* load & go */
+(async function(){
+  try{
+    const res = await fetch(csvSrc, { cache: "no-store" });
+    if(!res.ok) throw new Error(`Failed to load CSV: ${res.status}`);
+    const text = await res.text();
+    const rows = normalizeRows(parseCSV(text));
+
+    // keep only known sections, but allow all and then we'll order them
+    const groups = groupByLocation(rows);
+    renderSections(groups);
+    startLive();
+  }catch(err){
+    console.error(err);
+    const div = document.createElement("div");
+    div.className = "wdp-empty";
+    div.textContent = "Could not load CSV. Make sure the file is accessible and named correctly.";
+    host.appendChild(div);
+  }
+})();
+</script>
+
 </body>
 </html>
