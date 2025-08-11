@@ -451,8 +451,6 @@ function updateDistanceBadges(){
   const ly = conv.ly;
   const mi = conv.mi;
   distLyBadge.textContent = `Distance: ${ly.toLocaleString(undefined,{maximumFractionDigits:3})} ly`;
-  const miUnit = (mi >= 9.4607e+12) ? `${(mi/9.4607e+12).toLocaleString(undefined,{maximumFractionDigits:3})} ly-mi` : `${mi.toLocaleString(undefined,{maximumFractionDigits:0})} miles`;
-  // show plain miles; keep it readable (no ly-mi alias actually used)
   distMiBadge.textContent = `Distance: ${mi.toLocaleString(undefined,{maximumFractionDigits:0})} miles`;
 }
 function computeRealEtaSeconds(targetName){
@@ -642,6 +640,7 @@ function startTravelTicker(){
     const w = Number(warpSel.value);
     const base = baseMetricsFromWarp(w);
 
+    // live metrics wobble (visual only)
     const t = now/1000;
     const wobble = (amp)=> amp * Math.sin(t*2.1) * Math.cos(t*0.7);
     const vNow = Math.max(0, base.vEff + wobble(0.05*base.vEff + 0.03));
@@ -662,10 +661,18 @@ function startTravelTicker(){
     solTxt.textContent = `${vNow.toFixed(2)} c`;
     pcTxt.textContent  = `${(vNow/3.26156).toFixed(3)} pc/yr`;
 
-    const rate = 1/(1+vNow);
+    // === ARRIVAL CONTROL: simple deterministic clock against ETA ===
+    const flight = loadFlightState();
     const scale = Number(timeScaleSel.value || 1);
-    travelClockMs += realDt * rate * scale;
+    travelClockMs += realDt * scale; // Ship clock now matches Time Scale exactly
     travelClockEl.textContent = formatClock(travelClockMs);
+
+    if (flight && flight.active) {
+      const etaMs = (flight.etaSec||0) * 1000;
+      if (travelClockMs >= etaMs) {
+        arriveSequence();
+      }
+    }
   }, 100);
 }
 function stopTravelTicker(){ if(travelTicker){ clearInterval(travelTicker); travelTicker = null; } }
@@ -892,7 +899,23 @@ testAlarmBtn.onclick = ()=>{
   setTimeout(()=>{ alarmAudio.pause(); alarmAudio.currentTime = 0; lightPower.classList.remove('ok','warn','bad'); lightPower.classList.add('ok'); }, 3000);
 };
 
-/* ===================== HAZARD MONITOR (bold red blinking + yaw) ===================== */
+/* ======== ARRIVAL SEQUENCE (stops starfield + clocks; plays chime) ======== */
+function arriveSequence(){
+  const r = loadFlightState();
+  if(!r || !r.active) return;
+  r.active = false;
+  saveFlightState(r);
+
+  stopTravelTicker();
+  if(window.starfield) window.starfield.stop();
+  if(arriveAudio){ arriveAudio.currentTime = 0; arriveAudio.play().catch(()=>{}); }
+  setAllGreen();
+  setDot(lightNav,'ok');
+  setStatus(`ARRIVED at ${r.class}:${r.target}. Travel complete.`);
+  arrTxt.textContent = `${r.target} (arrived)`;
+}
+
+/* ===================== HAZARD MONITOR (standby → approaching → inside) ===================== */
 function hazardTypeLabel(raw){
   const s = String(raw||'').toLowerCase();
   if(s.includes('super')) return 'SUPERNOVA';
@@ -903,7 +926,7 @@ function hazardTypeLabel(raw){
 }
 const SAFE_DEFAULT = { 'SUPERNOVA':50, 'BLACK HOLE':0.1, 'GAMMA RAY BURST':2000, 'RADIATION BURST':100 };
 function normalizeHazard(h){
-  // be tolerant to key names in the JSON
+  // tolerate varied JSON keys
   const name = h.hazard_name ?? h.name ?? h.target_name ?? 'Unnamed';
   const type = hazardTypeLabel(h.hazard_type ?? h.type ?? h.kind);
   const dly  = Number(h.hazard_distance_ly ?? h.distance_ly ?? h.dist_ly ?? h.distance) || NaN;
@@ -924,30 +947,46 @@ function evaluateHazards(){
   const heading = (typeof window.currentHeadingDeg==='number') ? window.currentHeadingDeg : 0;
 
   let hit = null; // best (closest-angle) hazard of interest
-  let mode = 'none'; // 'inside' | 'approach'
+  let mode = 'none'; // 'inside' | 'approach' | 'standby'
   for(const r of rows){
     if(r.ra==null || r.dec==null) continue;
     const bearing = bearingFromRaDec(r.ra, r.dec);
     const sep = angularSep(heading, bearing);
-    const withinCone = sep <= 18;              // generous cone
-    const isInside = r.d <= r.safe;            // crossing threshold
+    const withinCone = sep <= 18;              // in front of us
+    const isInside = r.d <= r.safe;            // inside unsafe region
     const near = r.d <= r.safe * 3.0;          // approaching (3× safe)
-    if(withinCone && (isInside || near)){
-      if(!hit || sep < hit.sep){ hit = {r, bearing, sep}; mode = isInside ? 'inside' : 'approach'; }
+    const watch = r.d <= r.safe * 8.0;         // standby notice (8× safe)
+    if(withinCone && (isInside || near || watch)){
+      const thisMode = isInside ? 'inside' : (near ? 'approach' : 'standby');
+      if(!hit || sep < hit.sep){ hit = {r, bearing, sep}; mode = thisMode; }
     }
   }
 
   if(hit){
-    // Always RED + BLINK as requested
-    hazardOverlay.classList.add('bad','blink');
-    const label = (mode==='inside') ? 'INSIDE SAFE LIMIT' : 'APPROACHING';
-    hazardOverlay.textContent = `🚨 ${label}: ${hit.r.type}: ${hit.r.name} — ENGAGING YAW COURSE CORRECTION`;
-    setDot(lightNav, 'bad');
-    if(audioUnlocked) alarmAudio.play().catch(()=>{});
-
-    // yaw away from hazard (stronger if 'inside')
-    const away = (hit.bearing + (mode==='inside'?150:60)) % 360;
-    if(window.starfield){ window.starfield.setOverride(away, mode==='inside' ? 14000 : 8000); }
+    // STATE TEXT
+    if(mode==='standby'){
+      hazardOverlay.classList.remove('bad','blink');
+      hazardOverlay.textContent = `STANDBY: ${hit.r.type} ahead`;
+      setDot(lightNav, 'warn');
+    } else if(mode==='approach'){
+      hazardOverlay.classList.add('bad','blink');
+      hazardOverlay.textContent = `⚠️ APPROACHING: ${hit.r.type}: ${hit.r.name} — PREPARE AVOIDANCE`;
+      setDot(lightNav, 'bad');
+      if(window.starfield){ // gentle yaw
+        const away = (hit.bearing + 60) % 360;
+        window.starfield.setOverride(away, 8000);
+      }
+      if(audioUnlocked) alarmAudio.play().catch(()=>{});
+    } else { // inside
+      hazardOverlay.classList.add('bad','blink');
+      hazardOverlay.textContent = `🚨 INSIDE SAFE LIMIT: ${hit.r.type}: ${hit.r.name} — ENGAGING YAW`;
+      setDot(lightNav, 'bad');
+      if(window.starfield){
+        const away = (hit.bearing + 150) % 360;
+        window.starfield.setOverride(away, 14000);
+      }
+      if(audioUnlocked) alarmAudio.play().catch(()=>{});
+    }
   } else {
     hazardOverlay.classList.remove('bad','blink');
     hazardOverlay.textContent = 'SAFE';
