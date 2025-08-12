@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Live CST FTL Target Board – Pro</title>
+  <title>Live CST FTL Target Board – Pro (Stable)</title>
   <style>
     :root{
       --bg:#070b18; --card:#0f1630; --ink:#eaf0ff; --muted:#9fb0e0; --good:#3dd07f; --warn:#ffd166; --bad:#ef476f;
@@ -21,7 +21,7 @@
     .stat{display:flex;flex-direction:column;padding:10px 12px;background:rgba(255,255,255,.04);border-radius:12px}
     .k{font-size:12px;color:var(--muted)}
     .v{font:600 16px/1.2 system-ui}
-    .row{display:grid;grid-template-columns:220px 86px 1.05fr 1fr 1fr 130px 135px 120px 120px 130px 130px 120px 120px;gap:10px;align-items:center;padding:10px;border-bottom:1px dashed rgba(255,255,255,.07)}
+    .row{display:grid;grid-template-columns:220px 86px 1.05fr 1fr 1fr 130px 135px 120px 120px 130px 120px 120px;gap:10px;align-items:center;padding:10px;border-bottom:1px dashed rgba(255,255,255,.07)}
     .row.header{font-weight:600;color:#cbd5ff;border-bottom:1px solid rgba(255,255,255,.12)}
     .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace}
     .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:rgba(255,255,255,.08);font-size:12px}
@@ -29,13 +29,13 @@
     footer{color:var(--muted);padding:20px;text-align:center}
     a{color:#9bb7ff}
     .tiny{font-size:11px;color:var(--muted)}
+    .banner{margin:12px 0;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12)}
   </style>
 </head>
 <body>
   <header>
-    <h1>Live CST FTL Target Board — Pro</h1>
-    <div class="note">Loads your <code>targets.json</code>, adds Gaia star context, per‑second CST clocks, first‑order cosmological terms, uncertainty tracking (alpha‑beta filter), and mid‑course recompute.
-      Horizons is used for live solar‑system/spacecraft vectors; Gaia TAP for proper motions; optional redshift/Mpc in <code>targets.json</code> for galaxies. Configure a CORS proxy if needed.</div>
+    <h1>Live CST FTL Target Board — Pro (Stable)</h1>
+    <div class="note">Reads local <code>targets.json</code>, renders rows even without live IDs, and shows clear errors inline. Add <code>horizonsId</code>/<code>naifId</code>/<code>command</code> for live vectors; add <code>ra/dec</code> for Gaia context.</div>
   </header>
 
   <div class="wrap grid">
@@ -50,13 +50,9 @@
     </section>
 
     <section class="card" style="grid-column: span 6">
-      <h2>CST Calibration</h2>
-      <div class="grid" style="grid-template-columns: repeat(3,1fr); gap:12px">
-        <div class="stat"><div class="k">CST → UTC offset</div><div class="v" id="cstOffset">—</div><div class="tiny">Auto from browser</div></div>
-        <div class="stat"><div class="k">UTC Epoch</div><div class="v mono" id="utcEpoch">—</div><div class="tiny">ISO 8601</div></div>
-        <div class="stat"><div class="k">H₀ (demo)</div><div class="v" id="h0">70 km/s/Mpc</div><div class="tiny">Used for expansion correction</div></div>
-      </div>
-      <div class="tiny" style="margin-top:8px">Note: Cosmological expansion is negligible inside the Solar System; included for interstellar/extragalactic targets.</div>
+      <h2>Status</h2>
+      <div class="banner mono" id="statusBanner">Loading targets.json…</div>
+      <div class="tiny">If nothing appears, verify: this HTML file and <code>targets.json</code> are in the <b>same folder</b>, and that <code>targets.json</code> is valid JSON.</div>
     </section>
 
     <!-- Target Table -->
@@ -72,274 +68,217 @@
         <div>Radial Vel.</div>
         <div>Distance</div>
         <div>Rec. Vel (H₀·D)</div>
-        <div>Uncertainty</div>
-        <div>Last Recompute</div>
+        <div>Last Update</div>
         <div>Status</div>
         <div>Actions</div>
       </div>
       <div id="targets"></div>
-      <div class="tiny" style="margin-top:8px">Columns auto-populate: live vectors when a target has <code>horizonsId</code>/<code>naifId</code>/<code>command</code>; stellar kinematics from Gaia if <code>ra</code>/<code>dec</code> exist; extragalactic distances from <code>distanceMpc</code> or <code>redshift</code> in your JSON.</div>
+      <div class="tiny" style="margin-top:8px">
+        Rows render even without live IDs. Add <code>"horizonsId": "399"</code> (Earth), <code>"command": "\"Voyager 1\""</code>, etc. to enable live vectors.
+      </div>
     </section>
   </div>
 
   <footer>
-    Built for <span class="mono">targets.json</span>. Live vectors via JPL Horizons; stellar data via Gaia TAP. Optional: run a tiny proxy for CORS.
+    Built for <span class="mono">targets.json</span>. You may need a CORS proxy for NASA Horizons from the browser.
   </footer>
 
 <script>
-/********************
- * CONFIG
- ********************/
-const GITHUB_TARGETS_JSON = "targets.json";
-const HORIZONS_ENDPOINT = "https://ssd-api.jpl.nasa.gov/horizons.api"; // may need proxy in browser
-const GAIA_TAP = "https://mast.stsci.edu/vo-tap/api/v0.1/gaiadr3/tap/sync"; // supports CORS
-// Optional CORS proxy (prefix). Example: "https://r.jina.ai/http://" or your own server.
-const CORS_PROXY = "";
+/* ========= CONFIG ========= */
+const TARGETS_URL = "targets.json";          // same folder as this HTML
+const HORIZONS_ENDPOINT = "https://ssd-api.jpl.nasa.gov/horizons.api"; // may need proxy
+const GAIA_TAP = "https://mast.stsci.edu/vo-tap/api/v0.1/gaiadr3/tap/sync"; // CORS ok
+const CORS_PROXY = ""; // e.g. "https://your-proxy.example.com/?url="
 
-/********************
- * TIME & UNITS
- ********************/
-const AU_KM = 149_597_870.700; // IAU 2012, km
-const KM_PER_MI = 1.609344;
-const KM_PER_AU = AU_KM;
-const MI_PER_AU = KM_PER_AU / KM_PER_MI;
-const KM_PER_MPC = 3.085677581e19;
-const C_KM_S = 299_792.458;
-let H0_KM_S_PER_MPC = 70; // editable in UI later if needed
+/* ========= TIME & UNITS ========= */
+const AU_KM = 149_597_870.700, KM_PER_MI = 1.609344, KM_PER_AU = AU_KM, MI_PER_AU = KM_PER_AU/KM_PER_MI;
+const KM_PER_MPC = 3.085677581e19, C_KM_S = 299_792.458, H0 = 70;
 
-function fmt(n,d=6){ return Number(n).toFixed(d); }
-function fmtAU(x){ return fmt(x,6) + " AU"; }
-function fmtKm(x){ return Intl.NumberFormat().format(Math.round(x)) + " km"; }
-function fmtMi(x){ return Intl.NumberFormat().format(Math.round(x)) + " miles"; }
-function fmtISO(d){ return new Date(d).toISOString().replace(".000Z","Z"); }
-function sign(x){ return (x>=0?"+":"") + x.toFixed(1); }
+function chicagoNow(){const now=new Date();const o={ timeZone:'America/Chicago', hour12:true, year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit'};return new Intl.DateTimeFormat(undefined,o).format(now)}
+function tzLabel(){ try{ return Intl.DateTimeFormat().resolvedOptions().timeZone } catch { return 'Local TZ' } }
+function interstellarYear(){ const s=Date.now()/1000; const y=57_800_000+(s/31557600)*100; return `Year ~${y.toFixed(2)}` }
+function stardate(){ const ms=Date.now(); const base=Date.UTC(2323,0,1,0,0,0); const sd=1000*((ms-base)/31557600000); return `Stardate ${(sd/10).toFixed(1)}` }
+function fmt(n,d=6){ return Number(n).toFixed(d) }
+function fmtAU(x){ return fmt(x,6) + " AU" }
+function fmtMi(x){ return Intl.NumberFormat().format(Math.round(x)) + " miles" }
+function fmtISO(d){ return new Date(d).toISOString().replace(".000Z","Z") }
 
-function chicagoNow(){
-  const now = new Date();
-  const opts = { timeZone: 'America/Chicago', hour12: true, year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' };
-  return new Intl.DateTimeFormat(undefined, opts).format(now);
-}
-function tzLabel(){ try{ return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return 'Local TZ'; } }
-function interstellarYear(){ const s = Date.now()/1000; const year = 57_800_000 + (s/31557600)*100; return `Year ~${year.toFixed(2)}`; }
-function stardate(){ const ms = Date.now(); const base = Date.UTC(2323,0,1,0,0,0); const sd = 1000*((ms-base)/31557600000); return `Stardate ${(sd/10).toFixed(1)}`; }
-function cstToUtcOffset(){ const now=new Date();const off=-now.getTimezoneOffset()/60;const s=off>=0?'+':'';return `${s}${off.toFixed(0)} h`; }
-
-/********************
- * HORIZONS FETCH
- ********************/
-async function horizonsVector(command, isoUtc){
-  const params = new URLSearchParams({
-    format: 'json', COMMAND: command, EPHEM_TYPE: 'VECTORS', CENTER: '500@0', TLIST: `'${isoUtc}'`, REF_PLANE: 'ECLIPTIC'
-  });
-  const url = HORIZONS_ENDPOINT + '?' + params.toString();
-  const finalUrl = CORS_PROXY ? (CORS_PROXY + url) : url;
-  const res = await fetch(finalUrl);
-  if(!res.ok) throw new Error(`Horizons HTTP ${res.status}`);
-  const j = await res.json();
-  const vecTxt = j?.result || j?.vectors;
-  if(!vecTxt) throw new Error('No vectors in response');
-  const m = vecTxt.match(/X\s*=\s*([\-0-9\.E+]+).*?Y\s*=\s*([\-0-9\.E+]+).*?Z\s*=\s*([\-0-9\.E+]+).*?VX\s*=\s*([\-0-9\.E+]+).*?VY\s*=\s*([\-0-9\.E+]+).*?VZ\s*=\s*([\-0-9\.E+]+)/s);
-  if(!m) throw new Error('Parse error');
-  const km = [Number(m[1]),Number(m[2]),Number(m[3])];
-  const vkm = [Number(m[4]),Number(m[5]),Number(m[6])];
-  const au = km.map(v=> v / KM_PER_AU);
-  return { au, km, vkm };
-}
-
-/********************
- * GAIA FETCH (proper motions)
- ********************/
-async function gaiaCone(raDeg, decDeg, radiusDeg=0.2, limit=200){
-  // Request a small cone; return a few bright entries near the target for context
-  const adql = `SELECT TOP ${limit} source_id,ra,dec,parallax,pmra,pmdec,radial_velocity,parallax_error,pmra_error,pmdec_error,phot_g_mean_mag\nFROM gaiadr3.gaia_source\nWHERE 1=CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', ${raDeg}, ${decDeg}, ${radiusDeg}))\nORDER BY phot_g_mean_mag ASC`;
-  const form = new URLSearchParams({ QUERY: adql });
-  const finalUrl = CORS_PROXY ? (CORS_PROXY + GAIA_TAP) : GAIA_TAP;
-  const res = await fetch(finalUrl, { method:'POST', body: form });
-  if(!res.ok){ throw new Error(`GAIA HTTP ${res.status}`); }
-  const text = await res.text();
-  // Try CSV fallback if TAP returns CSV; parse naively
-  const lines = text.trim().split(/\n+/);
-  // If the response is VOTable XML, just return empty (demo safety)
-  if(lines[0].includes('<?xml')) return [];
-  const header = lines[0].split(/,|\t/);
-  const rows = lines.slice(1).map(l=>{ const a=l.split(/,|\t/); const o={}; header.forEach((h,i)=>o[h.trim()]=a[i]?a[i].trim():null); return o; });
-  return rows;
-}
-
-/********************
- * FILTERS / HELPERS
- ********************/
-function norm(v){ return Math.hypot(...v); }
-function sub(a,b){ return a.map((v,i)=> v-b[i]); }
-function add(a,b){ return a.map((v,i)=> v+b[i]); }
-function scale(a,s){ return a.map(v=> v*s); }
-
-// Alpha-beta filter (very light EKF-ish) for position/velocity smoothing
-class AlphaBeta{
-  constructor(alpha=0.6,beta=0.05){ this.alpha=alpha; this.beta=beta; this.x=[0,0,0]; this.v=[0,0,0]; this.t=null; this.ready=false; }
-  seed(x,v,t){ this.x=[...x]; this.v=[...v]; this.t=t; this.ready=true; }
-  update(measX, dt){ if(!this.ready){ this.seed(measX,[0,0,0],Date.now()); return {x:measX,v:[0,0,0]}; }
-    // predict
-    let xp = add(this.x, scale(this.v, dt));
-    // residual
-    let r = sub(measX, xp);
-    // correct
-    this.x = add(xp, scale(r, this.alpha));
-    this.v = add(this.v, scale(r, this.beta/dt));
-    return {x:[...this.x], v:[...this.v]};
-  }
-}
-
-/********************
- * RENDER TARGETS TABLE
- ********************/
+/* ========= HELPERS ========= */
 const rowsEl = document.getElementById('targets');
-let targetRows = new Map();
-let cacheVectors = new Map(); // name -> {au[], vkm[], when}
-let filters = new Map(); // name -> AlphaBeta
+const banner = document.getElementById('statusBanner');
+function setBanner(msg, cls=""){ banner.textContent = msg; banner.className = "banner mono " + cls; }
+function norm(v){ return Math.hypot(...v) }
+function sub(a,b){ return a.map((v,i)=> v-b[i]) }
 
+/* ========= ROW RENDER ========= */
 function makeRow(t){
   const el = document.createElement('div');
   el.className = 'row';
-  el.id = `row-${t.id || t.name.replace(/\W+/g,'_')}`;
+  const id = (t.id || t.name || 'target').toString().replace(/\W+/g,'_');
+  el.id = `row-${id}`;
   el.innerHTML = `
-    <div><div><strong>${t.name}</strong></div><div class="tiny">${t.id||''}</div></div>
+    <div><div><strong>${t.name || '(unnamed target)'}</strong></div><div class="tiny">${t.id||''}</div></div>
     <div><span class="pill">${t.type||'—'}</span></div>
-    <div class="mono" id="vec-${el.id}">—</div>
-    <div id="sun-${el.id}">—</div>
-    <div id="earth-${el.id}">—</div>
-    <div id="pm-${el.id}">—</div>
-    <div id="rv-${el.id}">—</div>
-    <div id="dist-${el.id}">—</div>
-    <div id="rec-${el.id}">—</div>
-    <div id="unc-${el.id}">—</div>
-    <div class="tiny" id="upd-${el.id}">—</div>
-    <div class="tiny" id="status-${el.id}">pending…</div>
-    <div><button id="btn-${el.id}">Recompute</button></div>
+    <div class="mono" id="vec-${id}">—</div>
+    <div id="sun-${id}">—</div>
+    <div id="earth-${id}">—</div>
+    <div id="pm-${id}">—</div>
+    <div id="rv-${id}">—</div>
+    <div id="dist-${id}">—</div>
+    <div id="rec-${id}">—</div>
+    <div class="tiny" id="upd-${id}">—</div>
+    <div class="tiny" id="status-${id}">pending…</div>
+    <div><button id="btn-${id}">Recompute</button></div>
   `;
   rowsEl.appendChild(el);
-  targetRows.set(t, el);
-  el.querySelector(`#btn-${el.id}`).addEventListener('click',()=> updateRow(t,true));
+  document.getElementById(`btn-${id}`).addEventListener('click',()=> updateRow(t, id, true));
+  // do an initial update (non-force)
+  updateRow(t, id, false);
 }
 
-async function updateRow(t,force=false){
-  const el = targetRows.get(t); if(!el) return;
-  const vecEl = el.querySelector(`#vec-${el.id}`);
-  const sunEl = el.querySelector(`#sun-${el.id}`);
-  const earthEl = el.querySelector(`#earth-${el.id}`);
-  const pmEl = el.querySelector(`#pm-${el.id}`);
-  const rvEl = el.querySelector(`#rv-${el.id}`);
-  const distEl = el.querySelector(`#dist-${el.id}`);
-  const recEl = el.querySelector(`#rec-${el.id}`);
-  const uncEl = el.querySelector(`#unc-${el.id}`);
-  const updEl = el.querySelector(`#upd-${el.id}`);
-  const stEl = el.querySelector(`#status-${el.id}`);
+/* ========= DATA PATHS ========= */
+async function horizonsVector(command, isoUtc){
+  const params = new URLSearchParams({
+    format:'json', COMMAND: command, EPHEM_TYPE:'VECTORS', CENTER:'500@0', TLIST:`'${isoUtc}'`, REF_PLANE:'ECLIPTIC'
+  });
+  const url = HORIZONS_ENDPOINT + '?' + params.toString();
+  const finalUrl = CORS_PROXY ? CORS_PROXY + encodeURIComponent(url) : url;
+  const r = await fetch(finalUrl);
+  if(!r.ok) throw new Error(`Horizons ${r.status}`);
+  const j = await r.json();
+  const txt = j?.result || j?.vectors;
+  if(!txt) throw new Error('No vectors in response');
+  const m = txt.match(/X\s*=\s*([\-0-9\.E+]+).*?Y\s*=\s*([\-0-9\.E+]+).*?Z\s*=\s*([\-0-9\.E+]+).*?VX\s*=\s*([\-0-9\.E+]+).*?VY\s*=\s*([\-0-9\.E+]+).*?VZ\s*=\s*([\-0-9\.E+]+)/s);
+  if(!m) throw new Error('Parse error');
+  const km=[+m[1],+m[2],+m[3]], vkm=[+m[4],+m[5],+m[6]];
+  const au = km.map(v=> v/AU_KM);
+  return {au, km, vkm};
+}
+
+async function gaiaCone(raDeg,decDeg,radiusDeg=0.2,limit=1){
+  const adql=`SELECT TOP ${limit} source_id,ra,dec,parallax,pmra,pmdec,radial_velocity,phot_g_mean_mag
+FROM gaiadr3.gaia_source
+WHERE 1=CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', ${raDeg}, ${decDeg}, ${radiusDeg}))
+ORDER BY phot_g_mean_mag ASC`;
+  const form = new URLSearchParams({ QUERY: adql });
+  const r = await fetch(GAIA_TAP, { method:'POST', body: form });
+  if(!r.ok) return [];
+  const text = await r.text();
+  const lines = text.trim().split(/\n+/);
+  if(lines[0]?.includes('<?xml')) return []; // safety
+  const header = lines[0].split(/,|\t/);
+  return lines.slice(1).map(l=>{
+    const a=l.split(/,|\t/); const o={};
+    header.forEach((h,i)=> o[h.trim()] = a[i]?a[i].trim():null);
+    return o;
+  });
+}
+
+/* ========= UPDATE LOGIC ========= */
+async function updateRow(t, id, force){
+  const vecEl = document.getElementById(`vec-${id}`);
+  const sunEl = document.getElementById(`sun-${id}`);
+  const earthEl = document.getElementById(`earth-${id}`);
+  const pmEl = document.getElementById(`pm-${id}`);
+  const rvEl = document.getElementById(`rv-${id}`);
+  const distEl = document.getElementById(`dist-${id}`);
+  const recEl = document.getElementById(`rec-${id}`);
+  const updEl = document.getElementById(`upd-${id}`);
+  const stEl = document.getElementById(`status-${id}`);
 
   try{
     const isoUtc = new Date().toISOString();
-    let cmd=null; if(t.horizonsId) cmd=String(t.horizonsId); else if(t.naifId) cmd=String(t.naifId); else if(t.command) cmd=t.command;
+    let cmd = t?.horizonsId ?? t?.naifId ?? t?.command ?? null;
 
-    // 1) Live vector via Horizons (if applicable)
+    // Live vectors via Horizons (if we have an ID/command)
     if(cmd){
-      const vec = await horizonsVector(cmd, isoUtc);
-      const when = Date.now();
-      cacheVectors.set(t.name, { ...vec, when });
-      // Filtered vector (alpha-beta)
-      if(!filters.has(t.name)) filters.set(t.name, new AlphaBeta());
-      const f = filters.get(t.name);
-      const dt = 1; // seconds (UI cadence); Horizons gives instantaneous state
-      const res = f.update(vec.au, dt);
-      vecEl.textContent = `[${fmt(res.x[0])}, ${fmt(res.x[1])}, ${fmt(res.x[2])}]`;
-      const rSunAu = norm(res.x);
+      const vec = await horizonsVector(String(cmd), isoUtc);
+      vecEl.textContent = `[${fmt(vec.au[0])}, ${fmt(vec.au[1])}, ${fmt(vec.au[2])}]`;
+      const rSunAu = norm(vec.au);
       sunEl.textContent = `${fmtAU(rSunAu)} (${fmtMi(rSunAu*MI_PER_AU)})`;
 
       // Earth distance
-      let earth = cacheVectors.get('Earth');
-      if(force || !earth || when-earth.when > 30_000){
-        const e = await horizonsVector('399', isoUtc);
-        earth = { ...e, when: Date.now() };
-        cacheVectors.set('Earth', earth);
-      }
-      const rEarthAu = norm(sub(res.x, earth.au));
+      const earth = await horizonsVector('399', isoUtc);
+      const rEarthAu = norm(sub(vec.au, earth.au));
       earthEl.textContent = `${fmtAU(rEarthAu)} (${fmtMi(rEarthAu*MI_PER_AU)})`;
-      updEl.textContent = fmtISO(isoUtc);
-      stEl.textContent = 'live via Horizons + filter'; stEl.classList.add('ok');
 
-      // Uncertainty: simple function of staleness & velocity magnitude (demo)
-      const vmag = vec.vkm ? norm(vec.vkm) : 0;
-      const age = 0.5; // assume half-second latency
-      const sigmaKm = vmag*age; // simplistic positional sigma
-      const sigmaAu = sigmaKm / AU_KM;
-      uncEl.textContent = `${sigmaAu.toExponential(2)} AU (~${Math.max(0,sigmaKm).toFixed(0)} km)`;
+      stEl.textContent = 'live via Horizons'; stEl.classList.add('ok');
     } else {
-      vecEl.textContent = t.ra && t.dec ? `RA ${t.ra}°, Dec ${t.dec}°` : '—';
-      sunEl.textContent = '—'; earthEl.textContent = '—'; uncEl.textContent='—';
-      updEl.textContent = fmtISO(isoUtc);
-      stEl.textContent = 'add horizonsId for live vector'; stEl.classList.add('warn');
+      // No live vector; show RA/Dec if present
+      if(typeof t?.ra === 'number' && typeof t?.dec === 'number'){
+        vecEl.textContent = `RA ${t.ra}°, Dec ${t.dec}°`;
+      } else {
+        vecEl.textContent = '—';
+      }
+      stEl.textContent = 'static (add horizonsId/naifId/command for live)'; stEl.classList.add('warn');
     }
 
-    // 2) Gaia context (if RA/Dec)
-    if(typeof t.ra === 'number' && typeof t.dec === 'number'){
-      const stars = await gaiaCone(t.ra, t.dec, 0.2, 1); // brightest one as context
+    // Gaia star context if we have RA/Dec
+    if(typeof t?.ra === 'number' && typeof t?.dec === 'number'){
+      const stars = await gaiaCone(t.ra, t.dec, 0.2, 1);
       if(stars.length){
         const s = stars[0];
-        const pmra = parseFloat(s.pmra||0); // mas/yr
-        const pmdec = parseFloat(s.pmdec||0);
+        const pmra = parseFloat(s.pmra||0), pmdec = parseFloat(s.pmdec||0);
         pmEl.textContent = `${pmra.toFixed(1)}, ${pmdec.toFixed(1)} mas/yr`;
-        const rv = parseFloat(s.radial_velocity||0);
+        const rv = parseFloat(s.radial_velocity||'');
         rvEl.textContent = isFinite(rv)? `${rv.toFixed(1)} km/s` : '—';
-        // Distance from parallax (mas -> kpc): d_pc = 1000/parallax(mas)
-        const px = parseFloat(s.parallax||0);
+        const px = parseFloat(s.parallax||'');
         if(px>0){
-          const d_pc = 1000/px; const d_mpc = d_pc/1e6;
-          distEl.textContent = `${d_pc.toFixed(0)} pc`;
-          // Recession velocity via H0·D (use extragalactic distance if present below)
-          const vrec = H0_KM_S_PER_MPC * d_mpc; recEl.textContent = `${vrec.toFixed(3)} km/s`;
-        } else { distEl.textContent = '—'; recEl.textContent='—'; }
-      } else { pmEl.textContent='—'; rvEl.textContent='—'; distEl.textContent='—'; recEl.textContent='—'; }
-    } else {
-      pmEl.textContent='—'; rvEl.textContent='—';
+          const d_pc = 1000/px; distEl.textContent = `${d_pc.toFixed(0)} pc`;
+          const vrec = H0 * (d_pc/1e6); recEl.textContent = `${vrec.toFixed(3)} km/s`;
+        } else { distEl.textContent = '—'; }
+      } else {
+        pmEl.textContent='—'; rvEl.textContent='—';
+      }
     }
 
-    // 3) Extragalactic override using JSON fields
-    // If target includes distanceMpc or redshift, prefer that to compute recession velocity
-    if(typeof t.distanceMpc === 'number' || typeof t.redshift === 'number'){
-      let d_mpc = t.distanceMpc;
-      if(!d_mpc && typeof t.redshift==='number'){ d_mpc = (t.redshift * C_KM_S) / H0_KM_S_PER_MPC; }
-      if(d_mpc){ distEl.textContent = `${d_mpc.toFixed(3)} Mpc`; const vrec = H0_KM_S_PER_MPC * d_mpc; recEl.textContent = `${vrec.toFixed(1)} km/s`; }
-    }
+    updEl.textContent = fmtISO(isoUtc);
+  } catch(err){
+    stEl.textContent = 'error: ' + err.message;
+    stEl.classList.remove('ok','warn'); stEl.classList.add('bad');
+  }
+}
 
-  } catch(err){ stEl.textContent = 'error: '+err.message; stEl.classList.add('bad'); }
+/* ========= TARGETS LOADER (robust) ========= */
+function normalizeTargets(raw){
+  if(Array.isArray(raw)) return raw.map(x=> typeof x==='string'? {name:x}: x);
+  if(raw && Array.isArray(raw.targets)) return raw.targets.map(x=> typeof x==='string'? {name:x}: x);
+  return []; // unknown structure
 }
 
 async function loadTargets(){
-  const finalUrl = CORS_PROXY ? (CORS_PROXY + GITHUB_TARGETS_JSON) : GITHUB_TARGETS_JSON;
-  const r = await fetch(finalUrl); if(!r.ok) throw new Error('targets.json fetch failed');
-  const data = await r.json();
-  const list = Array.isArray(data) ? data : (data.targets || []);
-  list.forEach(makeRow);
-  for(const t of list){ updateRow(t, true); }
-  // Deep-space recompute loop (mid-course): every 30s, force recompute of vectors & distances
-  setInterval(()=>{ for(const t of list){ updateRow(t, true); } }, 30_000);
+  try{
+    // cache-bust to avoid stale JSON on GitHub Pages
+    const r = await fetch(`${TARGETS_URL}?v=${Date.now()}`, { cache: "no-store" });
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    const text = await r.text();
+    let data;
+    try{ data = JSON.parse(text); }
+    catch(e){ throw new Error("Invalid JSON in targets.json"); }
+
+    const list = normalizeTargets(data);
+    if(!list.length){
+      setBanner("No targets found. Ensure targets.json is an array or { \"targets\": [...] }.", "warn");
+      return;
+    }
+    setBanner(`Loaded ${list.length} target(s) from targets.json.`, "ok");
+    list.forEach(makeRow);
+  } catch(err){
+    setBanner(`Failed to load targets.json: ${err.message}`, "bad");
+  }
 }
 
-/********************
- * PER-SECOND UI TICK
- ********************/
+/* ========= CLOCK TICK ========= */
 function tick(){
   document.getElementById('localTime').textContent = chicagoNow();
   document.getElementById('tzName').textContent = tzLabel();
   document.getElementById('interstellarYear').textContent = interstellarYear();
   document.getElementById('stardate').textContent = stardate();
-  document.getElementById('cstOffset').textContent = cstToUtcOffset();
-  document.getElementById('utcEpoch').textContent = new Date().toISOString().replace('T',' ').replace('Z','Z');
 }
-
-/********************
- * INIT
- ********************/
-loadTargets().catch(e=>{ const p=document.createElement('p'); p.textContent = 'Failed to load targets.json: '+e.message; p.className='tiny bad'; rowsEl.appendChild(p); });
 setInterval(tick, 1000); tick();
+
+/* ========= INIT ========= */
+loadTargets();
 </script>
 </body>
 </html>
