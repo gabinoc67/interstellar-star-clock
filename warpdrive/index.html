@@ -1035,25 +1035,35 @@ function evaluateHazards(){
   window.__engine_live_state = { v:s.v||0, p:s.p||0, f:s.f||0, r:s.r||0, hazard: window.__hazard_mode };
 }
 </script>
-<!-- ===== CSV-driven chips directly under the footer line ===== -->
+<!-- ===== CSV-driven chips directly under the footer line (updated) ===== -->
 <style>
-  .wdp-wrap{max-width:1200px;margin:12px auto 16px;padding:0 16px}
-  .wdp-sections{display:grid;gap:12px}
-  @media (min-width:720px){.wdp-sections{grid-template-columns:repeat(2,1fr)}}
-  @media (min-width:1100px){.wdp-sections{grid-template-columns:repeat(4,1fr)}}
+  .wdp-wrap{max-width:1600px;margin:12px auto 16px;padding:0 12px}
+  .wdp-sections{display:grid;gap:12px;grid-template-columns:repeat(4,minmax(0,1fr))}
+  @media (max-width:1200px){.wdp-sections{grid-template-columns:repeat(2,minmax(0,1fr))}}
   .wdp-card{border:1px solid #223;border-radius:12px;padding:10px;background:#101521}
-  .wdp-title{display:flex;align-items:center;gap:8px;font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:#9fb7ff;margin:0 0 8px}
-  .wdp-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-  @media (min-width:900px){.wdp-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
-  @media (min-width:1200px){.wdp-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
-  .wdp-chip{display:flex;align-items:center;gap:8px;border:1px solid #2a3340;border-radius:9999px;padding:6px 10px;min-height:34px;background:#0f1420}
-  .wdp-dot{width:10px;height:10px;border-radius:50%;box-shadow:0 0 0 1px #334255 inset}
+  .wdp-title{display:flex;align-items:center;gap:8px;font-weight:800;
+             font-size:clamp(13px,1.2vw,15px);text-transform:uppercase;letter-spacing:.08em;
+             color:#9fb7ff;margin:0 0 8px}
+  /* spread chips: auto-fill as many columns as fit */
+  .wdp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px}
+  .wdp-chip{display:flex;align-items:center;gap:8px;border:1px solid #2a3340;border-radius:9999px;
+            padding:7px 10px;min-height:36px;background:#0f1420}
+  .wdp-dot{width:11px;height:11px;border-radius:50%;box-shadow:0 0 0 1px #334255 inset}
   .wdp-dot.ok{background:#16a34a}
   .wdp-dot.warn{background:#eab308}
   .wdp-dot.bad{background:#ef4444}
-  .wdp-abbr{font-weight:800;font-size:13px}
-  .wdp-type{font-size:11px;color:#8ea0bd}
+  /* circle motion */
+  @keyframes pulseWarn{0%,100%{transform:scale(1);opacity:.95}50%{transform:scale(1.25);opacity:.7}}
+  @keyframes blinkBad{0%,49%{opacity:1}50%,100%{opacity:.25}}
+  .wdp-dot.warn{animation:pulseWarn 1.2s ease-in-out infinite}
+  .wdp-dot.bad{animation:blinkBad .8s steps(2,end) infinite}
+  /* 10% larger abbreviations */
+  .wdp-abbr{font-weight:800;font-size:14.3px}
+  .wdp-type{font-size:12px;color:#8ea0bd}
   .wdp-val{margin-left:auto;font-variant-numeric:tabular-nums;white-space:nowrap;font-size:13px;color:#e6edf3}
+  /* tick animation when values change */
+  @keyframes tick{0%{transform:translateY(0);opacity:1}40%{transform:translateY(-2px);opacity:.85}100%{transform:translateY(0);opacity:1}}
+  .wdp-val.tick{animation:tick .35s ease}
   .wdp-empty{border:1px dashed #2a3340;border-radius:12px;padding:16px;text-align:center;color:#9fb7ff;font-size:13px;background:#0f1420}
 </style>
 
@@ -1061,215 +1071,42 @@ function evaluateHazards(){
   <div class="wdp-sections" id="wdp-sections"></div>
 </div>
 
-<!-- IMPORTANT: use id + data-wdp-csv (no currentScript in modules) -->
+<!-- use id + data-wdp-csv (modules don't have currentScript) -->
 <script type="module" id="wdp-chips" data-wdp-csv="https://gabinoc67.github.io/interstellar-star-clock/warpdrive/navengreadings.csv">
-/* Chips (Navigation, Crew, Engine, Ship).
-   - Show a circle ONLY when CSV "Circle" says Yes (any case).
-   - Circles update live (green/yellow/red) from engine state.
-   - If >20 red circles persist 2s → requestEngineShutdown().
-   - Values live for numbers, degrees, time, watts. */
+/* Chips (Navigation, Crew, Engine, Ship) with spread layout + animations. */
+const ORDER=["Navigation","Crew","Engine","Ship"];
+const normalizeType=s=>String(s||"").trim().toLowerCase();
+const truthy=v=>["yes","true","1","y"].includes(String(v||"").trim().toLowerCase());
+const TZ="America/Chicago";
+const fmtTime=new Intl.DateTimeFormat("en-US",{timeZone:TZ,hour12:false,hour:"2-digit",minute:"2-digit",second:"2-digit"});
+const fmtDate=new Intl.DateTimeFormat("en-US",{timeZone:TZ});
 
-const ORDER = ["Navigation","Crew","Engine","Ship"];
-const normalizeType = s => String(s||"").trim().toLowerCase();
-const truthy = v => ["yes","true","1","y"].includes(String(v||"").trim().toLowerCase());
-const TZ = "America/Chicago";
-const fmtTime = new Intl.DateTimeFormat("en-US",{ timeZone: TZ, hour12:false, hour:"2-digit", minute:"2-digit", second:"2-digit" });
-const fmtDate = new Intl.DateTimeFormat("en-US",{ timeZone: TZ });
+// CSV
+function parseCSV(text){const rows=[];let cur=[],val="",q=false;for(let i=0;i<text.length;i++){const c=text[i],n=text[i+1];if(q){if(c=='"'&&n=='"'){val+='"';i++;}else if(c=='"'){q=false;}else{val+=c;}}else{if(c=='"'){q=true;}else if(c==','){cur.push(val);val="";}else if(c=='\n'){cur.push(val);rows.push(cur);cur=[];val="";}else if(c!='\r'){val+=c;}}}if(val.length||cur.length){cur.push(val);rows.push(cur);}const headers=rows.shift().map(h=>h.trim());return rows.filter(r=>r.some(x=>String(x).trim()!=="")).map(r=>{const o={};headers.forEach((h,i)=>o[h]=r[i]??"");return o;});}
+function normalizeRows(rows){return rows.map(r=>{const o={};for(const k in r){o[k.trim()]=typeof r[k]==="string"?r[k].trim():r[k]}if(o["Display Type"])o["Display Type"]=normalizeType(o["Display Type"]);if(o["Display Type"]==="date ")o["Display Type"]="date";return o;});}
+function normKey(s){return String(s||"").toLowerCase().replace(/[\s_\-]+/g,"").replace(/[^a-z0-9]/g,"");}
+function detectKey(keys,re){const pairs=keys.map(k=>[k,normKey(k)]);const hit=pairs.find(([k,n])=>re.test(n));return hit?hit[0]:null;}
+function buildKeyMap(sample){const keys=Object.keys(sample||{});return{label:detectKey(keys,/label(name)?$/)||"Label Name",abbr:detectKey(keys,/(abbr|abbrev|abbreviation)s?$/)||"Abbreviation",dtype:detectKey(keys,/(displaytype|display|type)$/)||"Display Type",circle:detectKey(keys,/(circle)$/)||"Circle",location:detectKey(keys,/(location|loc)$/)||"Location"};}
+function groupByLocation(rows,KM){const g={};rows.forEach(r=>{const loc=String(r[KM.location]||"").trim()||"Crew";(g[loc] ||= []).push(r);});Object.keys(g).forEach(k=>{g[k].sort((a,b)=>String(a[KM.abbr]||"").localeCompare(String(b[KM.abbr]||"")));});return g;}
+const seedOf=s=>Array.from(String(s||"")).reduce((a,c)=>a+c.charCodeAt(0),0);
 
-// ——— CSV parser (quoted fields ok)
-function parseCSV(text){
-  const rows=[]; let cur=[], val="", q=false;
-  for(let i=0;i<text.length;i++){
-    const c=text[i], n=text[i+1];
-    if(q){ if(c=='"'&&n=='"'){val+='"';i++;} else if(c=='"'){q=false;} else {val+=c;} }
-    else { if(c=='"'){q=true;} else if(c==','){cur.push(val);val="";} else if(c=='\n'){cur.push(val);rows.push(cur);cur=[];val="";} else if(c!='\r'){val+=c;} }
-  }
-  if(val.length||cur.length){cur.push(val);rows.push(cur);}
-  const headers = rows.shift().map(h=>h.trim());
-  return rows.filter(r=>r.some(x=>String(x).trim()!=="")).map(r=>{
-    const o={}; headers.forEach((h,i)=>o[h]=r[i]??""); return o;
-  });
-}
-
-// ——— Normalize + detect header keys
-function normalizeRows(rows){
-  return rows.map(r=>{
-    const o={}; for(const k in r){ o[k.trim()] = typeof r[k]==="string" ? r[k].trim() : r[k]; }
-    if(o["Display Type"]) o["Display Type"] = normalizeType(o["Display Type"]);
-    if(o["Display Type"]==="date ") o["Display Type"]="date";
-    return o;
-  });
-}
-function normKey(s){ return String(s||"").toLowerCase().replace(/[\s_\-]+/g,"").replace(/[^a-z0-9]/g,""); }
-function detectKey(keys, re){ const pairs=keys.map(k=>[k,normKey(k)]); const hit=pairs.find(([k,n])=>re.test(n)); return hit?hit[0]:null; }
-function buildKeyMap(sample){
-  const keys = Object.keys(sample||{});
-  return {
-    label:    detectKey(keys, /label(name)?$/) || "Label Name",
-    abbr:     detectKey(keys, /(abbr|abbrev|abbreviation)s?$/) || "Abbreviation",
-    dtype:    detectKey(keys, /(displaytype|display|type)$/) || "Display Type",
-    circle:   detectKey(keys, /(circle)$/) || "Circle",
-    location: detectKey(keys, /(location|loc)$/) || "Location"
-  };
-}
-
-// ——— Grouping
-function groupByLocation(rows, KM){
-  const g={};
-  rows.forEach(r=>{
-    const loc = String(r[KM.location]||"").trim() || "Crew";
-    (g[loc] ||= []).push(r);
-  });
-  Object.keys(g).forEach(k=>{
-    g[k].sort((a,b)=>String(a[KM.abbr]||"").localeCompare(String(b[KM.abbr]||"")));
-  });
-  return g;
-}
-
-const seedOf = s => Array.from(String(s||"")).reduce((a,c)=>a+c.charCodeAt(0),0);
-
-// Value text (live on selected types)
-function liveValue(typ, labelOrAbbr, t){
-  const seed = seedOf(labelOrAbbr);
-  const base = (seed % 1000) / 10;
-  const wiggle = (Math.sin((seed + t)/7)+1)*0.5;
-  const v = base * (0.9 + 0.2*wiggle);
-
+// values
+function liveValue(typ,labelOrAbbr,t){const seed=seedOf(labelOrAbbr);const base=(seed%1000)/10;const wiggle=(Math.sin((seed+t)/7)+1)*0.5;const v=base*(0.9+0.2*wiggle);
   switch(typ){
-    case "degrees":  return `${Math.floor((v*3.6 + t) % 360)}°`;
-    case "time":     return fmtTime.format(new Date());
-    case "numbers":  return Intl.NumberFormat().format(Math.round(v*100 + (t%5)));
-    case "watts":    { const degLike=Math.floor((v*3.6 + t)%360); return `${Math.round(50 + degLike*0.8)} W`; }
-    case "miles":    return `${(v*1.3).toFixed(1)} mi`;
-    case "frequency":return `${(v*7).toFixed(2)} Hz`;
-    case "pressure": return `${(v*2.3).toFixed(2)} psi`;
-    case "speed":    return `${(v*3.1).toFixed(2)} kn`;
-    case "date":     return fmtDate.format(new Date());
-    case "alarm":    return ((seed + t)%17 < 1) ? "ALARM" : "OK";
-    case "calculation": return (v*42).toFixed(2);
-    case "none": default: return "—";
+    case"degrees":return`${Math.floor((v*3.6+t)%360)}°`;
+    case"time":return fmtTime.format(new Date());
+    case"numbers":return Intl.NumberFormat().format(Math.round(v*100+(t%5)));
+    case"watts":{const degLike=Math.floor((v*3.6+t)%360);return`${Math.round(50+degLike*0.8)} W`;}
+    case"miles":return`${(v*1.3).toFixed(1)} mi`;
+    case"frequency":return`${(v*7).toFixed(2)} Hz`;
+    case"pressure":return`${(v*2.3).toFixed(2)} psi`;
+    case"speed":return`${(v*3.1).toFixed(2)} kn`;
+    case"date":return fmtDate.format(new Date());
+    case"alarm":return((seed+t)%17<1)?"ALARM":"OK";
+    case"calculation":return(v*42).toFixed(2);
+    default:return"—";
   }
 }
 
-/* —— circle color logic per row —— */
-function circleClassForRow(row, engine){
-  const { v=0, p=0, f=0, r=0, hazard='none' } = engine || {};
-  const imbalance = Math.abs(f - Math.abs(r));
-  const vStress = Math.min(1, v / 6);
-  const pStress = Math.min(1, p / 8);
-  const vecStress = Math.min(1, imbalance / 2);
-  const hazStress = (hazard==='inside') ? 1 : (hazard==='approach') ? 0.8 : (hazard==='standby') ? 0.3 : 0;
-
-  let stress = (0.35*vStress + 0.25*pStress + 0.25*vecStress + 0.15*hazStress);
-  const seed = seedOf(row.__abbr || row.__label || '');
-  const jitter = ((seed % 101) / 100 - 0.5) * 0.20; // ±0.10
-  stress = Math.max(0, Math.min(1, stress + jitter));
-
-  if(stress < 0.35) return 'ok';
-  if(stress < 0.60) return 'warn';
-  return 'bad';
-}
-
-const host = document.getElementById("wdp-sections");
-// ✅ DO NOT use document.currentScript in modules:
-const scriptEl = document.getElementById("wdp-chips");
-const csvSrc = scriptEl?.dataset.wdpCsv || new URL("navengreadings.csv", location.href).href;
-
-function render(groups, KM){
-  host.innerHTML = "";
-  const order = ORDER.filter(k=>groups[k]?.length);
-  if(!order.length){
-    const div=document.createElement("div"); div.className="wdp-empty"; div.textContent="No items found in CSV."; host.appendChild(div); return;
-  }
-  for(const loc of order){
-    const card=document.createElement("section"); card.className="wdp-card"; card.dataset.loc=loc;
-    const h=document.createElement("div"); h.className="wdp-title"; h.textContent=loc; card.appendChild(h);
-    const grid=document.createElement("div"); grid.className="wdp-grid";
-
-    groups[loc].forEach(row=>{
-      const typ = normalizeType(row[KM.dtype]);
-      const showCircle = truthy(row[KM.circle]); // only if CSV says Yes
-      const abbr = String(row[KM.abbr] || row[KM.label] || "").trim();
-      row.__abbr = abbr; row.__label = row[KM.label];
-
-      const chip=document.createElement("div"); chip.className="wdp-chip";
-
-      if(showCircle){
-        const dot=document.createElement("span"); dot.className="wdp-dot ok"; chip.appendChild(dot);
-        chip._dot = dot;
-      }
-
-      const ab=document.createElement("span"); ab.className="wdp-abbr"; ab.textContent = abbr; chip.appendChild(ab);
-      const ty=document.createElement("span"); ty.className="wdp-type"; ty.textContent=typ; chip.appendChild(ty);
-      const val=document.createElement("span"); val.className="wdp-val"; chip.appendChild(val);
-
-      chip._wdp={ row, valEl:val, abbr, typ, showCircle };
-      grid.appendChild(chip);
-    });
-
-    card.appendChild(grid); host.appendChild(card);
-  }
-}
-
-(async function(){
-  try{
-    const res = await fetch(csvSrc, { cache:"no-store" });
-    if(!res.ok) throw new Error(`CSV fetch failed: ${res.status}`);
-    const rows0 = parseCSV(await res.text());
-    const rows = normalizeRows(rows0);
-    const KM = buildKeyMap(rows[0]||{});
-
-    const groups = groupByLocation(rows, KM);
-    render(groups, KM);
-
-    const liveSet = new Set(["numbers","degrees","time","watts"]);
-    let redSince = null, lastT=-1;
-
-    function anim(){
-      const t = Math.floor(performance.now()/1000);
-      if (t !== lastT) {        // throttle to 1 Hz for lighter DOM work
-        lastT = t;
-        const engine = window.__engine_live_state || { v:0, p:0, f:0, r:0, hazard:'none' };
-        let redCount = 0;
-
-        host.querySelectorAll(".wdp-chip").forEach(ch=>{
-          const ref = ch._wdp; if(!ref) return;
-
-          // live values
-          const vtxt = liveValue(ref.typ, ref.abbr, t);
-          if(liveSet.has(ref.typ)){ ref.valEl.textContent = vtxt; }
-          else if(!ref.valEl.textContent){ ref.valEl.textContent = vtxt; }
-
-          // live circle color
-          if(ref.showCircle && ch._dot){
-            const cls = circleClassForRow(ref.row, engine);
-            ch._dot.classList.remove('ok','warn','bad');
-            ch._dot.classList.add(cls);
-            if(cls==='bad') redCount++;
-          }
-        });
-
-        // Auto-shutdown if >20 red dots persist 2s
-        const threshold = 20;
-        if(redCount > threshold){
-          if(redSince==null) redSince = performance.now();
-          else if(performance.now() - redSince > 2000 && typeof window.requestEngineShutdown==='function'){
-            window.requestEngineShutdown(`> ${threshold} critical sensor circles`);
-            redSince = null;
-          }
-        } else {
-          redSince = null;
-        }
-      }
-      requestAnimationFrame(anim);
-    }
-    requestAnimationFrame(anim);
-  }catch(e){
-    console.error(e);
-    const div=document.createElement("div"); div.className="wdp-empty"; div.textContent="Could not load CSV."; host.appendChild(div);
-  }
-})();
-</script>
-
-</body>
-</html>
+/* circle color from engine state */
+function circleClassForRow(row,engine){const{v=0,p=0,f=0,r=0,hazard='none'}=engine||{};const imbalance=Math.abs(f-Math.abs(r));const vStress=Math.min(1,v/6);const pStress=Math.min(1,p/8);const vecStress=Math.min(1,imbalance/2);const hazStress=(hazard==='inside')?1:(hazard==='appr
