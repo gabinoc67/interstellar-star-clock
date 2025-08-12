@@ -27,7 +27,7 @@
   .metric{background:#0f1420;border:1px solid #232a36;border-radius:12px;padding:10px;text-align:center}
   .metric .label{font-size:12px;color:var(--muted)}
   .metric .value{font-size:18px;font-weight:800;margin-top:4px}
-  #log{height:260px;overflow:auto;background:#0a0f1a;border:1px dashed #2a3340;border-radius:10px;padding:10px;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-size:12px}
+  #log{height:260px;overflow:auto;background:#0a0f1a;border:1px dashed #2a3340;border-radius:10px;padding:10px;font-family:ui-monospace, Menlo, Consolas, monospace;font-size:12px}
   .grid-rows{display:grid;gap:16px}
 
   /* Map + overlays */
@@ -302,6 +302,32 @@ let catalog = { planets:[], moons:[], stars:[], galaxies:[] };
 let raDecByName = {}; // name → {ra,dec}
 let hazardsPack = null;
 
+/* ====== global engine live state (read by chips script) ====== */
+window.__engine_live_state = {
+  v: 1.25, p: 2.5, f: 0.55, r: -0.55, hazard: 'none'
+};
+window.__engine_shutdown = false;
+
+/* expose shutdown so chips can call it */
+window.requestEngineShutdown = function(reason='too many critical readings'){
+  if(window.__engine_shutdown) return;
+  window.__engine_shutdown = true;
+
+  stopTravelTicker();
+  if(window.starfield) window.starfield.stop();
+
+  // lights all red
+  setDot(lightBubble,'bad'); setDot(lightPower,'bad'); setDot(lightVector,'bad'); setDot(lightNav,'bad');
+
+  // banner + sound
+  hazardOverlay.classList.add('bad','blink');
+  hazardOverlay.textContent = 'ENGINE AUTO-SHUTDOWN';
+  courseOverlay.textContent = 'Course: —';
+  if(audioUnlocked){ alarmAudio.currentTime = 0; alarmAudio.play().catch(()=>{}); }
+
+  setStatus('AUTO-SHUTDOWN: ' + reason);
+};
+
 /* ===================== TARGET CATALOG & UI ===================== */
 function makeTargetsFlat(){
   const p = (catalog.planets||[]).map(o=>o.name).filter(Boolean);
@@ -362,8 +388,8 @@ Promise.allSettled([
 
   allTargets = makeTargetsFlat();
   populateTargetOptgroups("");
-  updateMetricsStatic();      // set steady/ready metrics
-  updatePreEngageStatus();    // set lights: Nav warn if no target
+  updateMetricsStatic();      // steady & ready
+  updatePreEngageStatus();    // lights baseline
   updateStarfieldHeading();
   renderSaves();
   updateDistanceBadges();
@@ -408,7 +434,7 @@ function setLightStatesFromMetrics(v, p, f, r){
   setDot(lightBubble, bubbleState);
   setDot(lightPower,  powerState);
   setDot(lightVector, vectorState);
-  // Nav is handled by hazards / pre-engage
+  // Nav handled in hazard monitor
 }
 
 /* ===================== LOOKUPS & CONVERSIONS ===================== */
@@ -499,9 +525,12 @@ function updatePreEngageStatus(){
   const t = getSelectedTarget();
   setDot(lightNav, t ? 'ok' : 'warn');
   arrTxt.textContent = t || '(unspecified)';
-  travelClockEl.textContent = "00:00:00.000"; // keep at zero until Engage
+  travelClockEl.textContent = "00:00:00.000";
   rhythmBadge.className = 'badge ok';
   rhythmBadge.textContent = 'Bio Rhythm: CST-Locked';
+
+  // publish to chips
+  window.__engine_live_state = { v:m.vEff, p:m.pulse, f:m.front, r:m.rear, hazard: (window.__hazard_mode||'none') };
 }
 
 /* ===================== BEARING UTIL ===================== */
@@ -631,7 +660,6 @@ let travelTicker = null;
 let travelClockMs = 0;        // displayed time
 let travelStartRealMs = 0;    // performance.now() anchor for current run
 let travelAccumMs = 0;        // accumulated from previous runs/scale changes
-let lastTick = 0;             // metrics wobble timing only
 
 function formatClock(ms){
   const h = Math.floor(ms/3600000);
@@ -643,11 +671,9 @@ function formatClock(ms){
 function startTravelTicker(){
   stopTravelTicker();
   travelStartRealMs = performance.now();
-  lastTick = travelStartRealMs;
 
   travelTicker = setInterval(()=>{
     const now = performance.now();
-    lastTick = now;
 
     // ---- Metrics (depend on warp) ----
     const w = Number(warpSel.value);
@@ -672,6 +698,9 @@ function startTravelTicker(){
 
     // update lights live from metrics
     setLightStatesFromMetrics(vNow, pNow, fNow, rNow);
+
+    // publish to chips
+    window.__engine_live_state = { v:vNow, p:pNow, f:fNow, r:rNow, hazard:(window.__hazard_mode||'none') };
 
     // ---- Clock (independent of warp) ----
     const scale = Number(timeScaleSel.value || 1);
@@ -702,7 +731,7 @@ function clearFlightState(){ localStorage.removeItem(FLIGHT_KEY); }
 function updateMetricsStatic(){
   const w = Number(warpSel.value);
   const m = baseMetricsFromWarp(w);
-  // your steady & ready values at Warp 5: 0.55 / 0.00 / -0.55 / 1.25c / 2.5MHz / 0.997
+  // steady & ready defaults at Warp 5:
   frontE.textContent = m.front.toFixed(2);
   midE.textContent   = m.mid.toFixed(2);
   rearE.textContent  = m.rear.toFixed(2);
@@ -713,11 +742,14 @@ function updateMetricsStatic(){
   pcTxt.textContent  = `${(m.vEff/3.26156).toFixed(3)} pc/yr`;
   // set lights based on these
   setLightStatesFromMetrics(m.vEff, m.pulse, m.front, m.rear);
+  // publish to chips
+  window.__engine_live_state = { v:m.vEff, p:m.pulse, f:m.front, r:m.rear, hazard:(window.__hazard_mode||'none') };
 }
 function zeroMetrics(){
   frontE.textContent="0.00"; midE.textContent="0.00"; rearE.textContent="0.00";
   vEff.textContent="0.00 c"; pulse.textContent="0.0 MHz"; eta.textContent="0.000";
   solTxt.textContent="0.00 c"; pcTxt.textContent="0.000 pc/yr";
+  window.__engine_live_state = { v:0, p:0, f:0, r:0, hazard:(window.__hazard_mode||'none') };
 }
 
 /* ===================== SAVED MISSIONS ===================== */
@@ -768,7 +800,7 @@ function loadUI(){
   try {
     const rec = JSON.parse(localStorage.getItem(UI_KEY));
     if(!rec) return false;
-    warpSel.value = rec.warp || '1';
+    warpSel.value = rec.warp || '5';
     populateTargetOptgroups(rec.target || "");
     timeScaleSel.value = rec.timeScale || '1';
     updateMetricsStatic();
@@ -782,6 +814,7 @@ function loadUI(){
 function currentState(){ return { warp: warpSel.value, target: (getSelectedTarget()||'(unspecified)') }; }
 
 engageBtn.onclick = ()=>{
+  if(window.__engine_shutdown){ setStatus('Cannot engage: engine is in AUTO-SHUTDOWN. Reset first.'); return; }
   unlockAudioOnce();
   const tgt = getSelectedTarget();
   if(!tgt){
@@ -820,15 +853,14 @@ engageBtn.onclick = ()=>{
 
 stopBtn.onclick = ()=>{
   const r = loadFlightState();
-  if(r && r.active){
-    r.active = false;
-    saveFlightState(r);
-  }
+  if(r && r.active){ r.active = false; saveFlightState(r); }
   stopTravelTicker();
   if(window.starfield) window.starfield.stop();
   setAllGreen();
   setDot(lightNav,'ok');
-  // hard-stop any alarm and clear alerts
+
+  // clear alarm + alerts; allow re-engage
+  window.__engine_shutdown = false;
   alarmAudio.pause(); alarmAudio.currentTime = 0;
   hazardOverlay.classList.remove('bad','blink');
   hazardOverlay.textContent = 'SAFE';
@@ -841,7 +873,7 @@ resetBtn.onclick = ()=>{
   localStorage.removeItem(KEY);
   renderSaves();
 
-  warpSel.value = "5"; // default to your steady/ready example (Warp 5)
+  warpSel.value = "5"; // steady & ready example
   populateTargetOptgroups("");
 
   const r = loadFlightState();
@@ -852,11 +884,12 @@ resetBtn.onclick = ()=>{
   if(window.starfield) window.starfield.stop();
   depTxt.textContent = "(unspecified)";
   arrTxt.textContent = "(unspecified)";
-  updateMetricsStatic();        // steady & ready numbers updated
-  updatePreEngageStatus();      // lights: Bubble/Power/Vector from metrics; Nav warn (no target)
+  updateMetricsStatic();        // steady & ready numbers
+  updatePreEngageStatus();      // lights baseline
   updateDistanceBadges();
 
-  // HARD STOP any alarm & remove alert display
+  // HARD STOP any alarm & remove alert display; clear shutdown
+  window.__engine_shutdown = false;
   alarmAudio.pause(); alarmAudio.currentTime = 0;
   hazardOverlay.classList.remove('bad','blink');
   hazardOverlay.textContent = 'SAFE';
@@ -933,8 +966,10 @@ function normalizeHazard(h){
 }
 function hazardLoop(){ evaluateHazards(); setInterval(evaluateHazards, 1000); }
 function fmtDeg(n){ return String(Math.round(((n%360)+360)%360)).padStart(3,'0') + '°'; }
+window.__hazard_mode = 'none';
 function evaluateHazards(){
   if(!hazardsPack || !Array.isArray(hazardsPack.hazards)){
+    window.__hazard_mode = 'none';
     hazardOverlay.classList.remove('bad','blink');
     hazardOverlay.textContent = 'SAFE';
     courseOverlay.textContent = 'Course: —';
@@ -943,52 +978,46 @@ function evaluateHazards(){
   const rows = hazardsPack.hazards.map(normalizeHazard).filter(x=>isFinite(x.d) && isFinite(x.safe));
   const heading = (typeof window.currentHeadingDeg==='number') ? window.currentHeadingDeg : 0;
 
-  let hit = null; // best (closest-angle) hazard of interest
-  let mode = 'none'; // 'inside' | 'approach' | 'standby'
+  let hit = null; let mode = 'none'; // 'inside' | 'approach' | 'standby'
   for(const r of rows){
     if(r.ra==null || r.dec==null) continue;
     const bearing = bearingFromRaDec(r.ra, r.dec);
     const sep = angularSep(heading, bearing);
-    const withinCone = sep <= 18;              // in front
-    const isInside = r.d <= r.safe;            // unsafe
-    const near = r.d <= r.safe * 3.0;          // approaching
-    const watch = r.d <= r.safe * 8.0;         // standby
+    const withinCone = sep <= 18;
+    const isInside = r.d <= r.safe;
+    const near = r.d <= r.safe * 3.0;
+    const watch = r.d <= r.safe * 8.0;
     if(withinCone && (isInside || near || watch)){
       const thisMode = isInside ? 'inside' : (near ? 'approach' : 'standby');
       if(!hit || sep < hit.sep){ hit = {r, bearing, sep}; mode = thisMode; }
     }
   }
+  window.__hazard_mode = mode;
 
   if(hit){
-    let away = heading; // default straight
-    let label = '';
+    let away = heading; let label = '';
     if(mode==='standby'){
       hazardOverlay.classList.remove('bad','blink');
       label = `STANDBY: ${hit.r.type} — ${hit.r.name}`;
-      setDot(lightNav, 'warn');
-      away = (hit.bearing + 30) % 360; // gentle suggestion
+      setDot(lightNav, 'warn'); away = (hit.bearing + 30) % 360;
       if(audioUnlocked) { alarmAudio.pause(); alarmAudio.currentTime = 0; }
     } else if(mode==='approach'){
       hazardOverlay.classList.add('bad','blink');
       label = `⚠️ APPROACHING: ${hit.r.type} — ${hit.r.name}`;
-      setDot(lightNav, 'bad');
-      away = (hit.bearing + 60) % 360;
+      setDot(lightNav, 'bad'); away = (hit.bearing + 60) % 360;
       if(audioUnlocked) alarmAudio.play().catch(()=>{});
       if(window.starfield){ window.starfield.setOverride(away, 8000); }
     } else { // inside
       hazardOverlay.classList.add('bad','blink');
       label = `🚨 INSIDE SAFE LIMIT: ${hit.r.type} — ${hit.r.name}`;
-      setDot(lightNav, 'bad');
-      away = (hit.bearing + 150) % 360;
+      setDot(lightNav, 'bad'); away = (hit.bearing + 150) % 360;
       if(audioUnlocked) alarmAudio.play().catch(()=>{});
       if(window.starfield){ window.starfield.setOverride(away, 14000); }
     }
-
     hazardOverlay.textContent = label;
 
-    // live course readout next to degrees
     const cur = heading;
-    let delta = Math.round(((away - cur + 540) % 360) - 180); // shortest signed delta
+    let delta = Math.round(((away - cur + 540) % 360) - 180);
     const sign = delta>0 ? '+' : (delta<0 ? '−' : '±');
     const absd = Math.abs(delta);
     courseOverlay.textContent = `Course: ${fmtDeg(cur)} → ${fmtDeg(away)} (Δ ${sign}${String(absd).padStart(2,'0')}°)`;
@@ -1000,6 +1029,10 @@ function evaluateHazards(){
     if(!anyBad() && audioUnlocked){ alarmAudio.pause(); alarmAudio.currentTime = 0; }
     setDot(lightNav,'ok');
   }
+
+  // keep chips in sync with latest hazard mode
+  const s = window.__engine_live_state || {};
+  window.__engine_live_state = { v:s.v||0, p:s.p||0, f:s.f||0, r:s.r||0, hazard: window.__hazard_mode };
 }
 </script>
 <!-- ===== CSV-driven chips directly under the footer line ===== -->
@@ -1014,10 +1047,10 @@ function evaluateHazards(){
   @media (min-width:900px){.wdp-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
   @media (min-width:1200px){.wdp-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
   .wdp-chip{display:flex;align-items:center;gap:8px;border:1px solid #2a3340;border-radius:9999px;padding:6px 10px;min-height:34px;background:#0f1420}
-  .wdp-chip.calc-yes{border-color:#22c55e55}
   .wdp-dot{width:10px;height:10px;border-radius:50%;box-shadow:0 0 0 1px #334255 inset}
-  .wdp-dot.white{background:#fff}
-  .wdp-dot.green{background:#22c55e}
+  .wdp-dot.ok{background:#16a34a}
+  .wdp-dot.warn{background:#eab308}
+  .wdp-dot.bad{background:#ef4444}
   .wdp-abbr{font-weight:800;font-size:13px}
   .wdp-type{font-size:11px;color:#8ea0bd}
   .wdp-val{margin-left:auto;font-variant-numeric:tabular-nums;white-space:nowrap;font-size:13px;color:#e6edf3}
@@ -1029,34 +1062,35 @@ function evaluateHazards(){
 </div>
 
 <script type="module" data-src="https://gabinoc67.github.io/interstellar-star-clock/warpdrive/navengreadings.csv">
-/* Chips for Navigation, Crew, Engine, Ship under the footer.
-   Live fields: numbers, degrees, time, watts. Calculation rows show a dot:
-   green if Circle=true, white if not. */
+/* Chips (Navigation, Crew, Engine, Ship).
+   - Show a circle ONLY when CSV "Circle" column says Yes (any case).
+   - Circle color updates live from engine state (green/yellow/red).
+   - If >20 red circles persist for 2s → window.requestEngineShutdown().
+   - Values live for numbers, degrees, time, watts. */
 
 const ORDER = ["Navigation","Crew","Engine","Ship"];
 const normalizeType = s => String(s||"").trim().toLowerCase();
 const truthy = v => ["yes","true","1","y"].includes(String(v||"").trim().toLowerCase());
-const seedOf = s => Array.from(String(s||"")).reduce((a,c)=>a+c.charCodeAt(0),0);
-
-// CST/CDT formatters
 const TZ = "America/Chicago";
 const fmtTime = new Intl.DateTimeFormat("en-US",{ timeZone: TZ, hour12:false, hour:"2-digit", minute:"2-digit", second:"2-digit" });
 const fmtDate = new Intl.DateTimeFormat("en-US",{ timeZone: TZ });
 
-// small CSV parser (handles quoted fields)
+// --- CSV parser (quoted fields ok)
 function parseCSV(text){
-  const rows=[]; let cur=[], val="", inQ=false;
+  const rows=[]; let cur=[], val="", q=false;
   for(let i=0;i<text.length;i++){
     const c=text[i], n=text[i+1];
-    if(inQ){ if(c==='\"'&&n==='\"'){val+='\"';i++;} else if(c==='\"'){inQ=false;} else {val+=c;} }
-    else { if(c==='\"'){inQ=true;} else if(c===','){cur.push(val);val="";} else if(c==='\n'){cur.push(val);rows.push(cur);cur=[];val="";} else if(c!=='\r'){val+=c;} }
+    if(q){ if(c=='"'&&n=='"'){val+='"';i++;} else if(c=='"'){q=false;} else {val+=c;} }
+    else { if(c=='"'){q=true;} else if(c==','){cur.push(val);val="";} else if(c=='\n'){cur.push(val);rows.push(cur);cur=[];val="";} else if(c!='\r'){val+=c;} }
   }
-  if(val.length || cur.length){ cur.push(val); rows.push(cur); }
+  if(val.length||cur.length){cur.push(val);rows.push(cur);}
   const headers = rows.shift().map(h=>h.trim());
   return rows.filter(r=>r.some(x=>String(x).trim()!=="")).map(r=>{
     const o={}; headers.forEach((h,i)=>o[h]=r[i]??""); return o;
   });
 }
+
+// --- Normalize + detect column keys (robust to header variants)
 function normalizeRows(rows){
   return rows.map(r=>{
     const o={}; for(const k in r){ o[k.trim()] = typeof r[k]==="string" ? r[k].trim() : r[k]; }
@@ -1065,14 +1099,37 @@ function normalizeRows(rows){
     return o;
   });
 }
-function groupByLocation(rows){
-  const g={}; rows.forEach(r=>{ const loc=(r["Location"]||"").trim()||"Crew"; (g[loc] ||= []).push(r); });
-  Object.keys(g).forEach(k=>g[k].sort((a,b)=>String(a["Abbreviation"]).localeCompare(String(b["Abbreviation"]))));
+function normKey(s){ return String(s||"").toLowerCase().replace(/[\s_\-]+/g,"").replace(/[^a-z0-9]/g,""); }
+function detectKey(keys, re){ const pairs=keys.map(k=>[k,normKey(k)]); const hit=pairs.find(([k,n])=>re.test(n)); return hit?hit[0]:null; }
+function buildKeyMap(sample){
+  const keys = Object.keys(sample||{});
+  return {
+    label:    detectKey(keys, /^(labelname|label|name)$/) || "Label Name",
+    abbr:     detectKey(keys, /(abbr|abbrev|abbreviation)s?$/) || "Abbreviation",
+    dtype:    detectKey(keys, /(displaytype|display|type)$/) || "Display Type",
+    circle:   detectKey(keys, /(circle)$/) || "Circle",
+    location: detectKey(keys, /(location|loc)$/) || "Location"
+  };
+}
+
+// --- Grouping
+function groupByLocation(rows, KM){
+  const g={};
+  rows.forEach(r=>{
+    const loc = String(r[KM.location]||"").trim() || "Crew";
+    (g[loc] ||= []).push(r);
+  });
+  Object.keys(g).forEach(k=>{
+    g[k].sort((a,b)=>String(a[KM.abbr]||"").localeCompare(String(b[KM.abbr]||"")));
+  });
   return g;
 }
-function liveValue(row, t){
-  const typ = normalizeType(row["Display Type"]);
-  const seed = seedOf(row["Label Name"]||row["Abbreviation"]);
+
+const seedOf = s => Array.from(String(s||"")).reduce((a,c)=>a+c.charCodeAt(0),0);
+
+// Value text (live on selected types)
+function liveValue(typ, labelOrAbbr, t){
+  const seed = seedOf(labelOrAbbr);
   const base = (seed % 1000) / 10;
   const wiggle = (Math.sin((seed + t)/7)+1)*0.5;
   const v = base * (0.9 + 0.2*wiggle);
@@ -1093,10 +1150,36 @@ function liveValue(row, t){
   }
 }
 
+/* ------- circle color logic (per-row, live) -------
+   We compute a system stress from engine state and add per-row variation,
+   so chips don't all flip together.
+*/
+function circleClassForRow(row, engine){
+  const { v=0, p=0, f=0, r=0, hazard='none' } = engine || {};
+  const imbalance = Math.abs(f - Math.abs(r));          // 0.. ~
+  const vStress = Math.min(1, v / 6);                   // ~0..1 (warp 10 ~2c here; keep gentle)
+  const pStress = Math.min(1, p / 8);                   // 0..1
+  const vecStress = Math.min(1, imbalance / 2);         // 0..1
+  const hazStress = (hazard==='inside') ? 1 : (hazard==='approach') ? 0.8 : (hazard==='standby') ? 0.3 : 0;
+
+  // base system stress:
+  let stress = (0.35*vStress + 0.25*pStress + 0.25*vecStress + 0.15*hazStress); // 0..1
+
+  // per-row variation (stable but unique)
+  const seed = seedOf(row.__abbr || row.__label || '');
+  const jitter = ((seed % 101) / 100 - 0.5) * 0.20;    // ±0.10
+  stress = Math.max(0, Math.min(1, stress + jitter));
+
+  // map to class
+  if(stress < 0.35) return 'ok';
+  if(stress < 0.60) return 'warn';
+  return 'bad';
+}
+
 const host = document.getElementById("wdp-sections");
 const csvSrc = document.currentScript.getAttribute("data-src");
 
-function render(groups){
+function render(groups, KM){
   host.innerHTML = "";
   const order = ORDER.filter(k=>groups[k]?.length);
   if(!order.length){
@@ -1108,15 +1191,24 @@ function render(groups){
     const grid=document.createElement("div"); grid.className="wdp-grid";
 
     groups[loc].forEach(row=>{
-      const typ = normalizeType(row["Display Type"]);
-      const isCalc = typ==="calculation";
-      const calcOn = truthy(row["Circle"] || row["Circle "] || "");
-      const chip=document.createElement("div"); chip.className="wdp-chip"+(isCalc && calcOn?" calc-yes":"");
-      if(isCalc){ const dot=document.createElement("span"); dot.className="wdp-dot "+(calcOn?"green":"white"); chip.appendChild(dot); }
-      const ab=document.createElement("span"); ab.className="wdp-abbr"; ab.textContent=row["Abbreviation"]; chip.appendChild(ab);
+      const typ = normalizeType(row[KM.dtype]);
+      const showCircle = truthy(row[KM.circle]); // <— only if CSV says Yes
+      const abbr = String(row[KM.abbr] || row[KM.label] || "").trim();
+      row.__abbr = abbr; row.__label = row[KM.label];
+
+      const chip=document.createElement("div"); chip.className="wdp-chip";
+
+      if(showCircle){
+        const dot=document.createElement("span"); dot.className="wdp-dot ok"; chip.appendChild(dot);
+        chip._dot = dot; // keep reference
+      }
+
+      const ab=document.createElement("span"); ab.className="wdp-abbr"; ab.textContent = abbr; chip.appendChild(ab);
       const ty=document.createElement("span"); ty.className="wdp-type"; ty.textContent=typ; chip.appendChild(ty);
       const val=document.createElement("span"); val.className="wdp-val"; chip.appendChild(val);
-      chip._wdp={row, valEl:val}; grid.appendChild(chip);
+
+      chip._wdp={ row, valEl:val, abbr, typ, showCircle };
+      grid.appendChild(chip);
     });
 
     card.appendChild(grid); host.appendChild(card);
@@ -1126,22 +1218,52 @@ function render(groups){
 (async function(){
   try{
     const res = await fetch(csvSrc, { cache:"no-store" });
-    if(!res.ok) throw new Error("CSV fetch failed");
-    const rows = normalizeRows(parseCSV(await res.text()));
-    const groups = groupByLocation(rows);
-    render(groups);
+    if(!res.ok) throw new Error(`CSV fetch failed: ${res.status}`);
+    const rows0 = parseCSV(await res.text());
+    const rows = normalizeRows(rows0);
+    const KM = buildKeyMap(rows[0]||{});
+
+    const groups = groupByLocation(rows, KM);
+    render(groups, KM);
 
     const liveSet = new Set(["numbers","degrees","time","watts"]);
-    const start = performance.now();
+    let redSince = null;
+
     function anim(){
-      const t = Math.floor((performance.now()-start)/1000);
+      const t = Math.floor(performance.now()/1000);
+      const engine = window.__engine_live_state || { v:0, p:0, f:0, r:0, hazard:'none' };
+
+      let redCount = 0;
+
       host.querySelectorAll(".wdp-chip").forEach(ch=>{
         const ref = ch._wdp; if(!ref) return;
-        const typ = normalizeType(ref.row["Display Type"]);
-        const v = liveValue(ref.row, t);
-        if(liveSet.has(typ)){ ref.valEl.textContent = v; }
-        else if(!ref.valEl.textContent){ ref.valEl.textContent = v; }
+
+        // live values
+        const vtxt = liveValue(ref.typ, ref.abbr, t);
+        if(liveSet.has(ref.typ)){ ref.valEl.textContent = vtxt; }
+        else if(!ref.valEl.textContent){ ref.valEl.textContent = vtxt; }
+
+        // live circle color if present
+        if(ref.showCircle && ch._dot){
+          const cls = circleClassForRow(ref.row, engine);
+          ch._dot.classList.remove('ok','warn','bad');
+          ch._dot.classList.add(cls);
+          if(cls==='bad') redCount++;
+        }
       });
+
+      // Auto-shutdown if >20 red dots persist 2s
+      const threshold = 20;
+      if(redCount > threshold){
+        if(redSince==null) redSince = performance.now();
+        else if(performance.now() - redSince > 2000 && typeof window.requestEngineShutdown==='function'){
+          window.requestEngineShutdown(`> ${threshold} critical sensor circles`);
+          redSince = null; // avoid repeat
+        }
+      } else {
+        redSince = null;
+      }
+
       requestAnimationFrame(anim);
     }
     requestAnimationFrame(anim);
