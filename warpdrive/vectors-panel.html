@@ -6,7 +6,8 @@
 <title>FTL Nav Console — CST + Solver</title>
 <style>
   :root{
-    --scale:1.10;
+    --scale:1.10;                /* global +10% like before */
+    --time-scale:0.90;           /* clock time/date 10% smaller */
     --panel:#111a2b; --ink:#e9eef9; --muted:#a9b6d3; --stroke:#274061; --grid:#1b2740;
     --accent:#7dd3fc; --radius:18px;
   }
@@ -22,14 +23,9 @@
   .sub{color:var(--muted); margin:0 0 18px; font-size:.95rem}
   .wrap{width:min(1400px,96vw); margin:0 auto; display:grid; gap:18px}
 
-  /* ROW directly under subtitle: two cards, equal height, centered, evenly spaced */
-  .two-up{
-    display:grid; gap:18px; align-items:stretch;
-    grid-template-columns: 1fr;           /* stack on mobile */
-  }
-  @media (min-width:980px){
-    .two-up{ grid-template-columns: repeat(2, 1fr); } /* even halves on desktop */
-  }
+  /* two panels directly under subtitle, even halves & equal height */
+  .two-up{ display:grid; gap:18px; align-items:stretch; grid-template-columns:1fr }
+  @media (min-width:980px){ .two-up{ grid-template-columns:repeat(2,1fr) } }
 
   .card{
     background:var(--panel); border:1px solid var(--stroke); border-radius:var(--radius);
@@ -46,19 +42,31 @@
   .muted{color:var(--muted)}
   .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
   .big{font-size:clamp(24px,3.8vw,36px); font-weight:800; letter-spacing:.4px; font-variant-numeric:tabular-nums}
-  input{
+  .time-big{ font-size: calc(clamp(24px,3.8vw,36px) * var(--time-scale)) } /* 10% less for time */
+  .time{ font-size: calc(1rem * var(--time-scale)) }
+  input,button{
     background:#0b152a; border:1px solid var(--stroke); color:var(--ink);
     border-radius:10px; font:inherit; padding:.45rem .6rem;
   }
-  input[type="number"], input[type="text"]{width:14ch}
-  .even{ display:grid; grid-template-columns:repeat(auto-fit, minmax(210px,1fr)); gap:12px; align-items:center }
+  button{ cursor:pointer }
+  input[type="number"]{width:12ch}
+  .even{ display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; align-items:center }
 
-  /* Quantum Clocks: 3 equal metric columns centered */
+  /* Quantum Clocks 3 equal, centered */
   .qgrid{ display:grid; gap:16px; text-align:center; justify-items:center }
-  @media (min-width:900px){ .qgrid{ grid-template-columns:repeat(3, 1fr) } }
+  @media (min-width:900px){ .qgrid{ grid-template-columns:repeat(3,1fr) } }
   .metric{ display:grid; gap:6px }
 
-  /* Optional: below you can add your Targets panel later */
+  /* table */
+  .table{width:100%; border-collapse:separate; border-spacing:0}
+  .table th,.table td{padding:10px 12px; border-bottom:1px solid var(--grid); text-align:left}
+  .table thead th{position:sticky; top:0; background:#0f1830; z-index:1; font-size:.92rem; color:#cfd7eb}
+  .table tbody tr:hover{background:#0d1730}
+  .groupRow{ background:#0f1830; color:#cfd7eb; font-weight:800 }
+  .num{font-variant-numeric:tabular-nums}
+  .toolbar{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+  .status{margin-top:10px; padding:10px 12px; border:1px dashed #32496b; border-radius:12px; background:#0b162b; color:#d0d7ea}
+  .status.ok{border-color:#2f6b45; background:#0e1f1a; color:#bde6c7}
 </style>
 </head>
 <body>
@@ -69,7 +77,7 @@
       Includes a CST arrival solver and bubble shaping for Δwarp.
     </p>
 
-    <!-- ✅ Two panels directly under the subtitle, even columns & equal height -->
+    <!-- Two panels: evenly spaced, equal height -->
     <div class="two-up">
       <!-- Quantum Clocks -->
       <section class="card">
@@ -80,19 +88,22 @@
         <div class="body qgrid">
           <div class="metric">
             <div class="muted">CST (America/Chicago)</div>
-            <div class="big mono" id="cstTime">--:--:--</div>
-            <div class="mono" id="cstDate">--/--/----</div>
+            <div class="big time-big mono" id="cstTime">--:--:--</div>
+            <div class="mono time" id="cstDate">--/--/----</div>
           </div>
           <div class="metric">
             <div class="muted">Interstellar Time (original)</div>
             <div class="big mono" id="interstellarYear">Year ~57,889,169.3</div>
-            <div class="mono muted">synced to CST stamp</div>
+            <div class="mono muted time">synced to CST stamp</div>
           </div>
           <div class="metric">
             <div class="muted">Stardate (original)</div>
             <div class="big mono" id="stardateNow">Stardate −29,737.8</div>
-            <div class="mono" id="utcStamp">UTC —:—</div>
+            <div class="mono time" id="utcStamp">UTC —:—</div>
           </div>
+        </div>
+        <div class="body">
+          <div class="status mono" id="statusMsg">Loading targets…</div>
         </div>
       </section>
 
@@ -100,37 +111,72 @@
       <section class="card">
         <header><h2>Solver Settings</h2></header>
         <div class="body even">
-          <label>H₀ (km/s/Mpc)
-            <input type="number" id="H0" value="70" step="0.1"/>
-          </label>
-          <label>Tolerance (km)
-            <input type="number" id="tolKm" value="10000" step="100"/>
-          </label>
-          <label>Max Horizon Δt (s)
-            <input type="number" id="horizon" value="86400" step="60"/>
-          </label>
-          <label>CORS Proxy (optional)
-            <input type="text" id="proxy" placeholder="https://thingproxy.freeboard.io/fetch/"/>
-          </label>
-          <div class="muted">Panels are equal height and evenly spaced. Add your Targets section below.</div>
+          <label>H₀ (km/s/Mpc) <input type="number" id="H0" value="70" step="0.1"/></label>
+          <label>Tolerance (km) <input type="number" id="tolKm" value="10000" step="100"/></label>
+          <label>Max Horizon Δt (s) <input type="number" id="horizon" value="86400" step="60"/></label>
+          <div class="muted">Panels are centered and columns evenly spaced.</div>
         </div>
       </section>
     </div>
 
-    <!-- (Optional) Add your Targets + CST Solver section here beneath the two-up row -->
+    <!-- Targets + CST Solver -->
+    <section class="card" style="margin-top:18px">
+      <header>
+        <h2>Targets + CST Solver</h2>
+        <div class="toolbar">
+          <button id="btnRefresh">Recompute</button>
+        </div>
+      </header>
+      <div class="body">
+        <table class="table mono" id="targetsTable">
+          <thead>
+            <tr>
+              <th>Name</th><th>Type</th><th>Live Vector (AU)</th><th>Dist. Sun</th><th>Dist. Earth</th>
+              <th>Proper Motion</th><th>Radial Vel.</th><th>Distance</th><th>Rec. Vel.</th><th>Uncertainty</th>
+              <th>Last Update</th><th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Math note -->
+    <section class="card">
+      <header><h2>Math (implemented)</h2></header>
+      <div class="body muted mono" style="font-size:.95rem">
+        d<sub>☉</sub>=||r<sub>heliocentric</sub>|| (AU), d<sub>⊕</sub>=||r<sub>geocentric</sub>|| (AU). Proper motion from pm<sub>RA</sub>,pm<sub>Dec</sub> (mas/yr).<br/>
+        v<sub>r</sub>=(V·Ŕ)·(AU/day→km/s), Ŕ=R/||R||. Cosmology: v<sub>rec</sub>=H₀·D (km/s), z≈v<sub>rec</sub>/c (small-z).
+      </div>
+    </section>
   </div>
 
 <script>
-/* ===== Clocks (CST + UTC) & original values ===== */
-function setText(id,v){ const el=document.getElementById(id); if(el) el.textContent=v; }
+/* ========= Helpers & constants ========= */
+const AU_KM = 149_597_870.7;
+const AU_PER_DAY_TO_KM_S = AU_KM/86400;      // ≈1731.456
+const C_KM_S = 299_792.458;
+const LY_PER_AU = 1/63241.077;
+const LY_PER_PC = 3.26156;
+const LY_PER_MPC = LY_PER_PC*1e6;
 
+const fmt = (n,f=2)=>Number.isFinite(n)?n.toLocaleString(undefined,{maximumFractionDigits:f,minimumFractionDigits:f}):'—';
+const v3 = {
+  add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],
+  sub:(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],
+  dot:(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],
+  norm:a=>Math.hypot(a[0],a[1],a[2]),
+  mul:(a,s)=>[a[0]*s,a[1]*s,a[2]*s],
+  unit:a=>{const n=Math.hypot(a[0],a[1],a[2]); return n?[a[0]/n,a[1]/n,a[2]/n]:[0,0,0];}
+};
+
+/* ========= Clocks ========= */
+function setText(id,v){ const el=document.getElementById(id); if(el) el.textContent=v; }
 function tickClocks(){
   const now = new Date();
-  // CST display
   const cst = new Date(now.toLocaleString('en-US',{timeZone:'America/Chicago'}));
   setText('cstTime', cst.toLocaleTimeString([], {hour12:false}));
   setText('cstDate', cst.toLocaleDateString());
-  // UTC stamp
   setText('utcStamp', 'UTC ' + now.toISOString().replace('T',' ').replace('Z','Z'));
 }
 document.getElementById('tzBadge').textContent = 'America/Chicago';
@@ -138,7 +184,120 @@ setText('interstellarYear','Year ~57,889,169.3');
 setText('stardateNow','Stardate −29,737.8');
 setInterval(tickClocks,1000); tickClocks();
 
-/* (Nothing else needed for layout; your Targets panel can be appended later.) */
+/* ========= Data load & render ========= */
+const rowsEl = document.getElementById('rows');
+const statusMsg = document.getElementById('statusMsg');
+const H0Input = document.getElementById('H0');
+
+const GROUPS_DISPLAY = ['planets','moons','stars','galaxies']; // meta hidden
+let DATA = {};
+let REF = { r:[0,0,0], v:[0,0,0] };
+
+async function loadTargets(){
+  try{
+    const res = await fetch('targets.json?nocache='+Date.now(), {cache:'no-store'});
+    if(!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    DATA = await res.json();
+    // read meta for reference (e.g., Earth/or observer)
+    if(Array.isArray(DATA.meta)){
+      const refObj = DATA.meta.find(m=>m.role==='observer' || /earth/i.test(m.name||''));
+      if(refObj){
+        if(Array.isArray(refObj.r_au)) REF.r = refObj.r_au;
+        if(Array.isArray(refObj.v_au_per_d)) REF.v = refObj.v_au_per_d;
+      }
+    }
+    statusMsg.classList.add('ok');
+    statusMsg.textContent = 'targets.json loaded.';
+  }catch(e){
+    statusMsg.textContent = 'targets.json not found — rendering empty groups.';
+    DATA = {};
+  }
+  render();
+}
+
+function render(){
+  rowsEl.innerHTML = '';
+  GROUPS_DISPLAY.forEach(group=>{
+    addGroupRow(group);
+    (Array.isArray(DATA[group])?DATA[group]:[]).forEach(item => addItemRow(item, group));
+  });
+}
+
+function addGroupRow(title){
+  const tr = document.createElement('tr'); tr.className='groupRow';
+  const nowIso = new Date().toISOString();
+  const cells = [title,'—','—','—','—','—','—','—','—','—',nowIso,'ready'];
+  cells.forEach(c=>{ const td=document.createElement('td'); td.innerHTML=c; tr.appendChild(td); });
+  rowsEl.appendChild(tr);
+}
+
+function addItemRow(it, group){
+  const tr = document.createElement('tr'); rowsEl.appendChild(tr);
+  stampRow(tr, it, group);
+}
+
+function stampRow(tr, it, group){
+  const rSun = Array.isArray(it.r_au)? it.r_au : null;              // heliocentric (AU)
+  const vSun = Array.isArray(it.v_au_per_d)? it.v_au_per_d : null;  // AU/day
+  const rEarth = Array.isArray(it.r_earth_au)? it.r_earth_au : (rSun? v3.sub(rSun, REF.r) : null);
+
+  const dSun = rSun? v3.norm(rSun) : null;
+  const dEarth = rEarth? v3.norm(rEarth) : null;
+
+  // Proper motion (mas/yr)
+  let pm_mas_yr = null;
+  if(typeof it.pm_total_mas_yr === 'number') pm_mas_yr = it.pm_total_mas_yr;
+  else if(typeof it.pm_ra_mas_yr === 'number' && typeof it.pm_dec_mas_yr === 'number')
+    pm_mas_yr = Math.hypot(it.pm_ra_mas_yr, it.pm_dec_mas_yr);
+
+  // Radial velocity (km/s): prefer provided; else from vectors vs REF
+  let vr_kms = (typeof it.radial_velocity_km_s === 'number') ? it.radial_velocity_km_s : null;
+  if(vr_kms==null && rSun && (vSun || Array.isArray(it.v_km_s))){
+    const rRel = v3.sub(rSun, REF.r);
+    const vRel = vSun ? v3.sub(vSun, REF.v) : [it.v_km_s[0]/AU_PER_DAY_TO_KM_S, it.v_km_s[1]/AU_PER_DAY_TO_KM_S, it.v_km_s[2]/AU_PER_DAY_TO_KM_S];
+    vr_kms = v3.dot(vRel, v3.unit(rRel)) * AU_PER_DAY_TO_KM_S;
+  }
+
+  // Cosmology
+  const H0 = parseFloat(H0Input.value) || 70;
+  let D_mpc = (typeof it.distance_mpc==='number') ? it.distance_mpc :
+              (typeof it.distance_pc==='number') ? it.distance_pc/1e6 : null;
+  let vrec = (D_mpc!=null) ? H0 * D_mpc : null;
+  let z = (vrec!=null) ? vrec / C_KM_S : null;
+
+  // Light-year notes & delta between Sun/Earth ranges (tiny)
+  const lySun = dSun!=null ? dSun*LY_PER_AU : null;
+  const lyEarth = dEarth!=null ? dEarth*LY_PER_AU : null;
+  const dLyDelta = (lySun!=null && lyEarth!=null) ? Math.abs(lySun-lyEarth) : null;
+
+  const nowIso = new Date().toISOString();
+  const cells = [
+    it.name || '(unnamed)',
+    it.type || group.slice(0,-1),
+    rSun ? `<span class="num">[${fmt(rSun[0],6)}, ${fmt(rSun[1],6)}, ${fmt(rSun[2],6)}]</span>` : '—',
+    dSun!=null ? `<span class="num">${fmt(dSun,6)}</span>` : '—',
+    dEarth!=null ? `<span class="num">${fmt(dEarth,6)}</span>` : '—',
+    pm_mas_yr!=null ? `<span class="num">${fmt(pm_mas_yr,2)} mas/yr</span>` : '—',
+    vr_kms!=null ? `<span class="num">${fmt(vr_kms,2)} km/s</span>` : '—',
+    (D_mpc!=null)
+      ? `<span class="num">${fmt(D_mpc,4)} Mpc</span> <span class="muted">(≈${fmt(D_mpc*LY_PER_MPC,3)} Mly${dLyDelta!=null?`, Δ(SE)≈${fmt(dLyDelta,6)} ly`:''})</span>`
+      : (typeof it.distance_pc==='number'
+          ? `<span class="num">${fmt(it.distance_pc,2)} pc</span> <span class="muted">(≈${fmt(it.distance_pc*LY_PER_PC,3)} ly${dLyDelta!=null?`, Δ(SE)≈${fmt(dLyDelta,6)} ly`:''})</span>`
+          : (dLyDelta!=null?`<span class="muted">Δ(SE)≈${fmt(dLyDelta,6)} ly</span>`:'—')),
+    vrec!=null ? `<span class="num">${fmt(vrec,3)} km/s</span> <span class="muted">(z≈${fmt(z,6)})</span>` : '—',
+    it.uncertainty || '—',
+    it.last_update || nowIso,
+    it.status || '—'
+  ];
+
+  tr.innerHTML = '';
+  cells.forEach(c=>{ const td=document.createElement('td'); td.innerHTML=c; tr.appendChild(td); });
+}
+
+document.getElementById('btnRefresh').addEventListener('click', render);
+
+/* start */
+loadTargets();
 </script>
 </body>
 </html>
