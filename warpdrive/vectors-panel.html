@@ -57,7 +57,6 @@ input,select{background:#0b1233;color:#eaf0ff;border:1px solid rgba(255,255,255,
     </div>
   </section>
 
-  <!-- FIXED stray ')' -->
   <section class="card" style="grid-column: span 12">
     <h2>Targets + CST Solver</h2>
     <div class="row header">
@@ -80,17 +79,16 @@ input,select{background:#0b1233;color:#eaf0ff;border:1px solid rgba(255,255,255,
 </div>
 
 <script>
-/* ------------------- HARD REQUIREMENTS (absolute URLs) ------------------- */
-// Your page can be on any port, but these MUST point to live.js:
-const TARGETS_URL   = "http://localhost:8787/targets.json";
-const CORS_PROXY    = "http://localhost:8787/proxy?url=";
+/* =================== ABSOLUTE ENDPOINTS (MUST MATCH live.js) =================== */
+const TARGETS_URL   = "http://127.0.0.1:8787/targets.json";
+const CORS_PROXY    = "http://127.0.0.1:8787/proxy?url=";
 const HORIZONS_ENDPOINT = "https://ssd-api.jpl.nasa.gov/horizons.api";
 const GAIA_TAP          = "https://mast.stsci.edu/vo-tap/api/v0.1/gaiadr3/tap/sync";
 
-/* Show any JS error in the banner so it’s obvious */
+/* show runtime JS errors in the banner */
 window.addEventListener('error', e => {
   const b=document.getElementById('statusBanner');
-  if (b) { b.textContent = "JS error: " + e.message; b.className="banner mono bad"; }
+  if(b){ b.textContent="JS error: "+e.message; b.className="banner mono bad"; }
 });
 
 /******** TIME & UNITS ********/
@@ -113,12 +111,17 @@ const scale=(a,s)=>a.map(v=>v*s);
 const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
 
 async function horizonsVector(command, isoUtc){
-  const params=new URLSearchParams({format:'json',COMMAND:String(command),EPHEM_TYPE:'VECTORS',CENTER:'500@0',TLIST:`'${isoUtc}'`,REF_PLANE:'ECLIPTIC'});
-  const url=HORIZONS_ENDPOINT+'?'+params.toString();
-  const res=await fetch(CORS_PROXY+encodeURIComponent(url));
+  const params=new URLSearchParams({
+    format:'json', COMMAND:String(command), EPHEM_TYPE:'VECTORS',
+    CENTER:'500@0', TLIST:`'${isoUtc}'`, REF_PLANE:'ECLIPTIC'
+  });
+  const url = HORIZONS_ENDPOINT + '?' + params.toString();
+  const res = await fetch(CORS_PROXY + encodeURIComponent(url));
   if(!res.ok) throw new Error(`Horizons ${res.status}`);
-  const j=await res.json(); const vecTxt=j?.result||j?.vectors; if(!vecTxt) throw new Error('No vectors in response');
-  const m=vecTxt.match(/X\s*=\s*([\-0-9\.E+]+).*?Y\s*=\s*([\-0-9\.E+]+).*?Z\s*=\s*([\-0-9\.E+]+).*?VX\s*=\s*([\-0-9\.E+]+).*?VY\s*=\s*([\-0-9\.E+]+).*?VZ\s*=\s*([\-0-9\.E+]+)/s);
+  const j = await res.json();
+  const vecTxt = j?.result || j?.vectors;
+  if(!vecTxt) throw new Error('No vectors in response');
+  const m = vecTxt.match(/X\s*=\s*([\-0-9\.E+]+).*?Y\s*=\s*([\-0-9\.E+]+).*?Z\s*=\s*([\-0-9\.E+]+).*?VX\s*=\s*([\-0-9\.E+]+).*?VY\s*=\s*([\-0-9\.E+]+).*?VZ\s*=\s*([\-0-9\.E+]+)/s);
   if(!m) throw new Error('Parse error');
   const km=[+m[1],+m[2],+m[3]], vkm=[+m[4],+m[5],+m[6]];
   const au=km.map(v=>v/AU_KM), v_au_s=vkm.map(v=>v/AU_KM);
@@ -132,9 +135,10 @@ FROM gaiadr3.gaia_source
 WHERE 1=CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', ${raDeg}, ${decDeg}, ${radiusDeg}))
 ORDER BY phot_g_mean_mag ASC`;
   const form=new URLSearchParams({QUERY:adql});
-  const r=await fetch(CORS_PROXY+encodeURIComponent(GAIA_TAP),{method:'POST',body:form});
+  const r=await fetch(CORS_PROXY + encodeURIComponent(GAIA_TAP), {method:'POST', body:form});
   if(!r.ok) return [];
-  const text=await r.text(); const lines=text.trim().split(/\n+/); if(lines[0]?.includes('<?xml')) return [];
+  const text=await r.text(); const lines=text.trim().split(/\n+/);
+  if(lines[0]?.includes('<?xml')) return [];
   const header=lines[0].split(/,|\t/);
   return lines.slice(1).map(l=>{const a=l.split(/,|\t/);const o={}; header.forEach((h,i)=>o[h.trim()]=a[i]?a[i].trim():null); return o;});
 }
@@ -183,7 +187,7 @@ function makeRow(t){
   document.getElementById(`shape-${id}`).addEventListener('click',()=>shapeRow(t,id));
 }
 
-/******** Row updater (called every second) ********/
+/******** Row updater (every second) ********/
 async function updateRow(t,id){
   const g = sel => document.getElementById(sel);
   const vecEl=g(`vec-${id}`), sunEl=g(`sun-${id}`), earthEl=g(`earth-${id}`), pmEl=g(`pm-${id}`),
@@ -270,14 +274,14 @@ function shapeRow(t,id){
   stEl.className='small ok';
 }
 
-/******** TARGETS LOADER ********/
+/******** TARGETS LOADER + RENDER ********/
 function normalizeTargets(raw){
   if(Array.isArray(raw)) return raw.map(x=> typeof x==='string'? {name:x} : x);
   const groups=["planets","moons","stars","galaxies"];
   let out=[];
   for(const g of groups){
     if(Array.isArray(raw?.[g])){
-      out = out.concat(raw[g].map(item=>{
+      out=out.concat(raw[g].map(item=>{
         const o=(typeof item==='string')? {name:item} : {...item};
         o.group=g; o.type=o.type||g.slice(0,-1);
         return o;
@@ -307,8 +311,8 @@ function renderTargets(list){
 }
 
 /******** LIVE LOOP (every second) ********/
-const keyOf = t => (t.id || t.name || 'target').toString().replace(/\W+/g, '_');
-let LIVE_LIST = [], liveTimer=null;
+const keyOf=t=>(t.id||t.name||'target').toString().replace(/\W+/g,'_');
+let LIVE_LIST=[], liveTimer=null;
 async function refreshOnce(){ if(!LIVE_LIST.length) return; await Promise.allSettled(LIVE_LIST.map(t=>updateRow(t,keyOf(t)))); }
 function startLiveUpdates(){ stopLiveUpdates(); liveTimer=setInterval(()=>{ if(!document.hidden) refreshOnce(); },1000); }
 function stopLiveUpdates(){ if(liveTimer){ clearInterval(liveTimer); liveTimer=null; } }
@@ -328,36 +332,31 @@ setInterval(tick,1000); tick();
 /******** INIT ********/
 async function loadTargets(){
   try{
-    const r=await fetch(TARGETS_URL + "?v=" + Date.now(), { cache: "no-store" });
+    const r=await fetch(TARGETS_URL + "?v=" + Date.now(), { cache:"no-store" });
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const text=await r.text();
-    let data; try { data=JSON.parse(text); } catch { throw new Error('Invalid JSON in targets.json'); }
+    let data; try{ data=JSON.parse(text); } catch { throw new Error('Invalid JSON in targets.json'); }
     const list=normalizeTargets(data);
-
     if(!list.length){
-      setBanner('No targets found in /targets.json. Using sample targets so UI still works.', 'warn');
-      // fallback sample so you can see the UI working
+      setBanner('No targets in /targets.json. Using sample set.', 'warn');
       const sample={ planets:[{name:"Mars",horizonsId:"499"},{name:"Jupiter",horizonsId:"599"}],
                      stars:[{name:"Sirius",ra:101.2875,dec:-16.7161}] };
       return initWithList(normalizeTargets(sample));
     }
-
     setBanner(`Loaded ${list.length} target(s) from /targets.json.`, 'ok');
     initWithList(list);
-  } catch (e) {
-    setBanner('Failed to load /targets.json: ' + e.message + ' — using sample targets.', 'bad');
+  }catch(e){
+    setBanner('Failed to load /targets.json: '+e.message+' — using sample targets.', 'bad');
     const sample={ planets:[{name:"Mars",horizonsId:"499"},{name:"Jupiter",horizonsId:"599"}],
                    stars:[{name:"Sirius",ra:101.2875,dec:-16.7161}] };
     initWithList(normalizeTargets(sample));
   }
 }
-
 function initWithList(list){
   renderTargets(list);
-  LIVE_LIST = list.filter(t => t?.horizonsId || t?.naifId || t?.command);
+  LIVE_LIST=list.filter(t=>t?.horizonsId||t?.naifId||t?.command);
   startLiveUpdates();
 }
-
 loadTargets();
 </script>
 </body>
