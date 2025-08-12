@@ -27,45 +27,45 @@
   .card header{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:14px 16px; border-bottom:1px solid var(--stroke);
     background:radial-gradient(1200px 300px at 20% -20%, rgba(125,211,252,.08), transparent 60%);}
   .card header h2{margin:0; font-size:1.05rem; font-weight:800}
-  .badge{padding:.25rem .55rem; border:1px solid var(--stroke); border-radius:999px; color:var(--muted); background:#0a182c; font-size:.85rem}
+  .badge{padding:.25rem .55rem; border:1px solid var(--stroke); border-radius:999px; color:#b8c5e0; background:#0a182c; font-size:.85rem}
   .body{padding:16px}
   .muted{color:var(--muted)}
   .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
   .big{font-size:clamp(24px,3.8vw,36px); font-weight:800; letter-spacing:.4px; font-variant-numeric:tabular-nums}
   .pill{background:#0c1a30; border:1px solid var(--stroke); border-radius:10px; padding:.35rem .55rem; font-variant-numeric:tabular-nums}
   .button{cursor:pointer; user-select:none}
-  .qgrid{ display:grid; gap:16px }         /* Quantum Clocks: 3 equal columns */
+  /* Quantum Clocks: 3 equal columns */
+  .qgrid{ display:grid; gap:16px }
   @media (min-width:900px){ .qgrid{ grid-template-columns:repeat(3,1fr) } }
   .metric{ display:grid; gap:6px }
-
+  /* evenly spaced controls */
   .even{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; align-items:center }
-
+  /* table */
   .table{width:100%; border-collapse:separate; border-spacing:0}
   .table th,.table td{padding:10px 12px; border-bottom:1px solid var(--grid); text-align:left}
   .table thead th{position:sticky; top:0; background:#0f1830; z-index:1; font-size:.92rem; color:#cfd7eb}
   .table tbody tr:hover{background:#0d1730}
-
+  .num{font-variant-numeric:tabular-nums}
+  .toolbar{display:flex; gap:8px; align-items:center}
   input{background:#0b152a; border:1px solid var(--stroke); color:var(--ink); border-radius:10px; font:inherit; padding:.45rem .6rem}
   input[type="number"]{width:12ch}
   .span12{grid-column:span 12}
   .span6{grid-column:span 12}
   @media (min-width:980px){ .span6{grid-column:span 6} }
-
   .status{ margin-top:10px; padding:10px 12px; border:1px dashed #32496b; border-radius:12px; background:#0b162b; color:#d0d7ea }
   .status.ok{ border-color:#2f6b45; background:#0e1f1a; color:#bde6c7 }
-  .groupRow{ background:#0f1830; color:#cfd7eb; font-weight:800 }
-  .num{font-variant-numeric:tabular-nums}
-  .toolbar{display:flex; gap:8px; align-items:center}
+  .selected{ outline:2px solid #7dd3fc66; background:#0e1f33 !important }
 </style>
 </head>
 <body>
   <div class="wrap">
     <h1>FTL Nav Console — CST + Solver</h1>
     <p class="sub">
-      Targets from <span class="mono">targets.json</span> (same folder). Live vectors via NASA Horizons; Gaia for stellar context. Includes a CST arrival solver and bubble shaping for Δ<sub>warp</sub>.
+      Targets from <span class="mono">targets.json</span> (same folder). Live vectors via NASA Horizons; Gaia for stellar context.
+      Includes a CST arrival solver and bubble shaping for Δ<sub>warp</sub>.
     </p>
 
-    <!-- Quantum Clocks + Solver Settings (same row, equal height) -->
+    <!-- Quantum Clocks + Solver Settings (same row) -->
     <div class="grid equal">
       <section class="card span6">
         <header>
@@ -110,10 +110,13 @@
         <h2>Targets + CST Solver</h2>
         <div class="toolbar">
           <button class="pill button" id="btnFetchVectors">Get Vectors</button>
+          <button class="pill button" id="btnSolve">Solve Tc</button>
+          <button class="pill button" id="btnShape">Shape Bubble</button>
+          <span class="muted">Tip: click a row to select it.</span>
         </div>
       </header>
       <div class="body">
-        <table class="table mono">
+        <table class="table mono" id="targetsTable">
           <thead>
             <tr>
               <th>Name</th><th>Type</th><th>Live Vector (AU)</th><th>Dist. Sun</th><th>Dist. Earth</th>
@@ -177,12 +180,14 @@ const H0Input = document.getElementById('H0');
 const GROUPS_DISPLAY = ['planets','moons','stars','galaxies']; // meta hidden
 let DATA = {};
 let REF = { r:[0,0,0], v:[0,0,0] };
+let selectedKey = null; // "group:index"
 
 async function loadTargets(){
   try{
     const res = await fetch('targets.json?nocache=' + Date.now(), {cache:'no-store'});
     if(!res.ok) throw new Error(`${res.status} ${res.statusText}`);
     DATA = await res.json();
+    // reference from meta (e.g., Earth)
     if(Array.isArray(DATA.meta)){
       const refObj = DATA.meta.find(o => (o.role==='observer') || /earth/i.test(o.name||''));
       if(refObj){
@@ -205,12 +210,15 @@ function render(){
   GROUPS_DISPLAY.forEach(group=>{
     addGroupRow(group);
     const list = Array.isArray(DATA[group])? DATA[group] : [];
-    list.forEach(item=> addItemRow(item, group));
+    list.forEach((item, i)=> addItemRow(item, group, i));
   });
 }
 
 function addGroupRow(title){
-  const tr = document.createElement('tr'); tr.className='groupRow';
+  const tr = document.createElement('tr');
+  tr.style.background = '#0f1830';
+  tr.style.color = '#cfd7eb';
+  tr.style.fontWeight = '800';
   const nowIso = new Date().toISOString();
   const cells = [
     title,'—','—','—','—','—','—','—','—','—',nowIso,'static (add vector_url or vectors/<slug>.json)'
@@ -219,8 +227,10 @@ function addGroupRow(title){
   rowsEl.appendChild(tr);
 }
 
-function addItemRow(it, group){
+function addItemRow(it, group, index){
   const tr = document.createElement('tr');
+  tr.dataset.key = `${group}:${index}`;
+  tr.addEventListener('click', ()=> selectRow(tr.dataset.key));
 
   const rSun = Array.isArray(it.r_au) ? it.r_au : null;              // heliocentric (AU)
   const vSun = Array.isArray(it.v_au_per_d) ? it.v_au_per_d : null;  // AU/day
@@ -273,7 +283,20 @@ function addItemRow(it, group){
   rowsEl.appendChild(tr);
 }
 
-/* ========== “Get Vectors” loader ==========
+/* Selection logic for toolbar actions */
+function selectRow(key){
+  selectedKey = key;
+  [...rowsEl.querySelectorAll('tr')].forEach(tr => tr.classList.toggle('selected', tr.dataset.key === key));
+}
+function getSelectedItem(){
+  if(!selectedKey) return null;
+  const [group, idxStr] = selectedKey.split(':');
+  const idx = parseInt(idxStr,10);
+  const list = Array.isArray(DATA[group]) ? DATA[group] : [];
+  return list[idx] || null;
+}
+
+/* ========== Get Vectors ==========
    Looks for item.vector_url; else tries vectors/<slug(item.name)>.json (same folder).
    Expected JSON: { r_au:[x,y,z], v_au_per_d:[vx,vy,vz], last_update:"ISO", source:"..." }
 */
@@ -284,37 +307,68 @@ async function getVectors(){
   for(const group of GROUPS_DISPLAY){
     const arr = Array.isArray(DATA[group]) ? DATA[group] : [];
     for(const it of arr){
-      if(Array.isArray(it.r_au) && Array.isArray(it.v_au_per_d)) continue; // already has vectors
-
+      if(Array.isArray(it.r_au) && Array.isArray(it.v_au_per_d)) continue;
       const url = it.vector_url || `vectors/${slug(it.name||'target')}.json?nocache=${Date.now()}`;
       try{
         const res = await fetch(url, {cache:'no-store'});
         if(!res.ok) throw new Error(`${res.status} ${res.statusText}`);
         const vec = await res.json();
         if(Array.isArray(vec.r_au) && Array.isArray(vec.v_au_per_d)){
-          it.r_au = vec.r_au;
-          it.v_au_per_d = vec.v_au_per_d;
+          it.r_au = vec.r_au; it.v_au_per_d = vec.v_au_per_d;
           it.last_update = vec.last_update || stamp;
           it.status = `vector: ${vec.source || 'loaded'}`;
           updates++;
-        }else{
-          it.status = `vector: malformed (${url})`;
-          failures++;
-        }
-      }catch(e){
-        it.status = `vector: fetch failed (${url})`;
-        failures++;
-      }
+        }else{ it.status = `vector: malformed (${url})`; failures++; }
+      }catch(e){ it.status = `vector: fetch failed (${url})`; failures++; }
     }
   }
   statusMsg.textContent = `Get Vectors → ${updates} updated, ${failures} failed.`;
   render();
 }
 
-/* ========== Wire UI ========== */
-document.getElementById('btnFetchVectors').addEventListener('click', getVectors);
+/* ========== Solve Tc (closest approach, linear) ========== */
+function solveTcFor(item){
+  const r = Array.isArray(item.r_au) ? item.r_au : (Array.isArray(item.r_earth_au) ? item.r_earth_au : null);
+  const v = Array.isArray(item.v_au_per_d) ? item.v_au_per_d : null;
+  if(!r || !v) return { error:`need r_au and v_au_per_d` };
+  const V2 = v3.dot(v,v); if(V2===0) return { error:`velocity is zero` };
+  const Tc_days = - v3.dot(r,v) / V2;
+  const Rmin = v3.add(r, v3.mul(v, Tc_days));
+  const dmin_au = v3.norm(Rmin);
+  const whenIso = new Date(Date.now() + Tc_days*86400000).toISOString();
+  return { Tc_days, dmin_au, whenIso };
+}
 
-/* ========== Go ========== */
+/* ========== Bubble shaping (toy integral) ========== */
+function shapeBubbleFor(item){
+  // Demo: flat gamma profile for Δt = horizon (seconds)
+  const horizon = parseFloat(document.getElementById('horizon').value)||86400;
+  const gamma_inv_minus_1 = 0.2; // placeholder shaping
+  const I = Math.abs(gamma_inv_minus_1) * horizon; // dimension: seconds
+  return { I_sec:I };
+}
+
+/* ========== Wire toolbar buttons ========== */
+document.getElementById('btnFetchVectors').addEventListener('click', getVectors);
+document.getElementById('btnSolve').addEventListener('click', ()=>{
+  const it = getSelectedItem();
+  if(!it){ alert('Select a row first.'); return; }
+  const r = solveTcFor(it);
+  if(r.error){ alert(`${it.name}: ${r.error}`); return; }
+  alert(`Closest approach (linear)
+Target: ${it.name}
+T_c: ${r.Tc_days.toFixed(5)} days (${(r.Tc_days*24).toFixed(3)} h)
+d_min: ${r.dmin_au.toFixed(6)} AU (${(r.dmin_au*149597870.7).toFixed(2)} km)
+At UTC: ${r.whenIso}`);
+});
+document.getElementById('btnShape').addEventListener('click', ()=>{
+  const it = getSelectedItem();
+  if(!it){ alert('Select a row first.'); return; }
+  const r = shapeBubbleFor(it);
+  alert(`Shape Bubble (demo)\nTarget: ${it.name}\nIntegral I = ${r.I_sec.toFixed(2)} s`);
+});
+
+/* ========== Start ========== */
 loadTargets();
 </script>
 </body>
