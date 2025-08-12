@@ -119,7 +119,8 @@
           <label>H₀ (km/s/Mpc) <input type="number" id="H0" value="70" step="0.1"/></label>
           <label>Tolerance (km) <input type="number" id="tolKm" value="10000" step="100"/></label>
           <label>Max Horizon Δt (s) <input type="number" id="horizon" value="86400" step="60"/></label>
-          <div class="muted">Panels are centered and columns evenly spaced.</div>
+          <label>CORS Proxy (optional)<input id="proxy" placeholder="https://thingproxy.freeboard.io/fetch/"/></label>
+          <div class="muted">If Horizons is blocked by CORS, set a proxy then click Get Vectors.</div>
         </div>
       </section>
     </div>
@@ -129,6 +130,7 @@
       <header>
         <h2>Targets + CST Solver</h2>
         <div class="toolbar">
+          <button id="btnLoadVectors">Get Vectors (Web)</button>
           <button id="btnRefresh">Recompute</button>
         </div>
       </header>
@@ -150,14 +152,16 @@
     <section class="card">
       <header><h2>Math (implemented)</h2></header>
       <div class="body muted mono" style="font-size:.95rem">
-        d<sub>☉</sub>=||r<sub>heliocentric</sub>|| (AU), d<sub>⊕</sub>=||r<sub>geocentric</sub>|| (AU). Proper motion from pm<sub>RA</sub>,pm<sub>Dec</sub> (mas/yr).<br/>
-        v<sub>r</sub>=(V·Ŕ)·(AU/day→km/s), Ŕ=R/||R||. Cosmology: v<sub>rec</sub>=H₀·D (km/s), z≈v<sub>rec</sub>/c (small-z).
+        Distances: d<sub>☉</sub>=||r<sub>heliocentric</sub>|| (AU), d<sub>⊕</sub>=||r<sub>geocentric</sub>|| (AU).<br/>
+        Proper Motion (fallback): μ≈(v<sub>⊥</sub>/d)·(rad→mas/yr), using Earth-relative tangential speed if pm not provided.<br/>
+        Radial velocity: v<sub>r</sub>=(V·Ŕ)·(AU/day→km/s), with Ŕ=R/||R|| and V Earth-relative.<br/>
+        Cosmology: v<sub>rec</sub>=H₀·D (km/s) for D in Mpc; z≈v/c for small z. Δ(SE) shows Sun–Earth range in ly.
       </div>
     </section>
   </div>
 
 <script>
-/* ========= Helpers & constants ========= */
+/* ========= Constants & helpers ========= */
 const AU_KM = 149_597_870.7;
 const AU_PER_DAY_TO_KM_S = AU_KM/86400;      // ≈1731.456
 const C_KM_S = 299_792.458;
@@ -174,9 +178,14 @@ const v3 = {
   mul:(a,s)=>[a[0]*s,a[1]*s,a[2]*s],
   unit:a=>{const n=Math.hypot(a[0],a[1],a[2]); return n?[a[0]/n,a[1]/n,a[2]/n]:[0,0,0];}
 };
-
-/* ========= Clocks ========= */
 function setText(id,v){ const el=document.getElementById(id); if(el) el.textContent=v; }
+
+/* ========= Time: CST + UTC, originals ========= */
+function toCSTString(d){
+  // Return "YYYY-MM-DD HH:MM:SS" in America/Chicago
+  const s = new Date(d).toLocaleString('sv-SE', { timeZone:'America/Chicago', hour12:false });
+  return s.replace('T',' ');
+}
 function tickClocks(){
   const now = new Date();
   const cst = new Date(now.toLocaleString('en-US',{timeZone:'America/Chicago'}));
@@ -189,14 +198,15 @@ setText('interstellarYear','Year ~57,889,169.3');
 setText('stardateNow','Stardate −29,737.8');
 setInterval(tickClocks,1000); tickClocks();
 
-/* ========= Data load & render ========= */
+/* ========= Data ========= */
 const rowsEl = document.getElementById('rows');
 const statusMsg = document.getElementById('statusMsg');
 const H0Input = document.getElementById('H0');
+const proxyEl = document.getElementById('proxy');
 
 const GROUPS_DISPLAY = ['planets','moons','stars','galaxies']; // meta hidden (still read as reference)
 let DATA = {};
-let REF = { r:[0,0,0], v:[0,0,0] };
+let REF = { r:[0,0,0], v:[0,0,0], last_update:null };
 
 async function loadTargets(){
   try{
@@ -209,6 +219,7 @@ async function loadTargets(){
       if(refObj){
         if(Array.isArray(refObj.r_au)) REF.r = refObj.r_au;
         if(Array.isArray(refObj.v_au_per_d)) REF.v = refObj.v_au_per_d;
+        REF.last_update = refObj.last_update || null;
       }
     }
     statusMsg.classList.add('ok');
@@ -220,6 +231,74 @@ async function loadTargets(){
   render();
 }
 
+/* ========= Horizons fetch (live vectors) ========= */
+function horizonsUrl(command, center){
+  const base = 'https://ssd.jpl.nasa.gov/api/horizons.api';
+  const p = new URLSearchParams({
+    format:'json',
+    COMMAND:`'${command}'`,
+    EPHEM_TYPE:'VECTORS',
+    CENTER:`'${center||"500@0"}'`,
+    START_TIME:"'NOW'",
+    STOP_TIME:"'NOW+1 d'",
+    STEP_SIZE:"'1 d'",
+    VEC_TABLE:'1',
+    OUT_UNITS:'AU-D',
+    REF_PLANE:'ECLIPTIC',
+    REF_SYSTEM:'J2000'
+  });
+  const proxy = (proxyEl.value||'').trim();
+  return (proxy? proxy + base : base) + '?' + p.toString();
+}
+async function fetchVectors(command, center){
+  const res = await fetch(horizonsUrl(command, center), {cache:'no-store'});
+  if(!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  const data = await res.json();
+  const txt = data.result || '';
+  const num = s => parseFloat((s||'').trim());
+  const grab = (label)=>{ const m = txt.match(new RegExp(label+"\\s*=\\s*([+\\-]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+\\-]?\\d+)?)")); return m? num(m[1]) : null; };
+  const X=grab('X'), Y=grab('Y'), Z=grab('Z'), VX=grab('VX'), VY=grab('VY'), VZ=grab('VZ');
+  if([X,Y,Z,VX,VY,VZ].some(v=>v==null)) throw new Error('parse error');
+  // Extract epoch (CT line → UTC)
+  let iso = new Date().toISOString();
+  const tm = txt.match(/A\.D\.\s+(\d{4}-[A-Za-z]{3}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+)/);
+  if(tm){ try{ iso = new Date(tm[1]+' UTC').toISOString(); }catch{} }
+  return { r_au:[X,Y,Z], v_au_per_d:[VX,VY,VZ], last_update: iso, source:`JPL Horizons ${command} ${center||"500@0"}` };
+}
+
+async function getVectorsWeb(){
+  let updated=0, failed=0;
+  // Ensure Earth reference if missing (399)
+  if((!REF.r || !Array.isArray(REF.r)) || (!REF.v || !Array.isArray(REF.v))){
+    try {
+      const e = await fetchVectors('399', '500@0'); // Earth heliocentric
+      REF.r = e.r_au; REF.v = e.v_au_per_d; REF.last_update = e.last_update;
+      statusMsg.textContent = 'Reference Earth set from Horizons.';
+    } catch(err) {
+      statusMsg.textContent = 'Could not fetch Earth reference; Dist. Earth may equal Dist. Sun.';
+    }
+  }
+
+  for(const g of GROUPS_DISPLAY){
+    const arr = Array.isArray(DATA[g])? DATA[g] : [];
+    for(const it of arr){
+      if(!it.horizons_command){ it.status = it.status || 'no horizons_command'; continue; }
+      try{
+        const vec = await fetchVectors(it.horizons_command, it.center);
+        it.r_au = vec.r_au; it.v_au_per_d = vec.v_au_per_d;
+        it.last_update = vec.last_update; it.status = vec.source;
+        updated++;
+      }catch(e){
+        it.status = 'vector fetch failed: ' + (e?.message||e);
+        failed++;
+      }
+    }
+  }
+  statusMsg.textContent = `Get Vectors (Web): ${updated} updated, ${failed} failed.`;
+  render();
+}
+
+/* ========= Rendering & calculations ========= */
 function render(){
   rowsEl.innerHTML = '';
   GROUPS_DISPLAY.forEach(group=>{
@@ -230,8 +309,8 @@ function render(){
 
 function addGroupRow(title){
   const tr = document.createElement('tr'); tr.className='groupRow';
-  const nowIso = new Date().toISOString();
-  const cells = [title,'—','—','—','—','—','—','—','—','—',nowIso,'ready'];
+  const nowCST = toCSTString(new Date());
+  const cells = [title,'—','—','—','—','—','—','—','—','—',nowCST,'ready'];
   cells.forEach(c=>{ const td=document.createElement('td'); td.innerHTML=c; tr.appendChild(td); });
   rowsEl.appendChild(tr);
 }
@@ -241,57 +320,93 @@ function addItemRow(it, group){
   stampRow(tr, it, group);
 }
 
+function asCST(iso){
+  if(!iso) return toCSTString(new Date());
+  return toCSTString(iso);
+}
+
 function stampRow(tr, it, group){
   const rSun = Array.isArray(it.r_au)? it.r_au : null;              // heliocentric (AU)
   const vSun = Array.isArray(it.v_au_per_d)? it.v_au_per_d : null;  // AU/day
-  const rEarth = Array.isArray(it.r_earth_au)? it.r_earth_au : (rSun? v3.sub(rSun, REF.r) : null);
+  // Geocentric vector: provided or derived from Earth reference
+  const rEarth = Array.isArray(it.r_earth_au)? it.r_earth_au : (rSun && Array.isArray(REF.r)? v3.sub(rSun, REF.r) : null);
 
   const dSun = rSun? v3.norm(rSun) : null;
   const dEarth = rEarth? v3.norm(rEarth) : null;
 
-  // Proper motion (mas/yr)
+  /* Proper Motion (mas/yr)
+     Priority: explicit pm_total_mas_yr, else from pm_ra/pm_dec,
+     else fallback from Earth-relative tangential motion. */
   let pm_mas_yr = null;
   if(typeof it.pm_total_mas_yr === 'number') pm_mas_yr = it.pm_total_mas_yr;
   else if(typeof it.pm_ra_mas_yr === 'number' && typeof it.pm_dec_mas_yr === 'number')
     pm_mas_yr = Math.hypot(it.pm_ra_mas_yr, it.pm_dec_mas_yr);
-
-  // Radial velocity (km/s): prefer provided; else from vectors vs REF
-  let vr_kms = (typeof it.radial_velocity_km_s === 'number') ? it.radial_velocity_km_s : null;
-  if(vr_kms==null && rSun && (vSun || Array.isArray(it.v_km_s))){
-    const rRel = v3.sub(rSun, REF.r);
-    const vRel = vSun ? v3.sub(vSun, REF.v) : [it.v_km_s[0]/AU_PER_DAY_TO_KM_S, it.v_km_s[1]/AU_PER_DAY_TO_KM_S, it.v_km_s[2]/AU_PER_DAY_TO_KM_S];
-    vr_kms = v3.dot(vRel, v3.unit(rRel)) * AU_PER_DAY_TO_KM_S;
+  else if (rEarth && (vSun || Array.isArray(it.v_km_s)) && Array.isArray(REF.v)) {
+    // Earth-relative velocity
+    const vRel_au_d = vSun ? v3.sub(vSun, REF.v) : [it.v_km_s[0]/AU_PER_DAY_TO_KM_S, it.v_km_s[1]/AU_PER_DAY_TO_KM_S, it.v_km_s[2]/AU_PER_DAY_TO_KM_S];
+    const Rhat = v3.unit(rEarth);
+    const v_rad_au_d = v3.dot(vRel_au_d, Rhat);
+    const v_tan_au_d = v3.sub(vRel_au_d, v3.mul(Rhat, v_rad_au_d));
+    const v_tan = v3.norm(v_tan_au_d); // AU/day
+    const d = v3.norm(rEarth);         // AU
+    if(d>0){
+      const mu_rad_per_day = v_tan / d;
+      pm_mas_yr = mu_rad_per_day * (180/Math.PI) * 3600 * 1000 * 365.25;
+    }
   }
 
-  // Cosmology
+  /* Radial velocity (km/s) relative to Earth */
+  let vr_kms = (typeof it.radial_velocity_km_s === 'number') ? it.radial_velocity_km_s : null;
+  if(vr_kms==null && rEarth && (vSun || Array.isArray(it.v_km_s))){
+    const vRel_au_d = vSun ? v3.sub(vSun, REF.v) : [it.v_km_s[0]/AU_PER_DAY_TO_KM_S, it.v_km_s[1]/AU_PER_DAY_TO_KM_S, it.v_km_s[2]/AU_PER_DAY_TO_KM_S];
+    const Rhat = v3.unit(rEarth);
+    vr_kms = v3.dot(vRel_au_d, Rhat) * AU_PER_DAY_TO_KM_S;
+  }
+
+  /* Distance & cosmology */
   const H0 = parseFloat(H0Input.value) || 70;
-  let D_mpc = (typeof it.distance_mpc==='number') ? it.distance_mpc :
-              (typeof it.distance_pc==='number') ? it.distance_pc/1e6 : null;
-  let vrec = (D_mpc!=null) ? H0 * D_mpc : null;
+  let dist_pc = null, dist_mpc = null;
+  if (typeof it.distance_mpc === 'number'){ dist_mpc = it.distance_mpc; }
+  else if (typeof it.distance_pc === 'number'){ dist_pc = it.distance_pc; }
+  else if (typeof it.parallax_mas === 'number' && it.parallax_mas>0){ dist_pc = 1000/it.parallax_mas; }
+  if (dist_pc!=null) dist_mpc = dist_pc/1e6;
+
+  let vrec = (dist_mpc!=null) ? H0 * dist_mpc : null;
   let z = (vrec!=null) ? vrec / C_KM_S : null;
 
-  // Light-year notes & delta between Sun/Earth ranges (tiny)
+  // Δ(SE) in light-years from Sun vs Earth ranges (tiny but requested)
   const lySun = dSun!=null ? dSun*LY_PER_AU : null;
   const lyEarth = dEarth!=null ? dEarth*LY_PER_AU : null;
   const dLyDelta = (lySun!=null && lyEarth!=null) ? Math.abs(lySun-lyEarth) : null;
 
-  const nowIso = new Date().toISOString();
+  // Uncertainty from age of vector timestamp
+  const now = new Date();
+  const epochIso = it.last_update || REF.last_update || now.toISOString();
+  const age_s = Math.max(0, (now - new Date(epochIso))/1000);
+  let speed_kms = null;
+  if(vSun){ speed_kms = v3.norm(vSun) * AU_PER_DAY_TO_KM_S; }
+  else if (Array.isArray(it.v_km_s)){ speed_kms = v3.norm(it.v_km_s); }
+  // σ_r ≈ |v| · Δt
+  const sigma_km = (speed_kms!=null) ? speed_kms * age_s : null;
+
+  const lastCST = asCST(epochIso);
+
   const cells = [
     it.name || '(unnamed)',
     it.type || group.slice(0,-1),
     rSun ? `<span class="num">[${fmt(rSun[0],6)}, ${fmt(rSun[1],6)}, ${fmt(rSun[2],6)}]</span>` : '—',
-    dSun!=null ? `<span class="num">${fmt(dSun,6)}</span>` : '—',
-    dEarth!=null ? `<span class="num">${fmt(dEarth,6)}</span>` : '—',
-    pm_mas_yr!=null ? `<span class="num">${fmt(pm_mas_yr,2)} mas/yr</span>` : '—',
-    vr_kms!=null ? `<span class="num">${fmt(vr_kms,2)} km/s</span>` : '—',
-    (D_mpc!=null)
-      ? `<span class="num">${fmt(D_mpc,4)} Mpc</span> <span class="muted">(≈${fmt(D_mpc*LY_PER_MPC,3)} Mly${dLyDelta!=null?`, Δ(SE)≈${fmt(dLyDelta,6)} ly`:''})</span>`
-      : (typeof it.distance_pc==='number'
-          ? `<span class="num">${fmt(it.distance_pc,2)} pc</span> <span class="muted">(≈${fmt(it.distance_pc*LY_PER_PC,3)} ly${dLyDelta!=null?`, Δ(SE)≈${fmt(dLyDelta,6)} ly`:''})</span>`
+    (dSun!=null) ? `<span class="num">${fmt(dSun,6)}</span>` : '—',
+    (dEarth!=null) ? `<span class="num">${fmt(dEarth,6)}</span>` : '—',
+    (pm_mas_yr!=null) ? `<span class="num">${fmt(pm_mas_yr,2)} mas/yr</span>` : '—',
+    (vr_kms!=null) ? `<span class="num">${fmt(vr_kms,2)} km/s</span>` : '—',
+    (dist_mpc!=null)
+      ? `<span class="num">${fmt(dist_mpc,4)} Mpc</span> <span class="muted">(≈${fmt(dist_mpc*LY_PER_MPC,3)} Mly${dLyDelta!=null?`, Δ(SE)≈${fmt(dLyDelta,6)} ly`:''})</span>`
+      : (dist_pc!=null
+          ? `<span class="num">${fmt(dist_pc,2)} pc</span> <span class="muted">(≈${fmt(dist_pc*LY_PER_PC,3)} ly${dLyDelta!=null?`, Δ(SE)≈${fmt(dLyDelta,6)} ly`:''})</span>`
           : (dLyDelta!=null?`<span class="muted">Δ(SE)≈${fmt(dLyDelta,6)} ly</span>`:'—')),
-    vrec!=null ? `<span class="num">${fmt(vrec,3)} km/s</span> <span class="muted">(z≈${fmt(z,6)})</span>` : '—',
-    it.uncertainty || '—',
-    it.last_update || nowIso,
+    (vrec!=null) ? `<span class="num">${fmt(vrec,3)} km/s</span> <span class="muted">(z≈${fmt(z,6)})</span>` : '—',
+    (sigma_km!=null) ? `<span class="num">±${fmt(sigma_km,0)} km</span> <span class="muted">(Δt≈${fmt(age_s,0)} s)</span>` : '—',
+    lastCST,
     it.status || '—'
   ];
 
@@ -299,9 +414,11 @@ function stampRow(tr, it, group){
   cells.forEach(c=>{ const td=document.createElement('td'); td.innerHTML=c; tr.appendChild(td); });
 }
 
+/* ========= UI wires ========= */
+document.getElementById('btnLoadVectors').addEventListener('click', getVectorsWeb);
 document.getElementById('btnRefresh').addEventListener('click', render);
 
-/* start */
+/* ========= Start ========= */
 loadTargets();
 </script>
 </body>
