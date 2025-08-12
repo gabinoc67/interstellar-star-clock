@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>FTL Nav Console — CST + Solver (Offline Ephemeris)</title>
+<title>FTL Nav Console — CST + Solver (Stamp-Time Propagation, Offline)</title>
 <style>
 :root{--bg:#060a16;--card:#0f1630;--ink:#eaf0ff;--muted:#9fb0e0;--good:#3dd07f;--warn:#ffd166;--bad:#ef476f;--grid:16px}
 *{box-sizing:border-box}
@@ -13,7 +13,6 @@ header{padding:26px 28px;border-bottom:1px solid rgba(255,255,255,.06);position:
 .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:var(--grid)}
 .card{background:var(--card);border:1px solid rgba(255,255,255,.06);border-radius:18px;padding:20px;box-shadow:0 10px 28px rgba(0,0,0,.28)}
 .card h2{margin:0 0 10px 0;font-size:19px}
-/* 12 columns, no Actions */
 .row{display:grid;grid-template-columns:340px 96px 1.2fr 0.9fr 0.9fr 1fr 1fr 0.9fr 0.9fr 0.9fr 0.9fr 1.1fr;gap:12px;align-items:flex-start;padding:12px 0;border-bottom:1px dashed rgba(255,255,255,.08)}
 .row.header{font-weight:700;color:#cbd5ff;border-bottom:1px solid rgba(255,255,255,.14);position:sticky;top:86px;background:linear-gradient(180deg,#0f1630,rgba(15,22,48,.6));z-index:5}
 .row > div{min-height:24px}
@@ -30,8 +29,8 @@ header{padding:26px 28px;border-bottom:1px solid rgba(255,255,255,.06);position:
 <header>
   <h1>FTL Nav Console — CST + Solver</h1>
   <div class="small">
-    <b>Offline mode:</b> built-in Kepler ephemeris (no server required). Columns marked “offline” skip GAIA/Horizons.
-    Put optional targets in <code>targets.json</code> later (top-level: <b>planets</b>, <b>moons</b>, <b>stars</b>, <b>galaxies</b>).
+    Offline, per-second updates from <b>stamp time</b> (epoch). Sources per target:
+    <b>r0/v0</b> (linear), <b>astrometry</b> (RA/Dec/pm/rv), or built-in <b>Kepler</b> for known planets/moons.
   </div>
 </header>
 
@@ -44,16 +43,14 @@ header{padding:26px 28px;border-bottom:1px solid rgba(255,255,255,.06);position:
       <div><div class="small">Stardate (demo)</div><div class="mono" id="stardate">—</div></div>
     </div>
     <div class="small" style="margin-top:6px">CST↔UTC offset: <span id="cstOffset">—</span> • UTC epoch: <span class="mono" id="utcEpoch">—</span></div>
-    <div class="banner mono" id="statusBanner">Starting offline ephemeris…</div>
+    <div class="banner mono" id="statusBanner">Starting stamp-time propagation…</div>
   </section>
 
   <section class="card" style="grid-column: span 5">
-    <h2>Solver Settings</h2>
+    <h2>Model Settings</h2>
     <div class="flex">
-      <label>H₀ (km/s/Mpc) <input id="h0" type="number" step="0.1" value="70" style="width:110px" disabled></label>
-      <label>Tolerance (km) <input id="tolKm" type="number" step="100" value="10000" style="width:140px" disabled></label>
-      <label>Max Horizon Δt (s) <input id="maxDt" type="number" step="1" value="86400" style="width:140px" disabled></label>
-      <span class="small">Online solver disabled (offline mode).</span>
+      <label>Uncertainty scale (s) <input id="uncT" type="number" step="1" value="10" style="width:120px"></label>
+      <span class="small">Uncertainty ≈ |v| × scale.</span>
     </div>
   </section>
 
@@ -68,17 +65,23 @@ header{padding:26px 28px;border-bottom:1px solid rgba(255,255,255,.06);position:
   </section>
 
   <section class="card" style="grid-column: span 12">
-    <h2>Math (implemented)</h2>
+    <h2>How to feed targets (optional)</h2>
     <div class="small">
-      Offline propagation: two-body Kepler (J2000 elements, constant mean motion).
-      Positions update every second; velocities from 2-s central difference.
+      Put a <code>targets.json</code> next to this file. For each target, you can provide:
+      <ul>
+        <li><b>Linear</b>: <code>epoch</code> (ISO/JD), <code>r0_au:[x,y,z]</code>, <code>v0_au_s:[vx,vy,vz]</code></li>
+        <li><b>Astrometry</b>: <code>epoch</code>, <code>ra</code>°, <code>dec</code>°, <code>distance_au|distance_pc|parallax_mas</code>, <code>pmra_mas_y</code>, <code>pmdec_mas_y</code>, <code>rv_km_s</code></li>
+        <li><b>Kepler</b>: just <code>name</code> of a known planet/moon (Mercury…Neptune; Moon, Europa, Ganymede, Callisto, Titan)</li>
+      </ul>
+      If <code>targets.json</code> is missing, built-ins + a demo “Custom Probe” are used.
     </div>
   </section>
 </div>
 
 <script>
-/* ================= OFFLINE CONSTANTS & UTILS ================= */
+/* ===== Units & helpers ===== */
 const AU_KM=149_597_870.700, KM_PER_MI=1.609344, MI_PER_AU=AU_KM/KM_PER_MI, C_KM_S=299_792.458;
+const AU_PER_PC = 206_264.806;                   // 1 parsec in AU
 const DEG=Math.PI/180, RAD=180/Math.PI;
 const fmt=(n,d=6)=>Number(n).toFixed(d);
 const fmtAU=x=>fmt(x,6)+" AU";
@@ -94,101 +97,150 @@ const norm=v=>Math.hypot(...v);
 const sub=(a,b)=>a.map((v,i)=>v-b[i]);
 const add=(a,b)=>a.map((v,i)=>v+b[i]);
 const scale=(a,s)=>a.map(v=>v*s);
+const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+const unit=v=>{const n=norm(v); return n>0? scale(v,1/n):[1,0,0];}
 
-/* Julian Date (UTC) */
+/* JD (UTC) */
 function toJD(date){
   let Y=date.getUTCFullYear(), M=date.getUTCMonth()+1, D=date.getUTCDate();
   let h=date.getUTCHours(), m=date.getUTCMinutes(), s=date.getUTCSeconds()+date.getUTCMilliseconds()/1000;
   if (M<=2){Y-=1;M+=12;}
-  const A=Math.floor(Y/100);
-  const B=2-A+Math.floor(A/4);
+  const A=Math.floor(Y/100), B=2-A+Math.floor(A/4);
   const day=D+(h+(m+s/60)/60)/24;
   return Math.floor(365.25*(Y+4716))+Math.floor(30.6001*(M+1))+day+B-1524.5;
 }
 const JD_J2000 = 2451545.0;
 
-/* ================= OFFLINE ORBITS (J2000, simple mean motion) =================
-   Elements: a (AU), e, i (deg), Ω (deg), ϖ (deg, longitude of perihelion), L0 (deg at J2000), P (days)
-   ω = ϖ - Ω, M = (L0 - ϖ) + n*Δt_days, n = 360/P deg/day
-*/
+/* ===== Kepler planets + simple moons for fallback ===== */
 const ORBITS = {
   Mercury:{ a:0.38709893, e:0.20563069, i:7.00487,  O:48.33167,  p:77.45645,  L0:252.25084, P:87.969 },
   Venus:  { a:0.72333199, e:0.00677323, i:3.39471,  O:76.68069,  p:131.53298, L0:181.97973, P:224.701 },
   Earth:  { a:1.00000011, e:0.01671022, i:0.00005,  O:-11.26064, p:102.94719, L0:100.46435, P:365.256 },
   Mars:   { a:1.52366231, e:0.09341233, i:1.85061,  O:49.57854,  p:336.04084, L0:355.45332, P:686.980 },
-  Jupiter:{ a:5.20336301, e:0.04839266, i:1.30530,  O:100.55615, p:14.75385,  L0:34.40438,  P:4332.589 }
+  Jupiter:{ a:5.20336301, e:0.04839266, i:1.30530,  O:100.55615, p:14.75385,  L0:34.40438,  P:4332.589 },
+  Saturn: { a:9.53707032, e:0.05415060, i:2.48446,  O:113.71504, p:92.43194,  L0:49.94432,  P:10759.22 },
+  Uranus: { a:19.19126393,e:0.04716771, i:0.76986,  O:74.22988,  p:170.96424, L0:313.23218, P:30685.4 },
+  Neptune:{ a:30.06896348,e:0.00858587, i:1.76917,  O:131.72169, p:44.97135,  L0:304.88003, P:60190.0 }
+};
+const MOON_ORBITS = {
+  Moon:     { primary:"Earth",  a_au:0.002569, P_days:27.321661, phase_deg: 20 },
+  Europa:   { primary:"Jupiter",a_au:0.004484, P_days: 3.551181, phase_deg: 45 },
+  Ganymede: { primary:"Jupiter",a_au:0.007155, P_days: 7.154553, phase_deg: 90 },
+  Callisto: { primary:"Jupiter",a_au:0.012585, P_days:16.689018, phase_deg:135 },
+  Titan:    { primary:"Saturn", a_au:0.008168, P_days:15.945,    phase_deg: 60 }
 };
 
-/* Solve Kepler (elliptic) */
-function solveKepler(M,e){
-  let E=M, d;
-  for(let k=0;k<12;k++){
-    d=(E - e*Math.sin(E) - M)/(1 - e*Math.cos(E));
-    E-=d;
-    if (Math.abs(d)<1e-12) break;
-  }
-  return E;
-}
-
-/* Heliocentric ecliptic state (AU) for planet name at Julian Date jd.
-   Returns {r:[x,y,z] in AU}
-*/
+function solveKepler(M,e){ let E=M, d; for(let k=0;k<12;k++){ d=(E - e*Math.sin(E) - M)/(1 - e*Math.cos(E)); E-=d; if(Math.abs(d)<1e-12) break; } return E; }
 function planetPosAU(name, jd){
-  const el = ORBITS[name];
-  if(!el) return {r:[NaN,NaN,NaN]};
-  const dt = jd - JD_J2000;            // days since J2000
-  const n  = 360/el.P;                 // deg/day
-  const M  = ((el.L0 - el.p) + n*dt) * DEG;   // rad
-  const w  = (el.p - el.O) * DEG;             // ω
-  const O  = el.O * DEG;                       // Ω
-  const I  = el.i * DEG;                       // i
-  const e  = el.e, a = el.a;
-
+  const el = ORBITS[name]; if(!el) return {r:[NaN,NaN,NaN]};
+  const dt = jd - JD_J2000; const n = 360/el.P;
+  const M = ((el.L0 - el.p) + n*dt) * DEG;
+  const w = (el.p - el.O) * DEG, O = el.O * DEG, I = el.i * DEG;
+  const e = el.e, a = el.a;
   const E = solveKepler(M,e);
-  const cosE=Math.cos(E), sinE=Math.sin(E);
-  const sqrt1e=Math.sqrt(1-e*e);
-
-  // position in orbital plane
+  const cosE=Math.cos(E), sinE=Math.sin(E), b=Math.sqrt(1-e*e);
   const r = a*(1 - e*cosE);
-  const cosv = (cosE - e)/(1 - e*cosE);
-  const sinv = (sqrt1e*sinE)/(1 - e*cosE);
-  const v = Math.atan2(sinv, cosv);
-  const u = w + v; // argument of latitude
-
-  const cosO=Math.cos(O), sinO=Math.sin(O);
-  const cosI=Math.cos(I), sinI=Math.sin(I);
-  const cosu=Math.cos(u), sinu=Math.sin(u);
-
+  const cosv=(cosE - e)/(1 - e*cosE), sinv=(b*sinE)/(1 - e*cosE);
+  const v = Math.atan2(sinv,cosv), u = w + v;
+  const cosO=Math.cos(O), sinO=Math.sin(O), cosI=Math.cos(I), sinI=Math.sin(I), cosu=Math.cos(u), sinu=Math.sin(u);
   const x = r*(cosO*cosu - sinO*sinu*cosI);
   const y = r*(sinO*cosu + cosO*sinu*cosI);
   const z = r*(sinu*sinI);
-
   return { r:[x,y,z] };
 }
-
-/* Position and velocity via central difference (±1s) */
 function stateAU(name, date){
-  const jd = toJD(date);
-  const dtDays = 1/86400; // 1 second in days
+  const jd = toJD(date), d=1/86400;
   const p0 = planetPosAU(name, jd).r;
-  const pPlus = planetPosAU(name, jd+dtDays).r;
-  const pMinus= planetPosAU(name, jd-dtDays).r;
-  const v_au_s = scale(sub(pPlus, pMinus), 1/(2*1)); // AU per second
+  const pP = planetPosAU(name, jd+d).r;
+  const pM = planetPosAU(name, jd-d).r;
+  const v_au_s = scale(sub(pP, pM), 1/(2*1));
   return { r:p0, v_au_s };
 }
+function moonStateAU(moonName, date){
+  const cfg = MOON_ORBITS[moonName]; if(!cfg) return null;
+  const {primary,a_au,P_days,phase_deg}=cfg;
+  const jd = toJD(date);
+  const prim = stateAU(primary, date);
+  const rhat = unit(prim.r), that = unit(prim.v_au_s), nhat = unit(cross(rhat, that));
+  const e1 = that, e2 = nhat;
+  const omega = 2*Math.PI/(P_days*86400);
+  const theta = (phase_deg*DEG) + omega*((jd-JD_J2000)*86400);
+  const cosT=Math.cos(theta), sinT=Math.sin(theta);
+  const r_rel = add(scale(e1, a_au*cosT), scale(e2, a_au*sinT));
+  const v_rel = add(scale(e1, -a_au*omega*sinT), scale(e2, a_au*omega*cosT));
+  return { r: add(prim.r, r_rel), v_au_s: add(prim.v_au_s, v_rel) };
+}
 
-/* ================= UI + RENDER ================= */
+/* ===== Stamp-time parsing & astrometry → Cartesian ===== */
+function parseEpoch(epoch){
+  if (epoch==null) return null;
+  if (typeof epoch==="number") return epoch; // assume JD
+  const t = Date.parse(epoch);
+  if (isNaN(t)) return null;
+  return toJD(new Date(t));
+}
+function astrometryToState(t){
+  // Required: ra, dec; One of distance_au | distance_pc | parallax_mas
+  if (typeof t.ra!=="number" || typeof t.dec!=="number") return null;
+  let D_au=null;
+  if (typeof t.distance_au==="number") D_au=t.distance_au;
+  else if (typeof t.distance_pc==="number") D_au=t.distance_pc*AU_PER_PC;
+  else if (typeof t.parallax_mas==="number" && t.parallax_mas>0) D_au=(1000/t.parallax_mas)*AU_PER_PC;
+  if (!isFinite(D_au)) return null;
+
+  const alpha=t.ra*DEG, delta=t.dec*DEG;
+  const cosd=Math.cos(delta), sind=Math.sin(delta), cosa=Math.cos(alpha), sina=Math.sin(alpha);
+
+  const r0 = [ D_au*cosd*cosa, D_au*cosd*sina, D_au*sind ];
+  // Tangent basis
+  const e_ra  = [-sina, cosa, 0];
+  const e_dec = [-cosa*sind, -sina*sind, cosd];
+
+  const pmra = Number(t.pmra_mas_y||0);   // mas/yr (μ_α*)
+  const pmdec= Number(t.pmdec_mas_y||0);  // mas/yr
+  const mas_to_rad_s = (Math.PI/(180*3600*1000)) / (365.25*86400);
+  const pmra_rad_s = pmra * mas_to_rad_s;
+  const pmdec_rad_s= pmdec* mas_to_rad_s;
+
+  const v_t = add( scale(e_ra,  D_au*pmra_rad_s), scale(e_dec, D_au*pmdec_rad_s) );
+
+  const rv_km_s = Number(t.rv_km_s||0);
+  const rv_au_s = rv_km_s / AU_KM;
+  const u_r = unit(r0);
+  const v_r = scale(u_r, rv_au_s);
+
+  const v0 = add(v_t, v_r);
+
+  return { r0_au:r0, v0_au_s:v0 };
+}
+function linearStateAtNow(r0_au, v0_au_s, epochJD, now){
+  const dt_s = (toJD(now) - epochJD) * 86400;
+  return add(r0_au, scale(v0_au_s, dt_s));
+}
+
+/* ===== Classification & selection ===== */
+function pickPlanetName(name){
+  const m={mercury:"Mercury", venus:"Venus", earth:"Earth", terra:"Earth", mars:"Mars", jupiter:"Jupiter", saturn:"Saturn", uranus:"Uranus", neptune:"Neptune"};
+  const k = m[name] || m[name?.replace(/\s+/g,'')];
+  const c = name ? name.charAt(0).toUpperCase()+name.slice(1) : "";
+  if (ORBITS[k]) return k;
+  if (ORBITS[c]) return c;
+  return null;
+}
+function pickMoonName(name){
+  const m={moon:"Moon", europa:"Europa", ganymede:"Ganymede", callisto:"Callisto", titan:"Titan"};
+  const k = m[name] || m[name?.replace(/\s+/g,'')];
+  return MOON_ORBITS[k] ? k : null;
+}
+
+/* ===== UI build/render ===== */
 const rowsEl=document.getElementById('targets');
 const banner=document.getElementById('statusBanner');
 function setBanner(msg,cls){banner.textContent=msg;banner.className='banner mono '+(cls||'')}
 
 const GROUP_ORDER=["planets","moons","stars","galaxies"];
 const GROUP_LABEL={planets:"Planets", moons:"Moons", stars:"Stars", galaxies:"Galaxies", other:"Other"};
-
-function addGroupHeader(label){
-  const g=document.createElement('div'); g.className='group'; g.textContent=label; rowsEl.appendChild(g);
-}
-
+function addGroupHeader(label){const g=document.createElement('div'); g.className='group'; g.textContent=label; rowsEl.appendChild(g);}
 function makeRow(t){
   const el=document.createElement('div'); el.className='row';
   const id=(t.id||t.name||'target').toString().replace(/\W+/g,'_'); el.id=`row-${id}`;
@@ -198,100 +250,118 @@ function makeRow(t){
     <div class="mono" id="vec-${id}">—</div>
     <div id="sun-${id}">—</div>
     <div id="earth-${id}">—</div>
-    <div id="pm-${id}">offline</div>
-    <div id="rv-${id}">offline</div>
-    <div id="dist-${id}">offline</div>
-    <div id="rec-${id}">offline</div>
+    <div id="pm-${id}">${(t.pmra_mas_y!=null||t.pmdec_mas_y!=null)?`${Number(t.pmra_mas_y||0).toFixed(1)}, ${Number(t.pmdec_mas_y||0).toFixed(1)} mas/yr`:'—'}</div>
+    <div id="rv-${id}">${(t.rv_km_s!=null)?`${Number(t.rv_km_s).toFixed(1)} km/s`:'—'}</div>
+    <div id="dist-${id}">${t.distance_pc!=null?`${Number(t.distance_pc).toFixed(2)} pc`:(t.distance_au!=null?`${fmtAU(t.distance_au)}`:(t.parallax_mas!=null?`${Number(t.parallax_mas).toFixed(1)} mas`:'—'))}</div>
+    <div id="rec-${id}">—</div>
     <div id="unc-${id}">—</div>
     <div class="small" id="upd-${id}">—</div>
     <div class="small" id="status-${id}">pending…</div>`;
   rowsEl.appendChild(el);
 }
-
-/* Build rows grouped */
 function renderTargets(list){
   rowsEl.innerHTML='';
   const by=new Map();
   list.forEach(t=>{const g=t.group||'other'; if(!by.has(g)) by.set(g,[]); by.get(g).push(t)});
   [...GROUP_ORDER,'other'].forEach(g=>{
-    const arr=by.get(g)||[];
-    if(!arr.length) return;
+    const arr=by.get(g)||[]; if(!arr.length) return;
     addGroupHeader(GROUP_LABEL[g]||g);
     arr.forEach(makeRow);
   });
 }
 
-/* ================= OFFLINE UPDATE LOOP (1 Hz) ================= */
+/* ===== Live update (1 Hz) with stamp-time propagation ===== */
 const keyOf=t=>(t.id||t.name||'target').toString().replace(/\W+/g,'_');
 let LIVE_LIST=[], liveTimer=null;
 
-function updateRowOffline(t){
+function updateOne(t){
   const id=keyOf(t);
   const g=sel=>document.getElementById(sel);
-  const vecEl=g(`vec-${id}`), sunEl=g(`sun-${id}`), earthEl=g(`earth-${id}`),
-        uncEl=g(`unc-${id}`), updEl=g(`upd-${id}`), stEl=g(`status-${id}`);
+  const vecEl=g(`vec-${id}`), sunEl=g(`sun-${id}`), earthEl=g(`earth-${id}`), uncEl=g(`unc-${id}`),
+        updEl=g(`upd-${id}`), stEl=g(`status-${id}`), recEl=g(`rec-${id}`);
 
   try{
     const now = new Date();
-    // Earth heliocentric state
+    // Always need Earth for "Dist. Earth"
     const earth = stateAU("Earth", now);
-    let r=[NaN,NaN,NaN], v_au_s=[0,0,0];
 
-    const name = (t.name||"").toLowerCase();
-    const isPlanet = !!ORBITS[t.name] || !!ORBITS[capitalize(t.name)];
-    const displayName = pickOrbitName(name);
+    let model="", r=[NaN,NaN,NaN], v=[0,0,0];
 
-    if (displayName){
-      const s = stateAU(displayName, now);
-      r = s.r; v_au_s = s.v_au_s;
+    // 1) Direct r0/v0 with epoch
+    if (Array.isArray(t.r0_au) && Array.isArray(t.v0_au_s) && t.r0_au.length===3 && t.v0_au_s.length===3){
+      const epochJD = parseEpoch(t.epoch);
+      if (epochJD){
+        r = linearStateAtNow(t.r0_au, t.v0_au_s, epochJD, now);
+        v = t.v0_au_s.slice();
+        model = "linear from epoch";
+      }
+    }
+
+    // 2) Astrometry → Cartesian, then propagate linearly
+    if (!isFinite(r[0]) && typeof t.ra==="number" && typeof t.dec==="number"){
+      const a = astrometryToState(t);
+      const epochJD = parseEpoch(t.epoch);
+      if (a && epochJD){
+        r = linearStateAtNow(a.r0_au, a.v0_au_s, epochJD, now);
+        v = a.v0_au_s.slice();
+        model = "astrometry from epoch";
+        // Optional: recession (H0*D) rough demo if distance_pc given
+        if (typeof t.distance_pc==="number"){
+          const H0 = 70; // km/s/Mpc demo
+          const vrec = H0*(t.distance_pc/1e6);
+          recEl.textContent = `${vrec.toFixed(3)} km/s`;
+        }
+      }
+    }
+
+    // 3) Kepler fallback (planets / moons)
+    if (!isFinite(r[0]) && t.name){
+      const n = (t.name||"").toLowerCase();
+      const moonKey = pickMoonName(n);
+      const plKey = pickPlanetName(n);
+      if (moonKey){
+        const s = moonStateAU(moonKey, now);
+        if (s){ r=s.r; v=s.v_au_s; model="offline moon ephemeris"; }
+      } else if (plKey){
+        const s = stateAU(plKey, now);
+        if (s){ r=s.r; v=s.v_au_s; model="offline planet ephemeris"; }
+      }
+    }
+
+    // 4) If still undefined, mark unsupported
+    if (!isFinite(r[0])){
+      vecEl.textContent='—'; sunEl.textContent='—'; earthEl.textContent='—';
+      uncEl.textContent='—'; updEl.textContent='—'; stEl.textContent='unsupported (need epoch+r0/v0 or astrometry)'; stEl.className='small warn';
+      return;
     }
 
     // Live vector
-    vecEl.textContent = `[${fmt(r[0])}, ${fmt(r[1])}, ${fmt(r[2])}]`;
+    vecEl.textContent=`[${fmt(r[0])}, ${fmt(r[1])}, ${fmt(r[2])}]`;
+
+    // Distances
     const rSun = norm(r);
-    const rEarth = isFinite(earth.r[0]) ? norm(sub(r, earth.r)) : NaN;
+    const rEarth = norm(sub(r, earth.r));
+    sunEl.textContent   = `${fmtAU(rSun)} (${fmtMi(rSun*MI_PER_AU)})`;
+    earthEl.textContent = `${fmtAU(rEarth)} (${fmtMi(rEarth*MI_PER_AU)})`;
 
-    // Distances (AU + miles)
-    sunEl.textContent   = isFinite(rSun)   ? `${fmtAU(rSun)} (${fmtMi(rSun*MI_PER_AU)})`   : '—';
-    earthEl.textContent = isFinite(rEarth) ? `${fmtAU(rEarth)} (${fmtMi(rEarth*MI_PER_AU)})` : (displayName==="Earth" ? `${fmtAU(0)} (${fmtMi(0)})` : '—');
-
-    // Uncertainty: simple model ~ |v| * 10 s (km)
-    const v_km_s = norm(v_au_s) * AU_KM;
-    const sigmaKm = v_km_s * 10;
-    const sigmaAu = sigmaKm / AU_KM;
+    // Uncertainty: |v| * T (T from UI)
+    const T = Number(document.getElementById('uncT').value || 10);
+    const v_km_s = norm(v)*AU_KM, sigmaKm=v_km_s*T, sigmaAu=sigmaKm/AU_KM;
     uncEl.textContent = `${sigmaAu.toExponential(2)} AU (~${Math.round(sigmaKm)} km)`;
 
     updEl.textContent = fmtISO(now.toISOString());
-    stEl.textContent = displayName ? 'offline ephemeris (1 Hz)' : 'offline (no elements)';
-    stEl.className = 'small ' + (displayName ? 'ok' : 'warn');
+    stEl.textContent = `propagating (${model})`;
+    stEl.className = 'small ok';
   }catch(e){
     stEl.textContent='error: '+e.message;
     stEl.className='small bad';
   }
 }
-
-function refreshOnce(){
-  if(!LIVE_LIST.length) return;
-  for(const t of LIVE_LIST) updateRowOffline(t);
-}
-function startLiveUpdates(){ stopLiveUpdates(); liveTimer=setInterval(refreshOnce, 1000); }
+function refreshOnce(){ if(!LIVE_LIST.length) return; for(const t of LIVE_LIST) updateOne(t); }
+function startLiveUpdates(){ stopLiveUpdates(); liveTimer=setInterval(refreshOnce,1000); }
 function stopLiveUpdates(){ if(liveTimer){ clearInterval(liveTimer); liveTimer=null; } }
 
-/* Helper: map name variants to ORBITS keys */
-function capitalize(s){return s.charAt(0).toUpperCase()+s.slice(1);}
-function pickOrbitName(name){
-  const map = {
-    mercury:"Mercury", venus:"Venus", earth:"Earth", terra:"Earth",
-    mars:"Mars", jupiter:"Jupiter"
-  };
-  const k = map[name] || map[name.replace(/\s+/g,'')];
-  if (k && ORBITS[k]) return k;
-  // also try capitalized direct key
-  const c = capitalize(name);
-  return ORBITS[c] ? c : null;
-}
-
-/* ================= CLOCKS ================= */
+/* ===== Clocks ===== */
 function tick(){
   document.getElementById('localTime').textContent=chicagoNow();
   document.getElementById('tzName').textContent=tzLabel();
@@ -302,13 +372,10 @@ function tick(){
 }
 setInterval(tick,1000); tick();
 
-/* ================= TARGETS LOADING =================
-   Works offline: if fetch fails or page is file://, we use a built-in default.
-*/
+/* ===== Targets loading (works on file://; falls back to built-ins) ===== */
 function normalizeTargets(raw){
   if(Array.isArray(raw)) return raw.map(x=> typeof x==='string'? {name:x} : x);
-  const groups=["planets","moons","stars","galaxies"];
-  let out=[];
+  const groups=["planets","moons","stars","galaxies"]; let out=[];
   for(const g of groups){
     if(Array.isArray(raw?.[g])){
       out=out.concat(raw[g].map(item=>{
@@ -319,20 +386,27 @@ function normalizeTargets(raw){
     }
   }
   if(out.length) return out;
-  for (const key of ['targets','data','items']) {
-    if (raw && Array.isArray(raw[key])) return raw[key].map(x=> typeof x==='string'? {name:x}: x);
-  }
+  for (const key of ['targets','data','items']) if (raw && Array.isArray(raw[key])) return raw[key].map(x=> typeof x==='string'? {name:x}: x);
   if (raw && typeof raw==='object') {
     const arr=[]; for (const k of Object.keys(raw)) { const v=raw[k]; if(v && typeof v==='object') arr.push({ name: v.name || k, ...v }); }
     if (arr.length) return arr;
   }
   return [];
 }
-
 function defaultTargets(){
+  // includes a demo "Custom Probe" using epoch+r0/v0
   return normalizeTargets({
-    planets:[{name:"Mercury"},{name:"Venus"},{name:"Earth"},{name:"Mars"},{name:"Jupiter"}],
-    stars:[{name:"Sirius"},{name:"Vega"}]
+    planets:[{name:"Mercury"},{name:"Venus"},{name:"Earth"},{name:"Mars"},{name:"Jupiter"},{name:"Saturn"},{name:"Uranus"},{name:"Neptune"}],
+    moons:[{name:"Moon"},{name:"Europa"},{name:"Ganymede"},{name:"Callisto"},{name:"Titan"}],
+    stars:[
+      // Example astrometry target (dummy numbers for demo)
+      {name:"Demo Star", ra:210.0, dec:-30.0, distance_pc:10.0, pmra_mas_y:120.0, pmdec_mas_y:-50.0, rv_km_s:20.0, epoch:"2024-01-01T00:00:00Z"}
+    ],
+    items:[
+      // Direct state vector demo (at epoch, 1 km/s along +Y at 1 AU on +X)
+      {name:"Custom Probe", type:"probe", epoch:"2025-01-01T00:00:00Z",
+       r0_au:[1,0,0], v0_au_s:[0, 1/ AU_KM, 0]}
+    ]
   });
 }
 
@@ -341,24 +415,22 @@ async function loadTargets(){
     if (location.protocol === 'file:') throw new Error('file:// offline');
     const r = await fetch("targets.json?v="+Date.now(), {cache:"no-store"});
     if(!r.ok) throw new Error("HTTP "+r.status);
-    const text=await r.text();
-    let data; try{ data=JSON.parse(text); } catch { throw new Error('Invalid JSON in targets.json'); }
-    const list=normalizeTargets(data);
-    if(!list.length) throw new Error('No targets in targets.json');
-    setBanner(`Loaded ${list.length} target(s) (offline ephemeris).`, 'ok');
+    const text=await r.text(); let data;
+    try{ data=JSON.parse(text); } catch { throw new Error('Invalid JSON in targets.json'); }
+    const list=normalizeTargets(data); if(!list.length) throw new Error('No targets in targets.json');
+    setBanner(`Loaded ${list.length} target(s) (stamp-time propagation).`, 'ok');
     initWithList(list);
   }catch(e){
     const list = defaultTargets();
-    setBanner(`Offline ephemeris active — using built-in targets (${list.length}).`, 'warn');
+    setBanner(`Using built-in targets (${list.length}) — stamp-time propagation active.`, 'warn');
     initWithList(list);
   }
 }
 function initWithList(list){
   renderTargets(list);
-  LIVE_LIST = list.filter(t => pickOrbitName((t.name||"").toLowerCase())); // only those we can propagate
+  LIVE_LIST = list; // we can propagate all (via one of the three models)
   startLiveUpdates();
 }
-
 loadTargets();
 </script>
 </body>
