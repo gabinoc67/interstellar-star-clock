@@ -89,8 +89,13 @@
   .mode {display:flex;align-items:center;gap:8px;margin-top:8px}
   .mode .scale {width:100%}
 
+  /* Directions list */
+  .directions{margin-top:12px;border:1px dashed #2a3340;border-radius:12px;padding:10px;background:#0f1420}
+  .directions h3{margin:0 0 6px 0;font-size:13px;color:#9fb7ff;letter-spacing:.06em;text-transform:uppercase}
+  .directions ol{margin:0 0 0 18px;padding:0;color:#cfe1ff;font-size:13px}
+  .directions li{margin:4px 0}
+
   footer{padding:12px 16px;color:var(--muted);font-size:12px;border-top:1px solid #222}
-  .saved-tag{display:inline-block;background:#0f1420;border:1px solid #2a3340;border-radius:8px;padding:4px 8px;margin:4px;font-size:12px}
 
   #savedBox{height:260px; overflow-y:auto; background:#0a0f1a; border:1px dashed #2a3340; border-radius:10px; padding:10px; scrollbar-color:#2a3340 #0a0f1a; scrollbar-width:thin;}
   #savedBox::-webkit-scrollbar { width: 10px; } #savedBox::-webkit-scrollbar-track { background:#0a0f1a; } #savedBox::-webkit-scrollbar-thumb { background:#2a3340; border-radius:8px; } #savedBox::-webkit-scrollbar-thumb:hover { background:#3a4558; }
@@ -139,14 +144,14 @@
         <div class="metric"><div class="label">Rear (−E)</div><div id="rearE" class="value">0.00</div></div>
       </div>
 
-      <div style="margin-top:12px" class="flex">
+      <div style="margin-top:12px" class="row">
         <button id="reset" class="ghost">Reset</button>
-        <span id="persistBadge" class="badge">Not saved</span>
+        <button id="resetMetrics" class="ghost">Reset Metrics Only</button>
       </div>
 
-      <div style="margin-top:8px" class="flex">
-        <button id="resetMetrics" class="ghost">Reset Metrics Only</button>
+      <div class="row" style="margin-top:8px">
         <button id="testAlarm" class="ghost" title="Play alarm.mp3 for 3s">Test Alarm</button>
+        <span id="persistBadge" class="badge">Not saved</span>
       </div>
 
       <div class="mode">
@@ -158,6 +163,26 @@
           <option value="1000">1,000×</option>
           <option value="1000000">1,000,000×</option>
         </select>
+      </div>
+
+      <div class="row" style="margin-top:8px">
+        <button id="printMission" title="Print current mission">Print Mission</button>
+        <button id="printAbbr" class="ghost" title="Print abbreviation meanings">Print Abbreviation Mean</button>
+      </div>
+
+      <div class="directions">
+        <h3>Directions</h3>
+        <ol>
+          <li>Click <strong>Reset</strong> Button</li>
+          <li>Click <strong>Reset Metrics</strong> Button</li>
+          <li>Select <strong>Warp Factor</strong></li>
+          <li>Select <strong>Target Name</strong></li>
+          <li>Select <strong>Time Scale</strong></li>
+          <li>Click <strong>Engage</strong> Button</li>
+          <li>Click <strong>Save</strong> Mission</li>
+          <li>(Optional) <strong>Print Mission</strong> summary</li>
+          <li>(Optional) <strong>Print Abbreviation Mean</strong></li>
+        </ol>
       </div>
     </section>
 
@@ -256,6 +281,7 @@ const warpSel = $("#warp"), targetSel = $("#targetSel");
 const timeScaleSel = $("#timeScale");
 const engageBtn = $("#engage"), stopBtn = $("#stop"), saveBtn = $("#save");
 const resetBtn = $("#reset"), resetMetricsBtn = $("#resetMetrics"), testAlarmBtn = $("#testAlarm");
+const printMissionBtn = $("#printMission"), printAbbrBtn = $("#printAbbr");
 
 const frontE = $("#frontE"), midE = $("#midE"), rearE = $("#rearE");
 const vEff = $("#vEff"), pulse = $("#pulse"), eta = $("#eta");
@@ -395,6 +421,7 @@ Promise.allSettled([
   updateDistanceBadges();
   setStatus('System initialized. Ready to engage.');
 
+  // start starfield idle if you like; otherwise comment next line
   if(window.starfield) window.starfield.start();
   hazardLoop();
 }).catch(()=>{
@@ -474,10 +501,8 @@ function updateDistanceBadges(){
     distMiBadge.textContent = 'Distance: — miles';
     return;
   }
-  const ly = conv.ly;
-  const mi = conv.mi;
-  distLyBadge.textContent = `Distance: ${ly.toLocaleString(undefined,{maximumFractionDigits:3})} ly`;
-  distMiBadge.textContent = `Distance: ${mi.toLocaleString(undefined,{maximumFractionDigits:0})} miles`;
+  distLyBadge.textContent = `Distance: ${conv.ly.toLocaleString(undefined,{maximumFractionDigits:3})} ly`;
+  distMiBadge.textContent = `Distance: ${conv.mi.toLocaleString(undefined,{maximumFractionDigits:0})} miles`;
 }
 function computeRealEtaSeconds(targetName){
   const d = lookupDistance(targetName);
@@ -540,9 +565,7 @@ function bearingFromRaDec(raDeg, decDeg){
   if(deg<0) deg+=360;
   return deg;
 }
-function angularSep(a,b){
-  return Math.abs(((a-b)%360+540)%360-180);
-}
+function angularSep(a,b){ return Math.abs(((a-b)%360+540)%360-180); }
 
 /* ===================== STARFIELD ===================== */
 (function initStarfield(){
@@ -564,7 +587,7 @@ function angularSep(a,b){
   window.addEventListener('resize', resize);
   resize();
 
-  const STAR_COUNT = 620;
+  const STAR_COUNT = window.innerWidth < 600 ? 360 : 620;
   const stars = [];
   function rand(min,max){ return Math.random()*(max-min)+min; }
   function makeStar(){
@@ -628,19 +651,13 @@ function angularSep(a,b){
         const halfW = rBase * sizeFactor;
         const halfH = rBase * (0.7 + 0.3*s.z);
 
-        ctx.save();
-        ctx.translate(s.x, s.y);
-        ctx.rotate(Math.atan2(-hvy, -hvx));     // align to tail
+        ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(Math.atan2(-hvy, -hvx));
         ctx.fillStyle = `rgba(210,225,255,${alpha})`;
-        ctx.beginPath();
-        ctx.ellipse(0, 0, halfW, halfH, 0, 0, Math.PI*2);
-        ctx.fill();
-        ctx.restore();
+        ctx.beginPath(); ctx.ellipse(0, 0, halfW, halfH, 0, 0, Math.PI*2); ctx.fill(); ctx.restore();
 
         ctx.strokeStyle = `rgba(210,225,255,${alpha*0.9})`;
         ctx.lineWidth = thickness;
-        ctx.beginPath();
-        ctx.moveTo(s.x, s.y);
+        ctx.beginPath(); ctx.moveTo(s.x, s.y);
         ctx.lineTo(s.x + tailLen * (-hvx), s.y + tailLen * (-hvy));
         ctx.stroke();
       }
@@ -655,11 +672,11 @@ function angularSep(a,b){
 })();
 function updateStarfieldHeading(){ if(window.starfield) window.starfield.setHeading(); }
 
-/* ===================== TRAVEL TICKER & FLIGHT (warp-independent clock) ===================== */
+/* ===================== TRAVEL TICKER & FLIGHT ===================== */
 let travelTicker = null;
-let travelClockMs = 0;        // displayed time
-let travelStartRealMs = 0;    // performance.now() anchor for current run
-let travelAccumMs = 0;        // accumulated from previous runs/scale changes
+let travelClockMs = 0;
+let travelStartRealMs = 0;
+let travelAccumMs = 0;
 
 function formatClock(ms){
   const h = Math.floor(ms/3600000);
@@ -702,7 +719,7 @@ function startTravelTicker(){
     // publish to chips
     window.__engine_live_state = { v:vNow, p:pNow, f:fNow, r:rNow, hazard:(window.__hazard_mode||'none') };
 
-    // ---- Clock (independent of warp) ----
+    // ---- Clock ----
     const scale = Number(timeScaleSel.value || 1);
     travelClockMs = travelAccumMs + (now - travelStartRealMs) * scale;
     travelClockEl.textContent = formatClock(travelClockMs);
@@ -711,9 +728,7 @@ function startTravelTicker(){
     const flight = loadFlightState();
     if (flight && flight.active) {
       const etaMs = (flight.etaSec||0) * 1000;
-      if (travelClockMs >= etaMs) {
-        arriveSequence();
-      }
+      if (travelClockMs >= etaMs) arriveSequence();
     }
   }, 100);
 }
@@ -729,9 +744,8 @@ function clearFlightState(){ localStorage.removeItem(FLIGHT_KEY); }
 
 /* ===================== METRICS DISPLAY ===================== */
 function updateMetricsStatic(){
-  const w = Number(warpSel.value);
+  const w = Number(warpSel.value || 5);
   const m = baseMetricsFromWarp(w);
-  // steady & ready defaults at Warp 5:
   frontE.textContent = m.front.toFixed(2);
   midE.textContent   = m.mid.toFixed(2);
   rearE.textContent  = m.rear.toFixed(2);
@@ -740,9 +754,7 @@ function updateMetricsStatic(){
   eta.textContent    = m.eta.toFixed(3);
   solTxt.textContent = `${m.vEff.toFixed(2)} c`;
   pcTxt.textContent  = `${(m.vEff/3.26156).toFixed(3)} pc/yr`;
-  // set lights based on these
   setLightStatesFromMetrics(m.vEff, m.pulse, m.front, m.rear);
-  // publish to chips
   window.__engine_live_state = { v:m.vEff, p:m.pulse, f:m.front, r:m.rear, hazard:(window.__hazard_mode||'none') };
 }
 function zeroMetrics(){
@@ -836,15 +848,10 @@ engageBtn.onclick = ()=>{
   if (warpAudio){ warpAudio.currentTime = 0; warpAudio.play().catch(()=>{}); }
   setAllGreen();
 
-  // start a new flight record
   const record = { active:true, startMs: Date.now(), etaSec, timeScale: Number(timeScaleSel.value||1), warp: warpSel.value, target: tgt };
   saveFlightState(record);
 
-  // reset wall-time clock & start
-  travelAccumMs = 0;
-  travelClockMs = 0;
-  travelStartRealMs = performance.now();
-
+  travelAccumMs = 0; travelClockMs = 0; travelStartRealMs = performance.now();
   startTravelTicker();
   updateDistanceBadges();
 
@@ -859,7 +866,6 @@ stopBtn.onclick = ()=>{
   setAllGreen();
   setDot(lightNav,'ok');
 
-  // clear alarm + alerts; allow re-engage
   window.__engine_shutdown = false;
   alarmAudio.pause(); alarmAudio.currentTime = 0;
   hazardOverlay.classList.remove('bad','blink');
@@ -873,7 +879,7 @@ resetBtn.onclick = ()=>{
   localStorage.removeItem(KEY);
   renderSaves();
 
-  warpSel.value = "5"; // steady & ready example
+  warpSel.value = "5";
   populateTargetOptgroups("");
 
   const r = loadFlightState();
@@ -884,11 +890,10 @@ resetBtn.onclick = ()=>{
   if(window.starfield) window.starfield.stop();
   depTxt.textContent = "(unspecified)";
   arrTxt.textContent = "(unspecified)";
-  updateMetricsStatic();        // steady & ready numbers
-  updatePreEngageStatus();      // lights baseline
+  updateMetricsStatic();
+  updatePreEngageStatus();
   updateDistanceBadges();
 
-  // HARD STOP any alarm & remove alert display; clear shutdown
   window.__engine_shutdown = false;
   alarmAudio.pause(); alarmAudio.currentTime = 0;
   hazardOverlay.classList.remove('bad','blink');
@@ -898,14 +903,12 @@ resetBtn.onclick = ()=>{
   setStatus('Reset complete. Engine steady & ready.');
   localStorage.removeItem(UI_KEY);
 
-  travelAccumMs = 0;
-  travelClockMs = 0;
+  travelAccumMs = 0; travelClockMs = 0;
 };
 
 resetMetricsBtn.onclick = ()=>{ unlockAudioOnce(); zeroMetrics(); setStatus('Metrics reset to zero.'); };
 
 timeScaleSel.addEventListener('change', ()=>{
-  // smooth scale change, keep current clock
   travelAccumMs = travelClockMs;
   travelStartRealMs = performance.now();
 
@@ -932,19 +935,16 @@ testAlarmBtn.onclick = ()=>{
 function arriveSequence(){
   const r = loadFlightState();
   if(!r || !r.active) return;
-  r.active = false;
-  saveFlightState(r);
-
+  r.active = false; saveFlightState(r);
   stopTravelTicker();
   if(window.starfield) window.starfield.stop();
   if(arriveAudio){ arriveAudio.currentTime = 0; arriveAudio.play().catch(()=>{}); }
-  setAllGreen();
-  setDot(lightNav,'ok');
+  setAllGreen(); setDot(lightNav,'ok');
   setStatus(`ARRIVED at ${r.target}. Travel complete.`);
   arrTxt.textContent = `${r.target} (arrived)`;
 }
 
-/* ===================== HAZARD MONITOR (standby → approaching → inside) ===================== */
+/* ===================== HAZARD MONITOR ===================== */
 function hazardTypeLabel(raw){
   const s = String(raw||'').toLowerCase();
   if(s.includes('super')) return 'SUPERNOVA';
@@ -978,7 +978,7 @@ function evaluateHazards(){
   const rows = hazardsPack.hazards.map(normalizeHazard).filter(x=>isFinite(x.d) && isFinite(x.safe));
   const heading = (typeof window.currentHeadingDeg==='number') ? window.currentHeadingDeg : 0;
 
-  let hit = null; let mode = 'none'; // 'inside' | 'approach' | 'standby'
+  let hit = null; let mode = 'none';
   for(const r of rows){
     if(r.ra==null || r.dec==null) continue;
     const bearing = bearingFromRaDec(r.ra, r.dec);
@@ -1007,7 +1007,7 @@ function evaluateHazards(){
       setDot(lightNav, 'bad'); away = (hit.bearing + 60) % 360;
       if(audioUnlocked) alarmAudio.play().catch(()=>{});
       if(window.starfield){ window.starfield.setOverride(away, 8000); }
-    } else { // inside
+    } else {
       hazardOverlay.classList.add('bad','blink');
       label = `🚨 INSIDE SAFE LIMIT: ${hit.r.type} — ${hit.r.name}`;
       setDot(lightNav, 'bad'); away = (hit.bearing + 150) % 360;
@@ -1030,38 +1030,142 @@ function evaluateHazards(){
     setDot(lightNav,'ok');
   }
 
-  // keep chips in sync with latest hazard mode
   const s = window.__engine_live_state || {};
   window.__engine_live_state = { v:s.v||0, p:s.p||0, f:s.f||0, r:s.r||0, hazard: window.__hazard_mode };
 }
+
+/* ===================== PRINT BUTTONS ===================== */
+function getCsvUrl(){
+  const el = document.getElementById('wdp-chips');
+  return (el && el.dataset.wdpCsv) ? el.dataset.wdpCsv : new URL('navengreadings.csv', location.href).href;
+}
+function simpleCSV(text){
+  const rows=[]; let cur=[], val="", q=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i], n=text[i+1];
+    if(q){ if(c=='"'&&n=='"'){val+='"';i++;} else if(c=='"'){q=false;} else { val+=c; } }
+    else { if(c=='"'){q=true;} else if(c==','){cur.push(val); val="";} else if(c=='\n'){cur.push(val); rows.push(cur); cur=[]; val="";} else if(c!='\r'){val+=c;} }
+  }
+  if(val.length||cur.length){cur.push(val);rows.push(cur);}
+  const headers = rows.shift().map(h=>h.trim());
+  return rows.filter(r=>r.some(x=>String(x).trim()!=='')).map(r=>{ const o={}; headers.forEach((h,i)=>o[h]=r[i]??""); return o; });
+}
+printMissionBtn.onclick = ()=>{
+  const w = String(warpSel.value);
+  const tgt = getSelectedTarget() || '(unspecified)';
+  const scale = String(timeScaleSel.value||'1');
+  const nowStr = new Intl.DateTimeFormat('en-US',{ timeZone: tz, dateStyle:'medium', timeStyle:'short' }).format(new Date());
+  const html = `
+    <html><head><title>Mission Print</title>
+    <style>body{font:14px/1.4 system-ui;padding:20px} h1{margin:0 0 8px} table{border-collapse:collapse} td{padding:6px 10px;border:1px solid #999}</style>
+    </head><body>
+      <h1>Warp Drive Mission</h1>
+      <table>
+        <tr><td><b>Printed</b></td><td>${nowStr} (${tz})</td></tr>
+        <tr><td><b>Warp</b></td><td>${w}</td></tr>
+        <tr><td><b>Target</b></td><td>${tgt}</td></tr>
+        <tr><td><b>Time Scale</b></td><td>${scale}×</td></tr>
+        <tr><td><b>Departure</b></td><td>${depTxt.textContent}</td></tr>
+        <tr><td><b>Arrival</b></td><td>${arrTxt.textContent}</td></tr>
+        <tr><td><b>Travel Clock</b></td><td>${travelClockEl.textContent}</td></tr>
+        <tr><td><b>vEff</b></td><td>${vEff.textContent}</td></tr>
+        <tr><td><b>Pulse</b></td><td>${pulse.textContent}</td></tr>
+        <tr><td><b>η</b></td><td>${eta.textContent}</td></tr>
+      </table>
+      <script>window.print();<\/script>
+    </body></html>`;
+  const wdw = window.open('', '_blank'); if(wdw){ wdw.document.write(html); wdw.document.close(); }
+};
+printAbbrBtn.onclick = async ()=>{
+  try{
+    const res = await fetch(getCsvUrl(), {cache:'no-store'}); if(!res.ok) throw new Error(res.status);
+    const rows = simpleCSV(await res.text());
+    const norm = rows.map(r=>{ const o={}; for(const k in r){ o[k.trim()]=typeof r[k]==='string'?r[k].trim():r[k]; } return o; });
+    const htmlRows = norm.map(o=>{
+      const label = o['Label Name'] ?? o['Label'] ?? '';
+      const abbr  = o['Abbreviation'] ?? o['Abbrev'] ?? '';
+      const type  = (o['Display Type']??'').toString();
+      const loc   = (o['Location']??'').toString();
+      return `<tr><td>${abbr}</td><td>${label}</td><td>${type}</td><td>${loc}</td></tr>`;
+    }).join('');
+    const html = `
+    <html><head><title>Abbreviations</title>
+    <style>body{font:14px/1.4 system-ui;padding:20px} h1{margin:0 0 8px} table{border-collapse:collapse;width:100%} th,td{padding:6px 8px;border:1px solid #999;text-align:left} th{background:#f2f2f2}</style>
+    </head><body>
+      <h1>Abbreviation Mean</h1>
+      <table>
+        <thead><tr><th>Abbreviation</th><th>Label Name</th><th>Display Type</th><th>Location</th></tr></thead>
+        <tbody>${htmlRows}</tbody>
+      </table>
+      <script>window.print();<\/script>
+    </body></html>`;
+    const wdw = window.open('', '_blank'); if(wdw){ wdw.document.write(html); wdw.document.close(); }
+  }catch(e){ setStatus('Could not load CSV to print abbreviations.'); }
+};
 </script>
-<!-- ===== CSV-driven chips directly under the footer line (spread + animated) ===== -->
+<!-- ===== CSV-driven chips directly under the footer line (layout + animations) ===== -->
 <style>
   .wdp-wrap{max-width:1600px;margin:12px auto 16px;padding:0 12px}
-  .wdp-sections{display:grid;gap:12px;grid-template-columns:repeat(4,minmax(0,1fr))}
-  @media (max-width:1200px){.wdp-sections{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+  /* Grid layout: Nav left (2 rows), Engine top center, Crew bottom center, Ship right (2 rows) */
+  .wdp-sections{
+    display:grid; gap:12px;
+    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-rows: auto auto;
+    grid-template-areas:
+      "nav engine ship"
+      "nav crew   ship";
+  }
   .wdp-card{border:1px solid #223;border-radius:12px;padding:10px;background:#101521}
+  .wdp-card[data-loc="Navigation"] { grid-area: nav; }
+  .wdp-card[data-loc="Engine"]     { grid-area: engine; }
+  .wdp-card[data-loc="Crew"]       { grid-area: crew; }
+  .wdp-card[data-loc="Ship"]       { grid-area: ship; }
+
+  /* responsive fallbacks */
+  @media (max-width:1200px){
+    .wdp-sections{
+      grid-template-columns: 1fr 1fr;
+      grid-template-areas:
+        "nav nav"
+        "engine ship"
+        "crew   ship";
+    }
+  }
+  @media (max-width:720px){
+    .wdp-sections{
+      grid-template-columns: 1fr;
+      grid-template-areas:
+        "nav"
+        "engine"
+        "crew"
+        "ship";
+    }
+  }
+
   .wdp-title{display:flex;align-items:center;gap:8px;font-weight:800;
              font-size:clamp(13px,1.2vw,15px);text-transform:uppercase;letter-spacing:.08em;
              color:#9fb7ff;margin:0 0 8px}
-  /* spread chips: auto-fill as many columns as fit */
-  .wdp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px}
+
+  /* force 4 columns on desktop; shrink gracefully */
+  .wdp-grid{display:grid;grid-template-columns:repeat(4,minmax(140px,1fr));gap:6px}
+  @media (max-width:1400px){ .wdp-grid{grid-template-columns:repeat(3,minmax(140px,1fr))} }
+  @media (max-width:1000px){ .wdp-grid{grid-template-columns:repeat(2,minmax(140px,1fr))} }
+  @media (max-width:520px){  .wdp-grid{grid-template-columns:repeat(1,minmax(140px,1fr))} }
+
   .wdp-chip{display:flex;align-items:center;gap:8px;border:1px solid #2a3340;border-radius:9999px;
             padding:7px 10px;min-height:36px;background:#0f1420}
   .wdp-dot{width:11px;height:11px;border-radius:50%;box-shadow:0 0 0 1px #334255 inset}
   .wdp-dot.ok{background:#16a34a}
   .wdp-dot.warn{background:#eab308}
   .wdp-dot.bad{background:#ef4444}
-  /* circle motion */
   @keyframes pulseWarn{0%,100%{transform:scale(1);opacity:.95}50%{transform:scale(1.25);opacity:.7}}
   @keyframes blinkBad{0%,49%{opacity:1}50%,100%{opacity:.25}}
   .wdp-dot.warn{animation:pulseWarn 1.2s ease-in-out infinite}
   .wdp-dot.bad{animation:blinkBad .8s steps(2,end) infinite}
-  /* 10% larger abbreviations */
   .wdp-abbr{font-weight:800;font-size:14.3px}
   .wdp-type{font-size:12px;color:#8ea0bd}
   .wdp-val{margin-left:auto;font-variant-numeric:tabular-nums;white-space:nowrap;font-size:13px;color:#e6edf3}
-  /* tick animation when values change */
   @keyframes tick{0%{transform:translateY(0);opacity:1}40%{transform:translateY(-2px);opacity:.85}100%{transform:translateY(0);opacity:1}}
   .wdp-val.tick{animation:tick .35s ease}
   .wdp-empty{border:1px dashed #2a3340;border-radius:12px;padding:16px;text-align:center;color:#9fb7ff;font-size:13px;background:#0f1420}
@@ -1071,9 +1175,9 @@ function evaluateHazards(){
   <div class="wdp-sections" id="wdp-sections"></div>
 </div>
 
-<!-- use id + data-wdp-csv (modules don't have currentScript) -->
+<!-- module uses data-wdp-csv; no document.currentScript -->
 <script type="module" id="wdp-chips" data-wdp-csv="https://gabinoc67.github.io/interstellar-star-clock/warpdrive/navengreadings.csv">
-/* Chips (Navigation, Crew, Engine, Ship) with spread layout + animations. */
+/* Chips (Navigation, Crew, Engine, Ship) with live circles + values and auto-shutdown. */
 const ORDER=["Navigation","Crew","Engine","Ship"];
 const normalizeType=s=>String(s||"").trim().toLowerCase();
 const truthy=v=>["yes","true","1","y"].includes(String(v||"").trim().toLowerCase());
@@ -1091,12 +1195,12 @@ function parseCSV(text){
   }
   if(val.length||cur.length){cur.push(val);rows.push(cur);}
   const headers=rows.shift().map(h=>h.trim());
-  return rows.filter(r=>r.some(x=>String(x).trim()!=="")).map(r=>{const o={};headers.forEach((h,i)=>o[h]=r[i]??"" );return o;});
+  return rows.filter(r=>r.some(x=>String(x).trim()!=="")).map(r=>{const o={};headers.forEach((h,i)=>o[h]=r[i]??"");return o;});
 }
 function normalizeRows(rows){
   return rows.map(r=>{
     const o={}; for(const k in r){ o[k.trim()] = typeof r[k]==="string" ? r[k].trim() : r[k]; }
-    if(o["Display Type"]) o["Display Type"]=normalizeType(o["Display Type"]);
+    if(o["Display Type"]) o["Display Type"] = normalizeType(o["Display Type"]);
     if(o["Display Type"]==="date ") o["Display Type"]="date";
     return o;
   });
@@ -1105,13 +1209,11 @@ function normKey(s){return String(s||"").toLowerCase().replace(/[\s_\-]+/g,"").r
 function detectKey(keys,re){const pairs=keys.map(k=>[k,normKey(k)]);const hit=pairs.find(([k,n])=>re.test(n));return hit?hit[0]:null;}
 function buildKeyMap(sample){
   const keys=Object.keys(sample||{});
-  return{
-    label:    detectKey(keys,/label(name)?$/)||"Label Name",
-    abbr:     detectKey(keys,/(abbr|abbrev|abbreviation)s?$/)||"Abbreviation",
-    dtype:    detectKey(keys,/(displaytype|display|type)$/)||"Display Type",
-    circle:   detectKey(keys,/(circle)$/)||"Circle",
-    location: detectKey(keys,/(location|loc)$/)||"Location"
-  };
+  return{ label:detectKey(keys,/label(name)?$/)||"Label Name",
+          abbr:detectKey(keys,/(abbr|abbrev|abbreviation)s?$/)||"Abbreviation",
+          dtype:detectKey(keys,/(displaytype|display|type)$/)||"Display Type",
+          circle:detectKey(keys,/(circle)$/)||"Circle",
+          location:detectKey(keys,/(location|loc)$/)||"Location" };
 }
 function groupByLocation(rows,KM){
   const g={};
@@ -1126,42 +1228,40 @@ function groupByLocation(rows,KM){
 }
 const seedOf=s=>Array.from(String(s||"")).reduce((a,c)=>a+c.charCodeAt(0),0);
 
-// values
+// value text (live for numbers, degrees, time, watts)
 function liveValue(typ,labelOrAbbr,t){
   const seed=seedOf(labelOrAbbr);
   const base=(seed%1000)/10;
   const wiggle=(Math.sin((seed+t)/7)+1)*0.5;
   const v=base*(0.9+0.2*wiggle);
   switch(typ){
-    case"degrees": return `${Math.floor((v*3.6+t)%360)}°`;
-    case"time":    return fmtTime.format(new Date());
-    case"numbers": return Intl.NumberFormat().format(Math.round(v*100+(t%5)));
-    case"watts":   { const degLike=Math.floor((v*3.6+t)%360); return `${Math.round(50+degLike*0.8)} W`; }
-    case"miles":   return `${(v*1.3).toFixed(1)} mi`;
+    case"degrees":  return `${Math.floor((v*3.6+t)%360)}°`;
+    case"time":     return fmtTime.format(new Date());
+    case"numbers":  return Intl.NumberFormat().format(Math.round(v*100+(t%5)));
+    case"watts":    { const degLike=Math.floor((v*3.6+t)%360); return `${Math.round(50+degLike*0.8)} W`; }
+    case"miles":    return `${(v*1.3).toFixed(1)} mi`;
     case"frequency":return `${(v*7).toFixed(2)} Hz`;
     case"pressure": return `${(v*2.3).toFixed(2)} psi`;
     case"speed":    return `${(v*3.1).toFixed(2)} kn`;
     case"date":     return fmtDate.format(new Date());
-    case"alarm":    return ((seed+t)%17<1)?"ALARM":"OK";
+    case"alarm":    return ((seed+t)%17<1) ? "ALARM" : "OK";
     case"calculation": return (v*42).toFixed(2);
-    default:        return "—";
+    default: return "—";
   }
 }
 
-/* circle color from engine state */
+/* circle color */
 function circleClassForRow(row,engine){
-  const {v=0,p=0,f=0,r=0,hazard='none'} = engine || {};
+  const { v=0, p=0, f=0, r=0, hazard='none' } = engine || {};
   const imbalance = Math.abs(f - Math.abs(r));
   const vStress = Math.min(1, v/6);
   const pStress = Math.min(1, p/8);
   const vecStress= Math.min(1, imbalance/2);
   const hazStress= (hazard==='inside')?1 : (hazard==='approach')?0.8 : (hazard==='standby')?0.3 : 0;
-
   let stress = (0.35*vStress + 0.25*pStress + 0.25*vecStress + 0.15*hazStress);
   const seed = seedOf(row.__abbr || row.__label || '');
-  const jitter = ((seed%101)/100 - 0.5) * 0.20; // ±0.10
+  const jitter = ((seed%101)/100 - 0.5) * 0.20;
   stress = Math.max(0, Math.min(1, stress + jitter));
-
   if(stress < 0.35) return 'ok';
   if(stress < 0.60) return 'warn';
   return 'bad';
@@ -1171,14 +1271,10 @@ const host = document.getElementById("wdp-sections");
 const csvSrc = document.getElementById("wdp-chips")?.dataset.wdpCsv || new URL("navengreadings.csv", location.href).href;
 
 function render(groups,KM){
-  host.innerHTML="";
+  host.innerHTML = "";
   const order = ORDER.filter(k=>groups[k]?.length);
   if(!order.length){
-    const div=document.createElement("div");
-    div.className="wdp-empty";
-    div.textContent="No items found in CSV.";
-    host.appendChild(div);
-    return;
+    const div=document.createElement("div"); div.className="wdp-empty"; div.textContent="No items found in CSV."; host.appendChild(div); return;
   }
   for(const loc of order){
     const card=document.createElement("section"); card.className="wdp-card"; card.dataset.loc=loc;
@@ -1187,7 +1283,7 @@ function render(groups,KM){
 
     groups[loc].forEach(row=>{
       const typ = normalizeType(row[KM.dtype]);
-      const showCircle = truthy(row[KM.circle]);         // only if CSV says Yes
+      const showCircle = truthy(row[KM.circle]);
       const abbr = String(row[KM.abbr] || row[KM.label] || "").trim();
       row.__abbr = abbr; row.__label = row[KM.label];
 
@@ -1228,7 +1324,6 @@ function render(groups,KM){
         host.querySelectorAll(".wdp-chip").forEach(ch=>{
           const ref = ch._wdp; if(!ref) return;
 
-          // live values with tick animation on change
           const vtxt = liveValue(ref.typ, ref.abbr, t);
           if(liveSet.has(ref.typ)){
             if(vtxt !== ref.prevText){
@@ -1240,7 +1335,6 @@ function render(groups,KM){
             ref.valEl.textContent = vtxt; ref.prevText = vtxt;
           }
 
-          // live circle color
           if(ref.showCircle && ch._dot){
             const cls = circleClassForRow(ref.row, engine);
             ch._dot.classList.remove('ok','warn','bad');
@@ -1249,7 +1343,6 @@ function render(groups,KM){
           }
         });
 
-        // Auto-shutdown if >20 red dots persist 2s
         const threshold = 20;
         if(redCount > threshold){
           if(redSince==null) redSince = performance.now();
@@ -1268,3 +1361,6 @@ function render(groups,KM){
   }
 })();
 </script>
+
+</body>
+</html>
