@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>FTL Nav Console — CST + Solver</title>
+<style>
+:root{--bg:#060a16;--card:#0f1630;--ink:#eaf0ff;--muted:#9fb0e0;--good:#3dd07f;--warn:#ffd166;--bad:#ef476f;--grid:14px}
+*{box-sizing:border-box}
+body{margin:0;background:linear-gradient(180deg,#060a16,#0b1233);color:var(--ink);font:14px/1.45 system-ui,Segoe UI,Roboto,Helvetica,Arial}
+header{padding:20px 22px;border-bottom:1px solid rgba(255,255,255,.06);position:sticky;top:0;background:rgba(8,12,30,.78);backdrop-filter:blur(8px)}
+.wrap{padding:20px;max-width:1650px;margin:0 auto}
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:var(--grid)}
+.card{background:var(--card);border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:16px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.card h2{margin:0 0 8px 0;font-size:16px}
+.row{display:grid;grid-template-columns:220px 80px 1.1fr 1fr 1fr 140px 140px 120px 120px 150px 150px 120px 120px;gap:10px;align-items:center;padding:10px;border-bottom:1px dashed rgba(255,255,255,.07)}
+.row.header{font-weight:600;color:#cbd5ff;border-bottom:1px solid rgba(255,255,255,.12)}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace}
+.pill{display:inline-block;padding:2px 8px;border-radius:999px;background:rgba(255,255,255,.08);font-size:12px}
+.ok{color:var(--good)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.small{font-size:12px;color:var(--muted)}
+button{background:#19234d;color:#eaf0ff;border:1px solid rgba(255,255,255,.16);padding:6px 10px;border-radius:10px;cursor:pointer}
+button:hover{background:#1e2a5c}
+input,select{background:#0b1233;color:#eaf0ff;border:1px solid rgba(255,255,255,.16);padding:6px 8px;border-radius:8px}
+.flex{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<header>
+  <h1>FTL Nav Console — CST + Solver</h1>
+  <div class="small">Targets from <code>targets.json</code> (same folder). Live vectors from NASA Horizons; Gaia adds stellar context. This page adds a **CST-based arrival solver** and a **bubble shaping calculator** for Δ<sub>warp</sub>.</div>
+</header>
+
+<div class="wrap grid">
+  <section class="card" style="grid-column: span 7">
+    <h2>Quantum Clocks</h2>
+    <div class="grid" style="grid-template-columns: repeat(3,1fr); gap:12px">
+      <div><div class="small">Local Time (America/Chicago)</div><div class="mono" id="localTime">—</div></div>
+      <div><div class="small">Interstellar Time (demo)</div><div class="mono" id="interstellarYear">—</div></div>
+      <div><div class="small">Stardate (demo)</div><div class="mono" id="stardate">—</div></div>
+    </div>
+    <div class="small" style="margin-top:6px">CST↔UTC offset: <span id="cstOffset">—</span> • UTC epoch: <span class="mono" id="utcEpoch">—</span></div>
+  </section>
+  <section class="card" style="grid-column: span 5">
+    <h2>Solver Settings</h2>
+    <div class="flex">
+      <label>H₀ (km/s/Mpc)<input id="h0" type="number" step="0.1" value="70" style="width:90px"></label>
+      <label>Tolerance (km)<input id="tolKm" type="number" step="100" value="10000" style="width:110px"></label>
+      <label>Max Horizon Δt (s)<input id="maxDt" type="number" step="1" value="86400" style="width:110px"></label>
+      <span class="small">Ship exits when |error| ≤ tolerance.</span>
+    </div>
+  </section>
+
+  <section class="card" style="grid-column: span 12">
+    <h2>Targets + CST Solver</h2>
+    <div class="row header">
+      <div>Name</div>
+      <div>Type</div>
+      <div>Live Vector (AU)</div>
+      <div>Dist. Sun</div>
+      <div>Dist. Earth</div>
+      <div>Proper Motion</div>
+      <div>Radial Vel.</div>
+      <div>Distance</div>
+      <div>Rec. Vel</div>
+      <div>Uncertainty</div>
+      <div>Last Update</div>
+      <div>Status</div>
+      <div>Actions</div>
+    </div>
+    <div id="targets"></div>
+    <div class="small" style="margin-top:8px">Actions → <b>Solve T<sub>c</sub></b> finds CST travel time for closest approach to the target’s predicted position (uses 
+      current vectors & velocities). <b>Shape Bubble</b> computes the required ∫(γ⁻¹−1)dt to realize Δ<sub>warp</sub> along the travel direction.
+    </div>
+  </section>
+
+  <section class="card" style="grid-column: span 12">
+    <h2>Math (implemented)</h2>
+    <div class="small">
+      Arrival model: P<sub>a</sub>(T) = P<sub>0</sub> + V<sub>t</sub>·T + Δ<sub>exp</sub>(T) + Δ<sub>warp</sub>(T)
+      <br/>Closest-approach (no Δ terms): T* = − (R·V) / |V|², with R = P<sub>t0</sub> − P<sub>0</sub>, V = V<sub>t</sub> − V<sub>ref</sub>.
+      <br/>Expansion demo: v<sub>rec</sub> = H₀·D (uses Mpc distance from JSON or Sun distance as toy fallback).
+      <br/>Warp shaping: required integral I = ∫(γ⁻¹−1)dt = Δ<sub>warp</sub>/c. For a flat profile, γ⁻¹−1 ≈ I/T.
+    </div>
+  </section>
+</div>
+
+<script>
+/******** CONFIG ********/
+const TARGETS_URL = "targets.json"; // since this page lives next to targets.json
+const HORIZONS_ENDPOINT = "https://ssd-api.jpl.nasa.gov/horizons.api"; // may require proxy from browser
+const GAIA_TAP = "https://mast.stsci.edu/vo-tap/api/v0.1/gaiadr3/tap/sync"; // CORS ok
+const CORS_PROXY = ""; // set your proxy base if Horizons blocks CORS
+
+/******** TIME & UNITS ********/
+const AU_KM = 149_597_870.700, KM_PER_MI = 1.609344, KM_PER_AU = AU_KM, MI_PER_AU = KM_PER_AU/KM_PER_MI;
+const KM_PER_MPC = 3.085677581e19, C_KM_S = 299_792.458;
+function fmt(n,d=6){return Number(n).toFixed(d)}
+function fmtAU(x){return fmt(x,6)+" AU"}
+function fmtKm(x){return Intl.NumberFormat().format(Math.round(x))+" km"}
+function fmtMi(x){return Intl.NumberFormat().format(Math.round(x))+" miles"}
+function fmtISO(d){return new Date(d).toISOString().replace('.000Z','Z')}
+function chicagoNow(){const now=new Date();const o={timeZone:'America/Chicago',hour12:true,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'};return new Intl.DateTimeFormat(undefined,o).format(now)}
+function tzLabel(){try{return Intl.DateTimeFormat().resolvedOptions().timeZone}catch{return'Local TZ'}}
+function interstellarYear(){const s=Date.now()/1000;const y=57_800_000+(s/31557600)*100;return `Year ~${y.toFixed(2)}`}
+function stardate(){const ms=Date.now();const base=Date.UTC(2323,0,1,0,0,0);const sd=1000*((ms-base)/31557600000);return `Stardate ${(sd/10).toFixed(1)}`}
+function cstToUtcOffset(){const off=-new Date().getTimezoneOffset()/60;const s=off>=0?'+':'';return `${s}${off.toFixed(0)} h`}
+
+/******** VECTORS ********/
+function norm(v){return Math.hypot(...v)}
+function sub(a,b){return a.map((v,i)=>v-b[i])}
+function add(a,b){return a.map((v,i)=>v+b[i])}
+function scale(a,s){return a.map(v=>v*s)}
+function dot(a,b){return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]}
+
+async function horizonsVector(command, isoUtc){
+  const params=new URLSearchParams({format:'json',COMMAND:command,EPHEM_TYPE:'VECTORS',CENTER:'500@0',TLIST:`'${isoUtc}'`,REF_PLANE:'ECLIPTIC'});
+  const url=HORIZONS_ENDPOINT+'?'+params.toString();
+  const finalUrl=CORS_PROXY?(CORS_PROXY+url):url;
+  const res=await fetch(finalUrl); if(!res.ok) throw new Error(`Horizons ${res.status}`);
+  const j=await res.json(); const vecTxt=j?.result||j?.vectors; if(!vecTxt) throw new Error('No vectors');
+  const m=vecTxt.match(/X\s*=\s*([\-0-9\.E+]+).*?Y\s*=\s*([\-0-9\.E+]+).*?Z\s*=\s*([\-0-9\.E+]+).*?VX\s*=\s*([\-0-9\.E+]+).*?VY\s*=\s*([\-0-9\.E+]+).*?VZ\s*=\s*([\-0-9\.E+]+)/s);
+  if(!m) throw new Error('Parse error');
+  const km=[+m[1],+m[2],+m[3]], vkm=[+m[4],+m[5],+m[6]]; const au=km.map(v=>v/AU_KM); const v_au_s=vkm.map(v=>v/AU_KM);
+  return {au, km, vkm, v_au_s};
+}
+
+async function gaiaCone(raDeg,decDeg,radiusDeg=0.2,limit=1){
+  const adql=`SELECT TOP ${limit} source_id,ra,dec,parallax,pmra,pmdec,radial_velocity,phot_g_mean_mag\nFROM gaiadr3.gaia_source\nWHERE 1=CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', ${raDeg}, ${decDeg}, ${radiusDeg}))\nORDER BY phot_g_mean_mag ASC`;
+  const form=new URLSearchParams({QUERY:adql});
+  const url=CORS_PROXY?(CORS_PROXY+GAIA_TAP):GAIA_TAP;
+  const r=await fetch(url,{method:'POST',body:form}); if(!r.ok) return [];
+  const text=await r.text(); const lines=text.trim().split(/\n+/); if(lines[0].includes('<?xml')) return [];
+  const header=lines[0].split(/,|\t/); const rows=lines.slice(1).map(l=>{const a=l.split(/,|\t/);const o={}; header.forEach((h,i)=>o[h.trim()]=a[i]?a[i].trim():null); return o});
+  return rows;
+}
+
+class AlphaBeta{constructor(a=0.6,b=0.05){this.a=a;this.b=b;this.x=[0,0,0];this.v=[0,0,0];this.ready=false}
+  seed(x,v){this.x=[...x];this.v=[...v];this.ready=true}
+  update(z,dt){if(!this.ready){this.seed(z,[0,0,0]);return {x:z,v:[0,0,0]}}; const xp=add(this.x,scale(this.v,dt)); const r=sub(z,xp); this.x=add(xp,scale(r,this.a)); this.v=add(this.v,scale(r,this.b/dt)); return {x:[...this.x],v:[...this.v]}}
+}
+
+const rowsEl=document.getElementById('targets');
+let rows=new Map(); let filters=new Map(); let cache=new Map(); // name -> {vec,earth}
+
+function makeRow(t){
+  const el=document.createElement('div'); el.className='row'; el.id=`row-${t.id||t.name.replace(/\W+/g,'_')}`;
+  el.innerHTML=`
+    <div><div><strong>${t.name}</strong></div><div class='small'>${t.id||''}</div></div>
+    <div><span class='pill'>${t.type||'—'}</span></div>
+    <div class='mono' id='vec-${el.id}'>—</div>
+    <div id='sun-${el.id}'>—</div>
+    <div id='earth-${el.id}'>—</div>
+    <div id='pm-${el.id}'>—</div>
+    <div id='rv-${el.id}'>—</div>
+    <div id='dist-${el.id}'>—</div>
+    <div id='rec-${el.id}'>—</div>
+    <div id='unc-${el.id}'>—</div>
+    <div class='small' id='upd-${el.id}'>—</div>
+    <div class='small' id='status-${el.id}'>pending…</div>
+    <div class='flex'>
+      <button id='solve-${el.id}'>Solve Tc</button>
+      <button id='shape-${el.id}'>Shape Bubble</button>
+    </div>`;
+  rowsEl.appendChild(el); rows.set(t,el);
+  el.querySelector(`#solve-${el.id}`).addEventListener('click',()=>solveRow(t));
+  el.querySelector(`#shape-${el.id}`).addEventListener('click',()=>shapeRow(t));
+}
+
+async function updateRow(t){
+  const el=rows.get(t); if(!el) return;
+  const vecEl=el.querySelector(`#vec-${el.id}`), sunEl=el.querySelector(`#sun-${el.id}`), earthEl=el.querySelector(`#earth-${el.id}`), updEl=el.querySelector(`#upd-${el.id}`), stEl=el.querySelector(`#status-${el.id}`), pmEl=el.querySelector(`#pm-${el.id}`), rvEl=el.querySelector(`#rv-${el.id}`), distEl=el.querySelector(`#dist-${el.id}`), recEl=el.querySelector(`#rec-${el.id}`), uncEl=el.querySelector(`#unc-${el.id}`);
+  const isoUtc=new Date().toISOString();
+  try{
+    let cmd=null; if(t.horizonsId) cmd=String(t.horizonsId); else if(t.naifId) cmd=String(t.naifId); else if(t.command) cmd=t.command;
+    if(cmd){
+      const vec=await horizonsVector(cmd,isoUtc); const earth=await horizonsVector('399',isoUtc);
+      cache.set(t.name,{vec,earth,when:Date.now()});
+      if(!filters.has(t.name)) filters.set(t.name,new AlphaBeta());
+      const f=filters.get(t.name); const res=f.update(vec.au,1);
+      vecEl.textContent=`[${fmt(res.x[0])}, ${fmt(res.x[1])}, ${fmt(res.x[2])}]`;
+      const rSun=norm(res.x); sunEl.textContent=`${fmtAU(rSun)} (${fmtMi(rSun*MI_PER_AU)})`;
+      const rEarth=norm(sub(res.x,earth.au)); earthEl.textContent=`${fmtAU(rEarth)} (${fmtMi(rEarth*MI_PER_AU)})`;
+      // uncertainty (toy): velocity magnitude * 0.5 s
+      const vmag=norm(vec.vkm); const sigmaKm=vmag*0.5, sigmaAu=sigmaKm/AU_KM; uncEl.textContent=`${sigmaAu.toExponential(2)} AU (~${Math.round(sigmaKm)} km)`;
+      stEl.textContent='live via Horizons'; stEl.classList.add('ok'); updEl.textContent=fmtISO(isoUtc);
+    } else {
+      vecEl.textContent=t.ra&&t.dec?`RA ${t.ra}°, Dec ${t.dec}°`:'—'; sunEl.textContent='—'; earthEl.textContent='—'; uncEl.textContent='—'; stEl.textContent='add horizonsId for live vector'; stEl.classList.add('warn'); updEl.textContent=fmtISO(isoUtc);
+    }
+    if(typeof t.ra==='number'&&typeof t.dec==='number'){
+      const stars=await gaiaCone(t.ra,t.dec,0.2,1);
+      if(stars.length){const s=stars[0]; const pmra=+(s.pmra||0), pmdec=+(s.pmdec||0); pmEl.textContent=`${pmra.toFixed(1)}, ${pmdec.toFixed(1)} mas/yr`; const rv=parseFloat(s.radial_velocity||'NaN'); rvEl.textContent=isFinite(rv)?`${rv.toFixed(1)} km/s`:'—'; const px=+(s.parallax||0); if(px>0){const d_pc=1000/px; distEl.textContent=`${d_pc.toFixed(0)} pc`; const vrec=(+document.getElementById('h0').value)*(d_pc/1e6); recEl.textContent=`${vrec.toFixed(3)} km/s`} else {distEl.textContent='—'; recEl.textContent='—'} } else {pmEl.textContent='—'; rvEl.textContent='—'}
+    }
+    if(typeof t.distanceMpc==='number'||typeof t.redshift==='number'){
+      let d_mpc=t.distanceMpc; if(!d_mpc&&typeof t.redshift==='number'){d_mpc=(t.redshift*C_KM_S)/(+document.getElementById('h0').value)}; if(d_mpc){distEl.textContent=`${d_mpc.toFixed(3)} Mpc`; const vrec=(+document.getElementById('h0').value)*d_mpc; recEl.textContent=`${vrec.toFixed(1)} km/s`}
+    }
+  }catch(e){stEl.textContent='error: '+e.message; stEl.classList.add('bad')}
+}
+
+function solveRow(t){
+  const el=rows.get(t); if(!el) return; const stEl=el.querySelector(`#status-${el.id}`);
+  const tolKm=+document.getElementById('tolKm').value; const h0=+document.getElementById('h0').value;
+  const entry=cache.get(t.name); if(!entry){stEl.textContent='solve: no live vectors yet'; stEl.classList.add('warn'); return}
+  const {vec,earth}=entry; // vectors at now
+  // Relative geometry Earth→Target in AU
+  const R0=sub(vec.au,earth.au); // AU
+  const Vrel=sub(vec.v_au_s,earth.v_au_s); // AU/s
+  const denom=dot(Vrel,Vrel);
+  if(denom===0){stEl.textContent='solve: zero relative velocity'; return}
+  let Tstar=-dot(R0,Vrel)/denom; // seconds, time of closest approach
+  if(!isFinite(Tstar)||Tstar<0) Tstar=Math.max(0,Tstar||0);
+  // Expansion correction (demo): add small drift along R0 using D in Mpc
+  const D_mpc=(norm(vec.au)*AU_KM)/KM_PER_MPC; const vrec=h0*D_mpc; const deltaAu=(vrec)/AU_KM; // AU/s
+  const Rexp=scale(R0, deltaAu*Tstar/Math.max(1,norm(R0))); // tiny outward drift
+  const Rpred=add(R0, add(scale(Vrel,Tstar), Rexp));
+  const errKm=norm(Rpred)*AU_KM; // if we exited with no Δ_warp
+  const ok=errKm<=tolKm;
+  stEl.textContent= ok?`Tc ≈ ${Tstar.toFixed(1)} s (closest approach within tol)`:`Tc ≈ ${Tstar.toFixed(1)} s, residual ${Math.round(errKm)} km > tol`;
+  stEl.classList.toggle('ok',ok); stEl.classList.toggle('warn',!ok);
+  // Store for bubble shaping
+  el.dataset.tc=Tstar;
+  el.dataset.residualKm=errKm;
+}
+
+function shapeRow(t){
+  const el=rows.get(t); if(!el) return; const stEl=el.querySelector(`#status-${el.id}`);
+  const entry=cache.get(t.name); if(!entry){stEl.textContent='shape: run Solve Tc first'; stEl.classList.add('warn'); return}
+  const Tc=+(el.dataset.tc||0); if(!Tc){stEl.textContent='shape: no Tc'; return}
+  const residualKm=+(el.dataset.residualKm||0);
+  // Required warp offset to cancel residual along the travel direction
+  const Delta_warp_km=residualKm; const I = Delta_warp_km / C_KM_S; // integral of (gamma^{-1}-1) dt
+  const flatProfile = I / Tc; // gamma^{-1}-1 constant over [0,Tc]
+  stEl.textContent=`Shape: need ∫(γ⁻¹−1)dt ≈ ${I.toExponential(3)} s ⇒ flat (γ⁻¹−1) ≈ ${flatProfile.toExponential(3)}`;
+}
+
+async function loadTargets(){
+  const r=await fetch(TARGETS_URL); if(!r.ok) throw new Error('targets.json fetch failed');
+  const data=await r.json(); const list=Array.isArray(data)?data:(data.targets||[]);
+  list.forEach(makeRow); for(const t of list){ updateRow(t) }
+  setInterval(()=>{ for(const t of list){ updateRow(t) } }, 30_000);
+}
+
+function tick(){
+  document.getElementById('localTime').textContent=chicagoNow();
+  document.getElementById('interstellarYear').textContent=interstellarYear();
+  document.getElementById('stardate').textContent=stardate();
+  document.getElementById('cstOffset').textContent=cstToUtcOffset();
+  document.getElementById('utcEpoch').textContent=new Date().toISOString().replace('T',' ').replace('Z','Z');
+}
+
+loadTargets().catch(e=>{const p=document.createElement('p');p.textContent='Failed to load targets.json: '+e.message;p.className='small bad';rowsEl.appendChild(p)});
+setInterval(tick,1000); tick();
+</script>
+</body>
+</html>
