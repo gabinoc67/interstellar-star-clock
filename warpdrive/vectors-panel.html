@@ -57,7 +57,8 @@ input,select{background:#0b1233;color:#eaf0ff;border:1px solid rgba(255,255,255,
     </div>
   </section>
 
-  <section class="card" style="grid-column: span 12)">
+  <!-- FIXED stray ')' -->
+  <section class="card" style="grid-column: span 12">
     <h2>Targets + CST Solver</h2>
     <div class="row header">
       <div>Name</div><div>Type</div><div>Live Vector (AU)</div><div>Dist. Sun</div><div>Dist. Earth</div>
@@ -79,25 +80,30 @@ input,select{background:#0b1233;color:#eaf0ff;border:1px solid rgba(255,255,255,
 </div>
 
 <script>
-/******** CONFIG ********/
-// IMPORTANT: use live.js server for data + proxy
-const TARGETS_URL = "/targets.json";
+/* ------------------- HARD REQUIREMENTS (absolute URLs) ------------------- */
+// Your page can be on any port, but these MUST point to live.js:
+const TARGETS_URL   = "http://localhost:8787/targets.json";
+const CORS_PROXY    = "http://localhost:8787/proxy?url=";
 const HORIZONS_ENDPOINT = "https://ssd-api.jpl.nasa.gov/horizons.api";
-const GAIA_TAP = "https://mast.stsci.edu/vo-tap/api/v0.1/gaiadr3/tap/sync";
-const CORS_PROXY = "http://localhost:8787/proxy?url=";
+const GAIA_TAP          = "https://mast.stsci.edu/vo-tap/api/v0.1/gaiadr3/tap/sync";
+
+/* Show any JS error in the banner so it’s obvious */
+window.addEventListener('error', e => {
+  const b=document.getElementById('statusBanner');
+  if (b) { b.textContent = "JS error: " + e.message; b.className="banner mono bad"; }
+});
 
 /******** TIME & UNITS ********/
-const AU_KM = 149_597_870.700, KM_PER_MI = 1.609344, MI_PER_AU = AU_KM/KM_PER_MI;
-const C_KM_S = 299_792.458;
-function fmt(n,d=6){return Number(n).toFixed(d)}
-function fmtAU(x){return fmt(x,6)+" AU"}
-function fmtMi(x){return Number(x).toLocaleString(undefined,{minimumFractionDigits:1,maximumFractionDigits:1})+" miles"}
-function fmtISO(d){return new Date(d).toISOString().replace('.000Z','Z')}
+const AU_KM=149_597_870.700, KM_PER_MI=1.609344, MI_PER_AU=AU_KM/KM_PER_MI, C_KM_S=299_792.458;
+const fmt=(n,d=6)=>Number(n).toFixed(d);
+const fmtAU=x=>fmt(x,6)+" AU";
+const fmtMi=x=>Number(x).toLocaleString(undefined,{minimumFractionDigits:1,maximumFractionDigits:1})+" miles";
+const fmtISO=d=>new Date(d).toISOString().replace('.000Z','Z');
 function chicagoNow(){const o={timeZone:'America/Chicago',hour12:true,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'};return new Intl.DateTimeFormat(undefined,o).format(new Date())}
 function tzLabel(){try{return Intl.DateTimeFormat().resolvedOptions().timeZone}catch{return'Local TZ'}}
-function interstellarYear(){const s=Date.now()/1000;const y=57_800_000+(s/31557600)*100;return \`Year ~\${y.toFixed(2)}\`}
-function stardate(){const ms=Date.now();const base=Date.UTC(2323,0,1);const sd=1000*((ms-base)/31557600000);return \`Stardate \${(sd/10).toFixed(1)}\`}
-function cstToUtcOffset(){const off=-new Date().getTimezoneOffset()/60;const s=off>=0?'+':'';return \`\${s}\${off.toFixed(0)} h\`}
+function interstellarYear(){const s=Date.now()/1000;const y=57_800_000+(s/31557600)*100;return `Year ~${y.toFixed(2)}`}
+function stardate(){const ms=Date.now();const base=Date.UTC(2323,0,1);const sd=1000*((ms-base)/31557600000);return `Stardate ${(sd/10).toFixed(1)}`}
+function cstToUtcOffset(){const off=-new Date().getTimezoneOffset()/60;const s=off>=0?'+':'';return `${s}${off.toFixed(0)} h`}
 
 /******** VECTORS & MATH ********/
 const norm=v=>Math.hypot(...v);
@@ -107,12 +113,12 @@ const scale=(a,s)=>a.map(v=>v*s);
 const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
 
 async function horizonsVector(command, isoUtc){
-  const params=new URLSearchParams({format:'json',COMMAND:command,EPHEM_TYPE:'VECTORS',CENTER:'500@0',TLIST:\`'\${isoUtc}'\`,REF_PLANE:'ECLIPTIC'});
+  const params=new URLSearchParams({format:'json',COMMAND:String(command),EPHEM_TYPE:'VECTORS',CENTER:'500@0',TLIST:`'${isoUtc}'`,REF_PLANE:'ECLIPTIC'});
   const url=HORIZONS_ENDPOINT+'?'+params.toString();
   const res=await fetch(CORS_PROXY+encodeURIComponent(url));
-  if(!res.ok) throw new Error(\`Horizons \${res.status}\`);
+  if(!res.ok) throw new Error(`Horizons ${res.status}`);
   const j=await res.json(); const vecTxt=j?.result||j?.vectors; if(!vecTxt) throw new Error('No vectors in response');
-  const m=vecTxt.match(/X\\s*=\\s*([\\-0-9\\.E+]+).*?Y\\s*=\\s*([\\-0-9\\.E+]+).*?Z\\s*=\\s*([\\-0-9\\.E+]+).*?VX\\s*=\\s*([\\-0-9\\.E+]+).*?VY\\s*=\\s*([\\-0-9\\.E+]+).*?VZ\\s*=\\s*([\\-0-9\\.E+]+)/s);
+  const m=vecTxt.match(/X\s*=\s*([\-0-9\.E+]+).*?Y\s*=\s*([\-0-9\.E+]+).*?Z\s*=\s*([\-0-9\.E+]+).*?VX\s*=\s*([\-0-9\.E+]+).*?VY\s*=\s*([\-0-9\.E+]+).*?VZ\s*=\s*([\-0-9\.E+]+)/s);
   if(!m) throw new Error('Parse error');
   const km=[+m[1],+m[2],+m[3]], vkm=[+m[4],+m[5],+m[6]];
   const au=km.map(v=>v/AU_KM), v_au_s=vkm.map(v=>v/AU_KM);
@@ -121,16 +127,16 @@ async function horizonsVector(command, isoUtc){
 
 /******** GAIA (via proxy) ********/
 async function gaiaCone(raDeg,decDeg,radiusDeg=0.2,limit=1){
-  const adql=\`SELECT TOP \${limit} source_id,ra,dec,parallax,pmra,pmdec,radial_velocity,phot_g_mean_mag
+  const adql=`SELECT TOP ${limit} source_id,ra,dec,parallax,pmra,pmdec,radial_velocity,phot_g_mean_mag
 FROM gaiadr3.gaia_source
-WHERE 1=CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', \${raDeg}, \${decDeg}, \${radiusDeg}))
-ORDER BY phot_g_mean_mag ASC\`;
+WHERE 1=CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', ${raDeg}, ${decDeg}, ${radiusDeg}))
+ORDER BY phot_g_mean_mag ASC`;
   const form=new URLSearchParams({QUERY:adql});
   const r=await fetch(CORS_PROXY+encodeURIComponent(GAIA_TAP),{method:'POST',body:form});
   if(!r.ok) return [];
-  const text=await r.text(); const lines=text.trim().split(/\\n+/); if(lines[0]?.includes('<?xml')) return [];
-  const header=lines[0].split(/,|\\t/);
-  return lines.slice(1).map(l=>{const a=l.split(/,|\\t/);const o={}; header.forEach((h,i)=>o[h.trim()]=a[i]?a[i].trim():null); return o;});
+  const text=await r.text(); const lines=text.trim().split(/\n+/); if(lines[0]?.includes('<?xml')) return [];
+  const header=lines[0].split(/,|\t/);
+  return lines.slice(1).map(l=>{const a=l.split(/,|\t/);const o={}; header.forEach((h,i)=>o[h.trim()]=a[i]?a[i].trim():null); return o;});
 }
 
 /******** FILTER (alpha-beta) ********/
@@ -154,35 +160,35 @@ function addGroupHeader(label){
 
 function makeRow(t){
   const el=document.createElement('div'); el.className='row';
-  const id=(t.id||t.name||'target').toString().replace(/\W+/g,'_'); el.id=\`row-\${id}\`;
-  el.innerHTML=\`
-    <div><div><strong>\${t.name||'(unnamed target)'}</strong></div><div class="small">\${t.id||''}</div></div>
-    <div><span class="pill">\${t.type||t.group||'—'}</span></div>
-    <div class="mono" id="vec-\${id}">—</div>
-    <div id="sun-\${id}">—</div>
-    <div id="earth-\${id}">—</div>
-    <div id="pm-\${id}">—</div>
-    <div id="rv-\${id}">—</div>
-    <div id="dist-\${id}">—</div>
-    <div id="rec-\${id}">—</div>
-    <div id="unc-\${id}">—</div>
-    <div class="small" id="upd-\${id}">—</div>
-    <div class="small" id="status-\${id}">pending…</div>
+  const id=(t.id||t.name||'target').toString().replace(/\W+/g,'_'); el.id=`row-${id}`;
+  el.innerHTML=`
+    <div><div><strong>${t.name||'(unnamed target)'}</strong></div><div class="small">${t.id||''}</div></div>
+    <div><span class="pill">${t.type||t.group||'—'}</span></div>
+    <div class="mono" id="vec-${id}">—</div>
+    <div id="sun-${id}">—</div>
+    <div id="earth-${id}">—</div>
+    <div id="pm-${id}">—</div>
+    <div id="rv-${id}">—</div>
+    <div id="dist-${id}">—</div>
+    <div id="rec-${id}">—</div>
+    <div id="unc-${id}">—</div>
+    <div class="small" id="upd-${id}">—</div>
+    <div class="small" id="status-${id}">pending…</div>
     <div class="flex">
-      <button id="solve-\${id}">Solve Tc</button>
-      <button id="shape-\${id}">Shape Bubble</button>
-    </div>\`;
+      <button id="solve-${id}">Solve Tc</button>
+      <button id="shape-${id}">Shape Bubble</button>
+    </div>`;
   rowsEl.appendChild(el);
-  document.getElementById(\`solve-\${id}\`).addEventListener('click',()=>solveRow(t,id));
-  document.getElementById(\`shape-\${id}\`).addEventListener('click',()=>shapeRow(t,id));
+  document.getElementById(`solve-${id}`).addEventListener('click',()=>solveRow(t,id));
+  document.getElementById(`shape-${id}`).addEventListener('click',()=>shapeRow(t,id));
 }
 
 /******** Row updater (called every second) ********/
 async function updateRow(t,id){
   const g = sel => document.getElementById(sel);
-  const vecEl=g(\`vec-\${id}\`), sunEl=g(\`sun-\${id}\`), earthEl=g(\`earth-\${id}\`), pmEl=g(\`pm-\${id}\`),
-        rvEl=g(\`rv-\${id}\`), distEl=g(\`dist-\${id}\`), recEl=g(\`rec-\${id}\`), uncEl=g(\`unc-\${id}\`),
-        updEl=g(\`upd-\${id}\`), stEl=g(\`status-\${id}\`);
+  const vecEl=g(`vec-${id}`), sunEl=g(`sun-${id}`), earthEl=g(`earth-${id}`), pmEl=g(`pm-${id}`),
+        rvEl=g(`rv-${id}`), distEl=g(`dist-${id}`), recEl=g(`rec-${id}`), uncEl=g(`unc-${id}`),
+        updEl=g(`upd-${id}`), stEl=g(`status-${id}`);
   try{
     const isoUtc=new Date().toISOString();
     const cmd = t?.horizonsId ?? t?.naifId ?? t?.command ?? null;
@@ -195,21 +201,21 @@ async function updateRow(t,id){
       const f=filters.get(t.name);
       const res=f.update(vec.au,1);
 
-      vecEl.textContent=\`[\${fmt(res.x[0])}, \${fmt(res.x[1])}, \${fmt(res.x[2])}]\`;
+      vecEl.textContent=`[${fmt(res.x[0])}, ${fmt(res.x[1])}, ${fmt(res.x[2])}]`;
       const rSun=norm(res.x);
       const rEarth=norm(sub(res.x,earth.au));
-      sunEl.textContent = \`\${fmtAU(rSun)} (\${fmtMi(rSun*MI_PER_AU)})\`;
-      earthEl.textContent= \`\${fmtAU(rEarth)} (\${fmtMi(rEarth*MI_PER_AU)})\`;
+      sunEl.textContent = `${fmtAU(rSun)} (${fmtMi(rSun*MI_PER_AU)})`;
+      earthEl.textContent= `${fmtAU(rEarth)} (${fmtMi(rEarth*MI_PER_AU)})`;
 
       const vmag=norm(vec.vkm); const sigmaKm=vmag*0.5; const sigmaAu=sigmaKm/AU_KM;
-      uncEl.textContent=\`\${sigmaAu.toExponential(2)} AU (~\${Math.round(sigmaKm)} km)\`;
+      uncEl.textContent=`${sigmaAu.toExponential(2)} AU (~${Math.round(sigmaKm)} km)`;
 
       updEl.textContent=fmtISO(isoUtc);
       stEl.textContent='live via Horizons'; stEl.className='small ok';
 
       cache.set(t.name,{vec,earth});
     } else {
-      vecEl.textContent=(typeof t?.ra==='number' && typeof t?.dec==='number') ? \`RA \${t.ra}°, Dec \${t.dec}°\` : '—';
+      vecEl.textContent=(typeof t?.ra==='number' && typeof t?.dec==='number') ? `RA ${t.ra}°, Dec ${t.dec}°` : '—';
       updEl.textContent=fmtISO(isoUtc);
       stEl.textContent='static (add horizonsId/naifId/command for live)'; stEl.className='small warn';
     }
@@ -219,14 +225,14 @@ async function updateRow(t,id){
       if(stars.length){
         const s=stars[0];
         const pmra=+(s.pmra||0), pmdec=+(s.pmdec||0);
-        pmEl.textContent=\`\${pmra.toFixed(1)}, \${pmdec.toFixed(1)} mas/yr\`;
+        pmEl.textContent=`${pmra.toFixed(1)}, ${pmdec.toFixed(1)} mas/yr`;
         const rv=parseFloat(s.radial_velocity||'');
-        rvEl.textContent=isFinite(rv)?\`\${rv.toFixed(1)} km/s\`:'—';
+        rvEl.textContent=isFinite(rv)?`${rv.toFixed(1)} km/s`:'—';
         const px=+(s.parallax||0);
         if(px>0){
-          const d_pc=1000/px; distEl.textContent=\`\${d_pc.toFixed(0)} pc\`;
+          const d_pc=1000/px; distEl.textContent=`${d_pc.toFixed(0)} pc`;
           const vrec=(+document.getElementById('h0').value)*(d_pc/1e6);
-          recEl.textContent=\`\${vrec.toFixed(3)} km/s\`;
+          recEl.textContent=`${vrec.toFixed(3)} km/s`;
         }
       }
       t._gaiaDone=true;
@@ -240,7 +246,7 @@ async function updateRow(t,id){
 
 /******** Actions ********/
 function solveRow(t,id){
-  const stEl=document.getElementById(\`status-\${id}\`);
+  const stEl=document.getElementById(`status-${id}`);
   const tolKm=+document.getElementById('tolKm').value;
   const entry=cache.get(t.name); if(!entry){stEl.textContent='solve: no live vectors yet'; stEl.className='small warn'; return}
   const {vec,earth}=entry;
@@ -251,16 +257,16 @@ function solveRow(t,id){
   let Tstar=-dot(R0,Vrel)/denom; if(!isFinite(Tstar)||Tstar<0) Tstar=Math.max(0,Tstar||0);
   const errKm=norm(add(R0,scale(Vrel,Tstar)))*AU_KM;
   const ok=errKm<=tolKm;
-  stEl.textContent= ok ? \`Tc ≈ \${Tstar.toFixed(1)} s (within tol)\` : \`Tc ≈ \${Tstar.toFixed(1)} s, residual \${Math.round(errKm)} km > tol\`;
+  stEl.textContent= ok ? `Tc ≈ ${Tstar.toFixed(1)} s (within tol)` : `Tc ≈ ${Tstar.toFixed(1)} s, residual ${Math.round(errKm)} km > tol`;
   stEl.className='small '+(ok?'ok':'warn');
   entry.tc=Tstar; entry.residualKm=errKm;
 }
 function shapeRow(t,id){
-  const stEl=document.getElementById(\`status-\${id}\`);
+  const stEl=document.getElementById(`status-${id}`);
   const entry=cache.get(t.name); if(!entry||!entry.tc){stEl.textContent='shape: run Solve Tc first'; stEl.className='small warn'; return}
   const I = (entry.residualKm||0) / C_KM_S;
   const flat = I / entry.tc;
-  stEl.textContent=\`Shape: ∫(γ⁻¹−1)dt ≈ \${I.toExponential(3)} s ⇒ flat (γ⁻¹−1) ≈ \${flat.toExponential(3)}\`;
+  stEl.textContent=`Shape: ∫(γ⁻¹−1)dt ≈ ${I.toExponential(3)} s ⇒ flat (γ⁻¹−1) ≈ ${flat.toExponential(3)}`;
   stEl.className='small ok';
 }
 
@@ -322,20 +328,36 @@ setInterval(tick,1000); tick();
 /******** INIT ********/
 async function loadTargets(){
   try{
-    const r=await fetch(\`\${TARGETS_URL}?v=\${Date.now()}\`, { cache: "no-store" });
-    if(!r.ok) throw new Error(\`HTTP \${r.status}\`);
+    const r=await fetch(TARGETS_URL + "?v=" + Date.now(), { cache: "no-store" });
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const text=await r.text();
     let data; try { data=JSON.parse(text); } catch { throw new Error('Invalid JSON in targets.json'); }
     const list=normalizeTargets(data);
-    if(!list.length){ setBanner('No targets found. Put arrays under planets/moons/stars/galaxies or a flat list.', 'warn'); return; }
-    setBanner(\`Loaded \${list.length} target(s) from targets.json.\`, 'ok');
-    renderTargets(list);
-    LIVE_LIST = list.filter(t => t?.horizonsId || t?.naifId || t?.command);
-    startLiveUpdates();
+
+    if(!list.length){
+      setBanner('No targets found in /targets.json. Using sample targets so UI still works.', 'warn');
+      // fallback sample so you can see the UI working
+      const sample={ planets:[{name:"Mars",horizonsId:"499"},{name:"Jupiter",horizonsId:"599"}],
+                     stars:[{name:"Sirius",ra:101.2875,dec:-16.7161}] };
+      return initWithList(normalizeTargets(sample));
+    }
+
+    setBanner(`Loaded ${list.length} target(s) from /targets.json.`, 'ok');
+    initWithList(list);
   } catch (e) {
-    setBanner('Failed to load targets.json: ' + e.message, 'bad');
+    setBanner('Failed to load /targets.json: ' + e.message + ' — using sample targets.', 'bad');
+    const sample={ planets:[{name:"Mars",horizonsId:"499"},{name:"Jupiter",horizonsId:"599"}],
+                   stars:[{name:"Sirius",ra:101.2875,dec:-16.7161}] };
+    initWithList(normalizeTargets(sample));
   }
 }
+
+function initWithList(list){
+  renderTargets(list);
+  LIVE_LIST = list.filter(t => t?.horizonsId || t?.naifId || t?.command);
+  startLiveUpdates();
+}
+
 loadTargets();
 </script>
 </body>
