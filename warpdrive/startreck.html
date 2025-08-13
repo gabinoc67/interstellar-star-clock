@@ -1,197 +1,478 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Ship • Throttle • Shield (HTML/CSS/JS)</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Warp Drive Console</title>
+  <!-- Three.js CDN -->
+  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+  <script src="https://unpkg.com/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
   <style>
-    :root{
-      --bg:#0b0f14; --panel:#0f1620; --fg:#e6edf3; --muted:#7a8699; --accent:#7c9eff; --accent2:#4cc38a;
-      --radius:16px; --shadow:0 10px 30px rgba(0,0,0,.4);
+    :root {
+      --lcars-yellow: #ffd700;
+      --lcars-red: #ff3b30;
+      --lcars-blue: #0a84ff;
+      --lcars-green: #34c759;
+      --lcars-purple: #af52de;
+      --lcars-orange: #ff9f0a;
+      --lcars-black: #000000;
+      --lcars-gray: #7f8c8d;
     }
-    *{box-sizing:border-box}
-    html,body{height:100%}
-    body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 ui-sans-serif,system-ui,Segoe UI,Roboto,Helvetica,Arial}
-    .wrap{max-width:960px;margin:auto;padding:24px;display:grid;gap:18px}
-    .card{background:linear-gradient(180deg,rgba(255,255,255,.03),transparent),var(--panel);border:1px solid rgba(255,255,255,.06);border-radius:var(--radius);box-shadow:var(--shadow)}
-    .card h2{margin:0;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.06);font-size:16px;color:var(--muted)}
+    @font-face {
+      font-family: "LCARS";
+      src: local("Orbitron"), local("Arial"); /* fallback */
+    }
+    html, body {
+      margin: 0; height: 100%; overflow: hidden; background: #000; color: #fff;
+      font-family: "LCARS", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    }
 
-    .controls{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;padding:14px 16px}
-    .controls .btn{appearance:none;border:1px solid rgba(255,255,255,.15);background:transparent;color:var(--fg);padding:10px 14px;border-radius:12px;text-decoration:none;display:inline-flex;gap:8px;align-items:center}
-    .controls .btn:hover{border-color:rgba(255,255,255,.35);box-shadow:0 0 0 3px rgba(124,158,255,.18)}
-    .controls .small{font-size:12px;color:var(--muted)}
+    /* Layout */
+    .grid {
+      position: fixed; inset: 0; display: grid; gap: 8px;
+      grid-template-columns: 320px 1fr 360px; grid-template-rows: 1fr auto;
+      padding: 8px;
+    }
+    #scene-wrap { position: relative; background: radial-gradient(1000px 600px at 50% 50%, #001122 0%, #000 65%); overflow: hidden; }
+    #hud-overlay { position: absolute; inset: 0; pointer-events:none; }
 
-    .throttle{padding:14px 16px;display:grid;gap:8px}
-    .throttle .row{display:flex;align-items:center;gap:12px}
-    .throttle input[type=range]{width:100%}
-    .kbd{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-bottom-color:rgba(0,0,0,.3);border-radius:6px;padding:1px 6px;font-size:12px}
+    /* Panels */
+    .panel { background: rgba(10,10,10,0.65); border: 2px solid #666; border-radius: 14px; padding: 12px; }
+    .panel h2 { margin: 0 0 6px 0; font-size: 14px; letter-spacing: 1px; opacity: 0.9; }
+    .pill { display: inline-block; padding: 4px 8px; margin: 2px; border-radius: 999px; font-weight: 700; font-size: 12px; color: #000; }
+    .yellow{ background: var(--lcars-yellow);} .red{background:var(--lcars-red);} .blue{background:var(--lcars-blue);} .green{background:var(--lcars-green);} .purple{background:var(--lcars-purple);} .orange{background:var(--lcars-orange);} .black{background:var(--lcars-black); color:#fff; border:1px solid #fff;}
 
-    .stage{padding:16px}
-    #shieldBox{position:relative;aspect-ratio:1/1;max-width:540px;margin:auto;border-radius:24px;padding:20px;background:radial-gradient(80% 80% at 50% 50%, rgba(124,158,255,.12), transparent),linear-gradient(180deg, rgba(255,255,255,.02), transparent);border:1px solid rgba(255,255,255,.06)}
+    /* Center-bottom control bar */
+    .control-bar {
+      grid-column: 1 / span 3; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
+      background: linear-gradient(180deg, rgba(255,215,0,0.15), rgba(0,0,0,0.6)); border: 2px solid var(--lcars-yellow);
+      border-radius: 16px; padding: 8px 12px; gap: 8px;
+    }
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; justify-content:center; }
+    button { background: #222; border: 2px solid #999; color: #fff; padding: 8px 12px; border-radius: 10px; font-weight: 800; letter-spacing: .5px; cursor: pointer; }
+    button.primary { border-color: var(--lcars-green);} button.danger { border-color: var(--lcars-red);} button.warning { border-color: var(--lcars-orange);} 
+    button:active { transform: translateY(1px); }
 
-    /* Shield field */
-    .shield{position:absolute;inset:20px;border-radius:999px;background:radial-gradient(circle at 50% 50%, rgba(124,158,255,.16), rgba(124,158,255,.08) 45%, rgba(124,158,255,.02) 70%, transparent 75%);border:2px solid rgba(124,158,255,.35);box-shadow:inset 0 0 40px rgba(124,158,255,.25), 0 0 30px rgba(124,158,255,.18)}
-    .shield::after{content:"";position:absolute;inset:-6px;border-radius:inherit;filter:blur(8px);box-shadow:inset 0 0 25px rgba(124,158,255,.45)}
+    .meter { height: 10px; background: #111; border:1px solid #555; border-radius: 999px; overflow: hidden; }
+    .meter > span { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, var(--lcars-blue), var(--lcars-purple)); transition: width .2s ease-out; }
 
-    /* Ship */
-    .ship{position:absolute;left:0;top:0;width:32px;height:32px;transform:translate(-9999px,-9999px)}
-    .hud{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);color:var(--muted);font-size:12px}
+    .stat { display:flex; align-items:center; justify-content:space-between; gap: 8px; font-size: 12px; }
+    .stat .value { font-weight: 800; }
+
+    /* Collision flash & warnings */
+    #alert-flash { position:absolute; inset:0; background: radial-gradient(200px 200px at center, rgba(255,59,48,0.7), rgba(255,59,48,0) 70%); opacity:0; transition: opacity .25s ease-out; pointer-events:none; }
+    .warning-banner { background: rgba(255,59,48,0.18); border:1px solid var(--lcars-red); border-radius: 10px; padding:6px 8px; font-weight:800; text-align:center; }
+
+    /* Mini LCARS stack on left/right */
+    .stack { display: grid; gap: 8px; grid-auto-rows: minmax(100px, auto); }
+    .mini { display:grid; grid-template-rows:auto 1fr; gap:8px; }
+
+    /* Tiny legend */
+    .legend { display:flex; flex-wrap:wrap; gap:6px; font-size:10px; opacity:.88; }
+    .legend .item { display:flex; align-items:center; gap:4px; }
+    .dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
+
+    /* Curvature badges */
+    .curvature { display:flex; gap:6px; flex-wrap:wrap; }
+    .curvature .pill { color:#000; }
+
+    /* Footer info */
+    .tiny { font-size: 10px; opacity:.8; }
+
+    /* Responsive tweak */
+    @media (max-width: 1200px) {
+      .grid { grid-template-columns: 280px 1fr 320px; }
+    }
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: 1fr; grid-template-rows: 1fr auto auto; }
+      .control-bar { grid-column: auto; }
+    }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="card">
-      <h2>Buttons that link</h2>
-      <div class="controls">
-        <!-- EXAMPLE: change href to your URL -->
-        <a class="btn" href="https://example.com" target="_blank" rel="noopener">Visit my site →</a>
-        <div class="small">Replace the <code>href</code> to point anywhere (e.g., your page section or an external URL).</div>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>Throttle + Ship inside a Shield Field (HTML/CSS/JS only)</h2>
-      <div class="throttle">
-        <div class="row"><label>Throttle</label><input id="throttle" type="range" min="0" max="100" value="25" /><output id="throttleOut">25%</output></div>
-        <div class="row small">Keys: <span class="kbd">A</span>/<span class="kbd">D</span> rotate • <span class="kbd">W</span>/<span class="kbd">S</span> throttle • <span class="kbd">Space</span> pause</div>
-      </div>
-      <div class="stage">
-        <div id="shieldBox">
-          <div id="shield" class="shield" aria-label="Protective shield field" role="img"></div>
-          <!-- Simple SVG ship -->
-          <svg id="ship" class="ship" viewBox="0 0 24 24" aria-label="ship">
-            <!-- body -->
-            <path d="M12 2 L17 12 L12 10 L7 12 Z" fill="white"/>
-            <!-- flame -->
-            <path id="flame" d="M7 12 L4 13 L7 14 Z" fill="orange"/>
-          </svg>
-          <div class="hud" id="hud">speed: 0 • heading: 0°</div>
+  <div class="grid">
+    <!-- LEFT STACK: Navigation / Status / Readouts -->
+    <section class="stack">
+      <div class="panel mini">
+        <h2>NAVIGATION — <span class="pill yellow">NAV</span> <span class="pill blue">CRS</span> <span class="pill green">WRP</span></h2>
+        <div>
+          <div class="stat"><span>Coordinates</span><span class="value" id="coord">Alpha 23 · 17 · 9</span></div>
+          <div class="stat"><span>Course</span><span class="value" id="course">002 Mark 7</span></div>
+          <div class="meter" aria-label="Course Stability"><span id="courseMeter"></span></div>
+          <div class="legend" style="margin-top:6px;">
+            <div class="item"><span class="dot" style="background:var(--lcars-yellow)"></span>Yellow</div>
+            <div class="item"><span class="dot" style="background:var(--lcars-red)"></span>Red</div>
+            <div class="item"><span class="dot" style="background:var(--lcars-blue)"></span>Blue</div>
+            <div class="item"><span class="dot" style="background:var(--lcars-green)"></span>Green</div>
+            <div class="item"><span class="dot" style="background:var(--lcars-purple)"></span>Purple</div>
+            <div class="item"><span class="dot" style="background:var(--lcars-orange)"></span>Orange</div>
+            <div class="item"><span class="dot" style="background:var(--lcars-black); border:1px solid #fff"></span>Black</div>
+          </div>
         </div>
+      </div>
+
+      <div class="panel mini">
+        <h2>CREW — <span class="pill green">OK</span> <span class="pill orange">BIO</span></h2>
+        <div>
+          <div class="stat"><span>Biometric Pressure</span><span class="value" id="bio">1.00 atm</span></div>
+          <div class="meter" aria-label="Biometric Pressure"><span id="bioMeter"></span></div>
+          <div class="stat"><span>Ship Frequency</span><span class="value" id="freq">440.0 Hz</span></div>
+          <div class="meter" aria-label="Frequency"><span id="freqMeter"></span></div>
+        </div>
+      </div>
+
+      <div class="panel mini">
+        <h2>ABBREV STATUS — <span class="pill purple">NAV</span> <span class="pill blue">CRW</span> <span class="pill orange">ENG</span> <span class="pill yellow">SHP</span></h2>
+        <div id="abbrevStatus" class="tiny"></div>
+      </div>
+
+      <div class="panel warning-banner" id="debrisBanner" style="display:none;">DEBRIS FIELD AHEAD — IMPACT PROBABILITY ELEVATED</div>
+    </section>
+
+    <!-- CENTER: 3D Scene -->
+    <section id="scene-wrap" class="panel">
+      <canvas id="stage"></canvas>
+      <div id="hud-overlay">
+        <div id="alert-flash"></div>
+      </div>
+    </section>
+
+    <!-- RIGHT STACK: Warp Field / Curvature / Engine -->
+    <section class="stack">
+      <div class="panel mini">
+        <h2>WARP FIELD</h2>
+        <div class="stat"><span>Warp Factor</span><span class="value" id="warpVal">0.00</span></div>
+        <input id="warpSlider" type="range" min="0" max="9.99" value="0" step="0.01" style="width:100%"/>
+        <div class="stat"><span>Field Integrity</span><span class="value" id="integrity">100%</span></div>
+        <div class="meter" aria-label="Field Integrity"><span id="integrityMeter" style="background:linear-gradient(90deg,var(--lcars-green),var(--lcars-yellow))"></span></div>
+        <div class="curvature" style="margin-top:8px;">
+          <span class="pill blue" id="frontCurv">Front Curv: 0.00</span>
+          <span class="pill purple" id="rearCurv">Rear Curv: 0.00</span>
+        </div>
+      </div>
+
+      <div class="panel mini">
+        <h2>ENGINE</h2>
+        <div class="stat"><span>Status</span><span class="value" id="engineStatus">OFFLINE</span></div>
+        <div class="stat"><span>Core Temp</span><span class="value" id="coreTemp">273 K</span></div>
+        <div class="meter" aria-label="Core Temperature"><span id="coreMeter"></span></div>
+      </div>
+
+      <div class="panel mini">
+        <h2>SHIP</h2>
+        <div class="stat"><span>Hull</span><span class="value" id="hull">100%</span></div>
+        <div class="meter" aria-label="Hull Integrity"><span id="hullMeter" style="background:linear-gradient(90deg,var(--lcars-blue),var(--lcars-green))"></span></div>
+        <div class="stat"><span>Shields</span><span class="value" id="shields">100%</span></div>
+        <div class="meter" aria-label="Shields"><span id="shieldMeter" style="background:linear-gradient(90deg,var(--lcars-blue),var(--lcars-purple))"></span></div>
+      </div>
+    </section>
+
+    <!-- CENTER-BOTTOM CONTROL BAR (spans entire grid width) -->
+    <div class="control-bar">
+      <div class="controls">
+        <button class="primary" id="btnEngage">ENGAGE WARP</button>
+        <button class="danger" id="btnDisengage">DISENGAGE</button>
+        <button class="warning" id="btnAlarm">TEST ALARM</button>
+      </div>
+      <div class="controls">
+        <span class="pill yellow">NAV</span>
+        <span class="pill blue">CREW</span>
+        <span class="pill orange">ENGINE</span>
+        <span class="pill green">SHIP</span>
+        <span class="pill purple">FIELD</span>
+        <span class="pill black">SYS</span>
+      </div>
+      <div class="controls tiny" style="opacity:.8;">
+        <span>Curvature visualized ahead/astern. Debris collisions trigger alarm and red flash. Sounds synthesized via WebAudio.</span>
       </div>
     </div>
   </div>
 
   <script>
-    // === Button is just <a href> — no JS needed. ===
-
-    // === Throttle/Ship/Shield logic ===
-    const box = document.getElementById('shieldBox');
-    const shield = document.getElementById('shield');
-    const ship = document.getElementById('ship');
-    const flame = document.getElementById('flame');
-    const throttle = document.getElementById('throttle');
-    const throttleOut = document.getElementById('throttleOut');
-    const hud = document.getElementById('hud');
-
-    const state = {
-      pos: {x: 0, y: 0},
-      vel: {x: 0, y: 0},
-      heading: 0,         // radians
-      throttle: 0.25,     // 0..1
-      maxSpeed: 170,      // px/sec at throttle=1
-      turning: 0,         // -1 left, +1 right
-      paused: false
-    };
-
-    function resize() {
-      const r = shield.getBoundingClientRect();
-      // center of shield and radius available for ship (minus margin)
-      bounds.cx = r.left + r.width/2;
-      bounds.cy = r.top + r.height/2;
-      bounds.r = Math.min(r.width, r.height)/2 - 18; // margin so ship stays visually inside
+    /* ======================
+       WEB AUDIO (Warp / Arrival / Alarm)
+       ====================== */
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const audioCtx = new AudioCtx();
+    let warpOsc, alarmOsc; let master;
+    function ensureAudio() {
+      if (master) return; master = audioCtx.createGain(); master.gain.value = 0.6; master.connect(audioCtx.destination);
+    }
+    function playWarpUp() {
+      ensureAudio();
+      warpOsc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+      warpOsc.type = 'sawtooth'; warpOsc.frequency.setValueAtTime(110, audioCtx.currentTime);
+      gain.gain.setValueAtTime(0, audioCtx.currentTime); gain.gain.linearRampToValueAtTime(0.7, audioCtx.currentTime + 0.6);
+      warpOsc.connect(gain).connect(master); warpOsc.start();
+      // glide upward
+      warpOsc.frequency.exponentialRampToValueAtTime(2200, audioCtx.currentTime + 2.2);
+      // tail
+      gain.gain.linearRampToValueAtTime(0.0, audioCtx.currentTime + 2.6);
+      setTimeout(()=>{ warpOsc.stop(); warpOsc.disconnect(); }, 2700);
+    }
+    function playArrival() {
+      ensureAudio();
+      const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+      osc.type='triangle'; osc.frequency.setValueAtTime(1800, audioCtx.currentTime);
+      gain.gain.setValueAtTime(0.6, audioCtx.currentTime);
+      osc.connect(gain).connect(master); osc.start();
+      osc.frequency.exponentialRampToValueAtTime(220, audioCtx.currentTime + 0.9);
+      gain.gain.linearRampToValueAtTime(0.0, audioCtx.currentTime + 1.1);
+      setTimeout(()=>{ osc.stop(); osc.disconnect(); }, 1200);
+    }
+    function playAlarm() {
+      ensureAudio();
+      if (alarmOsc) { try { alarmOsc.stop(); } catch(e){} }
+      alarmOsc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+      alarmOsc.type='square'; alarmOsc.frequency.setValueAtTime(880, audioCtx.currentTime);
+      gain.gain.value = 0.6; alarmOsc.connect(gain).connect(master); alarmOsc.start();
+      let t = 0; const id = setInterval(()=>{
+        t++; alarmOsc.frequency.setValueAtTime( t % 2 ? 660 : 880, audioCtx.currentTime );
+        if (t>8) { clearInterval(id); try{ alarmOsc.stop(); alarmOsc.disconnect(); }catch(e){} }
+      }, 180);
     }
 
-    const bounds = {cx:0, cy:0, r:0};
-    resize();
-    window.addEventListener('resize', resize);
+    /* ======================
+       THREE.JS SCENE
+       ====================== */
+    const canvas = document.getElementById('stage');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true});
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-    // place ship at center to start
-    state.pos.x = bounds.cx; state.pos.y = bounds.cy;
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x000010, 0.0022);
 
-    // UI wiring
-    function setThrottleFromRange(){
-      state.throttle = Number(throttle.value)/100;
-      throttleOut.value = Math.round(state.throttle*100) + '%';
-    }
-    throttle.addEventListener('input', setThrottleFromRange);
-    setThrottleFromRange();
+    const camera = new THREE.PerspectiveCamera(65, 1, 0.1, 5000);
+    camera.position.set(0, 2.5, 8);
 
-    // Key controls
-    const down = new Set();
-    window.addEventListener('keydown', (e)=>{
-      if (['W','A','S','D',' '].includes(e.key.toUpperCase())) e.preventDefault();
-      down.add(e.key.toLowerCase());
-      if (e.code === 'Space') state.paused = !state.paused;
-    });
-    window.addEventListener('keyup', (e)=>{ down.delete(e.key.toLowerCase()); });
+    const controls = new THREE.OrbitControls(camera, canvas);
+    controls.enableDamping = true; controls.enablePan = false; controls.minDistance = 4; controls.maxDistance = 30;
 
-    function handleKeys(dt){
-      // rotate with A/D
-      const left = down.has('a');
-      const right = down.has('d');
-      const turnSpeed = 2.4; // rad/sec
-      if (left && !right) state.heading -= turnSpeed*dt;
-      if (right && !left) state.heading += turnSpeed*dt;
-      // throttle with W/S
-      if (down.has('w')) state.throttle = Math.min(1, state.throttle + 0.6*dt);
-      if (down.has('s')) state.throttle = Math.max(0, state.throttle - 0.6*dt);
-      throttle.value = Math.round(state.throttle*100);
-      throttleOut.value = Math.round(state.throttle*100)+'%';
-    }
+    // Lights
+    const key = new THREE.DirectionalLight(0x88ccff, 1.2); key.position.set(5, 10, 7);
+    const fill = new THREE.DirectionalLight(0xff88aa, 0.6); fill.position.set(-6, 2, -4);
+    const rim = new THREE.PointLight(0x44aaff, 1, 40); rim.position.set(0, 0, -6);
+    scene.add(key, fill, rim, new THREE.AmbientLight(0x404040, 0.6));
 
-    let last = performance.now();
-    function tick(now){
-      const dt = Math.min(0.05, (now-last)/1000); // clamp big frame jumps
-      last = now;
+    // Ship (stylized) — saucer + hull + nacelles
+    const ship = new THREE.Group(); scene.add(ship);
+    const saucerGeo = new THREE.SphereGeometry(1.6, 48, 48);
+    saucerGeo.scale(1.4, 0.25, 1.4);
+    const hullGeo = new THREE.CapsuleGeometry(0.35, 2.2, 6, 24);
+    const nacelleGeo = new THREE.CapsuleGeometry(0.18, 2.4, 4, 18);
+    const shipMat = new THREE.MeshStandardMaterial({ color: 0xb0b8c0, metalness: 0.4, roughness: 0.3 });
+    const accentMat = new THREE.MeshStandardMaterial({ color: 0x0077ff, emissive: 0x003355, emissiveIntensity: 1.2, metalness: 0.1, roughness: 0.4 });
 
-      if (!state.paused){
-        handleKeys(dt);
+    const saucer = new THREE.Mesh(saucerGeo, shipMat); saucer.position.set(0,0,0);
+    const hull = new THREE.Mesh(hullGeo, shipMat); hull.position.set(0,-0.5,-1.8); hull.rotation.x = Math.PI/2;
+    const nacL = new THREE.Mesh(nacelleGeo, accentMat); nacL.position.set(-1.6,-0.2,-1.0); nacL.rotation.z = Math.PI/2;
+    const nacR = new THREE.Mesh(nacelleGeo, accentMat); nacR.position.set( 1.6,-0.2,-1.0); nacR.rotation.z = Math.PI/2;
+    ship.add(saucer, hull, nacL, nacR);
 
-        // thrust in heading
-        const speed = state.throttle * state.maxSpeed;
-        const ax = Math.cos(state.heading) * speed * 0.9;
-        const ay = Math.sin(state.heading) * speed * 0.9;
-
-        // Accumulate velocity with light damping (space-y feel)
-        state.vel.x = (state.vel.x + ax*dt) * 0.985;
-        state.vel.y = (state.vel.y + ay*dt) * 0.985;
-
-        // Integrate position
-        state.pos.x += state.vel.x * dt;
-        state.pos.y += state.vel.y * dt;
-
-        // Constrain inside shield
-        const dx = state.pos.x - bounds.cx;
-        const dy = state.pos.y - bounds.cy;
-        const dist = Math.hypot(dx, dy);
-        if (dist > bounds.r){
-          // move back to edge and reflect velocity
-          const nx = dx / dist; const ny = dy / dist; // normal
-          state.pos.x = bounds.cx + nx*bounds.r;
-          state.pos.y = bounds.cy + ny*bounds.r;
-          // reflect vel = v - 2*(v·n)*n, and damp a bit
-          const dot = state.vel.x*nx + state.vel.y*ny;
-          state.vel.x = (state.vel.x - 2*dot*nx) * 0.6;
-          state.vel.y = (state.vel.y - 2*dot*ny) * 0.6;
+    // Warp bubble (curvature visualization front/rear)
+    const bubbleGeo = new THREE.SphereGeometry(3.6, 64, 64);
+    const bubbleMat = new THREE.ShaderMaterial({
+      transparent: true, side: THREE.DoubleSide, depthWrite: false,
+      uniforms: {
+        uTime: { value: 0 }, uFrontCurv: { value: 0.0 }, uRearCurv: { value: 0.0 },
+        uColorFront: { value: new THREE.Color(0x00aaff) }, uColorRear: { value: new THREE.Color(0xaa55ff) }
+      },
+      vertexShader: `
+        uniform float uTime; uniform float uFrontCurv; uniform float uRearCurv;
+        varying float vWarp;
+        void main(){
+          vec3 p = position;
+          // signed curvature: positive front (z<0), negative rear (z>0)
+          float k = smoothstep(-3.6, 0.0, p.z) * uFrontCurv - smoothstep(0.0, 3.6, p.z) * uRearCurv;
+          float r = length(p);
+          p += normal * k * 0.12 * sin(uTime*1.7 + r*3.0);
+          vWarp = k;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(p,1.0);
         }
+      `,
+      fragmentShader: `
+        uniform vec3 uColorFront; uniform vec3 uColorRear; varying float vWarp;
+        void main(){
+          vec3 c = mix(uColorRear, uColorFront, smoothstep(-1.0, 1.0, vWarp));
+          float a = 0.22 + 0.35*abs(vWarp);
+          gl_FragColor = vec4(c, a);
+        }
+      `
+    });
+    const bubble = new THREE.Mesh(bubbleGeo, bubbleMat); ship.add(bubble);
 
-        // flame flicker with throttle
-        flame.setAttribute('opacity', String(0.3 + 0.7*state.throttle*Math.random()));
-      }
+    // Debris field — instanced boxes flying toward the ship
+    const debrisCount = 800;
+    const debrisGeo = new THREE.BoxGeometry(0.08, 0.08, 0.08);
+    const debrisMat = new THREE.MeshStandardMaterial({ color: 0x888888, metalness:0.2, roughness:0.8 });
+    const debris = new THREE.InstancedMesh(debrisGeo, debrisMat, debrisCount);
+    debris.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    scene.add(debris);
+    const tmpObj = new THREE.Object3D();
+    const debrisData = [];
+    function resetDebris(i, behind=false){
+      const radius = THREE.MathUtils.randFloat(2.8, 10);
+      const angle = Math.random()*Math.PI*2;
+      const y = THREE.MathUtils.randFloat(-3.0, 3.0);
+      const z = behind ? THREE.MathUtils.randFloat(2, 30) : THREE.MathUtils.randFloat(-60, -6);
+      const pos = new THREE.Vector3(Math.cos(angle)*radius, y, z);
+      const vel = new THREE.Vector3(0, 0, THREE.MathUtils.randFloat(0.25, 0.9));
+      debrisData[i] = { pos, vel, size: THREE.MathUtils.randFloat(0.06, 0.22) };
+      tmpObj.position.copy(pos); tmpObj.scale.setScalar(debrisData[i].size*THREE.MathUtils.randFloat(0.6, 1.8));
+      tmpObj.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI);
+      tmpObj.updateMatrix(); debris.setMatrixAt(i, tmpObj.matrix);
+    }
+    for(let i=0;i<debrisCount;i++) resetDebris(i);
 
-      // Render ship at pos with heading
-      const shipBox = ship.getBoundingClientRect();
-      const w = shipBox.width || 32, h = shipBox.height || 32;
-      const x = state.pos.x - w/2; const y = state.pos.y - h/2;
-      const deg = state.heading * 180/Math.PI;
-      ship.style.transform = `translate(${x}px, ${y}px) rotate(${deg}deg)`;
+    // Stars background
+    const starGeo = new THREE.BufferGeometry();
+    const starCount = 2000; const starPos = new Float32Array(starCount*3);
+    for(let i=0;i<starCount;i++){ starPos[i*3+0] = (Math.random()-0.5)*200; starPos[i*3+1] = (Math.random()-0.5)*200; starPos[i*3+2] = -Math.random()*400 - 20; }
+    starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+    const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.6 }));
+    scene.add(stars);
 
-      hud.textContent = `speed: ${Math.round(Math.hypot(state.vel.x, state.vel.y))} • heading: ${Math.round((deg%360+360)%360)}°` + (state.paused?' • paused':'');
+    // Resize
+    function onResize(){
+      const rect = document.getElementById('scene-wrap').getBoundingClientRect();
+      renderer.setSize(rect.width, rect.height, false);
+      camera.aspect = rect.width/rect.height; camera.updateProjectionMatrix();
+    }
+    addEventListener('resize', onResize); onResize();
 
-      requestAnimationFrame(tick);
+    /* ======================
+       UI + Telemetry
+       ====================== */
+    const warpSlider = document.getElementById('warpSlider');
+    const warpVal = document.getElementById('warpVal');
+    const integrity = document.getElementById('integrity');
+    const integrityMeter = document.getElementById('integrityMeter');
+    const frontCurv = document.getElementById('frontCurv');
+    const rearCurv = document.getElementById('rearCurv');
+    const engineStatus = document.getElementById('engineStatus');
+    const coreTemp = document.getElementById('coreTemp');
+    const coreMeter = document.getElementById('coreMeter');
+    const hull = document.getElementById('hull');
+    const hullMeter = document.getElementById('hullMeter');
+    const shields = document.getElementById('shields');
+    const shieldMeter = document.getElementById('shieldMeter');
+    const bio = document.getElementById('bio');
+    const bioMeter = document.getElementById('bioMeter');
+    const freq = document.getElementById('freq');
+    const freqMeter = document.getElementById('freqMeter');
+    const courseMeter = document.getElementById('courseMeter');
+    const debrisBanner = document.getElementById('debrisBanner');
+
+    const btnEngage = document.getElementById('btnEngage');
+    const btnDisengage = document.getElementById('btnDisengage');
+    const btnAlarm = document.getElementById('btnAlarm');
+
+    let engineOn = false; let warpFactor = 0.0; let targetWarp = 0.0; let shieldVal=100; let hullVal=100; let fieldIntegrity=100;
+
+    // Abbrev status from your site — plug your feed here
+    const abbrev = { NAV:"OK", CRW:"OK", ENG:"STBY", SHP:"GREEN" };
+    function renderAbbrev(){
+      const el = document.getElementById('abbrevStatus');
+      el.innerHTML = `NAV: ${abbrev.NAV} · CRW: ${abbrev.CRW} · ENG: ${abbrev.ENG} · SHP: ${abbrev.SHP}`;
+    }
+    renderAbbrev();
+    // Example to wire your website: replace below with fetch('https://your.site/status.json').then(r=>r.json()).then(data=>{ Object.assign(abbrev,data); renderAbbrev(); });
+
+    btnEngage.onclick = () => { engineOn = true; targetWarp = Math.max(2.5, parseFloat(warpSlider.value)); playWarpUp(); engineStatus.textContent = 'ONLINE'; };
+    btnDisengage.onclick = () => { targetWarp = 0.0; playArrival(); setTimeout(()=>{ engineOn=false; engineStatus.textContent='OFFLINE'; }, 1200); };
+    btnAlarm.onclick = () => { triggerCollision(true); };
+    warpSlider.addEventListener('input', (e)=>{ targetWarp = engineOn ? parseFloat(e.target.value) : 0.0; });
+
+    function setMeter(elSpan, pct){ elSpan.style.width = Math.max(0, Math.min(100, pct)) + '%'; }
+
+    // Alert flash
+    const flash = document.getElementById('alert-flash');
+    function flashAlert(){ flash.style.opacity = '1'; setTimeout(()=> flash.style.opacity='0', 180); }
+
+    // Collision handler
+    function triggerCollision(forceAlarm=false){
+      flashAlert();
+      debrisBanner.style.display = 'block'; setTimeout(()=>debrisBanner.style.display='none', 2400);
+      playAlarm();
+      shieldVal -= THREE.MathUtils.randInt(2, 5); if (shieldVal < 0){ hullVal += shieldVal; shieldVal = 0; }
+      hullVal = Math.max(0, hullVal);
     }
 
-    requestAnimationFrame(tick);
+    // Simulated biometrics
+    let bioBase = 1.00; let freqBase = 440.0; let coreBase = 273;
+
+    /* ======================
+       MAIN ANIMATION LOOP
+       ====================== */
+    const clock = new THREE.Clock();
+    function animate(){
+      requestAnimationFrame(animate);
+      const dt = Math.min(0.033, clock.getDelta());
+
+      // Smooth warp approach
+      warpFactor += (targetWarp - warpFactor) * (engineOn ? 0.8 : 0.25) * dt;
+
+      // Update shader (front vs rear curvature scales with warp)
+      const fCurv = THREE.MathUtils.clamp(warpFactor * 0.9, 0, 8.0);
+      const rCurv = THREE.MathUtils.clamp(warpFactor * 0.6, 0, 6.0);
+      bubbleMat.uniforms.uTime.value += dt;
+      bubbleMat.uniforms.uFrontCurv.value = fCurv;
+      bubbleMat.uniforms.uRearCurv.value = rCurv;
+
+      // Debris motion & collisions
+      let collisionChance = 0.002 + warpFactor*0.0008;
+      const bubbleRadius = 3.2;
+      for(let i=0;i<debrisCount;i++){
+        const d = debrisData[i];
+        d.pos.addScaledVector(d.vel, (1.0 + warpFactor*1.6) * dt * 12);
+        // simple curving: nudge toward z=0 plane dependent on curvature
+        d.pos.x *= (1.0 - dt*0.06 * (fCurv*0.08));
+        d.pos.y *= (1.0 - dt*0.04 * (rCurv*0.08));
+        // Collision with bubble
+        if (d.pos.distanceTo(new THREE.Vector3(0,0,0)) < bubbleRadius*0.98 && d.pos.z < 1.4){
+          if (Math.random() < 0.25) triggerCollision();
+          resetDebris(i, true); continue;
+        }
+        if (d.pos.z > 8) { resetDebris(i); continue; }
+        tmpObj.position.copy(d.pos);
+        tmpObj.rotation.x += dt*2; tmpObj.rotation.y += dt*1.6;
+        tmpObj.scale.setScalar(d.size);
+        tmpObj.updateMatrix(); debris.setMatrixAt(i, tmpObj.matrix);
+      }
+      debris.instanceMatrix.needsUpdate = true;
+
+      // Stars parallax (stretch with warp)
+      stars.position.z += dt * (10 + warpFactor*50);
+      if (stars.position.z > -10) stars.position.z = -380;
+
+      // Telemetry & meters
+      const integ = Math.max(0, 100 - warpFactor*3 - (100-shieldVal)*0.1);
+      fieldIntegrity = integ; integrity.textContent = integ.toFixed(0) + '%'; setMeter(integrityMeter, integ);
+
+      warpVal.textContent = warpFactor.toFixed(2);
+      frontCurv.textContent = `Front Curv: ${fCurv.toFixed(2)}`;
+      rearCurv.textContent = `Rear Curv: ${rCurv.toFixed(2)}`;
+
+      // Shields/Hull decay from random micro-impacts at high warp
+      if (Math.random() < collisionChance) triggerCollision();
+      shields.textContent = Math.max(0, shieldVal).toFixed(0) + '%'; setMeter(shieldMeter, shieldVal);
+      hull.textContent = Math.max(0, hullVal).toFixed(0) + '%'; setMeter(hullMeter, hullVal);
+
+      // Biometrics respond to warp
+      const bioNow = bioBase + 0.02*Math.sin(clock.elapsedTime*1.7) + warpFactor*0.005;
+      const freqNow = freqBase + 2.0*Math.sin(clock.elapsedTime*2.1) + warpFactor*4.0;
+      const coreNow = coreBase + warpFactor*25 + 4*Math.sin(clock.elapsedTime*1.1);
+      bio.textContent = bioNow.toFixed(2) + ' atm'; setMeter(bioMeter, (bioNow-0.8)*100);
+      freq.textContent = freqNow.toFixed(1) + ' Hz'; setMeter(freqMeter, Math.min(100, (freqNow-400)/3));
+      coreTemp.textContent = coreNow.toFixed(0) + ' K'; setMeter(coreMeter, Math.min(100, (coreNow-273)/4));
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // Kick audio context on first interaction (required by browsers)
+    window.addEventListener('click', ()=> audioCtx.resume(), { once: true });
   </script>
 </body>
 </html>
