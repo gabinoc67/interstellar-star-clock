@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>FTL Nav Console — CST + Solver (Offline)</title>
+<title>FTL Nav Console — CST + Solver (Offline Kepler)</title>
 <style>
   :root{
-    --scale:1.10;
+    --scale:1.06;
     --time-scale:0.80;      /* 20% smaller clock text */
     --clock-num-scale:0.80; /* 20% smaller interstellar/stardate numbers */
     --panel:#111a2b; --ink:#e9eef9; --muted:#a9b6d3; --stroke:#274061; --grid:#1b2740;
@@ -22,8 +22,9 @@
   }
   h1{margin:0 0 8px; font-size:clamp(22px,3.2vw,32px); font-weight:800}
   .sub{color:var(--muted); margin:0 0 18px; font-size:.95rem}
-  .wrap{width:min(1400px,96vw); margin:0 auto; display:grid; gap:18px}
+  .wrap{width:min(1500px,96vw); margin:0 auto; display:grid; gap:18px}
 
+  /* even, equal-height top panels */
   .two-up{ display:grid; gap:18px; align-items:stretch; grid-template-columns:1fr }
   @media (min-width:980px){ .two-up{ grid-template-columns:repeat(2,1fr) } }
 
@@ -52,12 +53,12 @@
   .even{ display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; align-items:center }
 
   .table{width:100%; border-collapse:separate; border-spacing:0}
-  .table th,.table td{padding:10px 12px; border-bottom:1px solid var(--grid); text-align:left}
+  .table th,.table td{padding:10px 12px; border-bottom:1px solid var(--grid); text-align:left; vertical-align:middle}
   .table thead th{position:sticky; top:0; background:#0f1830; z-index:1; font-size:.92rem; color:#cfd7eb}
   .table tbody tr:hover{background:#0d1730}
   .groupRow{ background:#0f1830; color:#cfd7eb; font-weight:800 }
   .num{font-variant-numeric:tabular-nums}
-  .status{margin-top:10px; padding:10px 12px; border:1px dashed #32496b; border-radius:12px; background:#0b162b; color:#d0d7ea}
+  .status{margin-top:12px; padding:10px 12px; border:1px dashed #32496b; border-radius:12px; background:#0b162b; color:#d0d7ea}
   .status.ok{border-color:#2f6b45; background:#0e1f1a; color:#bde6c7}
 </style>
 </head>
@@ -65,10 +66,10 @@
   <div class="wrap">
     <h1>FTL Nav Console — CST + Solver</h1>
     <p class="sub">
-      100% offline demo. Planets & the Moon use a circular-orbit live model; stars/galaxies use given distances and Hubble flow (H₀). Bound systems ignore cosmological expansion.
+      100% offline: Planets & major moons use a Keplerian live solver; stars & galaxies use RA/Dec + distances, RV, and Hubble flow (H₀). Bound systems ignore cosmological expansion.
     </p>
 
-    <div class="two-up">
+    <div class="two-up" style="min-height:240px">
       <section class="card">
         <header>
           <h2>Quantum Clocks</h2>
@@ -92,7 +93,7 @@
               <div class="mono time" id="utcStamp">UTC —:—</div>
             </div>
           </div>
-          <div class="status mono ok" id="statusMsg">Offline model running — no network needed.</div>
+          <div class="status mono ok" id="statusMsg">Offline model running — vectors update every second.</div>
         </div>
       </section>
 
@@ -108,7 +109,7 @@
               <option value="ly">ly</option>
             </select>
           </label>
-          <div class="muted">Tip: Changing H₀ only affects galaxies/stars (Hubble flow). Planets/moons are gravitationally bound.</div>
+          <div class="muted">H₀ only affects galaxies; bound systems (planets, moons, stars in the Milky Way) ignore expansion.</div>
         </div>
       </section>
     </div>
@@ -132,16 +133,16 @@
     <section class="card">
       <header><h2>Math (implemented)</h2></header>
       <div class="body muted mono" style="font-size:.95rem">
-        Planets/Moon: circular orbits, mean motion ω=2π/P; r(t)=a[cosθ,sinθ,0], v(t)=aω[-sinθ,cosθ,0]; Earth used for geocentric ranges.<br/>
-        Proper motion (fallback) μ≈(v⊥/d)·(rad→mas/yr). Radial velocity v<sub>r</sub>=(V·Ŕ)·(AU/day→km/s).<br/>
-        Stars/Galaxies: D from pc/Mpc; Hubble flow v<sub>rec</sub>=H₀D, z≈v/c (small-z).<br/>
-        Uncertainty σ<sub>r</sub>≈|v|·Δt (|v| from model; Δt = time since last stamp).
+        Planets/Moons: Kepler ellipse in J2000 ecliptic; mean motion n=k/√(a³) with k=0.01720209895 AU<sup>3/2</sup>/day. Solve Kepler’s eqn (Newton).<br/>
+        Velocity in perifocal frame v = (k/√(a(1−e²)))·[−sinν, e+cosν, 0]; rotate by Ω,i,ω.<br/>
+        Stars/Galaxies: Cartesian from RA/Dec + distance; stars include RV and μ when provided; galaxies include Hubble flow v<sub>rec</sub>=H₀·D and small live D(t).<br/>
+        Uncertainty: σ≈|v|·Δt (km) + note of model assumptions (“Kepler”, “PM/RV”, “H₀ only”).
       </div>
     </section>
   </div>
 
 <script>
-/* ---------------- Constants ---------------- */
+/* ------------ Constants ------------ */
 const AU_KM = 149_597_870.7;
 const KM_PER_MI = 1.609344;
 const LY_PER_AU = 1/63241.077;
@@ -152,11 +153,11 @@ const LY_PER_MPC = LY_PER_PC*1e6;
 const KM_PER_PC = 3.085677581e13;
 const KM_PER_MPC = KM_PER_PC*1e6;
 const DEG = Math.PI/180;
-const J2000 = Date.UTC(2000,0,1,12,0,0); // 2000-01-01 12:00:00 UTC
-
+const K_GAUSS = 0.01720209895;                  // AU^(3/2)/day (Gaussian gravitational constant)
+const J2000 = Date.UTC(2000,0,1,12,0,0);        // 2000-01-01 12:00:00 UTC
 const STARDATE_FIXED = 65615.2;
 
-/* ---------------- helpers ---------------- */
+/* ------------ Helpers ------------ */
 const v3 = {
   add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],
   sub:(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],
@@ -168,38 +169,16 @@ const v3 = {
 const fmt=(n,f=2)=>Number.isFinite(n)?n.toLocaleString(undefined,{maximumFractionDigits:f,minimumFractionDigits:f}):'—';
 function setText(id,v){ const el=document.getElementById(id); if(el) el.textContent=v; }
 function toCSTString(d){ const s = new Date(d).toLocaleString('sv-SE',{timeZone:'America/Chicago',hour12:false}); return s.replace('T',' '); }
+function daysSinceJ2000(t=Date.now()){ return (t - J2000)/86400000; }
+function clampAngle(x){ x%=2*Math.PI; return x<0?x+2*Math.PI:x; }
 
-/* ---------------- seed data (offline) ---------------- */
-const SEED = {
-  planets: [
-    {name:'Mercury', a_AU:0.387098, P_d:87.9691, lon0_deg: 75},
-    {name:'Venus',   a_AU:0.723332, P_d:224.701, lon0_deg:180},
-    {name:'Earth',   a_AU:1.000000, P_d:365.256, lon0_deg:100},
-    {name:'Mars',    a_AU:1.523679, P_d:686.980, lon0_deg:250},
-    {name:'Jupiter', a_AU:5.2044,   P_d:4332.59, lon0_deg: 34},
-    {name:'Saturn',  a_AU:9.5826,   P_d:10759.22,lon0_deg: 50},
-    {name:'Uranus',  a_AU:19.2184,  P_d:30688.5, lon0_deg: 10},
-    {name:'Neptune', a_AU:30.110,   P_d:60182.0, lon0_deg: 330}
-  ],
-  moons: [
-    // Simple Earth-Moon model in ecliptic plane
-    {name:'Moon', parent:'Earth', a_AU:0.002569, P_d:27.321661, lon0_deg:125}
-  ],
-  stars: [
-    {name:'Sirius', type:'star', distance_pc:2.64, radial_velocity_km_s:-5.5, pm_total_mas_yr:1332}
-  ],
-  galaxies: [
-    {name:'Andromeda (M31)', type:'galaxy', distance_mpc:0.778, radial_velocity_km_s:-301}
-  ]
-};
-
-/* ---------------- UI refs ---------------- */
+/* ------------ UI refs ------------ */
 const rowsEl = document.getElementById('rows');
 const H0Input = document.getElementById('H0');
 const unitSel = document.getElementById('unitSelect');
 document.getElementById('tzBadge').textContent = 'America/Chicago';
 
-/* ---------------- clocks ---------------- */
+/* ------------ Clocks ------------ */
 function tickClocks(){
   const now = new Date();
   const cst = new Date(now.toLocaleString('en-US',{timeZone:'America/Chicago'}));
@@ -211,44 +190,123 @@ function tickClocks(){
 }
 setInterval(tickClocks,1000); tickClocks();
 
-/* ---------------- orbital model ---------------- */
-function daysSinceJ2000(t=Date.now()){ return (t - J2000)/86400000; }
-function circularOrbit(a_AU, P_d, lon0_deg){
+/* ------------ Kepler solver (heliocentric ecliptic) ------------ */
+function keplerXYZ(a_AU, e, i_deg, Omega_deg, omega_deg, M0_deg){
   const t = daysSinceJ2000();
-  const omega = 2*Math.PI/P_d;
-  const theta = (lon0_deg*DEG + omega * t);
-  const c = Math.cos(theta), s = Math.sin(theta);
-  const r = [a_AU * c, a_AU * s, 0];
-  const v = [-a_AU*omega*s, a_AU*omega*c, 0]; // AU/day
-  return {r, v};
+  const n = K_GAUSS/Math.sqrt(a_AU*a_AU*a_AU); // rad/day
+  const M = clampAngle((M0_deg*DEG) + n*t);
+
+  // Solve Kepler: E - e sinE = M
+  let E = M, d=1, k=0;
+  while(Math.abs(d)>1e-10 && k++<20){
+    d = (E - e*Math.sin(E) - M) / (1 - e*Math.cos(E));
+    E -= d;
+  }
+  const cosE=Math.cos(E), sinE=Math.sin(E);
+  const r = a_AU*(1 - e*cosE);
+  const fac = Math.sqrt(1-e*e);
+  const nu = 2*Math.atan2(Math.sqrt(1+e)*Math.sin(E/2), Math.sqrt(1-e)*Math.cos(E/2));
+
+  // Position in perifocal
+  const x_p = r*Math.cos(nu), y_p = r*Math.sin(nu);
+
+  // Velocity in perifocal (AU/day)
+  const vx_p = - (K_GAUSS/Math.sqrt(a_AU*(1-e*e))) * Math.sin(nu);
+  const vy_p =   (K_GAUSS/Math.sqrt(a_AU*(1-e*e))) * (e + Math.cos(nu));
+
+  // Rotation to ecliptic J2000: R3(Ω) R1(i) R3(ω)
+  const O = Omega_deg*DEG, I = i_deg*DEG, w = omega_deg*DEG;
+  const cO=Math.cos(O), sO=Math.sin(O), cI=Math.cos(I), sI=Math.sin(I), cw=Math.cos(w), sw=Math.sin(w);
+
+  function rot(x,y,z){
+    // R3(w)
+    let X =  cw*x - sw*y;
+    let Y =  sw*x + cw*y;
+    let Z =  z;
+    // R1(i)
+    let X2 = X;
+    let Y2 =  cI*Y - sI*Z;
+    let Z2 =  sI*Y + cI*Z;
+    // R3(Ω)
+    return [ cO*X2 - sO*Y2, sO*X2 + cO*Y2, Z2 ];
+  }
+  const r_ecl = rot(x_p, y_p, 0);
+  const v_ecl = rot(vx_p, vy_p, 0);
+
+  return {r:r_ecl, v:v_ecl};
 }
 
-/* ---------------- build dynamic state ---------------- */
-function computeSystem(){
-  // Planets heliocentric
-  const planets = {};
-  SEED.planets.forEach(p=>{
-    planets[p.name] = circularOrbit(p.a_AU, p.P_d, p.lon0_deg);
-    planets[p.name].a_AU = p.a_AU; planets[p.name].P_d = p.P_d;
-  });
+/* ------------ Seed objects ------------ */
+/* Planet elements (approx VSOP87/J2000) */
+const PLANETS = [
+ {name:'Mercury', a:0.38709927, e:0.20563593, i:7.00497902,  O:48.33076593, w:77.45779628,  M0:252.25032350},
+ {name:'Venus',   a:0.72333566, e:0.00677672, i:3.39467605,  O:76.67984255, w:131.60246718, M0:181.97909950},
+ {name:'Earth',   a:1.00000261, e:0.01671123, i:0.00001531,  O:0.0,         w:102.93768193, M0:100.46457166},
+ {name:'Mars',    a:1.52371034, e:0.09339410, i:1.84969142,  O:49.55953891, w:336.04084,    M0:355.45332},
+ {name:'Jupiter', a:5.20288700, e:0.04838624, i:1.30439695,  O:100.47390909,w:14.72847983,  M0:34.39644051},
+ {name:'Saturn',  a:9.53667594, e:0.05386179, i:2.48599187,  O:113.66242448,w:92.59887831,  M0:49.95424423},
+ {name:'Uranus',  a:19.18916464,e:0.04725744, i:0.77263783,  O:74.01692503, w:170.95427630, M0:313.23810451},
+ {name:'Neptune', a:30.06992276,e:0.00859048, i:1.77004347,  O:131.78422574,w:44.96476227,  M0:304.88003}
+];
 
-  // Earth ref
-  const earth = planets['Earth'];
+/* Major moons (simple circular about parent, ecliptic plane) */
+const MOONS = [
+  {name:'Moon',     parent:'Earth',   a_km:384400,  P_d:27.321661, lon0_deg:125},
+  {name:'Io',       parent:'Jupiter', a_km:421700,  P_d:1.769,     lon0_deg:10},
+  {name:'Europa',   parent:'Jupiter', a_km:671100,  P_d:3.551,     lon0_deg:30},
+  {name:'Ganymede', parent:'Jupiter', a_km:1070400, P_d:7.155,     lon0_deg:60},
+  {name:'Callisto', parent:'Jupiter', a_km:1882700, P_d:16.689,    lon0_deg:90},
+  {name:'Titan',    parent:'Saturn',  a_km:1221870, P_d:15.945,    lon0_deg:45}
+];
 
-  // Moon heliocentric
-  const moons = {};
-  SEED.moons.forEach(m=>{
+/* Stars with RA/Dec (deg), distance (pc), RV (km/s), and optional proper motion total mas/yr */
+const STARS = [
+  {name:'Sirius',    ra:101.287, dec:-16.716, distance_pc:2.64,  radial_velocity_km_s:-5.5, pm_total_mas_yr:1332},
+  {name:'Vega',      ra:279.234, dec:38.783,  distance_pc:7.68,  radial_velocity_km_s:-13.9, pm_total_mas_yr:327},
+  {name:'Betelgeuse',ra:88.793,  dec:7.407,   distance_pc:197,   radial_velocity_km_s:21},
+  {name:'Proxima Cen',ra:217.429,dec:-62.679, distance_pc:1.301, radial_velocity_km_s:-22, pm_total_mas_yr:3775},
+  {name:'Rigel',     ra:78.634,  dec:-8.202,  distance_pc:264,   radial_velocity_km_s:18}
+];
+
+/* Galaxies with RA/Dec (deg), distance (Mpc), RV (km/s) */
+const GALAXIES = [
+  {name:'Andromeda (M31)', ra:10.684,  dec:41.269, distance_mpc:0.778, radial_velocity_km_s:-301},
+  {name:'M87',             ra:187.706, dec:12.391, distance_mpc:16.4,  radial_velocity_km_s:1300}
+];
+
+/* ------------ Geometry helpers ------------ */
+function sph2cartAU(ra_deg, dec_deg, dist_AU){
+  const ra = ra_deg*DEG, dec = dec_deg*DEG;
+  const c = Math.cos(dec), s = Math.sin(dec);
+  return [dist_AU*c*Math.cos(ra), dist_AU*c*Math.sin(ra), dist_AU*s];
+}
+
+/* ------------ System state (live) ------------ */
+function computePlanets(){
+  const map = {};
+  for(const p of PLANETS){
+    map[p.name] = keplerXYZ(p.a, p.e, p.i, p.O, p.w, p.M0);
+  }
+  return map;
+}
+function computeMoons(planets){
+  const t = daysSinceJ2000();
+  const map = {};
+  for(const m of MOONS){
     const parent = planets[m.parent];
-    const rel = circularOrbit(m.a_AU, m.P_d, m.lon0_deg);
-    const r = v3.add(parent.r, rel.r);
-    const v = v3.add(parent.v, rel.v);
-    moons[m.name] = {r,v,a_AU:m.a_AU,P_d:m.P_d, parent:m.parent};
-  });
-
-  return {planets, moons, earth};
+    if(!parent) continue;
+    const a_AU = (m.a_km*1000)/AU_KM/1000; // km→AU (already km so divide by AU_KM)
+    const omega = 2*Math.PI/m.P_d;
+    const th = (m.lon0_deg*DEG + omega*t);
+    const rc = [a_AU*Math.cos(th), a_AU*Math.sin(th), 0];
+    const vc = [-a_AU*omega*Math.sin(th), a_AU*omega*Math.cos(th), 0]; // AU/day
+    map[m.name] = { r: v3.add(parent.r, rc), v: v3.add(parent.v, vc) };
+  }
+  return map;
 }
+function computeEarth(planets){ return planets['Earth']; }
 
-/* ---------------- formatting ---------------- */
+/* ------------ Units formatting ------------ */
 function distFormatFromAU(valAU){
   const u = unitSel.value;
   if(!Number.isFinite(valAU)) return '—';
@@ -260,7 +318,7 @@ function distFormatFromAU(valAU){
   return `${fmt(valAU,6)} AU`;
 }
 
-/* ---------------- table render ---------------- */
+/* ------------ Render table ------------ */
 function addGroupRow(title){
   const tr = document.createElement('tr'); tr.className='groupRow';
   const cells = [title,'—','—','—','—','—','—','—','—','—',toCSTString(new Date()),'ready'];
@@ -270,46 +328,43 @@ function addGroupRow(title){
 
 function render(){
   rowsEl.innerHTML='';
+
+  const planets = computePlanets();
+  const earth = computeEarth(planets);
+  const moons = computeMoons(planets);
   const H0 = parseFloat(H0Input.value)||70;
 
-  const sys = computeSystem();
-  const earth = sys.earth;
-
-  /* groups: planets */
+  /* ---- Planets ---- */
   addGroupRow('planets');
-  SEED.planets.forEach(p=>{
-    const st = sys.planets[p.name];
-    stampSolarBodyRow(p.name,'planet', st.r, st.v, earth, H0);
-  });
+  for(const p of PLANETS){
+    const st = planets[p.name];
+    stampSolarBodyRow(p.name,'planet', st.r, st.v, earth, H0, 'Kepler');
+  }
 
-  /* moons */
+  /* ---- Moons ---- */
   addGroupRow('moons');
-  SEED.moons.forEach(m=>{
-    const st = sys.moons[m.name];
-    stampSolarBodyRow(m.name,'moon', st.r, st.v, earth, H0);
-  });
+  for(const m of MOONS){
+    const st = moons[m.name];
+    if(st) stampSolarBodyRow(m.name,'moon', st.r, st.v, earth, H0, 'Kepler (parent+circular)');
+  }
 
-  /* stars */
+  /* ---- Stars ---- */
   addGroupRow('stars');
-  SEED.stars.forEach(s=>{
-    stampDeepRow(s.name, s.type||'star', s, H0);
-  });
+  for(const s of STARS){ stampDeepRow(s.name,'star', s, earth, H0); }
 
-  /* galaxies */
+  /* ---- Galaxies ---- */
   addGroupRow('galaxies');
-  SEED.galaxies.forEach(g=>{
-    stampDeepRow(g.name, g.type||'galaxy', g, H0);
-  });
+  for(const g of GALAXIES){ stampDeepRow(g.name,'galaxy', g, earth, H0, true); }
 }
 
-function stampSolarBodyRow(name, type, rHelio, vHelio, earth, H0){
+function stampSolarBodyRow(name, type, rHelio, vHelio, earth, H0, note){
   const tr = document.createElement('tr');
 
   const rEarth = earth && rHelio ? v3.sub(rHelio, earth.r) : null;
   const dSunAU   = rHelio ? v3.norm(rHelio) : null;
   const dEarthAU = rEarth ? v3.norm(rEarth) : null;
 
-  // proper motion (apparent, from tangential Earth-relative)
+  // apparent proper motion (mas/yr) from tangential motion vs Earth
   let pm_mas_yr = null;
   if(rEarth && vHelio && earth){
     const vRel = v3.sub(vHelio, earth.v);
@@ -323,20 +378,16 @@ function stampSolarBodyRow(name, type, rHelio, vHelio, earth, H0){
     }
   }
 
-  // radial velocity vs Earth (km/s)
+  // RV vs Earth (km/s)
   let vr_kms = null;
   if(rEarth && vHelio && earth){
     const vRel = v3.sub(vHelio, earth.v);
     vr_kms = v3.dot(vRel, v3.unit(rEarth)) * AU_PER_DAY_TO_KM_S;
   }
 
-  // tiny cosmology (bound systems ~0)
-  let D_mpc_live = null, dist_pc=null;
-  const dLyDelta = (dSunAU!=null && dEarthAU!=null) ? Math.abs((dSunAU - dEarthAU)*LY_PER_AU) : null;
-
-  // uncertainty: |v|·Δt, with Δt=1 s since we update each second
+  // uncertainty: |v|·Δt (1s step) + note
   const speed_kms = vHelio ? v3.norm(vHelio)*AU_PER_DAY_TO_KM_S : null;
-  const sigma_km = speed_kms!=null ? speed_kms*1 : null;
+  const sigma_km = speed_kms!=null ? speed_kms*1 : null; // per second refresh
 
   const cells = [
     name, type,
@@ -345,69 +396,74 @@ function stampSolarBodyRow(name, type, rHelio, vHelio, earth, H0){
     (dEarthAU!=null) ? `<span class="num">${distFormatFromAU(dEarthAU)}</span>` : '—',
     (pm_mas_yr!=null)? `<span class="num">${fmt(pm_mas_yr,2)} mas/yr</span>` : '—',
     (vr_kms!=null)   ? `<span class="num">${fmt(vr_kms,2)} km/s</span>` : '—',
-    (D_mpc_live!=null)
-      ? `<span class="num">${fmt(D_mpc_live,4)} Mpc</span> <span class="muted">(≈${fmt(D_mpc_live*LY_PER_MPC,3)} Mly${dLyDelta!=null?`, Δ(SE)≈${fmt(dLyDelta,6)} ly`:''})</span>`
-      : (dLyDelta!=null?`<span class="muted">Δ(SE)≈${fmt(dLyDelta,6)} ly</span>`:'—'),
-    (D_mpc_live!=null) ? `<span class="num">${fmt((parseFloat(H0Input.value)||70)*D_mpc_live,3)} km/s</span> <span class="muted">(z≈${fmt(((parseFloat(H0Input.value)||70)*D_mpc_live)/C_KM_S,6)})</span>` : '—',
-    (sigma_km!=null)? `<span class="num">±${fmt(sigma_km,0)} km</span>` : '—',
+    '—', // no extragalactic distance here
+    '—', // no Hubble flow for bound systems
+    (sigma_km!=null)? `<span class="num">±${fmt(sigma_km,0)} km</span> <span class="muted">(${note})</span>` : '—',
     toCSTString(new Date()),
-    'offline model'
+    note || 'model'
   ];
-
   cells.forEach(c=>{ const td=document.createElement('td'); td.innerHTML=c; tr.appendChild(td); });
   rowsEl.appendChild(tr);
 }
 
-function stampDeepRow(name, type, obj, H0){
+function stampDeepRow(name, type, obj, earth, H0, isGalaxy=false){
   const tr = document.createElement('tr');
 
-  // Build a fixed Sun-centric vector on +X with magnitude equal to distance (in AU)
+  // distance to AU
   let dist_pc = obj.distance_pc ?? (obj.distance_mpc!=null ? obj.distance_mpc*1e6 : (obj.parallax_mas? 1000/obj.parallax_mas : null));
   let dist_mpc = (obj.distance_mpc!=null) ? obj.distance_mpc : (dist_pc!=null ? dist_pc/1e6 : null);
   const dist_AU = dist_pc!=null ? dist_pc*206265 : (dist_mpc!=null ? dist_mpc*1e6*206265 : null);
 
-  const rHelio = dist_AU!=null ? [dist_AU,0,0] : null;
+  // static direction from RA/Dec
+  const rHelio = (obj.ra!=null && obj.dec!=null && dist_AU!=null) ? sph2cartAU(obj.ra, obj.dec, dist_AU) : null;
   const dSunAU = rHelio ? v3.norm(rHelio) : null;
+  const rEarth = (rHelio && earth) ? v3.sub(rHelio, earth.r) : null;
+  const dEarthAU = rEarth ? v3.norm(rEarth) : dSunAU;
 
-  // Earth vector (≈1 AU) negligible at these scales
-  const dEarthAU = dSunAU!=null ? dSunAU - 1.0 : dSunAU;
-  const dLyDelta = (dSunAU!=null && dEarthAU!=null) ? Math.abs((dSunAU - dEarthAU)*LY_PER_AU) : null;
+  // proper motion tangential speed estimate
+  let vt_kms = null;
+  if(typeof obj.pm_total_mas_yr === 'number' && dist_pc!=null){
+    const mu_arcsec_yr = obj.pm_total_mas_yr/1000;
+    vt_kms = 4.74047 * mu_arcsec_yr * dist_pc;
+  }
+  const vr_kms = (typeof obj.radial_velocity_km_s==='number')? obj.radial_velocity_km_s : null;
+  const vtot_kms = (vt_kms!=null || vr_kms!=null) ? Math.hypot(vt_kms||0, vr_kms||0) : null;
 
-  // Proper motion: use given, else N/A
-  const pm_mas_yr = (typeof obj.pm_total_mas_yr==='number') ? obj.pm_total_mas_yr : null;
+  // Hubble flow (galaxies): live D(t) increment
+  let vrec = null, z=null;
+  if(isGalaxy && dist_mpc!=null){
+    vrec = (parseFloat(H0Input.value)||70) * dist_mpc; // km/s
+    // grow distance a tiny amount each tick
+    const dt_s = 1; // per refresh second
+    dist_mpc += (vrec * dt_s)/KM_PER_MPC;
+    z = vrec/C_KM_S;
+  }
 
-  // Radial velocity: prefer provided
-  const vr_kms = (typeof obj.radial_velocity_km_s==='number') ? obj.radial_velocity_km_s : null;
-
-  // Hubble flow (live D not evolving here—can be added but negligible per second at Mpc)
-  const vrec = (dist_mpc!=null) ? (H0*dist_mpc) : null;
-  const z = (vrec!=null) ? vrec/C_KM_S : null;
+  const sigma_km = (vtot_kms!=null) ? vtot_kms*1 : (isGalaxy && vrec!=null ? vrec*1 : null);
+  const note = isGalaxy ? 'H₀ flow' : (vt_kms!=null||vr_kms!=null ? 'PM/RV' : 'static dir');
 
   const cells = [
     name, type,
     rHelio ? `<span class="num">[${fmt(rHelio[0],2)}, ${fmt(rHelio[1],2)}, ${fmt(rHelio[2],2)}]</span>` : '—',
     (dSunAU!=null)   ? `<span class="num">${distFormatFromAU(dSunAU)}</span>`   : '—',
     (dEarthAU!=null) ? `<span class="num">${distFormatFromAU(dEarthAU)}</span>` : '—',
-    (pm_mas_yr!=null)? `<span class="num">${fmt(pm_mas_yr,1)} mas/yr</span>` : '—',
+    (obj.pm_total_mas_yr!=null)? `<span class="num">${fmt(obj.pm_total_mas_yr,1)} mas/yr</span>` : '—',
     (vr_kms!=null)   ? `<span class="num">${fmt(vr_kms,1)} km/s</span>` : '—',
     (dist_mpc!=null)
-      ? `<span class="num">${fmt(dist_mpc,3)} Mpc</span> <span class="muted">(≈${fmt(dist_mpc*LY_PER_MPC,2)} Mly${dLyDelta!=null?`, Δ(SE)≈${fmt(dLyDelta,6)} ly`:''})</span>`
-      : (dist_pc!=null ? `<span class="num">${fmt(dist_pc,2)} pc</span> <span class="muted">(≈${fmt(dist_pc*LY_PER_PC,2)} ly${dLyDelta!=null?`, Δ(SE)≈${fmt(dLyDelta,6)} ly`:''})</span>` : '—'),
+      ? `<span class="num">${fmt(dist_mpc,3)} Mpc</span> <span class="muted">(≈${fmt(dist_mpc*LY_PER_MPC,2)} Mly)</span>`
+      : (dist_pc!=null ? `<span class="num">${fmt(dist_pc,2)} pc</span> <span class="muted">(≈${fmt(dist_pc*LY_PER_PC,2)} ly)</span>` : '—'),
     (vrec!=null) ? `<span class="num">${fmt(vrec,1)} km/s</span> <span class="muted">(z≈${fmt(z,6)})</span>` : '—',
-    '±0 km',
+    (sigma_km!=null)? `<span class="num">±${fmt(sigma_km,0)} km</span> <span class="muted">(${note})</span>` : '—',
     toCSTString(new Date()),
-    'offline model'
+    note
   ];
-
   cells.forEach(c=>{ const td=document.createElement('td'); td.innerHTML=c; tr.appendChild(td); });
   rowsEl.appendChild(tr);
 }
 
-/* ---------------- live repaint ---------------- */
-function repaint(){
-  render();
-}
-setInterval(repaint, 1000);
+/* ------------ Live repaint ------------ */
+function repaint(){ render(); }
+setInterval(repaint,1000);
 render();
 </script>
 </body>
