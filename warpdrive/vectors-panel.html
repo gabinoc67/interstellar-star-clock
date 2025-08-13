@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>FTL Nav Console — CST + Solver (Offline, Expanded)</title>
+<title>FTL Nav Console — CST + Solver (Offline)</title>
 <style>
   :root{
     --scale:1.06;
@@ -22,8 +22,7 @@
   }
   h1{margin:0 0 8px; font-size:clamp(22px,3.2vw,32px); font-weight:800}
   .sub{color:var(--muted); margin:0 0 18px; font-size:.95rem}
-  /* Wider canvas so all columns breathe */
-  .wrap{width:min(2000px,98vw); margin:0 auto; display:grid; gap:18px}
+  .wrap{width:min(1600px,96vw); margin:0 auto; display:grid; gap:18px}
 
   /* even, equal-height top panels */
   .two-up{ display:grid; gap:18px; align-items:stretch; grid-template-columns:1fr }
@@ -54,9 +53,10 @@
   .even{ display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; align-items:center }
   .toolbar{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
   .hint{font-size:.9rem; color:#a9b6d3}
+  .file{display:none}
 
-  /* table — expanded (no scroll cap), sticky header still works with page scroll */
-  .tableWrap{max-height:none; overflow:visible}
+  /* table + scrolling viewport */
+  .tableWrap{max-height:68vh; overflow:auto; border:1px solid var(--stroke); border-radius:14px}
   .table{width:100%; border-collapse:separate; border-spacing:0}
   .table th,.table td{padding:10px 12px; border-bottom:1px solid var(--grid); text-align:left; vertical-align:middle}
   .table thead th{position:sticky; top:0; background:#0f1830; z-index:1; font-size:.92rem; color:#cfd7eb}
@@ -117,6 +117,7 @@
             </select>
           </label>
           <div class="toolbar">
+            <button id="btnExpand">Expand Table</button>
             <button id="btnRecompute">Recompute</button>
           </div>
           <div class="muted">H₀ only affects stars/galaxies (Hubble flow). Planets/moons are gravitationally bound (Rec. Vel. ≈ 0).</div>
@@ -210,16 +211,25 @@ const DEFAULT_CATALOG = {
   ]
 };
 
-/* Canonical distances for named objects (fallback if none provided) */
+/* Canonical distances for your named objects (fallback if none provided) */
 const STAR_DISTANCE_PC = {
-  "Sirius":2.64, "Proxima Centauri":1.301, "Alpha Centauri":1.338,
-  "Barnard's Star":1.83, "Ross 128":3.38, "Epsilon Eridani":3.22,
-  "Tau Ceti":3.65, "Kapteyn's Star":3.92, "Groombridge 34 (GX And)":3.57
+  "Sirius":2.64,
+  "Proxima Centauri":1.301,
+  "Alpha Centauri":1.338,
+  "Barnard's Star":1.83,
+  "Ross 128":3.38,
+  "Epsilon Eridani":3.22,
+  "Tau Ceti":3.65,
+  "Kapteyn's Star":3.92,
+  "Groombridge 34 (GX And)":3.57
 };
 const GALAXY_DISTANCE_MPC = {
-  "Andromeda Galaxy (M31)":0.778, "Triangulum Galaxy (M33)":0.86,
-  "Sombrero Galaxy (M104)":9.55, "Pinwheel Galaxy (M101)":6.9,
-  "Sculptor Galaxy (NGC 253)":3.5, "Large Magellanic Cloud (center)":0.050,
+  "Andromeda Galaxy (M31)":0.778,
+  "Triangulum Galaxy (M33)":0.86,
+  "Sombrero Galaxy (M104)":9.55,
+  "Pinwheel Galaxy (M101)":6.9,
+  "Sculptor Galaxy (NGC 253)":3.5,
+  "Large Magellanic Cloud (center)":0.050,
   "Small Magellanic Cloud (center)":0.062
 };
 
@@ -229,6 +239,7 @@ const H0Input = document.getElementById('H0');
 const unitSel = document.getElementById('unitSelect');
 const seedStarPcEl = document.getElementById('seedStarPc');
 const seedGalMpcEl = document.getElementById('seedGalMpc');
+const tableWrap = document.getElementById('tableWrap');
 document.getElementById('tzBadge').textContent = 'America/Chicago';
 
 /* ===== Clocks ===== */
@@ -243,7 +254,7 @@ function tickClocks(){
 }
 setInterval(tickClocks,1000); tickClocks();
 
-/* ===== Kepler solver (planets, heliocentric J2000 ecliptic) ===== */
+/* ===== Planet Kepler solver (heliocentric ecliptic) ===== */
 function keplerXYZ(a_AU, e, i_deg, Omega_deg, omega_deg, M0_deg){
   const t = daysSinceJ2000();
   const n = K_GAUSS/Math.sqrt(a_AU*a_AU*a_AU); // rad/day
@@ -266,7 +277,7 @@ function keplerXYZ(a_AU, e, i_deg, Omega_deg, omega_deg, M0_deg){
   return { r:rot(x_p,y_p,0), v:rot(vx_p,vy_p,0) };
 }
 
-/* ===== Planet elements (approx J2000) ===== */
+/* Approx J2000 elements (VSOP-ish) */
 const PLANETS = [
  {name:'Mercury', a:0.38709927, e:0.20563593, i:7.00497902,  O:48.33076593, w:77.45779628,  M0:252.25032350},
  {name:'Venus',   a:0.72333566, e:0.00677672, i:3.39467605,  O:76.67984255, w:131.60246718, M0:181.97909950},
@@ -278,53 +289,13 @@ const PLANETS = [
  {name:'Neptune', a:30.06992276,e:0.00859048, i:1.77004347,  O:131.78422574,w:44.96476227,  M0:304.88003}
 ];
 
-/* ===== Moons (simple circular about parent, ecliptic plane) ===== */
+/* Simple moon orbits (circular about parent, ecliptic plane) */
 const MOONS_DEF = {
   "Moon":    { parent:"Earth",   a_km:384400,  P_d:27.321661, lon0_deg:125 },
   "Europa":  { parent:"Jupiter", a_km:671100,  P_d:3.551,     lon0_deg:30  },
   "Ganymede":{ parent:"Jupiter", a_km:1070400, P_d:7.155,     lon0_deg:60  },
   "Callisto":{ parent:"Jupiter", a_km:1882700, P_d:16.689,    lon0_deg:90  },
   "Titan":   { parent:"Saturn",  a_km:1221870, P_d:15.945,    lon0_deg:45  }
-};
-
-/* ===== Seed catalog (your list) ===== */
-const CAT = {
-  meta:{note:"Starter catalog for the Warp Drive demo. RA/Dec in degrees (ICRS/J2000-ish). Only stars/galaxies need RA/Dec for heading.",version:"2025-08-11"},
-  planets:[{name:"Mercury"},{name:"Venus"},{name:"Earth"},{name:"Mars"},{name:"Jupiter"},{name:"Saturn"},{name:"Uranus"},{name:"Neptune"}],
-  moons:[{name:"Moon"},{name:"Europa"},{name:"Ganymede"},{name:"Callisto"},{name:"Titan"}],
-  stars:[
-    {name:"Sirius",ra_deg:101.287,dec_deg:-16.716},
-    {name:"Proxima Centauri",ra_deg:217.429,dec_deg:-62.679},
-    {name:"Alpha Centauri",ra_deg:219.902,dec_deg:-60.835},
-    {name:"Barnard's Star",ra_deg:269.454,dec_deg:4.693},
-    {name:"Ross 128",ra_deg:176.0,dec_deg:0.8},
-    {name:"Epsilon Eridani",ra_deg:53.232,dec_deg:-9.458},
-    {name:"Tau Ceti",ra_deg:26.017,dec_deg:-15.937},
-    {name:"Kapteyn's Star",ra_deg:200.981,dec_deg:-45.246},
-    {name:"Groombridge 34 (GX And)",ra_deg:30.75,dec_deg:44.0}
-  ],
-  galaxies:[
-    {name:"Andromeda Galaxy (M31)",ra_deg:10.684,dec_deg:41.269},
-    {name:"Triangulum Galaxy (M33)",ra_deg:23.462,dec_deg:30.66},
-    {name:"Sombrero Galaxy (M104)",ra_deg:189.997,dec_deg:-11.623},
-    {name:"Pinwheel Galaxy (M101)",ra_deg:210.802,dec_deg:54.349},
-    {name:"Sculptor Galaxy (NGC 253)",ra_deg:11.888,dec_deg:-25.288},
-    {name:"Large Magellanic Cloud (center)",ra_deg:80.894,dec_deg:-69.756},
-    {name:"Small Magellanic Cloud (center)",ra_deg:13.186,dec_deg:-72.828}
-  ]
-};
-
-/* ===== Canonical distances ===== */
-const STAR_DISTANCE_PC = {
-  "Sirius":2.64, "Proxima Centauri":1.301, "Alpha Centauri":1.338,
-  "Barnard's Star":1.83, "Ross 128":3.38, "Epsilon Eridani":3.22,
-  "Tau Ceti":3.65, "Kapteyn's Star":3.92, "Groombridge 34 (GX And)":3.57
-};
-const GALAXY_DISTANCE_MPC = {
-  "Andromeda Galaxy (M31)":0.778, "Triangulum Galaxy (M33)":0.86,
-  "Sombrero Galaxy (M104)":9.55, "Pinwheel Galaxy (M101)":6.9,
-  "Sculptor Galaxy (NGC 253)":3.5, "Large Magellanic Cloud (center)":0.050,
-  "Small Magellanic Cloud (center)":0.062
 };
 
 /* ===== Geometry ===== */
@@ -334,7 +305,9 @@ function sph2cartAU(ra_deg, dec_deg, dist_AU){
   return [dist_AU*c*Math.cos(ra), dist_AU*c*Math.sin(ra), dist_AU*s];
 }
 
-/* ===== Planet/Moon state ===== */
+/* ===== Build state from catalog ===== */
+const CAT = DEFAULT_CATALOG; // using embedded list; replace here if you want to inject another
+
 function computePlanets(){
   const m = {};
   for(const p of PLANETS) m[p.name] = keplerXYZ(p.a,p.e,p.i,p.O,p.w,p.M0);
@@ -361,7 +334,7 @@ function computeEarth(planets){ return planets['Earth']; }
 
 /* ===== UI helpers ===== */
 function distFormatFromAU(valAU){
-  const u = document.getElementById('unitSelect').value;
+  const u = unitSel.value;
   if(!Number.isFinite(valAU)) return '—';
   if(u==='AU') return `${fmt(valAU,6)} AU`;
   const km = valAU*AU_KM;
@@ -372,7 +345,6 @@ function distFormatFromAU(valAU){
 }
 
 /* ===== Table rendering ===== */
-const rowsEl = document.getElementById('rows');
 function addGroupRow(title){
   const tr = document.createElement('tr'); tr.className='groupRow';
   const cells = [title,'—','—','—','—','—','—','—','—','—',toCSTString(new Date()),'ready'];
@@ -387,9 +359,9 @@ function addRow(cells){
 
 function render(){
   rowsEl.innerHTML='';
-  const H0 = parseFloat(document.getElementById('H0').value)||70;
-  const seedStarPc = parseFloat(document.getElementById('seedStarPc').value)||10;
-  const seedGalMpc = parseFloat(document.getElementById('seedGalMpc').value)||1.0;
+  const H0 = parseFloat(H0Input.value)||70;
+  const seedStarPc = parseFloat(seedStarPcEl.value)||10;
+  const seedGalMpc = parseFloat(seedGalMpcEl.value)||1.0;
 
   /* Planets + Earth */
   const planets = computePlanets();
@@ -400,7 +372,7 @@ function render(){
     const p = PLANETS.find(x=>x.name===pReq.name);
     if(!p) continue;
     const st = planets[p.name];
-    stampSolarBodyRow(p.name,'planet', st.r, st.v, earth);
+    stampSolarBodyRow(p.name,'planet', st.r, st.v, earth, H0);
   }
 
   /* Moons */
@@ -408,7 +380,7 @@ function render(){
   const moons = computeMoons(planets);
   for(const mReq of CAT.moons){
     const st = moons[mReq.name];
-    if(st) stampSolarBodyRow(mReq.name,'moon', st.r, st.v, earth, true);
+    if(st) stampSolarBodyRow(mReq.name,'moon', st.r, st.v, earth, H0, true);
   }
 
   /* Stars */
@@ -431,7 +403,7 @@ function render(){
 }
 
 /* ===== Row stampers ===== */
-function stampSolarBodyRow(name, type, rHelio, vHelio, earth, isMoon=false){
+function stampSolarBodyRow(name, type, rHelio, vHelio, earth, H0, isMoon=false){
   const rEarth = earth && rHelio ? v3.sub(rHelio, earth.r) : null;
   const dSunAU   = rHelio ? v3.norm(rHelio) : null;
   const dEarthAU = rEarth ? v3.norm(rEarth) : null;
@@ -457,12 +429,12 @@ function stampSolarBodyRow(name, type, rHelio, vHelio, earth, isMoon=false){
     vr_kms = v3.dot(vRel, v3.unit(rEarth)) * AU_PER_DAY_TO_KM_S;
   }
 
-  // Distance cell for Solar System: Dist. Earth as ly (with AU hint)
+  // Distance column for Solar System: show Dist. Earth in ly with AU context
   const distLy = (dEarthAU!=null) ? dEarthAU*LY_PER_AU : null;
   const distanceCell = (distLy!=null)
     ? `<span class="num">${fmt(distLy,9)} ly</span> <span class="muted">(≈${fmt(dEarthAU,6)} AU)</span>` : '—';
 
-  // Rec. Vel. for bound systems ~0
+  // Rec. Vel. for bound system ~0
   const recVel = 0;
 
   // uncertainty: |v|·Δt (1 s)
@@ -503,8 +475,8 @@ function stampDeepRow(obj, earth, H0, isGalaxy=false){
   // Proper motion (if known); else N/A
   const pm_mas_yr = obj.pm_total_mas_yr ?? null;
 
-  // Radial velocity: use H0*D if no explicit RV
-  const rec_kms = (dist_mpc!=null) ? (H0 * dist_mpc) : (dist_pc!=null ? (H0*(dist_pc/1e6)) : null);
+  // Radial velocity: use H0*D if no explicit RV (tiny for stars, sizeable for galaxies)
+  const rec_kms = (dist_mpc!=null) ? (H0 * dist_mpc) : null;
   const vr_kms = obj.radial_velocity_km_s ?? rec_kms;
 
   // Distance cell
@@ -517,7 +489,7 @@ function stampDeepRow(obj, earth, H0, isGalaxy=false){
     ? `<span class="num">${fmt(rec_kms,1)} km/s</span> <span class="muted">(z≈${fmt(rec_kms/C_KM_S,6)})</span>`
     : '<span class="num">0</span> <span class="muted">(no D)</span>';
 
-  // Uncertainty: σ≈v*1s; tag model
+  // Uncertainty: if we only have RA/Dec + H0, use σ≈v*1s; tag model
   const speed_kms = (vr_kms!=null) ? Math.abs(vr_kms) : 0;
   const sigma_km = speed_kms*1;
   const note = 'RA/Dec+H₀';
@@ -542,7 +514,12 @@ function repaint(){ render(); }
 setInterval(repaint, 1000);
 render();
 
-/* ===== UX ===== */
+/* ===== UX: expand table, recompute ===== */
+document.getElementById('btnExpand').addEventListener('click', ()=>{
+  const current = parseFloat(getComputedStyle(tableWrap).maxHeight);
+  if(current < window.innerHeight*0.85){ tableWrap.style.maxHeight = '85vh'; }
+  else { tableWrap.style.maxHeight = '68vh'; }
+});
 document.getElementById('btnRecompute').addEventListener('click', render);
 </script>
 </body>
