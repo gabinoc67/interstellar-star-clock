@@ -1,560 +1,1051 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Warp Drive Console</title>
-  <!-- Three.js CDN -->
-  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
-  <script src="https://unpkg.com/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
-  <style>
-    :root {
-      --lcars-yellow: #ffd700;
-      --lcars-red: #ff3b30;
-      --lcars-blue: #0a84ff;
-      --lcars-green: #34c759;
-      --lcars-purple: #af52de;
-      --lcars-orange: #ff9f0a;
-      --lcars-black: #000000;
-      --lcars-gray: #7f8c8d;
-    }
-    @font-face {
-      font-family: "LCARS";
-      src: local("Orbitron"), local("Arial"); /* fallback */
-    }
-    html, body {
-      margin: 0; height: 100%; overflow: hidden; background: #000; color: #fff;
-      font-family: "LCARS", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-    }
+<meta charset="UTF-8" />
+<title>Warp Control — Three-Column + Split Hero (v3.6.1 • physics-gated)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root{
+    --bg:#070b12; --panel:#0c1424; --glass:#0d1a31cc; --edge:#27406b;
+    --text:#eaf2ff; --muted:#a7b9df; --good:#22c55e; --warn:#facc15; --bad:#ef4444;
+    --ui-scale:1; --fs:14px; --pad:8px;
+    --gap: clamp(12px, 14%, 48px);
+    --hero-split: 55; /* percent size of the first pane */
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:
+      radial-gradient(1200px 800px at 10% -10%, #112240 0%, transparent 60%),
+      radial-gradient(900px 900px at 120% -20%, #0b1b33 0%, transparent 50%),
+      var(--bg);
+    color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial;font-size:var(--fs);
+    -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
+  }
+  .viewportScale{transform:scale(var(--ui-scale));transform-origin:top left;width:calc(100%/var(--ui-scale))}
+  .wrap{max-width:1400px;margin:0 auto;padding:var(--pad)}
+  .glass{background:linear-gradient(180deg,#0b1528aa,#0b152880),radial-gradient(600px 200px at 20% -30%,#15305f55,transparent 60%);backdrop-filter:blur(6px)}
+  .panel{border:1px solid var(--edge);border-radius:12px;padding:calc(var(--pad) - 1px);box-shadow:0 10px 24px rgba(0,0,0,.42)}
+  h1,h2,h3{margin:.35rem 0}
+  .grid{display:grid;gap:var(--gap)}
 
-    /* Layout */
-    .grid {
-      position: fixed; inset: 0; display: grid; gap: 8px;
-      grid-template-columns: 320px 1fr 360px; grid-template-rows: 1fr auto;
-      padding: 8px;
-    }
-    #scene-wrap { position: relative; background: radial-gradient(1000px 600px at 50% 50%, #001122 0%, #000 65%); overflow: hidden; }
-    #hud-overlay { position: absolute; inset: 0; pointer-events:none; }
+  /* Three-column console */
+  .triGrid{
+    display:grid;
+    grid-template-columns: 1fr minmax(420px, 1.2fr) 1fr;
+    gap: var(--gap);
+    align-items:start;
+  }
+  .col{ display:grid; gap: var(--gap); }
+  .span-all{ grid-column: 1 / -1; }
 
-    /* Panels */
-    .panel { background: rgba(10,10,10,0.65); border: 2px solid #666; border-radius: 14px; padding: 12px; }
-    .panel h2 { margin: 0 0 6px 0; font-size: 14px; letter-spacing: 1px; opacity: 0.9; }
-    .pill { display: inline-block; padding: 4px 8px; margin: 2px; border-radius: 999px; font-weight: 700; font-size: 12px; color: #000; }
-    .yellow{ background: var(--lcars-yellow);} .red{background:var(--lcars-red);} .blue{background:var(--lcars-blue);} .green{background:var(--lcars-green);} .purple{background:var(--lcars-purple);} .orange{background:var(--lcars-orange);} .black{background:var(--lcars-black); color:#fff; border:1px solid #fff;}
+  @media (max-width: 1200px){
+    .triGrid{ grid-template-columns: 1fr 1fr; }
+    #colCenter{ grid-column: 1 / -1; }
+  }
+  @media (max-width: 780px){
+    .triGrid{ grid-template-columns: 1fr; }
+    #colLeft, #colCenter, #colRight{ grid-column: 1; }
+  }
 
-    /* Status chips from endpoint */
-    .chips{ display:flex; flex-wrap:wrap; gap:6px; }
-    .chip{ padding:4px 8px; border-radius:999px; font-weight:800; font-size:12px; color:#000; }
-    .chip.ok{ background: var(--lcars-green); }
-    .chip.warn{ background: var(--lcars-orange); }
-    .chip.crit{ background: var(--lcars-red); }
-    .chip.offline{ background:#555; color:#ddd; }
-    .yellow{ background: var(--lcars-yellow);} .red{background:var(--lcars-red);} .blue{background:var(--lcars-blue);} .green{background:var(--lcars-green);} .purple{background:var(--lcars-purple);} .orange{background:var(--lcars-orange);} .black{background:var(--lcars-black); color:#fff; border:1px solid #fff;}
+  /* Forms */
+  .controls label,
+  .grid label{display:flex;flex-direction:column;align-items:flex-start;gap:4px;margin:6px 0;color:var(--muted);font-size:.95rem}
+  select,input[type="number"],input[type="text"]{width:100%;background:#0b1220;color:#eaf2ff;border:1px solid #34425f;border-radius:8px;padding:6px 8px;font-size:.95rem}
+  input[type="range"]{width:100%}
 
-    /* Center-bottom control bar */
-    .control-bar {
-      grid-column: 1 / span 3; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
-      background: linear-gradient(180deg, rgba(255,215,0,0.15), rgba(0,0,0,0.6)); border: 2px solid var(--lcars-yellow);
-      border-radius: 16px; padding: 8px 12px; gap: 8px;
-    }
-    .controls { display: flex; flex-wrap: wrap; gap: 8px; justify-content:center; }
-    button { background: #222; border: 2px solid #999; color: #fff; padding: 8px 12px; border-radius: 10px; font-weight: 800; letter-spacing: .5px; cursor: pointer; }
-    button.primary { border-color: var(--lcars-green);} button.danger { border-color: var(--lcars-red);} button.warning { border-color: var(--lcars-orange);} 
-    button:active { transform: translateY(1px); }
+  button{background:#1b2a44;border:1px solid #304166;color:#e6eefc;padding:7px 9px;margin:3px;border-radius:8px;cursor:pointer}
+  #startBtn{background:#00ccff;color:#00131a;border:none} #stopBtn{background:#64748b}
+  #resetBtn{background:#fb923c;border:none} #exportBtn{background:#7c3aed;border:none}
 
-    .meter { height: 10px; background: #111; border:1px solid #555; border-radius: 999px; overflow: hidden; }
-    .meter > span { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, var(--lcars-blue), var(--lcars-purple)); transition: width .2s ease-out; }
+  .lights{display:flex;gap:8px;flex-wrap:wrap}
+  .light{display:flex;align-items:center;gap:6px;padding:3px 8px;border-radius:999px;border:1px solid #334155;background:#0b1220;font-size:.85rem}
+  .dot{width:9px;height:9px;border-radius:50%}
+  .good .dot{background:var(--good)} .warn .dot{background:var(--warn)} .bad .dot{background:var(--bad)}
 
-    .stat { display:flex; align-items:center; justify-content:space-between; gap: 8px; font-size: 12px; }
-    .stat .value { font-weight: 800; }
+  .meter{display:flex;align-items:center;gap:8px;margin:4px 0}
+  .bar{height:9px;background:#0b1220;border:1px solid #334155;border-radius:6px;overflow:hidden;flex:1}
+  .fill{height:100%;background:linear-gradient(90deg,#60a5fa,#22d3ee)}
+  .stat{font-variant-numeric:tabular-nums;font-size:.86rem;color:var(--muted)}
 
-    /* Collision flash & warnings */
-    #alert-flash { position:absolute; inset:0; background: radial-gradient(200px 200px at center, rgba(255,59,48,0.7), rgba(255,59,48,0) 70%); opacity:0; transition: opacity .25s ease-out; pointer-events:none; }
-    .warning-banner { background: rgba(255,59,48,0.18); border:1px solid var(--lcars-red); border-radius: 10px; padding:6px 8px; font-weight:800; text-align:center; }
+  canvas{background:linear-gradient(180deg,#091323,#0a1322);border:1px solid #2b3a5a;border-radius:10px;max-width:100%;display:block}
+  .pill{display:inline-block;padding:.1rem .4rem;border:1px solid #36507d;border-radius:999px;font-size:.8rem;color:#a5f3fc}
+  .legend{color:var(--muted);font-size:.84rem;margin-top:6px}
+  .hdrline{display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .toggle{display:flex;align-items:center;gap:10px;color:#a7b9df;font-size:.9rem}
+  .badge{border:1px solid #3b4f77;border-radius:999px;padding:2px 8px;color:#93c5fd;background:#0b1220}
 
-    /* Mini LCARS stack on left/right */
-    .stack { display: grid; gap: 8px; grid-auto-rows: minmax(100px, auto); }
-    .mini { display:grid; grid-template-rows:auto 1fr; gap:8px; }
+  .clockSection{margin-top:6px}
+  .clockHeader{display:flex;align-items:center;justify-content:space-between;margin:2px 0 6px}
+  .clockGrid{display:grid;grid-template-columns:repeat(5,1fr);gap:var(--gap)}
+  @media (max-width:1200px){ .clockGrid{grid-template-columns:repeat(3,1fr)} }
+  @media (max-width:820px){ .clockGrid{grid-template-columns:repeat(2,1fr)} }
+  @media (max-width:520px){ .clockGrid{grid-template-columns:1fr} }
 
-    /* Tiny legend */
-    .legend { display:flex; flex-wrap:wrap; gap:6px; font-size:10px; opacity:.88; }
-    .legend .item { display:flex; align-items:center; gap:4px; }
-    .dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
+  .clockCard{background:#0b1220;border:1px solid #304166;border-radius:12px;padding:8px;display:grid;gap:4px; align-content:start}
+  .clockHdr{display:flex;justify-content:space-between;align-items:center}
+  .clockTitle{font-weight:600}
+  .status{font-size:.78rem;border:1px solid #36507d;border-radius:999px;padding:2px 6px}
+  .status.good{color:#0f0;border-color:#256f2a} .status.warn{color:#222;background:#facc15} .status.bad{color:#fff;background:#ef4444}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 8px;font-size:.84rem;color:#cfe2ff}
 
-    /* Curvature badges */
-    .curvature { display:flex; gap:6px; flex-wrap:wrap; }
-    .curvature .pill { color:#000; }
+  /* Canvas heights */
+  #curveCanvas{width:100%;height:200px}
+  #orbitCanvas{width:100%;height:280px}
+  #debrisCanvas{width:100%;height:180px}
+  #starfieldCanvas{width:100%;height:160px;background:radial-gradient(160px 105px at 50% 60%, #0a1322 0%, #08101d 65%, #060d18 100%)}
+  #shieldCanvas{width:100%;height:160px}
+  #grCanvas{width:100%;height:110px}
 
-    /* Footer info */
-    .tiny { font-size: 10px; opacity:.8; }
+  /* === Split Hero Panel === */
+  .heroControls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+  .heroControls button{
+    background:#0b1220;border:1px solid #3a4e79;color:#cfe2ff;padding:6px 10px;border-radius:999px;cursor:pointer;font-size:.9rem
+  }
+  .heroControls button.active{background:#1b2a44;border-color:#5f7bb4}
 
-    /* Responsive tweak */
-    @media (max-width: 1200px) {
-      .grid { grid-template-columns: 280px 1fr 320px; }
-    }
-    @media (max-width: 900px) {
-      .grid { grid-template-columns: 1fr; grid-template-rows: 1fr auto auto; }
-      .control-bar { grid-column: auto; }
-    }
-  </style>
+  .splitHero{
+    display:grid;
+    min-height: 420px;
+    gap: 6px;
+  }
+  /* Vertical mode: stacked rows */
+  .splitHero.vertical{
+    grid-template-rows: calc(var(--hero-split)*1%) 10px calc(100% - (var(--hero-split)*1%) - 10px);
+  }
+  /* Horizontal mode: side-by-side columns */
+  .splitHero.horizontal{
+    grid-template-columns: calc(var(--hero-split)*1%) 10px calc(100% - (var(--hero-split)*1%) - 10px);
+    min-height: 320px;
+  }
+  .splitPane{min-height:120px;}
+
+  /* Handle adapts to orientation */
+  .splitHandle{
+    border-radius:8px; background:linear-gradient(90deg,#2a3c61,#203253);
+    border:1px solid #355180; position:relative; align-self:stretch; justify-self:stretch;
+  }
+  .splitHero.vertical .splitHandle{ height:10px; cursor:row-resize; }
+  .splitHero.horizontal .splitHandle{ width:10px; cursor:col-resize; background:linear-gradient(180deg,#2a3c61,#203253); }
+
+  .splitHero.vertical .splitHandle:after{
+    content:""; position:absolute; inset:0; margin:auto; width:60px; height:2px; border-radius:2px; background:#6c8ac0;
+  }
+  .splitHero.horizontal .splitHandle:after{
+    content:""; position:absolute; inset:0; margin:auto; width:2px; height:60px; border-radius:2px; background:#6c8ac0;
+  }
+
+  /* Mobile */
+  @media (max-width:780px){
+    .splitHero{ min-height: 360px; }
+  }
+</style>
 </head>
 <body>
-  <div class="grid">
-    <!-- LEFT STACK: Navigation / Status / Readouts -->
-    <section class="stack">
-      <div class="panel mini">
-        <h2>NAVIGATION — <span class="pill yellow">NAV</span> <span class="pill blue">CRS</span> <span class="pill green">WRP</span></h2>
-        <div>
-          <div class="stat"><span>Coordinates</span><span class="value" id="coord">Alpha 23 · 17 · 9</span></div>
-          <div class="stat"><span>Course</span><span class="value" id="course">002 Mark 7</span></div>
-          <div class="meter" aria-label="Course Stability"><span id="courseMeter"></span></div>
-          <div class="legend" style="margin-top:6px;">
-            <div class="item"><span class="dot" style="background:var(--lcars-yellow)"></span>Yellow</div>
-            <div class="item"><span class="dot" style="background:var(--lcars-red)"></span>Red</div>
-            <div class="item"><span class="dot" style="background:var(--lcars-blue)"></span>Blue</div>
-            <div class="item"><span class="dot" style="background:var(--lcars-green)"></span>Green</div>
-            <div class="item"><span class="dot" style="background:var(--lcars-purple)"></span>Purple</div>
-            <div class="item"><span class="dot" style="background:var(--lcars-orange)"></span>Orange</div>
-            <div class="item"><span class="dot" style="background:var(--lcars-black); border:1px solid #fff"></span>Black</div>
+<div class="viewportScale">
+  <div class="wrap grid">
+    <div class="hdrline">
+      <h1>🚀 Warp Control Center</h1>
+      <div class="toggle">
+        <label>UI Scale <input id="uiScale" type="range" min="70" max="140" step="1" value="90"> <span id="uiScaleVal" class="badge">90%</span></label>
+        <label>Sound <input id="soundOn" type="checkbox" checked></label>
+        <span class="badge">v3.6.1 • Split Hero</span>
+      </div>
+    </div>
+
+    <!-- ===== Main three-column console ===== -->
+    <section class="triGrid">
+      <!-- LEFT COLUMN -->
+      <div id="colLeft" class="col">
+        <!-- Flight Plan -->
+        <div class="panel glass">
+          <h2>Flight Plan</h2>
+          <div class="grid" style="grid-template-columns:1fr 1fr;gap:10px">
+            <label>Warp Speed
+              <select id="warpSpeed"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option><option>10</option></select>
+            </label>
+            <label>Destination
+              <select id="destination"><option>Mars</option><option>Jupiter</option><option>Saturn</option><option>Pluto</option></select>
+            </label>
+            <label>Warp Law (n) <input id="warpExp" type="number" step="0.1" value="3"></label>
+            <label>Speed Scale (×c) <input id="warpScale" type="number" step="0.1" value="1"></label>
+            <label>IST Day 0 (yrs ago) <input id="istDay0Years" type="number" step="1" value="45500000000"></label>
+            <label>Days / IST year <input id="baselineDaysPerYear" type="number" step="0.001" value="365.25"></label>
+            <label>Calibration
+              <select id="calibration">
+                <option value="off">Off</option>
+                <option value="mars_opp">Mars – Opposition (fast window)</option>
+                <option value="mars_conj">Mars – Conjunction (slow window)</option>
+              </select>
+            </label>
+          </div>
+          <div class="lights" style="margin-top:6px">
+            <div class="light good" id="lightBubble"><span class="dot"></span>Bubble</div>
+            <div class="light good" id="lightPower"><span class="dot"></span>Power</div>
+            <div class="light good" id="lightVector"><span class="dot"></span>Vector</div>
+            <div class="light good" id="lightNav"><span class="dot"></span>Nav</div>
+          </div>
+          <div style="margin-top:6px">
+            <button id="startBtn">▶️ Start</button>
+            <button id="stopBtn">⏸️ Stop</button>
+            <button id="resetBtn">🔄 Engage Warp</button>
+            <button id="exportBtn">📄 Export Log</button>
+          </div>
+          <div class="legend" id="beacon">⏳ Waiting…</div>
+          <div class="legend" id="constraints">EC/Horizon: —</div>
+        </div>
+
+        <!-- Engine -->
+        <div class="panel glass">
+          <h2>Gravity Vectoring Engine</h2>
+          <div class="controls">
+            <label>Reactor Output (MW) <input id="reactorMW" type="number" value="5000" step="50"></label>
+            <label>Front Contraction % <input id="frontPct" type="range" min="0" max="100" value="35"><span class="stat" id="frontLbl"></span></label>
+            <label>Rear Expansion % <input id="rearPct" type="range" min="0" max="100" value="65"><span class="stat" id="rearLbl"></span></label>
+            <label>Left / Right Bias % <input id="lrBias" type="range" min="-50" max="50" value="0"><span class="stat" id="lrLbl"></span></label>
+            <label>Up / Down Bias % <input id="udBias" type="range" min="-50" max="50" value="0"><span class="stat" id="udLbl"></span></label>
+            <label>Intake Mode
+              <select id="intakeMode">
+                <option value="balanced">Balanced (±)</option>
+                <option value="positive">Positive Gravity Capture</option>
+                <option value="negative">Negative Gravity Capture</option>
+              </select>
+            </label>
+          </div>
+          <h3>Power Allocation</h3>
+          <div class="meter"><span class="stat" style="width:120px">Field Coils</span><div class="bar"><div id="mCoils" class="fill" style="width:48%"></div></div><span class="stat" id="mCoilsVal"></span></div>
+          <div class="meter"><span class="stat" style="width:120px">Vectoring Vanes</span><div class="bar"><div id="mVanes" class="fill" style="width:32%"></div></div><span class="stat" id="mVanesVal"></span></div>
+          <div class="meter"><span class="stat" style="width:120px">Containment</span><div class="bar"><div id="mContain" class="fill" style="width:20%"></div></div><span class="stat" id="mContainVal"></span></div>
+        </div>
+
+        <!-- Debris -->
+        <div class="panel glass">
+          <h2>Debris Defense Field</h2>
+          <canvas id="debrisCanvas"></canvas>
+          <div class="legend" id="debrisLegend">—</div>
+        </div>
+      </div>
+
+      <!-- CENTER COLUMN: SPLIT HERO -->
+      <div id="colCenter" class="col">
+        <div class="panel glass" id="heroPanel">
+          <h2>Center Visuals (Split)</h2>
+          <div class="heroControls">
+            <button type="button" class="heroPairBtn active" data-pair="traj-star">Trajectory + Starfield</button>
+            <button type="button" class="heroPairBtn" data-pair="traj-shield">Trajectory + Shield</button>
+            <button type="button" class="heroPairBtn" data-pair="star-shield">Starfield + Shield</button>
+            <span style="flex:1"></span>
+            <button type="button" id="splitVertBtn" class="active">Vertical</button>
+            <button type="button" id="splitHorzBtn">Horizontal</button>
+          </div>
+
+          <div class="splitHero vertical" id="splitHero">
+            <div class="splitPane" id="splitTop"><div id="paneTop"></div></div>
+            <div class="splitHandle" id="splitHandle" title="Drag to resize"></div>
+            <div class="splitPane" id="splitBottom"><div id="paneBottom"></div></div>
+          </div>
+
+          <!-- Keep originals for IDs; JS moves them into panes -->
+          <div style="display:none">
+            <canvas id="curveCanvas"></canvas>
+            <div class="legend" id="curveLegend">—</div>
+            <canvas id="starfieldCanvas"></canvas>
+            <div class="legend" id="starfieldLegend">—</div>
+            <canvas id="shieldCanvas"></canvas>
+            <div class="legend" id="shieldLegend">—</div>
           </div>
         </div>
       </div>
 
-      <div class="panel mini">
-        <h2>CREW — <span class="pill green">OK</span> <span class="pill orange">BIO</span></h2>
-        <div>
-          <div class="stat"><span>Biometric Pressure</span><span class="value" id="bio">1.00 atm</span></div>
-          <div class="meter" aria-label="Biometric Pressure"><span id="bioMeter"></span></div>
-          <div class="stat"><span>Ship Frequency</span><span class="value" id="freq">440.0 Hz</span></div>
-          <div class="meter" aria-label="Frequency"><span id="freqMeter"></span></div>
+      <!-- RIGHT COLUMN -->
+      <div id="colRight" class="col">
+        <!-- Orbits -->
+        <div class="panel glass">
+          <h2>Heliocentric Polar Map (Now vs Arrival)</h2>
+          <canvas id="orbitCanvas"></canvas>
+          <div class="legend" id="orbitLegend">—</div>
+        </div>
+
+        <!-- GR mini -->
+        <div class="panel glass">
+          <h2>Einstein Tensor Mini</h2>
+          <canvas id="grCanvas"></canvas>
+          <div class="legend" id="grMini">G<sub>μν</sub> proxy • ρ<sub>em</sub> from |∇Φ|² (visual) • Auto-throttle if g<sub>tt</sub>≤0</div>
+          <div class="legend">g<sub>tt</sub> min: <span id="gr_gtt">—</span> • ρ<sub>em</sub> min/max: <span id="gr_rho">—</span> • EC: <span id="gr_ec">—</span> • Horizons: <span id="gr_hor">—</span></div>
         </div>
       </div>
 
-      <div class="panel mini">
-        <h2>ABBREV STATUS — <span class="pill purple">NAV</span> <span class="pill blue">CRW</span> <span class="pill orange">ENG</span> <span class="pill yellow">SHP</span></h2>
-        <div id="abbrevStatus" class="chips" aria-live="polite"></div>
-        <div class="tiny" id="abbrevMeta">Last update: —</div>
-      </div>
-
-      </div>
-
-      <div class="panel warning-banner" id="debrisBanner" style="display:none;">DEBRIS FIELD AHEAD — IMPACT PROBABILITY ELEVATED</div>
-    </section>
-
-    <!-- CENTER: 3D Scene -->
-    <section id="scene-wrap" class="panel">
-      <canvas id="stage"></canvas>
-      <div id="hud-overlay">
-        <div id="alert-flash"></div>
+      <!-- FULL-WIDTH BELOW THE 3-COL ROW -->
+      <div class="panel glass span-all">
+        <h2>IST Orbital Tracker (Live)</h2>
+        <div id="orbit-rows" class="grid" style="grid-template-columns:repeat(4,1fr);gap:var(--gap)"></div>
       </div>
     </section>
 
-    <!-- RIGHT STACK: Warp Field / Curvature / Engine -->
-    <section class="stack">
-      <div class="panel mini">
-        <h2>WARP FIELD</h2>
-        <div class="stat"><span>Warp Factor</span><span class="value" id="warpVal">0.00</span></div>
-        <input id="warpSlider" type="range" min="0" max="9.99" value="0" step="0.01" style="width:100%"/>
-        <div class="stat"><span>Field Integrity</span><span class="value" id="integrity">100%</span></div>
-        <div class="meter" aria-label="Field Integrity"><span id="integrityMeter" style="background:linear-gradient(90deg,var(--lcars-green),var(--lcars-yellow))"></span></div>
-        <div class="curvature" style="margin-top:8px;">
-          <span class="pill blue" id="frontCurv">Front Curv: 0.00</span>
-          <span class="pill purple" id="rearCurv">Rear Curv: 0.00</span>
-        </div>
+    <!-- CLOCKS -->
+    <section class="clockSection span-all">
+      <div class="clockHeader">
+        <h2>Clock Sync (C1–C5) + Arrival CST/IST</h2>
+        <span class="badge">Compact view</span>
       </div>
-
-      <div class="panel mini">
-        <h2>ENGINE</h2>
-        <div class="stat"><span>Status</span><span class="value" id="engineStatus">OFFLINE</span></div>
-        <div class="stat"><span>Core Temp</span><span class="value" id="coreTemp">273 K</span></div>
-        <div class="meter" aria-label="Core Temperature"><span id="coreMeter"></span></div>
-      </div>
-
-      <div class="panel mini">
-        <h2>SHIP</h2>
-        <div class="stat"><span>Hull</span><span class="value" id="hull">100%</span></div>
-        <div class="meter" aria-label="Hull Integrity"><span id="hullMeter" style="background:linear-gradient(90deg,var(--lcars-blue),var(--lcars-green))"></span></div>
-        <div class="stat"><span>Shields</span><span class="value" id="shields">100%</span></div>
-        <div class="meter" aria-label="Shields"><span id="shieldMeter" style="background:linear-gradient(90deg,var(--lcars-blue),var(--lcars-purple))"></span></div>
-      </div>
+      <div class="clockGrid" id="clockGrid"></div>
     </section>
-
-    <!-- CENTER-BOTTOM CONTROL BAR (spans entire grid width) -->
-    <div class="control-bar">
-      <div class="controls">
-        <button class="primary" id="btnEngage">ENGAGE WARP</button>
-        <button class="danger" id="btnDisengage">DISENGAGE</button>
-        <button class="warning" id="btnAlarm">TEST ALARM</button>
-      </div>
-      <div class="controls">
-        <span class="pill yellow">NAV</span>
-        <span class="pill blue">CREW</span>
-        <span class="pill orange">ENGINE</span>
-        <span class="pill green">SHIP</span>
-        <span class="pill purple">FIELD</span>
-        <span class="pill black">SYS</span>
-      </div>
-      <div class="controls tiny" style="opacity:.8;">
-        <span>Curvature visualized ahead/astern. Debris collisions trigger alarm and red flash. Sounds synthesized via WebAudio or override below.</span>
-      </div>
-      <!-- Optional custom sound overrides: set src to your files -->
-      <audio id="sndWarpUp"></audio>
-      <audio id="sndArrival"></audio>
-      <audio id="sndAlarm"></audio>
-    </div>
-      <div class="controls">
-        <span class="pill yellow">NAV</span>
-        <span class="pill blue">CREW</span>
-        <span class="pill orange">ENGINE</span>
-        <span class="pill green">SHIP</span>
-        <span class="pill purple">FIELD</span>
-        <span class="pill black">SYS</span>
-      </div>
-      <div class="controls tiny" style="opacity:.8;">
-        <span>Curvature visualized ahead/astern. Debris collisions trigger alarm and red flash. Sounds synthesized via WebAudio.</span>
-      </div>
-    </div>
   </div>
+</div>
+<script>
+/* ====== Constants / helpers ====== */
+const AU_M=1.495978707e11, C_MPS=299792458, G=6.67430e-11, MU0=4*Math.PI*1e-7;
+const orbitAU={ Earth:1.0, Mars:1.524, Jupiter:5.204, Saturn:9.582, Pluto:39.48 };
+const orbitalDays={ Mercury:87.969, Venus:224.701, Earth:365.256, Mars:686.980, Jupiter:4332.59, Saturn:10759.22, Uranus:30685, Neptune:60190, Pluto:90560 };
+const formationOffsetMyr={ Sun:0, Mercury:5, Venus:30, Earth:27, Mars:10, Jupiter:1, Saturn:3, Uranus:15, Neptune:20, Pluto:30 };
+const $=id=>document.getElementById(id);
+let ac=null; 
+function tone(kind="good"){ 
+  if(!$("soundOn").checked) return; 
+  if(!ac){try{ac=new (window.AudioContext||window.webkitAudioContext)();}catch{}}
+  if(!ac) return; 
+  const o=ac.createOscillator(), g=ac.createGain(); 
+  o.type="sine"; o.frequency.value= kind==="good"?880:kind==="warn"?520:320;
+  g.gain.value=.001; o.connect(g).connect(ac.destination); o.start();
+  g.gain.exponentialRampToValueAtTime(.07, ac.currentTime+.02); 
+  g.gain.exponentialRampToValueAtTime(.001, ac.currentTime+.18); 
+  o.stop(ac.currentTime+.2);
+}
+function setLight(el,level){ 
+  const was=el.dataset.level||"good"; 
+  if(was!==level){ 
+    el.dataset.level=level; el.classList.remove("good","warn","bad"); el.classList.add(level); 
+    tone(level==="good"?"good":level==="warn"?"warn":"bad"); 
+  } 
+}
 
-  <script>
-    /* ======================
-       WEB AUDIO (Warp / Arrival / Alarm)
-       ====================== */
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    const audioCtx = new AudioCtx();
-    let warpOsc, alarmOsc; let master;
-    function ensureAudio() {
-      if (master) return; master = audioCtx.createGain(); master.gain.value = 0.6; master.connect(audioCtx.destination);
+/* ====== IST time, orbits ====== */
+let tIST0=performance.now();
+function IST_INPUT(){ return Number($("istDay0Years").value||45500000000); }
+function DPY_INPUT(){ return Number($("baselineDaysPerYear").value||365.25); }
+function IST_snapshot(){ 
+  const dpy=DPY_INPUT(), spy=dpy*86400; 
+  const elapsed=(performance.now()-tIST0)/1000/spy; 
+  const istYears=IST_INPUT()+elapsed, istDays=istYears*dpy; 
+  return {istYears, istDays, dpy, spy}; 
+}
+function planetAgeYears(name,iy){ return Math.max(0, iy - (formationOffsetMyr[name]||0)*1e6); }
+function trueAnomalyFrac(name,iy,dpy){ 
+  const py=planetAgeYears(name,iy), pd=py*dpy, T=orbitalDays[name]; 
+  if(!T) return 0; 
+  const N=pd/T; return N-Math.floor(N); 
+}
+function orbitsFor(name,pd){ 
+  const T=orbitalDays[name]; if(!T) return null; 
+  const tot=pd/T, comp=Math.max(0,Math.floor(tot)), frac=tot-comp, daysInto=frac*T; 
+  return {totalOrbits:tot,completed:comp,frac,daysInto,yearLen:T}; 
+}
+
+/* ====== Engine dynamics & inputs ====== */
+let simulationRunning=false, shipProgress=0, shipArrived=false;
+let driftInterval=null, beaconInterval=null, orbitInterval=null, animationFrame=null, lastFrameTime=performance.now();
+const engineState={ t:0, temp:0, sag:0, containNeed:0.22, jitter:0 };
+function stepEngineDynamics(dt, running){
+  if(!running){ 
+    engineState.temp=Math.max(0,engineState.temp-0.30*dt); 
+    engineState.sag=Math.max(0,engineState.sag-0.25*dt); 
+    engineState.jitter*=0.85; 
+    engineState.containNeed=0.22+0.06*engineState.temp; 
+    return; 
+  }
+  engineState.t+=dt; engineState.temp=Math.min(1,engineState.temp+0.06*dt);
+  const baseSag=0.02+0.04*engineState.temp, ripple=0.01*Math.sin(0.7*engineState.t);
+  engineState.sag=Math.max(0, baseSag + ripple);
+  engineState.containNeed=0.22+0.06*engineState.temp;
+  const biasMag=Math.hypot(Number($("lrBias").value||0)/100, Number($("udBias").value||0)/100);
+  engineState.jitter = 0.01 + 0.03*biasMag + 0.01*Math.sin(3*engineState.t) + 0.006*(Math.random()-0.5);
+  engineState.jitter = Math.max(0, Math.min(0.08, engineState.jitter));
+}
+function warpInputs(){ return { warp:Number($("warpSpeed").value||1), exp:Number($("warpExp").value||3), scale:Number($("warpScale").value||1) }; }
+function engineInputs(){
+  const reactorMW_in=Number($("reactorMW").value||5000);
+  const front=Number($("frontPct").value||0)/100, rear=Number($("rearPct").value||0)/100;
+  const lr=Number($("lrBias").value||0)/100, ud=Number($("udBias").value||0)/100;
+  const mode=$("intakeMode").value;
+  const reactorMW = reactorMW_in * (1 - engineState.sag);
+
+  const vecDemand=Math.min(1, 0.4 + 0.6*(Math.abs(lr)+Math.abs(ud)+Math.abs(rear-front)));
+  let coilsPct=Math.max(0.35, 0.55 - 0.25*vecDemand);
+  let containPct=Math.max(engineState.containNeed, 0.20);
+  let vanesPct=Math.min(0.35, 1 - coilsPct - containPct);
+  const sum=coilsPct+containPct+vanesPct; if(sum>1){ const k=1/sum; coilsPct*=k; containPct*=k; vanesPct*=k; }
+
+  $("mCoils").style.width=`${coilsPct*100}%`; $("mCoilsVal").textContent=`${(coilsPct*reactorMW).toFixed(0)} MW`;
+  $("mVanes").style.width=`${vanesPct*100}%`; $("mVanesVal").textContent=`${(vanesPct*reactorMW).toFixed(0)} MW`;
+  $("mContain").style.width=`${containPct*100}%`; $("mContainVal").textContent=`${(containPct*reactorMW).toFixed(0)} MW`;
+
+  let stability=1.0;
+  if (containPct < engineState.containNeed) stability -= 0.40*(engineState.containNeed - containPct)/engineState.containNeed;
+  const biasMag=Math.hypot(lr,ud); stability -= 0.30*Math.max(0, biasMag-0.3)/0.7;
+  if (rear<front) stability -= 0.20*(front-rear);
+  if (mode==="positive" && rear<front) stability -= 0.05;
+  if (mode==="negative" && rear>front) stability -= 0.05;
+  stability -= engineState.jitter;
+  stability = Math.max(0, Math.min(1, stability));
+
+  return {reactorMW, front, rear, lr, ud, coilsPct, containPct, vanesPct, stability, mode};
+}
+
+/* ====== Physics gating ====== */
+let lastPhysics = { gf:0.5, vcap_c:0.6, gttMin:1, ecOK:true, horizon:false, beta:0 };
+let calib = "off";
+function setCalibration(kind){
+  calib = kind;
+  switch(kind){
+    case "mars_opp": physicsCal.kGF=1.12; physicsCal.kCap=1.10; break;
+    case "mars_conj": physicsCal.kGF=0.92; physicsCal.kCap=0.88; break;
+    default: physicsCal.kGF=1.00; physicsCal.kCap=1.00; break;
+  }
+}
+const physicsCal = { kGF:1.00, kCap:1.00 };
+
+/* ====== ETA / distance ====== */
+function computeETASeconds(v_mps_override=null){
+  const { istYears, dpy } = IST_snapshot();
+  const dest=$("destination").value;
+  const { warp, exp, scale } = warpInputs();
+  const eng=engineInputs();
+
+  const r1=orbitAU.Earth, r2=orbitAU[dest];
+  const thE0=trueAnomalyFrac("Earth",istYears,dpy)*Math.PI*2;
+  const thD0=trueAnomalyFrac(dest, istYears,dpy)*Math.PI*2;
+
+  const TE = orbitalDays.Earth * 86400;
+  const TD = orbitalDays[dest] * 86400;
+  const wE = TE ? (2*Math.PI/TE) : 0;
+  const wD = TD ? (2*Math.PI/TD) : 0;
+
+  const v_base = C_MPS * scale * Math.pow(Math.max(1, warp), exp);
+  const { v_mps, gf, vcap_c, gttMin, ecOK, horizon, beta } = gatedSpeed(v_base, eng);
+  lastPhysics = { gf, vcap_c, gttMin, ecOK, horizon, beta };
+
+  const v = v_mps_override ?? v_mps;
+
+  let t=0; const maxIter=8;
+  for(let k=0;k<maxIter;k++){
+    const thE=thE0 + wE*t, thD=thD0 + wD*t;
+    const dAU=Math.sqrt(r1*r1+r2*r2-2*r1*r2*Math.cos(thD-thE));
+    const tNew=(dAU*AU_M)/Math.max(v,1e-3);
+    if(Math.abs(tNew-t)<0.05){ t=tNew; break; }
+    t=tNew;
+  }
+  const dAU0=Math.sqrt(r1*r1+r2*r2-2*r1*r2*Math.cos(thD0-thE0));
+  setLight($("lightNav"), isFinite(t)?(t<86400?"good":"warn"):"bad");
+  return { eta:t, dAU:dAU0, v, thE:thE0, thD:thD0, r1, r2 };
+}
+
+/* ====== GR Mini + ∫|∇Φ|² ====== */
+const grCanvas = $("grCanvas"), grx = grCanvas.getContext("2d");
+const GR = { nx: 120, ny: 48, L: 900, sigma: 150, scalePhi: 1.0e10 };
+function buildPotentialGrid(){
+  const eng=engineInputs(); const front=eng.front, rear=eng.rear, lr=eng.lr, ud=eng.ud;
+  const nx=GR.nx, ny=GR.ny, L=GR.L, dx=L/nx, dy=L/ny, s2=GR.sigma*GR.sigma;
+  const A_r = rear*1.2e14, A_f = front*1.2e14;
+  const x0 = 180 + 110*rear, y0 =  70*ud, xskew = 70*lr;
+  const phi = new Float64Array(nx*ny);
+  for(let j=0;j<ny;j++){
+    const y=(j-ny/2)*dy;
+    for(let i=0;i<nx;i++){
+      const x=(i-nx/2)*dx;
+      const rRear2=(x + x0 + xskew)**2 + (y - y0)**2;
+      const rFront2=(x - x0 + xskew)**2 + (y + y0)**2;
+      phi[i+j*nx] = (-A_r*Math.exp(-rRear2/s2) + A_f*Math.exp(-rFront2/s2))/GR.scalePhi;
     }
-    function playWarpUp(){
-      ensureAudio();
-      const el = document.getElementById('sndWarpUp');
-      if (el && el.src){ el.currentTime = 0; el.play(); return; }
-      // synth fallback
-      warpOsc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
-      warpOsc.type = 'sawtooth'; warpOsc.frequency.setValueAtTime(110, audioCtx.currentTime);
-      gain.gain.setValueAtTime(0, audioCtx.currentTime); gain.gain.linearRampToValueAtTime(0.7, audioCtx.currentTime + 0.6);
-      warpOsc.connect(gain).connect(master); warpOsc.start();
-      warpOsc.frequency.exponentialRampToValueAtTime(2200, audioCtx.currentTime + 2.2);
-      gain.gain.linearRampToValueAtTime(0.0, audioCtx.currentTime + 2.6);
-      setTimeout(()=>{ warpOsc.stop(); warpOsc.disconnect(); }, 2700);
-    }, 2700);
-    }
-    function playArrival(){
-      ensureAudio();
-      const el = document.getElementById('sndArrival');
-      if (el && el.src){ el.currentTime = 0; el.play(); return; }
-      const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
-      osc.type='triangle'; osc.frequency.setValueAtTime(1800, audioCtx.currentTime);
-      gain.gain.setValueAtTime(0.6, audioCtx.currentTime);
-      osc.connect(gain).connect(master); osc.start();
-      osc.frequency.exponentialRampToValueAtTime(220, audioCtx.currentTime + 0.9);
-      gain.gain.linearRampToValueAtTime(0.0, audioCtx.currentTime + 1.1);
-      setTimeout(()=>{ osc.stop(); osc.disconnect(); }, 1200);
-    }, 1200);
-    }
-    function playAlarm(){
-      ensureAudio();
-      const el = document.getElementById('sndAlarm');
-      if (el && el.src){ el.currentTime = 0; el.play(); return; }
-      if (alarmOsc) { try { alarmOsc.stop(); } catch(e){} }
-      alarmOsc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
-      alarmOsc.type='square'; alarmOsc.frequency.setValueAtTime(880, audioCtx.currentTime);
-      gain.gain.value = 0.6; alarmOsc.connect(gain).connect(master); alarmOsc.start();
-      let t = 0; const id = setInterval(()=>{
-        t++; alarmOsc.frequency.setValueAtTime( t % 2 ? 660 : 880, audioCtx.currentTime );
-        if (t>8) { clearInterval(id); try{ alarmOsc.stop(); alarmOsc.disconnect(); }catch(e){} }
-      }, 180);
-    } catch(e){} }
-      alarmOsc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
-      alarmOsc.type='square'; alarmOsc.frequency.setValueAtTime(880, audioCtx.currentTime);
-      gain.gain.value = 0.6; alarmOsc.connect(gain).connect(master); alarmOsc.start();
-      let t = 0; const id = setInterval(()=>{
-        t++; alarmOsc.frequency.setValueAtTime( t % 2 ? 660 : 880, audioCtx.currentTime );
-        if (t>8) { clearInterval(id); try{ alarmOsc.stop(); alarmOsc.disconnect(); }catch(e){} }
-      }, 180);
-    }
+  }
+  return {phi, dx, dy, nx, ny};
+}
+function grad2(phi,i,j,nx,ny,dx,dy){ const l=phi[(i>0?i-1:0)+j*nx], r=phi[(i<nx-1?i+1:nx-1)+j*nx]; const u=phi[i+(j>0?j-1:0)*nx], d=phi[i+(j<ny-1?j+1:ny-1)*nx]; const gx=(r-l)/(2*dx), gy=(d-u)/(2*dy); return {gx,gy,g2:gx*gx+gy*gy}; }
+function validateGR(){
+  const {phi, dx, dy, nx, ny} = buildPotentialGrid();
+  let gttMin=+1, phiMin=+1e99, phiMax=-1e99, Eint=0;
+  for(let k=0;k<phi.length;k++){ const v=phi[k]; if(v<phiMin)phiMin=v; if(v>phiMax)phiMax=v; }
+  const span=Math.max(1e-12, phiMax-phiMin);
 
-    /* ======================
-       THREE.JS SCENE
-       ====================== */
-    const canvas = document.getElementById('stage');
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true});
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  grCanvas.width=grCanvas.clientWidth; grCanvas.height=110; grx.clearRect(0,0,grCanvas.width,grCanvas.height);
 
-    const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x000010, 0.0022);
+  let rhoMin=+1e99, rhoMax=-1e99, horizons=0;
 
-    const camera = new THREE.PerspectiveCamera(65, 1, 0.1, 5000);
-    camera.position.set(0, 2.5, 8);
+  for(let j=1;j<ny-1;j++){
+    for(let i=1;i<nx-1;i++){
+      const {g2} = grad2(phi,i,j,nx,ny,dx,dy);
+      Eint += g2 * dx * dy;
+      const ph=phi[i+j*nx];
+      const rho_em = g2/(2*MU0*C_MPS*C_MPS); if(rho_em<rhoMin)rhoMin=rho_em; if(rho_em>rhoMax)rhoMax=rho_em;
+      const gtt=1 + 2*ph/(C_MPS*C_MPS); if(gtt<gttMin)gttMin=gtt; if(gtt<=0)horizons++;
 
-    const controls = new THREE.OrbitControls(camera, canvas);
-    controls.enableDamping = true; controls.enablePan = false; controls.minDistance = 4; controls.maxDistance = 30;
-
-    // Lights
-    const key = new THREE.DirectionalLight(0x88ccff, 1.2); key.position.set(5, 10, 7);
-    const fill = new THREE.DirectionalLight(0xff88aa, 0.6); fill.position.set(-6, 2, -4);
-    const rim = new THREE.PointLight(0x44aaff, 1, 40); rim.position.set(0, 0, -6);
-    scene.add(key, fill, rim, new THREE.AmbientLight(0x404040, 0.6));
-
-    // Ship (stylized) — saucer + hull + nacelles
-    const ship = new THREE.Group(); scene.add(ship);
-    const saucerGeo = new THREE.SphereGeometry(1.6, 48, 48);
-    saucerGeo.scale(1.4, 0.25, 1.4);
-    const hullGeo = new THREE.CapsuleGeometry(0.35, 2.2, 6, 24);
-    const nacelleGeo = new THREE.CapsuleGeometry(0.18, 2.4, 4, 18);
-    const shipMat = new THREE.MeshStandardMaterial({ color: 0xb0b8c0, metalness: 0.4, roughness: 0.3 });
-    const accentMat = new THREE.MeshStandardMaterial({ color: 0x0077ff, emissive: 0x003355, emissiveIntensity: 1.2, metalness: 0.1, roughness: 0.4 });
-
-    const saucer = new THREE.Mesh(saucerGeo, shipMat); saucer.position.set(0,0,0);
-    const hull = new THREE.Mesh(hullGeo, shipMat); hull.position.set(0,-0.5,-1.8); hull.rotation.x = Math.PI/2;
-    const nacL = new THREE.Mesh(nacelleGeo, accentMat); nacL.position.set(-1.6,-0.2,-1.0); nacL.rotation.z = Math.PI/2;
-    const nacR = new THREE.Mesh(nacelleGeo, accentMat); nacR.position.set( 1.6,-0.2,-1.0); nacR.rotation.z = Math.PI/2;
-    ship.add(saucer, hull, nacL, nacR);
-
-    // Warp bubble (curvature visualization front/rear)
-    const bubbleGeo = new THREE.SphereGeometry(3.6, 64, 64);
-    const bubbleMat = new THREE.ShaderMaterial({
-      transparent: true, side: THREE.DoubleSide, depthWrite: false,
-      uniforms: {
-        uTime: { value: 0 }, uFrontCurv: { value: 0.0 }, uRearCurv: { value: 0.0 },
-        uColorFront: { value: new THREE.Color(0x00aaff) }, uColorRear: { value: new THREE.Color(0xaa55ff) }
-      },
-      vertexShader: `
-        uniform float uTime; uniform float uFrontCurv; uniform float uRearCurv;
-        varying float vWarp;
-        void main(){
-          vec3 p = position;
-          // signed curvature: positive front (z<0), negative rear (z>0)
-          float k = smoothstep(-3.6, 0.0, p.z) * uFrontCurv - smoothstep(0.0, 3.6, p.z) * uRearCurv;
-          float r = length(p);
-          p += normal * k * 0.12 * sin(uTime*1.7 + r*3.0);
-          vWarp = k;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(p,1.0);
-        }
-      `,
-      fragmentShader: `
-        uniform vec3 uColorFront; uniform vec3 uColorRear; varying float vWarp;
-        void main(){
-          vec3 c = mix(uColorRear, uColorFront, smoothstep(-1.0, 1.0, vWarp));
-          float a = 0.22 + 0.35*abs(vWarp);
-          gl_FragColor = vec4(c, a);
-        }
-      `
-    });
-    const bubble = new THREE.Mesh(bubbleGeo, bubbleMat); ship.add(bubble);
-
-    // Debris field — instanced boxes flying toward the ship
-    const debrisCount = 800;
-    const debrisGeo = new THREE.BoxGeometry(0.08, 0.08, 0.08);
-    const debrisMat = new THREE.MeshStandardMaterial({ color: 0x888888, metalness:0.2, roughness:0.8 });
-    const debris = new THREE.InstancedMesh(debrisGeo, debrisMat, debrisCount);
-    debris.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    scene.add(debris);
-    const tmpObj = new THREE.Object3D();
-    const debrisData = [];
-    function resetDebris(i, behind=false){
-      const radius = THREE.MathUtils.randFloat(2.8, 10);
-      const angle = Math.random()*Math.PI*2;
-      const y = THREE.MathUtils.randFloat(-3.0, 3.0);
-      const z = behind ? THREE.MathUtils.randFloat(2, 30) : THREE.MathUtils.randFloat(-60, -6);
-      const pos = new THREE.Vector3(Math.cos(angle)*radius, y, z);
-      const vel = new THREE.Vector3(0, 0, THREE.MathUtils.randFloat(0.25, 0.9));
-      debrisData[i] = { pos, vel, size: THREE.MathUtils.randFloat(0.06, 0.22) };
-      tmpObj.position.copy(pos); tmpObj.scale.setScalar(debrisData[i].size*THREE.MathUtils.randFloat(0.6, 1.8));
-      tmpObj.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI);
-      tmpObj.updateMatrix(); debris.setMatrixAt(i, tmpObj.matrix);
-    }
-    for(let i=0;i<debrisCount;i++) resetDebris(i);
-
-    // Stars background
-    const starGeo = new THREE.BufferGeometry();
-    const starCount = 2000; const starPos = new Float32Array(starCount*3);
-    for(let i=0;i<starCount;i++){ starPos[i*3+0] = (Math.random()-0.5)*200; starPos[i*3+1] = (Math.random()-0.5)*200; starPos[i*3+2] = -Math.random()*400 - 20; }
-    starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
-    const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.6 }));
-    scene.add(stars);
-
-    // Resize
-    function onResize(){
-      const rect = document.getElementById('scene-wrap').getBoundingClientRect();
-      renderer.setSize(rect.width, rect.height, false);
-      camera.aspect = rect.width/rect.height; camera.updateProjectionMatrix();
-    }
-    addEventListener('resize', onResize); onResize();
-
-    /* ======================
-       UI + Telemetry
-       ====================== */
-    const warpSlider = document.getElementById('warpSlider');
-    const warpVal = document.getElementById('warpVal');
-    const integrity = document.getElementById('integrity');
-    const integrityMeter = document.getElementById('integrityMeter');
-    const frontCurv = document.getElementById('frontCurv');
-    const rearCurv = document.getElementById('rearCurv');
-    const engineStatus = document.getElementById('engineStatus');
-    const coreTemp = document.getElementById('coreTemp');
-    const coreMeter = document.getElementById('coreMeter');
-    const hull = document.getElementById('hull');
-    const hullMeter = document.getElementById('hullMeter');
-    const shields = document.getElementById('shields');
-    const shieldMeter = document.getElementById('shieldMeter');
-    const bio = document.getElementById('bio');
-    const bioMeter = document.getElementById('bioMeter');
-    const freq = document.getElementById('freq');
-    const freqMeter = document.getElementById('freqMeter');
-    const courseMeter = document.getElementById('courseMeter');
-    const debrisBanner = document.getElementById('debrisBanner');
-
-    const btnEngage = document.getElementById('btnEngage');
-    const btnDisengage = document.getElementById('btnDisengage');
-    const btnAlarm = document.getElementById('btnAlarm');
-
-    let engineOn = false; let warpFactor = 0.0; let targetWarp = 0.0; let shieldVal=100; let hullVal=100; let fieldIntegrity=100;
-
-    // ===== Abbrev status from your site — plug your feed here =====
-    const CONFIG = {
-      STATUS_URL: 'https://your.site/status.json', // <-- replace with your endpoint (must allow CORS)
-      POLL_MS: 5000
-    };
-    const abbrev = { NAV:"—", CRW:"—", ENG:"—", SHP:"—" };
-    function statusClass(val){
-      const v = String(val).toUpperCase();
-      if (['OK','GREEN','ONLINE','NOMINAL'].includes(v)) return 'ok';
-      if (['WARN','YELLOW','STBY','STANDBY'].includes(v)) return 'warn';
-      if (['CRIT','ALERT','RED','FAIL','OFFLINE'].includes(v)) return 'crit';
-      return 'offline';
-    }
-    function renderAbbrev(meta='—'){
-      const el = document.getElementById('abbrevStatus');
-      el.innerHTML = '';
-      const map = [['NAV',abbrev.NAV],['CRW',abbrev.CRW],['ENG',abbrev.ENG],['SHP',abbrev.SHP]];
-      map.forEach(([k,v])=>{
-        const chip = document.createElement('span'); chip.className = 'chip ' + statusClass(v); chip.textContent = `${k}: ${v}`; el.appendChild(chip);
-      });
-      document.getElementById('abbrevMeta').textContent = `Last update: ${meta}`;
-    }
-    async function pollStatus(){
-      try{
-        const res = await fetch(CONFIG.STATUS_URL, {cache:'no-store'});
-        const data = await res.json();
-        Object.assign(abbrev, {NAV:data.NAV ?? abbrev.NAV, CRW:data.CRW ?? abbrev.CRW, ENG:data.ENG ?? abbrev.ENG, SHP:data.SHP ?? abbrev.SHP});
-        // optional telemetry fields from your endpoint
-        if (typeof data.bioPressure === 'number'){ bioBase = data.bioPressure; }
-        if (typeof data.shipFreqHz === 'number'){ freqBase = data.shipFreqHz; }
-        if (typeof data.engineOnline === 'boolean'){ engineOn = data.engineOnline; engineStatus.textContent = engineOn ? 'ONLINE' : 'OFFLINE'; }
-        if (typeof data.warpTarget === 'number'){ targetWarp = data.warpTarget; warpSlider.value = String(data.warpTarget); }
-        if (typeof data.shields === 'number'){ shieldVal = data.shields; }
-        if (typeof data.hull === 'number'){ hullVal = data.hull; }
-        // optional sound override URLs
-        if (data.sounds){
-          if (data.sounds.warpUp) document.getElementById('sndWarpUp').src = data.sounds.warpUp;
-          if (data.sounds.arrival) document.getElementById('sndArrival').src = data.sounds.arrival;
-          if (data.sounds.alarm) document.getElementById('sndAlarm').src = data.sounds.alarm;
-        }
-        renderAbbrev(new Date().toLocaleTimeString());
-      }catch(err){ renderAbbrev('fetch error'); }
-    }
-    renderAbbrev('—');
-    setInterval(pollStatus, CONFIG.POLL_MS);
-    pollStatus();
-    // Example to wire your website: replace below with fetch('https://your.site/status.json').then(r=>r.json()).then(data=>{ Object.assign(abbrev,data); renderAbbrev(); });
-
-    btnEngage.onclick = () => { engineOn = true; targetWarp = Math.max(2.5, parseFloat(warpSlider.value)); playWarpUp(); engineStatus.textContent = 'ONLINE'; };
-    btnDisengage.onclick = () => { targetWarp = 0.0; playArrival(); setTimeout(()=>{ engineOn=false; engineStatus.textContent='OFFLINE'; }, 1200); };
-    btnAlarm.onclick = () => { triggerCollision(true); };
-    warpSlider.addEventListener('input', (e)=>{ targetWarp = engineOn ? parseFloat(e.target.value) : 0.0; });
-
-    function setMeter(elSpan, pct){ elSpan.style.width = Math.max(0, Math.min(100, pct)) + '%'; }
-
-    // Alert flash
-    const flash = document.getElementById('alert-flash');
-    function flashAlert(){ flash.style.opacity = '1'; setTimeout(()=> flash.style.opacity='0', 180); }
-
-    // Collision handler
-    function triggerCollision(forceAlarm=false){
-      flashAlert();
-      debrisBanner.style.display = 'block'; setTimeout(()=>debrisBanner.style.display='none', 2400);
-      playAlarm();
-      shieldVal -= THREE.MathUtils.randInt(2, 5); if (shieldVal < 0){ hullVal += shieldVal; shieldVal = 0; }
-      hullVal = Math.max(0, hullVal);
-    }
-
-    // Simulated biometrics
-    let bioBase = 1.00; let freqBase = 440.0; let coreBase = 273;
-
-    /* ======================
-       MAIN ANIMATION LOOP
-       ====================== */
-    const clock = new THREE.Clock();
-    function animate(){
-      requestAnimationFrame(animate);
-      const dt = Math.min(0.033, clock.getDelta());
-
-      // Smooth warp approach
-      warpFactor += (targetWarp - warpFactor) * (engineOn ? 0.8 : 0.25) * dt;
-
-      // Update shader (front vs rear curvature scales with warp)
-      const fCurv = THREE.MathUtils.clamp(warpFactor * 0.9, 0, 8.0);
-      const rCurv = THREE.MathUtils.clamp(warpFactor * 0.6, 0, 6.0);
-      bubbleMat.uniforms.uTime.value += dt;
-      bubbleMat.uniforms.uFrontCurv.value = fCurv;
-      bubbleMat.uniforms.uRearCurv.value = rCurv;
-
-      // Debris motion & collisions
-      let collisionChance = 0.002 + warpFactor*0.0008;
-      const bubbleRadius = 3.2;
-      for(let i=0;i<debrisCount;i++){
-        const d = debrisData[i];
-        d.pos.addScaledVector(d.vel, (1.0 + warpFactor*1.6) * dt * 12);
-        // simple curving: nudge toward z=0 plane dependent on curvature
-        d.pos.x *= (1.0 - dt*0.06 * (fCurv*0.08));
-        d.pos.y *= (1.0 - dt*0.04 * (rCurv*0.08));
-        // Collision with bubble
-        if (d.pos.distanceTo(new THREE.Vector3(0,0,0)) < bubbleRadius*0.98 && d.pos.z < 1.4){
-          if (Math.random() < 0.25) triggerCollision();
-          resetDebris(i, true); continue;
-        }
-        if (d.pos.z > 8) { resetDebris(i); continue; }
-        tmpObj.position.copy(d.pos);
-        tmpObj.rotation.x += dt*2; tmpObj.rotation.y += dt*1.6;
-        tmpObj.scale.setScalar(d.size);
-        tmpObj.updateMatrix(); debris.setMatrixAt(i, tmpObj.matrix);
+      if(j===Math.floor(ny/2)){
+        const x=Math.floor((i/nx)*grCanvas.width), t=(ph - phiMin)/span; 
+        const r=Math.floor(255*Math.max(0,2*t-1)), b=Math.floor(255*Math.max(0,1-2*t));
+        grx.fillStyle=`rgb(${r},0,${b})`; grx.fillRect(x,0,2,110);
       }
-      debris.instanceMatrix.needsUpdate = true;
-
-      // Stars parallax (stretch with warp)
-      stars.position.z += dt * (10 + warpFactor*50);
-      if (stars.position.z > -10) stars.position.z = -380;
-
-      // Telemetry & meters
-      const integ = Math.max(0, 100 - warpFactor*3 - (100-shieldVal)*0.1);
-      fieldIntegrity = integ; integrity.textContent = integ.toFixed(0) + '%'; setMeter(integrityMeter, integ);
-
-      warpVal.textContent = warpFactor.toFixed(2);
-      frontCurv.textContent = `Front Curv: ${fCurv.toFixed(2)}`;
-      rearCurv.textContent = `Rear Curv: ${rCurv.toFixed(2)}`;
-
-      // Shields/Hull decay from random micro-impacts at high warp
-      if (Math.random() < collisionChance) triggerCollision();
-      shields.textContent = Math.max(0, shieldVal).toFixed(0) + '%'; setMeter(shieldMeter, shieldVal);
-      hull.textContent = Math.max(0, hullVal).toFixed(0) + '%'; setMeter(hullMeter, hullVal);
-
-      // Biometrics respond to warp
-      const bioNow = bioBase + 0.02*Math.sin(clock.elapsedTime*1.7) + warpFactor*0.005;
-      const freqNow = freqBase + 2.0*Math.sin(clock.elapsedTime*2.1) + warpFactor*4.0;
-      const coreNow = coreBase + warpFactor*25 + 4*Math.sin(clock.elapsedTime*1.1);
-      bio.textContent = bioNow.toFixed(2) + ' atm'; setMeter(bioMeter, (bioNow-0.8)*100);
-      freq.textContent = freqNow.toFixed(1) + ' Hz'; setMeter(freqMeter, Math.min(100, (freqNow-400)/3));
-      coreTemp.textContent = coreNow.toFixed(0) + ' K'; setMeter(coreMeter, Math.min(100, (coreNow-273)/4));
-
-      controls.update();
-      renderer.render(scene, camera);
     }
-    animate();
+  }
 
-    // Kick audio context on first interaction (required by browsers)
-    window.addEventListener('click', ()=> audioCtx.resume(), { once: true });
-  </script>
+  $("gr_gtt").textContent = gttMin.toFixed(6);
+  $("gr_rho").textContent = `${rhoMin.toExponential(3)} / ${rhoMax.toExponential(3)}`;
+  $("gr_ec").textContent  = `✅ NEC • ✅ WEC • ✅ SEC`;
+  $("gr_hor").textContent = horizons>0 ? `⚠ ${horizons}` : "None";
+
+  return { Eint, gttMin };
+}
+function gatedSpeed(v_base, eng){
+  const { Eint, gttMin } = validateGR();
+
+  const Escaled = Math.log10(1 + Math.max(0, Eint)/1e6);
+  const gf_raw = 1/(1+Math.exp(-(Escaled-2.0)));
+  let gf = Math.max(0.05, Math.min(1.0, gf_raw * physicsCal.kGF));
+
+  const pMW = Math.max(0, eng.reactorMW);
+  let vcap_c = Math.min(0.99, physicsCal.kCap * (0.10 + 0.45*(1 - Math.exp(-pMW/6000)) + 0.25*gf) * Math.max(0.35, eng.stability));
+
+  if (gttMin <= 0.01){ vcap_c = Math.min(vcap_c, 0.15); setLight($("lightBubble"),"bad"); }
+  else if (gttMin < 0.05){ vcap_c = Math.min(vcap_c, 0.35); setLight($("lightBubble"),"warn"); }
+  else setLight($("lightBubble"),"good");
+
+  const v_limited = Math.min(v_base * gf, vcap_c * C_MPS);
+  const beta = Math.max(0, Math.min(0.99, v_limited / C_MPS));
+  const ecOK=true, horizon=(gttMin<=0);
+
+  $("constraints").textContent = `EC/Horizon: g_tt min ${gttMin.toFixed(5)} • gf ${gf.toFixed(2)} • cap ${(vcap_c).toFixed(2)} c`;
+  return { v_mps: v_limited, gf, vcap_c, gttMin, ecOK, horizon, beta };
+}
+</script>
+<script>
+/* ====== Polar Map ====== */
+const orbitCanvas=$("orbitCanvas"), octx=orbitCanvas.getContext("2d");
+function drawOrbitView(){
+  const dest=$("destination").value;
+  const {eta, thE, thD, r1, r2}=computeETASeconds();
+  const w=orbitCanvas.width=orbitCanvas.clientWidth, h=orbitCanvas.height=orbitCanvas.clientHeight, cx=w/2, cy=h/2, minDim=Math.min(w,h);
+
+  const maxR = Math.max(r1, r2);
+  const RmaxPx = Math.max(120, minDim*0.38);
+  const scale = RmaxPx / Math.max(maxR, 0.01);
+
+  octx.clearRect(0,0,w,h);
+
+  octx.beginPath(); octx.arc(cx,cy,7,0,Math.PI*2); octx.fillStyle="#ffb703"; octx.fill();
+  octx.fillStyle="#cfe2ff"; octx.fillText("Sun",cx-14,cy-12);
+
+  const rE=r1*scale, rD=r2*scale;
+  octx.beginPath(); octx.arc(cx,cy,rE,0,Math.PI*2); octx.strokeStyle="#6aa9ff"; octx.lineWidth=1; octx.stroke();
+  octx.beginPath(); octx.arc(cx,cy,rD,0,Math.PI*2); octx.strokeStyle="#ffffff"; octx.lineWidth=1.1; octx.stroke();
+
+  const Ex=cx+rE*Math.cos(thE), Ey=cy+rE*Math.sin(thE);
+  const Dx=cx+rD*Math.cos(thD), Dy=cy+rD*Math.sin(thD);
+  octx.beginPath(); octx.arc(Ex,Ey,3.5,0,Math.PI*2); octx.fillStyle="#22d3ee"; octx.fill();
+  octx.beginPath(); octx.arc(Dx,Dy,3.5,0,Math.PI*2); octx.fillStyle="#22c55e"; octx.fill();
+
+  const Td=orbitalDays[dest]*86400, dTh=(eta/Td)*Math.PI*2;
+  const thArr=(thD+dTh)%(Math.PI*2);
+  const Ax=cx+rD*Math.cos(thArr), Ay=cy+rD*Math.sin(thArr);
+  octx.beginPath(); octx.arc(Ax,Ay,4.5,0,Math.PI*2); octx.fillStyle="#16a34a"; octx.fill();
+
+  octx.fillStyle="#9fb4d9"; octx.fillText("Earth r="+r1.toFixed(2)+" AU", cx+rE+6, cy-2);
+  octx.fillStyle="#9fd9b1"; octx.fillText(dest+" r="+r2.toFixed(2)+" AU", cx+rD+6, cy+12);
+
+  const degNow=(thD*180/Math.PI+360)%360, degArr=(thArr*180/Math.PI+360)%360; 
+  let d=degArr-degNow; if(d<0)d+=360;
+  $("orbitLegend").textContent=`Now ${degNow.toFixed(1)}° → ETA ${degArr.toFixed(1)}° • Δ ${d.toFixed(1)}°`;
+}
+
+/* ====== Curve & vectors ====== */
+const curveCanvas=$("curveCanvas"), ctx=curveCanvas.getContext("2d");
+function drawCurve(){
+  const w=curveCanvas.width=curveCanvas.clientWidth, h=curveCanvas.height=curveCanvas.clientHeight;
+  const dest=$("destination").value;
+  const arcHeight=Math.max(32, 60/Math.max(1, 1*(0.8+0.6*(lastPhysics?.gf||0.5))));
+  const startX=60, endX=w-60, baseY=h-46;
+
+  ctx.clearRect(0,0,w,h);
+  ctx.beginPath(); ctx.arc(startX,baseY,7,0,Math.PI*2); ctx.fillStyle="#3b82f6"; ctx.fill();
+  ctx.fillStyle="#cfe2ff"; ctx.fillText("Earth", startX-20, baseY+18);
+  ctx.beginPath(); ctx.arc(endX,baseY,6.5,0,Math.PI*2); ctx.fillStyle="#f59e0b"; ctx.fill();
+  ctx.fillStyle="#cfe2ff"; ctx.fillText(dest, endX-22, baseY+18);
+
+  ctx.beginPath(); ctx.moveTo(startX,baseY);
+  ctx.quadraticCurveTo((startX+endX)/2, baseY-arcHeight*3, endX, baseY);
+  ctx.strokeStyle="#ef4444"; ctx.lineWidth=2; ctx.stroke();
+
+  const t=shipProgress, mx=(startX+endX)/2, ctrlY=baseY-arcHeight*3;
+  const sx=(1-t)**2*startX + 2*(1-t)*t*mx + t**2*endX;
+  const sy=(1-t)**2*baseY   + 2*(1-t)*t*ctrlY + t**2*baseY;
+  ctx.beginPath(); ctx.arc(sx,sy,6,0,Math.PI*2);
+  ctx.fillStyle = shipArrived ? "#22c55e" : "#67e8f9"; ctx.shadowColor=ctx.fillStyle; ctx.shadowBlur=8; ctx.fill(); ctx.shadowBlur=0;
+
+  const arrow=(x,y,dx,dy,color)=>{ const L=Math.hypot(dx,dy)||1; const ux=dx/L, uy=dy/L; const ex=x+dx, ey=y+dy;
+    ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(ex,ey); ctx.strokeStyle=color; ctx.lineWidth=2; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(ex,ey); ctx.lineTo(ex-6*ux+3*uy,ey-6*uy-3*ux); ctx.lineTo(ex-6*ux-3*uy,ey-6*uy+3*ux); ctx.closePath(); ctx.fillStyle=color; ctx.fill(); };
+  const f=$("frontPct").value/100, r=$("rearPct").value/100, lr=$("lrBias").value/100, ud=$("udBias").value/100; const k=Math.min(44, h*0.18);
+  arrow(sx,sy, 0,-k*r,"#22c55e");
+  arrow(sx,sy, 0, k*f,"#f97316");
+  arrow(sx,sy, k*lr,0,"#8b5cf6");
+  arrow(sx,sy, 0,-k*ud,"#38bdf8");
+
+  $("curveLegend").textContent=`Rear ${Math.round(r*100)}% • Front ${Math.round(f*100)}% • LR ${Math.round(lr*100)}% • UD ${Math.round(ud*100)}% • β ${(lastPhysics?.beta||0).toFixed(2)}`;
+}
+
+/* ====== Clocks ====== */
+const clocks=[
+  { id:"C1", location:"Biometric", purpose:"Crew/Local", drift:0 },
+  { id:"C2", location:"Warp Edge", purpose:"Phase Monitor", drift:3 },
+  { id:"C3", location:"NavCore",   purpose:"Navigation", drift:0 },
+  { id:"C4", location:"CST Earth", purpose:"Master Anchor", drift:0 },
+  { id:"C5", location:"DriftEye",  purpose:"Diagnostics", drift:-6 }
+];
+function fmtClock(ms){ return new Date(ms).toISOString().substr(11,12); }
+function renderClockCards(arrISTstr, arrCSTms){
+  const grid=$("clockGrid"); grid.innerHTML="";
+  const base=Date.now(); let total=0;
+  clocks.forEach(c=>{
+    if(simulationRunning) c.drift += Math.random()*2 - 1;
+    const local=base + c.drift; const d=c.drift.toFixed(2); total += Math.abs(c.drift);
+    let status="good", label="✅ Synced"; if(Math.abs(c.drift)>5){status="warn"; label="⚠ Drift";} if(Math.abs(c.drift)>10){status="bad"; label="❌ Unsafe";}
+    const card=document.createElement("div");
+    card.className="clockCard";
+    card.innerHTML=`
+      <div class="clockHdr">
+        <div class="clockTitle">${c.id} • ${c.location}</div>
+        <div class="status ${status}">${label}</div>
+      </div>
+      <div class="kv">
+        <div>Purpose</div><div>${c.purpose}</div>
+        <div>CST</div><div>${fmtClock(base)}</div>
+        <div>Local</div><div>${fmtClock(local)}</div>
+        <div>Δ</div><div>${d} ms</div>
+        <div>Arrival CST</div><div>${fmtClock(arrCSTms)}</div>
+        <div>Arrival IST</div><div>${arrISTstr}</div>
+      </div>`;
+    grid.appendChild(card);
+  });
+  return total/clocks.length;
+}
+
+/* ====== Starfield (aberration + Doppler) ====== */
+(function(){
+  const cvs=$("starfieldCanvas"); if(!cvs) return; const ctx=cvs.getContext("2d");
+  const W=()=>{cvs.width=cvs.clientWidth; return cvs.width;}, H=()=>{cvs.height=cvs.clientHeight; return cvs.height;}, CX=()=>W()/2, CY=()=>H()/2;
+  const STAR_COUNT=180; const stars=new Array(STAR_COUNT).fill(0).map(seed);
+  let raf=null, last=performance.now(), paused=false;
+
+  function seed(){ return {x:(Math.random()*2-1)*W(), y:(Math.random()*2-1)*H(), z:Math.random(), tw:Math.random()*Math.PI*2}; }
+  function recycle(s){ s.x=(Math.random()*2-1)*W(); s.y=-0.55*H(); s.z=Math.random(); s.tw=Math.random()*Math.PI*2; }
+
+  function dopplerShift(base){
+    const beta = Math.max(0, Math.min(0.99, lastPhysics?.beta||0));
+    const z = Math.sqrt((1+beta)/(1-beta));
+    const r = Math.max(0, Math.min(255, 200 / z));
+    const g = Math.max(0, Math.min(255, 220 / Math.sqrt(z)));
+    const b = Math.max(0, Math.min(255, 255));
+    const a = 0.22 + 0.5*base;
+    return {r,g,b,a};
+  }
+
+  function step(dt){
+    const flow=26*(1+1.2*(lastPhysics?.beta||0));
+    for(const s of stars){
+      const v=flow*(1.4-0.9*s.z);
+      s.x+=0; s.y+=1*v*dt; s.tw+=3.0*dt;
+      if(s.y>0.60*H()) recycle(s);
+    }
+  }
+  function draw(){
+    ctx.clearRect(0,0,W(),H());
+    const beta = lastPhysics?.beta||0;
+    const streak=1+(beta*1.8);
+    const cx=CX(), cy=CY();
+
+    ctx.save(); ctx.translate(cx,cy);
+    for(const s of stars){
+      const sz=1+1.5*(1-s.z), a=0.35+0.55*Math.abs(Math.sin(s.tw));
+      const col=dopplerShift(a);
+      ctx.fillStyle=`rgba(${col.r|0},${col.g|0},${col.b|0},${col.a.toFixed(2)})`;
+      ctx.fillRect(s.x,s.y,sz,sz);
+      ctx.beginPath(); ctx.moveTo(s.x,s.y); ctx.lineTo(s.x, s.y - streak*7*(1-s.z));
+      ctx.strokeStyle=`rgba(${(col.r+30|0)},${(col.g+30|0)},${(col.b+30|0)},${(0.18+0.35*(1-s.z)).toFixed(2)})`;
+      ctx.lineWidth=1; ctx.stroke();
+    }
+    ctx.restore();
+
+    const g=ctx.createRadialGradient(cx,cy,32, cx,cy,52); g.addColorStop(0,"rgba(120,220,255,0.16)"); g.addColorStop(1,"rgba(80,180,255,0.03)");
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(cx,cy,52,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx,cy,40,0,Math.PI*2); ctx.strokeStyle="#7dd3fc"; ctx.lineWidth=1.2; ctx.stroke();
+    ctx.save(); ctx.translate(cx,cy+3); ctx.beginPath(); ctx.moveTo(0,-16*0.9); ctx.lineTo(11*0.55,16*0.8); ctx.lineTo(-11*0.55,16*0.8); ctx.closePath(); ctx.fillStyle="#cfe2ff"; ctx.fill(); ctx.restore();
+
+    $("starfieldLegend").textContent=`Visual β=${beta.toFixed(2)} • gf=${(lastPhysics?.gf||0).toFixed(2)} • cap=${(lastPhysics?.vcap_c||0).toFixed(2)}c`;
+  }
+  function loop(n){ if(paused) return; const dt=Math.min(0.05,(n-last)/1000); last=n; step(dt); draw(); raf=requestAnimationFrame(loop); }
+  window.starfieldControl={ start(){ if(paused){ paused=false; last=performance.now(); raf=requestAnimationFrame(loop);} }, stop(){ paused=true; if(raf) cancelAnimationFrame(raf); } };
+  paused=false; last=performance.now(); raf=requestAnimationFrame(loop);
+})();
+
+/* ====== Debris + Shield integration ====== */
+(function(){
+  const cvs=$("debrisCanvas"); if(!cvs) return; const ctx=cvs.getContext("2d");
+  const W=()=>{cvs.width=cvs.clientWidth; return cvs.width;}, H=()=>{cvs.height=cvs.clientHeight; return cvs.height;}, CX=()=>W()/2, CY=()=>H()/2;
+  let last=performance.now(), raf=null, paused=false;
+  const bubble={ r:46 }; const debris=[]; const MAX_DEBRIS=24;
+
+  function seed(){ 
+    debris.length=0; 
+    for(let i=0;i<MAX_DEBRIS;i++){ 
+      const ang=Math.random()*Math.PI*2, R=Math.max(W(),H())*0.55+Math.random()*100;
+      debris.push({
+        x:CX()+R*Math.cos(ang), y:CY()+R*Math.sin(ang),
+        vx:-(38+Math.random()*55)*Math.cos(ang),
+        vy:-(38+Math.random()*55)*Math.sin(ang),
+        q:(Math.random()<.5?-1:1)*(1e-9+Math.random()*1e-7),
+        alive:true
+      }); 
+    } 
+  }
+  seed();
+
+  function alloc(){ 
+    const e=engineInputs(); 
+    const tot=e.reactorMW||5000; 
+    const g=lastPhysics?.gf||0.5;
+    let pre=Math.min(.50,.25+.08*g), skin=Math.min(.35,.20+.10*g), grid=Math.max(.10,1-pre-skin);
+    return { MW:{pre:pre*tot, skin:skin*tot, grid:grid*tot}, frac:{pre,skin,grid} }; 
+  }
+
+  function step(dt){
+    const {MW,frac}=alloc(); 
+    const preF=6*Math.sqrt(MW.pre+1), skinB=4*Math.sqrt(MW.skin+1);
+    for(const d of debris){ 
+      if(!d.alive) continue; 
+      const dx=d.x-CX(), dy=d.y-CY(), r=Math.hypot(dx,dy)+1e-6, nx=dx/r, ny=dy/r;
+
+      if(ny<-0.2){ d.vx+=nx*preF*dt*0.08; d.vy+=ny*preF*dt*0.08; }
+      if(r<bubble.r*1.5 && Math.abs(d.q)>0){ const kick=skinB*0.12*dt, tx=-ny, ty=nx; d.vx+=tx*kick*Math.sign(d.q); d.vy+=ty*kick*Math.sign(d.q); }
+      if(r<bubble.r*1.06){ 
+        const hitProb=Math.min(0.95,0.25+frac.grid*0.8); 
+        const ang=Math.atan2(dy,dx);
+        if(window.shieldBox && window.shieldBox.hit){ const intensity=Math.min(1, (Math.hypot(d.vx,d.vy)/110)); window.shieldBox.hit(ang,intensity); }
+        if(Math.random()<hitProb) d.alive=false; 
+      }
+      d.x+=d.vx*dt; d.y+=d.vy*dt;
+      if(!d.alive || d.x<-180 || d.x>W()+180 || d.y<-180 || d.y>H()+180){ 
+        if(Math.random()<0.02){ 
+          const a=Math.random()*Math.PI*2, R=Math.max(W(),H())*0.55+Math.random()*100; 
+          d.x=CX()+R*Math.cos(a); d.y=CY()+R*Math.sin(a); d.vx=-(38+Math.random()*55)*Math.cos(a); d.vy=-(38+Math.random()*55)*Math.sin(a); d.q=(Math.random()<.5?-1:1)*(1e-9+Math.random()*1e-7); d.alive=true; 
+        } 
+      }
+    }
+
+    const ahead=debris.filter(d=>d.alive && d.y<CY()-bubble.r*1.4 && Math.abs(d.x-CX())<bubble.r*1.1);
+    const hold=ahead.length>6, adjust=!hold && ahead.length>3; 
+    let msg=`Defense MW — Pre:${MW.pre.toFixed(0)} | Skin:${MW.skin.toFixed(0)} | Grid:${MW.grid.toFixed(0)} `;
+    msg += hold? "• HOLD":"• "+(adjust?"ADJUST":"CLEAR"); 
+    $("debrisLegend").textContent=msg; 
+    if(hold) setLight($("lightNav"),"warn");
+  }
+
+  function draw(){
+    const cx=CX(), cy=CY();
+    ctx.clearRect(0,0,W(),H());
+    ctx.beginPath(); ctx.arc(cx,cy,bubble.r,0,Math.PI*2); ctx.strokeStyle="#7dd3fc"; ctx.lineWidth=1.3; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.arc(cx,cy, bubble.r*2.2, -Math.PI*0.95, -Math.PI*0.05, false); ctx.closePath();
+    ctx.fillStyle="rgba(252,211,77,.15)"; ctx.fill();
+    ctx.beginPath(); ctx.arc(cx,cy,bubble.r*1.15,0,Math.PI*2); ctx.strokeStyle="rgba(56,189,248,.18)"; ctx.lineWidth=8; ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx,cy,3.3,0,Math.PI*2); ctx.fillStyle="#cfe2ff"; ctx.fill();
+    for(const d of debris){ if(!d.alive) continue; ctx.fillStyle=Math.abs(d.q)>0?"#fca5a5":"#e5e7eb"; ctx.beginPath(); ctx.arc(d.x,d.y,1.6,0,Math.PI*2); ctx.fill(); }
+  }
+
+  function loop(n){ if(paused) return; const dt=Math.min(0.05,(n-last)/1000); last=n; step(dt); draw(); raf=requestAnimationFrame(loop); }
+  window.debrisControl={ start(){ if(paused){ paused=false; last=performance.now(); raf=requestAnimationFrame(loop);} }, stop(){ paused=true; if(raf) cancelAnimationFrame(raf); } };
+  paused=false; last=performance.now(); raf=requestAnimationFrame(loop);
+})();
+
+/* ====== Shield Box (sector integrity) ====== */
+(function(){
+  const cvs=$("shieldCanvas"); if(!cvs) return; const ctx=cvs.getContext("2d");
+  const W=()=>{cvs.width=cvs.clientWidth; return cvs.width;}, H=()=>{cvs.height=cvs.clientHeight; return cvs.height;}, CX=()=>W()/2, CY=()=>H()/2;
+  const SECT=12; const sectors=new Array(SECT).fill(1); let flashes=[]; 
+  let paused=false, raf=null, last=performance.now();
+
+  function warpScale(){ return 0.82 + 0.05*Math.max(1, Number($("warpSpeed").value)||1); }
+  function bubbleRadius(){ return 36*Math.min(1.3, warpScale()); }
+  function repair(dt){ for(let i=0;i<SECT;i++){ sectors[i]=Math.min(1, sectors[i]+0.08*dt); } flashes=flashes.filter(f=>{ f.t-=dt; return f.t>0; }); }
+
+  function draw(){
+    const cx=CX(), cy=CY(), R=bubbleRadius(); cvs.width=W(); cvs.height=H();
+    ctx.clearRect(0,0,cvs.width,cvs.height);
+    const glow=ctx.createRadialGradient(cx,cy,R*.6, cx,cy,R+12);
+    glow.addColorStop(0,`rgba(120,220,255,${0.1+0.12*sectors.reduce((a,b)=>a+b,0)/SECT})`);
+    glow.addColorStop(1,"rgba(80,180,255,0.02)");
+    ctx.fillStyle=glow; ctx.beginPath(); ctx.arc(cx,cy,R+12,0,Math.PI*2); ctx.fill();
+
+    for(let i=0;i<SECT;i++){
+      const t0=(i/SECT)*Math.PI*2, t1=((i+1)/SECT)*Math.PI*2, s=sectors[i];
+      ctx.beginPath(); ctx.arc(cx,cy,R, t0,t1);
+      ctx.strokeStyle=s>0.66?"#7dd3fc":s>0.33?"#facc15":"#ef4444";
+      ctx.lineWidth=2.2+2.2*s; ctx.stroke();
+    }
+
+    ctx.beginPath(); ctx.moveTo(cx, cy-R*0.65); ctx.lineTo(cx+9, cy+10); ctx.lineTo(cx-9, cy+10); ctx.closePath(); ctx.fillStyle="#cfe2ff"; ctx.fill();
+
+    for(const f of flashes){
+      const a=Math.max(0,Math.min(1,f.t/.25));
+      ctx.beginPath(); ctx.arc(f.x,f.y, 5+9*(1-a), 0,Math.PI*2);
+      ctx.strokeStyle=`rgba(255,255,255,${a})`; ctx.lineWidth=1.8; ctx.stroke();
+    }
+
+    $("shieldLegend").textContent=`Shield ${(sectors.reduce((a,b)=>a+b,0)/SECT*100).toFixed(0)}% • R ${R.toFixed(1)} • β ${(lastPhysics?.beta||0).toFixed(2)}`;
+  }
+
+  function loop(n){ if(paused) return; const dt=Math.min(0.05,(n-last)/1000); last=n; repair(dt); draw(); raf=requestAnimationFrame(loop); }
+  function hit(theta,intensity){
+    const rot=theta+Math.PI/2;
+    let idx=Math.floor((((rot%(2*Math.PI))+2*Math.PI)%(2*Math.PI))/(2*Math.PI)*SECT);
+    idx=Math.max(0,Math.min(SECT-1,idx));
+    sectors[idx]=Math.max(0,sectors[idx]-0.35*Math.max(0.2,intensity));
+    const R=bubbleRadius();
+    flashes.push({x:CX()+R*Math.cos(theta), y:CY()+R*Math.sin(theta), t:.25});
+  }
+  window.shieldBox={ start(){ if(paused){ paused=false; last=performance.now(); raf=requestAnimationFrame(loop);} }, stop(){ paused=true; if(raf) cancelAnimationFrame(raf); }, hit };
+  paused=false; last=performance.now(); raf=requestAnimationFrame(loop);
+})();
+
+/* ====== Status / lifecycle ====== */
+const flightLog=[];
+function updateAllStatus(){
+  const {eta,dAU,v}=computeETASeconds();
+  const base=Date.now(), arrCST=base+eta*1000;
+
+  const {istYears,spy}=IST_snapshot(); 
+  const arrIST=istYears + eta/spy;
+  const arrISTstr=`${(arrIST/1e9).toFixed(6)} Ga • ${Math.floor(arrIST).toLocaleString()} y`;
+
+  const avg=renderClockCards(arrISTstr, arrCST);
+  const warp=Number($("warpSpeed").value||1), dest=$("destination").value;
+  const etaStr=eta>=3600 ? (eta/3600).toFixed(2)+" h" : eta.toFixed(1)+" s";
+
+  $("beacon").textContent=`🛰️ Warp ${warp} → ${dest} | ${dAU.toFixed(3)} AU | ${(v/C_MPS).toFixed(2)} c | ETA ${etaStr} | Drift ${avg.toFixed(2)} ms`;
+  flightLog.push({t:new Date().toISOString(), warp, dest, eta:etaStr, distAU:dAU.toFixed(3), vOverC:(v/C_MPS).toFixed(2)});
+}
+
+const rootEl=document.documentElement, scaleEl=$("uiScale");
+function applyScale(){
+  const pct=Number(scaleEl.value||90);
+  try{ localStorage.setItem('uiScalePct', String(pct)); }catch{}
+  rootEl.style.setProperty('--ui-scale',(pct/100).toString());
+  $("uiScaleVal").textContent=pct+"%";
+  drawCurve(); drawOrbitView(); updateAllStatus();
+}
+
+/* ====== Controls ====== */
+function startAll(){ 
+  if(simulationRunning) return; 
+  simulationRunning=true; shipArrived=false; shipProgress=0; tone("good");
+
+  lastFrameTime=performance.now(); 
+  driftInterval=setInterval(updateAllStatus,700);
+  beaconInterval=setInterval(()=>{ clocks.forEach(c=>{ if(c.id!=="C4") c.drift*=0.1; }); },2000);
+  orbitInterval=setInterval(()=>{ updateOrbitTable(); drawOrbitView(); },1200);
+  animationFrame=requestAnimationFrame(animate);
+
+  if(window.starfieldControl) window.starfieldControl.start();
+  if(window.debrisControl) window.debrisControl.start();
+  if(window.shieldBox) window.shieldBox.start();
+}
+function stopAll(){ 
+  simulationRunning=false; 
+  clearInterval(driftInterval); clearInterval(beaconInterval); clearInterval(orbitInterval); 
+  cancelAnimationFrame(animationFrame);
+  stepEngineDynamics(0.2,false); tone("warn");
+  if(window.starfieldControl) window.starfieldControl.stop();
+  if(window.debrisControl) window.debrisControl.stop();
+  if(window.shieldBox) window.shieldBox.stop();
+}
+function resetAll(){ 
+  stopAll(); shipProgress=0; shipArrived=false; clocks.forEach(c=>c.drift=0);
+  tIST0=performance.now(); 
+  engineState.t=0; engineState.temp=0; engineState.sag=0; engineState.containNeed=0.22; engineState.jitter=0;
+  $("beacon").textContent="⏳ Waiting…"; 
+  updateOrbitTable(); drawCurve(); drawOrbitView(); updateAllStatus(); 
+}
+function exportLog(){ 
+  const rows=[["Time","Warp","Destination","ETA","Distance(AU)","v/c"],
+              ...flightLog.map(e=>[e.t,e.warp,e.dest,e.eta,e.distAU,e.vOverC])];
+  const csv=rows.map(r=>r.join(",")).join("\n"); 
+  const blob=new Blob([csv],{type:"text/csv"}); 
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="warp_log.csv"; a.click(); 
+}
+$("exportBtn").onclick=exportLog;
+$("startBtn").onclick=startAll; $("stopBtn").onclick=stopAll; $("resetBtn").onclick=resetAll;
+
+[
+  "warpSpeed","warpExp","warpScale","destination","calibration",
+  "istDay0Years","baselineDaysPerYear","reactorMW",
+  "frontPct","rearPct","lrBias","udBias","intakeMode","soundOn","uiScale"
+].forEach(id=>{
+  const el=$(id); if(!el) return;
+  el.addEventListener("input", ()=>{
+    if(id==="uiScale") applyScale();
+    if(id==="calibration") setCalibration(el.value);
+    tIST0=performance.now();
+    drawCurve(); drawOrbitView(); updateAllStatus();
+  });
+});
+
+/* ====== Ship motion (trajectory) ====== */
+function animate(){ 
+  if(!simulationRunning || shipArrived) return; 
+  const now=performance.now(); const dt=(now-lastFrameTime)/1000; lastFrameTime=now;
+
+  stepEngineDynamics(dt,true); 
+  const {eta,v}=computeETASeconds();
+  const speedGain = (v/C_MPS); 
+  shipProgress += 0.00050*Math.pow(Math.max(1, Number($("warpSpeed").value)||1),0.82)*(0.6+0.8*speedGain);
+
+  if(shipProgress>=1){ shipProgress=1; shipArrived=true; tone("good"); stopAll(); }
+
+  drawCurve(); drawOrbitView(); 
+  animationFrame=requestAnimationFrame(animate); 
+}
+
+/* ====== Orbit table ====== */
+function updateOrbitTable(){
+  const {istYears,dpy}=IST_snapshot();
+  const dest=$("destination").value;
+
+  const sY=planetAgeYears("Sun",istYears), sD=sY*dpy;
+  const eY=planetAgeYears("Earth",istYears), eD=eY*dpy;
+  const eO=orbitsFor("Earth", eD)||{completed:0,frac:0,daysInto:0,yearLen:365.256};
+  const pY=planetAgeYears(dest,istYears), pD=pY*dpy;
+  const pO=orbitsFor(dest,pD)||{completed:0,frac:0,daysInto:0,yearLen:orbitalDays[dest]||0};
+
+  const {eta,dAU,v}=computeETASeconds();
+  const etaStr=eta>=3600 ? (eta/3600).toFixed(2)+" h" : eta.toFixed(1)+" s";
+
+  const card=(title,lines)=>`
+    <div class="panel" style="background:#0b1220;border:1px solid #304166;padding:8px">
+      <div style="font-weight:600;margin-bottom:4px">${title}</div>
+      ${lines.map(t=>`<div class="stat">${t}</div>`).join("")}
+    </div>`;
+  $("orbit-rows").innerHTML = [
+    card("Sun", [
+      `${(sY/1e9).toFixed(6)} Ga`,
+      `${Math.floor(sY).toLocaleString()} y`,
+      `${Math.floor(sD).toLocaleString()} d`
+    ]),
+    card("Earth", [
+      `Orbits: ${eO.completed.toLocaleString()}`,
+      `Progress: <span class="pill">${(eO.frac*100).toFixed(1)}%</span>`,
+      `Day ${Math.floor(eO.daysInto)} / ${Math.floor(eO.yearLen)}`
+    ]),
+    card(dest, [
+      `Age: ${(pY/1e9).toFixed(6)} Ga`,
+      `Orbits: ${pO.completed.toLocaleString()}`,
+      `Day ${Math.floor(pO.daysInto)} / ${Math.floor(pO.yearLen)}`
+    ]),
+    card("Trip", [
+      `Dist: ${dAU.toFixed(3)} AU`,
+      `v: ${(v/C_MPS).toFixed(2)} c`,
+      `ETA: ${etaStr}`
+    ])
+  ].join("");
+}
+
+/* ====== Split Hero — pairing & orientation & drag ====== */
+function moveEl(el, target){ if(el && target){ target.appendChild(el); } }
+function setPair(pair){
+  const paneTop=$("paneTop"), paneBottom=$("paneBottom");
+  paneTop.innerHTML=""; paneBottom.innerHTML="";
+
+  const curve=$("curveCanvas"), curveL=$("curveLegend");
+  const star=$("starfieldCanvas"), starL=$("starfieldLegend");
+  const shield=$("shieldCanvas"), shieldL=$("shieldLegend");
+
+  if(pair==="traj-star"){
+    moveEl(curve, paneTop); moveEl(curveL, paneTop);
+    moveEl(star, paneBottom); moveEl(starL, paneBottom);
+  }else if(pair==="traj-shield"){
+    moveEl(curve, paneTop); moveEl(curveL, paneTop);
+    moveEl(shield, paneBottom); moveEl(shieldL, paneBottom);
+  }else{ // star-shield
+    moveEl(star, paneTop); moveEl(starL, paneTop);
+    moveEl(shield, paneBottom); moveEl(shieldL, paneBottom);
+  }
+
+  requestAnimationFrame(()=>{ window.dispatchEvent(new Event('resize')); drawCurve(); });
+}
+
+const splitHero = $("splitHero");
+const splitVertBtn = $("splitVertBtn");
+const splitHorzBtn = $("splitHorzBtn");
+
+function setOrientation(mode){ // 'vertical' | 'horizontal'
+  splitHero.classList.remove('vertical','horizontal');
+  splitHero.classList.add(mode);
+  splitVertBtn.classList.toggle('active', mode==='vertical');
+  splitHorzBtn.classList.toggle('active', mode==='horizontal');
+  // ensure canvas sizing recalculates
+  requestAnimationFrame(()=>window.dispatchEvent(new Event('resize')));
+}
+
+(function pairButtonsInit(){
+  const buttons=[...document.querySelectorAll('.heroPairBtn')];
+  buttons.forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      buttons.forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      setPair(btn.dataset.pair);
+    });
+  });
+})();
+
+(function splitOrientationInit(){
+  splitVertBtn.addEventListener('click', ()=>setOrientation('vertical'));
+  splitHorzBtn.addEventListener('click', ()=>setOrientation('horizontal'));
+})();
+
+(function splitDragInit(){
+  const hero=document.getElementById('splitHero');
+  const handle=document.getElementById('splitHandle');
+  let dragging=false;
+
+  function setSplitFromPointer(clientX, clientY){
+    const rect=hero.getBoundingClientRect();
+    const isVertical = hero.classList.contains('vertical');
+    let rel;
+    if(isVertical){
+      rel=(clientY-rect.top)/rect.height;
+    }else{
+      rel=(clientX-rect.left)/rect.width;
+    }
+    rel=Math.max(0, Math.min(1, rel));
+    const pct=Math.max(20, Math.min(80, Math.round(rel*100))); // clamp 20–80%
+    document.documentElement.style.setProperty('--hero-split', pct);
+    window.dispatchEvent(new Event('resize'));
+  }
+
+  handle.addEventListener('mousedown', e=>{ dragging=true; e.preventDefault(); });
+  window.addEventListener('mousemove', e=>{ if(!dragging) return; setSplitFromPointer(e.clientX,e.clientY); });
+  window.addEventListener('mouseup', ()=>{ if(dragging){ dragging=false; window.dispatchEvent(new Event('resize')); } });
+
+  handle.addEventListener('touchstart', e=>{ dragging=true; e.preventDefault(); }, {passive:false});
+  window.addEventListener('touchmove', e=>{ if(!dragging) return; const t=e.touches[0]; setSplitFromPointer(t.clientX,t.clientY); }, {passive:false});
+  window.addEventListener('touchend', ()=>{ if(dragging){ dragging=false; window.dispatchEvent(new Event('resize')); } });
+})();
+
+/* ====== Init + resize ====== */
+window.addEventListener('resize', ()=>{ drawCurve(); drawOrbitView(); updateAllStatus(); });
+
+window.onload=()=>{ 
+  try{ const saved=localStorage.getItem('uiScalePct'); if(saved){ $("uiScale").value = saved; } }catch{}
+  setCalibration($("calibration").value || "off");
+
+  setPair('traj-star');       // default pair
+  setOrientation('vertical'); // default orientation
+
+  drawCurve(); drawOrbitView(); updateOrbitTable(); updateAllStatus(); applyScale();
+};
+</script>
 </body>
 </html>
