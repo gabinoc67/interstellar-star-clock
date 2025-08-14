@@ -1,12 +1,12 @@
 <script>
 /* ========= LIVE MODE: engine always on =========
    - Panels update immediately on load.
-   - Simulation runs continuously; Start/Stop buttons are optional.
-   - Buttons/sliders change the parameters of the running sim.
+   - Simulation runs continuously; Start/Stop buttons ramp speed.
+   - Buttons/sliders change parameters in real time.
 =================================================*/
 
 /* ====== Constants / helpers ====== */
-const AU_M=1.495978707e11, C_MPS=299792458, G=6.67430e-11, MU0=4*Math.PI*1e-7;
+const AU_M=1.495978707e11, C_MPS=299792458, MU0=4*Math.PI*1e-7;
 const orbitAU={ Earth:1.0, Mars:1.524, Jupiter:5.204, Saturn:9.582, Pluto:39.48 };
 const orbitalDays={ Mercury:87.969, Venus:224.701, Earth:365.256, Mars:686.980, Jupiter:4332.59, Saturn:10759.22, Uranus:30685, Neptune:60190, Pluto:90560 };
 const formationOffsetMyr={ Sun:0, Mercury:5, Venus:30, Earth:27, Mars:10, Jupiter:1, Saturn:3, Uranus:15, Neptune:20, Pluto:30 };
@@ -54,18 +54,11 @@ function orbitsFor(name,pd){
 }
 
 /* ====== Engine dynamics & inputs (LIVE) ====== */
-let simulationRunning=true, shipProgress=0, shipArrived=false;
+let shipProgress=0, shipArrived=false;
 let animationFrame=null, lastFrameTime=performance.now();
 const engineState={ t:0, temp:0.25, sag:0.03, containNeed:0.22, jitter:0.01 };
 
-function stepEngineDynamics(dt, running){
-  if(!running){
-    engineState.temp=Math.max(0,engineState.temp-0.15*dt);
-    engineState.sag =Math.max(0,engineState.sag -0.12*dt);
-    engineState.jitter*=0.9;
-    engineState.containNeed=0.22+0.06*engineState.temp;
-    return;
-  }
+function stepEngineDynamics(dt){
   engineState.t+=dt;
   engineState.temp=Math.max(0,Math.min(1,engineState.temp+0.03*dt + 0.01*(Math.random()-0.5)));
   const baseSag=0.02+0.04*engineState.temp, ripple=0.006*Math.sin(0.9*engineState.t);
@@ -123,7 +116,7 @@ function setCalibration(kind){
   }
 }
 
-/* ====== GR Mini + ∫|∇Φ|² ====== */
+/* ====== GR Mini + ∫|∇Φ|² (for gating) ====== */
 const grCanvas = $("grCanvas"), grx = grCanvas?.getContext("2d");
 const GR = { nx: 120, ny: 48, L: 900, sigma: 150, scalePhi: 1.0e10 };
 function buildPotentialGrid(){
@@ -161,7 +154,6 @@ function validateGR(){
       const {g2} = grad2(phi,i,j,nx,ny,dx,dy);
       Eint += g2 * dx * dy;
       const ph=phi[i+j*nx];
-      const rho_em = g2/(2*MU0*C_MPS*C_MPS); if(rho_em<rhoMin)rhoMin=rho_em; if(rho_em>rhoMax)rhoMax=rho_em;
       const gtt=1 + 2*ph/(C_MPS*C_MPS); if(gtt<gttMin)gttMin=gtt; if(gtt<=0)horizons++;
 
       if(grCanvas && j===Math.floor(ny/2)){
@@ -172,20 +164,19 @@ function validateGR(){
     }
   }
   if($("gr_gtt")) $("gr_gtt").textContent = gttMin.toFixed(6);
-  if($("gr_rho")) $("gr_rho").textContent = `${rhoMin.toExponential(3)} / ${rhoMax.toExponential(3)}`;
+  if($("gr_rho")) $("gr_rho").textContent = `— / —`; // compact
   if($("gr_ec"))  $("gr_ec").textContent  = `✅ NEC • ✅ WEC • ✅ SEC`;
   if($("gr_hor")) $("gr_hor").textContent = horizons>0 ? `⚠ ${horizons}` : "None";
   return { Eint, gttMin };
 }
 
 /* ====== Speed gating & ETA ====== */
+let lastPhysics={ gf:0.5, vcap_c:0.6, gttMin:1, ecOK:true, horizon:false, beta:0 };
 function gatedSpeed(v_base, eng){
   const { Eint, gttMin } = validateGR();
-
   const Escaled = Math.log10(1 + Math.max(0, Eint)/1e6);
   const gf_raw = 1/(1+Math.exp(-(Escaled-2.0)));
   let gf = Math.max(0.05, Math.min(1.0, gf_raw * physicsCal.kGF));
-
   const pMW = Math.max(0, eng.reactorMW);
   let vcap_c = Math.min(0.99, physicsCal.kCap * (0.10 + 0.45*(1 - Math.exp(-pMW/6000)) + 0.25*gf) * Math.max(0.35, eng.stability));
 
@@ -195,12 +186,9 @@ function gatedSpeed(v_base, eng){
 
   const v_limited = Math.min(v_base * gf, vcap_c * C_MPS);
   const beta = Math.max(0, Math.min(0.99, v_limited / C_MPS));
-  const ecOK=true, horizon=(gttMin<=0);
-
   if($("constraints")) $("constraints").textContent = `EC/Horizon: g_tt min ${gttMin.toFixed(5)} • gf ${gf.toFixed(2)} • cap ${(vcap_c).toFixed(2)} c`;
-  return { v_mps: v_limited, gf, vcap_c, gttMin, ecOK, horizon, beta };
+  return { v_mps: v_limited, gf, vcap_c, gttMin, ecOK:true, horizon:(gttMin<=0), beta };
 }
-
 function computeETASeconds(v_mps_override=null){
   const { istYears, dpy } = IST_snapshot();
   const dest=($("destination")?.value)||"Mars";
@@ -234,6 +222,24 @@ function computeETASeconds(v_mps_override=null){
   setLight($("lightNav"), isFinite(t)?(t<86400?"good":"warn"):"bad");
   return { eta:t, dAU:dAU0, v, thE:thE0, thD:thD0, r1, r2 };
 }
+
+/* ====== Warp ramp controller (Start/Engage/Stop) ====== */
+const warpRamp = { active:false, target:1, rate:0.8 };
+function setWarpTarget(target, rate=0.8){
+  warpRamp.active=true; warpRamp.target=Math.max(1, Number(target)||1); warpRamp.rate=rate;
+}
+function tickWarpRamp(dt){
+  if(!warpRamp.active || !$("warpSpeed")) return;
+  const current = Number($("warpSpeed").value||1);
+  const dir = Math.sign(warpRamp.target - current);
+  if(dir===0){ warpRamp.active=false; return; }
+  const next = current + dir*warpRamp.rate*dt;
+  const done = (dir>0? next>=warpRamp.target : next<=warpRamp.target);
+  $("warpSpeed").value = String(done? warpRamp.target : next.toFixed(2));
+}
+
+/* ====== Global (used later by visuals & compass) ====== */
+let compassDOMReady=false;
 </script>
 <script>
 /* ====== Polar Map ====== */
@@ -271,7 +277,7 @@ function drawOrbitView(){
   if($("orbitLegend")) $("orbitLegend").textContent=`Now ${degNow.toFixed(1)}° → ETA ${degArr.toFixed(1)}° • Δ ${d.toFixed(1)}°`;
 }
 
-/* ====== Curve & vectors ====== */
+/* ====== Trajectory Curve & vectors ====== */
 const curveCanvas=$("curveCanvas"), ctx=curveCanvas?.getContext("2d");
 function drawCurve(){
   if(!curveCanvas) return;
@@ -322,7 +328,7 @@ function renderClockCards(arrISTstr, arrCSTms){
   grid.innerHTML="";
   const base=Date.now(); let total=0;
   clocks.forEach(c=>{
-    if(simulationRunning) c.drift += Math.random()*2 - 1;
+    c.drift += Math.random()*2 - 1;
     const local=base + c.drift; const d=c.drift.toFixed(2); total += Math.abs(c.drift);
     let status="good", label="✅ Synced"; if(Math.abs(c.drift)>5){status="warn"; label="⚠ Drift";} if(Math.abs(c.drift)>10){status="bad"; label="❌ Unsafe";}
     const card=document.createElement("div");
@@ -516,6 +522,80 @@ function renderClockCards(arrISTstr, arrCSTms){
   window.shieldBox={ hit };
   raf=requestAnimationFrame(loop);
 })();
+
+/* ====== LIVE Compass (Center Hub) ====== */
+let comp, compx;
+function ensureCompass(){
+  if(compassDOMReady) return;
+  const hub=$("centerTopPanel");
+  if(!hub) return;
+  const wrap=document.createElement("div");
+  wrap.style="margin-top:6px;display:grid;grid-template-columns:1fr;gap:6px";
+  const canvas=document.createElement("canvas");
+  canvas.id="compassCanvas"; canvas.style.width="100%"; canvas.style.height="140px";
+  const legend=document.createElement("div");
+  legend.className="legend"; legend.id="compassLegend"; legend.textContent="—";
+  wrap.appendChild(canvas); wrap.appendChild(legend);
+  hub.appendChild(wrap);
+  comp=canvas; compx=comp.getContext("2d");
+  compassDOMReady=true;
+}
+function drawCompass(){
+  ensureCompass(); if(!comp||!compx) return;
+  comp.width=comp.clientWidth; comp.height=comp.clientHeight;
+  const w=comp.width, h=comp.height, cx=w/2, cy=h/2, R=Math.min(w,h)*0.38;
+  compx.clearRect(0,0,w,h);
+
+  // Heading = current Earth→Dest angle, with bias jitter visualization
+  const { istYears, dpy } = IST_snapshot();
+  const dest=($("destination")?.value)||"Mars";
+  const thE=trueAnomalyFrac("Earth",istYears,dpy)*Math.PI*2;
+  const thD=trueAnomalyFrac(dest, istYears,dpy)*Math.PI*2;
+  let heading = (thD - thE); // radians
+  heading = ((heading % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
+
+  const eng=engineInputs();
+  const biasYaw = eng.lr * 0.6; // small offset (rad)
+  const jitter = engineState.jitter * (Math.random()-0.5);
+  const hdg = heading + biasYaw + jitter;
+
+  // Rose
+  compx.beginPath(); compx.arc(cx,cy,R,0,Math.PI*2); compx.strokeStyle="#355180"; compx.lineWidth=1.2; compx.stroke();
+  for(let i=0;i<16;i++){
+    const a=(i/16)*Math.PI*2; const r0=R-8, r1=R;
+    compx.beginPath(); compx.moveTo(cx+r0*Math.cos(a), cy+r0*Math.sin(a));
+    compx.lineTo(cx+r1*Math.cos(a), cy+r1*Math.sin(a));
+    compx.strokeStyle=i%4===0?"#7dd3fc":"#3a4e79"; compx.lineWidth=i%4===0?2:1; compx.stroke();
+  }
+  // Cardinal labels
+  compx.fillStyle="#cfe2ff"; compx.font="12px system-ui";
+  compx.fillText("N", cx-4, cy-R-6);
+  compx.fillText("S", cx-4, cy+R+14);
+  compx.fillText("E", cx+R+6, cy+4);
+  compx.fillText("W", cx-R-14, cy+4);
+
+  // Ship pointer (triangle) pointing at hdg
+  const tipX=cx+R*0.9*Math.cos(hdg), tipY=cy+R*0.9*Math.sin(hdg);
+  const leftX=cx+R*0.55*Math.cos(hdg+2.6), leftY=cy+R*0.55*Math.sin(hdg+2.6);
+  const rightX=cx+R*0.55*Math.cos(hdg-2.6), rightY=cy+R*0.55*Math.sin(hdg-2.6);
+  compx.beginPath(); compx.moveTo(tipX,tipY); compx.lineTo(leftX,leftY); compx.lineTo(rightX,rightY); compx.closePath();
+  compx.fillStyle="#cfe2ff"; compx.fill();
+
+  // Center donut showing beta and stability
+  const beta=lastPhysics?.beta||0, stab=eng.stability;
+  compx.beginPath(); compx.arc(cx,cy, R*0.30, 0, Math.PI*2);
+  compx.strokeStyle="rgba(125,211,252,0.4)"; compx.lineWidth=10*beta+1.2; compx.stroke();
+
+  // Drift arrows for LR bias
+  const driftLen = R*0.25*Math.min(1, Math.abs(eng.lr)*1.5);
+  compx.beginPath(); compx.moveTo(cx-driftLen, cy); compx.lineTo(cx+driftLen, cy);
+  compx.strokeStyle= stab>0.6 ? "#22d3ee" : "#facc15"; compx.lineWidth=2; compx.stroke();
+
+  const deg=((hdg*180/Math.PI)+360)%360;
+  if($("compassLegend")){
+    $("compassLegend").innerHTML = `Course to ${dest}: <span class="pill">${deg.toFixed(1)}°</span> • β ${(beta).toFixed(2)} • Stability ${stab.toFixed(2)}`;
+  }
+}
 </script>
 <script>
 /* ====== Status / lifecycle (AUTO-LIVE) ====== */
@@ -533,7 +613,7 @@ function updateAllStatus(){
   flightLog.push({t:new Date().toISOString(), warp, dest, eta:etaStr, distAU:dAU.toFixed(3), vOverC:(v/C_MPS).toFixed(2)});
 }
 
-/* ====== Split Hero + orientation + drag ====== */
+/* ====== Split Hero pairing/orientation ====== */
 function moveEl(el, target){ if(el && target){ target.appendChild(el); } }
 function setPair(pair){
   const paneTop=$("paneTop"), paneBottom=$("paneBottom");
@@ -675,7 +755,7 @@ function updateOrbitTable(){
   window.renderMythLive=renderMyths;
 })();
 
-/* ====== Optional: Realistic subsystem summaries (safe if missing DOM) ====== */
+/* ====== Realistic subsystem summaries ====== */
 function fmtPct(x){ return (100*x).toFixed(1)+"%"; }
 function kv3(k,v){ return `<div>${k}</div><div>${v}</div>`; }
 function updateWarpCorePanel(){
@@ -684,7 +764,8 @@ function updateWarpCorePanel(){
   const scram = eng.reactorMW<500 ? "IDLE" : (engineState.temp>0.95 ? "SCRAM TRIP" : "RUN");
   const powerLight = scram==="SCRAM TRIP" ? "bad" : eng.reactorMW<1000 ? "warn" : "good";
   setLight($("lightPower"), powerLight);
-  if($("coreOut")) $("coreOut").innerHTML=[
+  if(!$("coreOut")) return;
+  $("coreOut").innerHTML=[
     kv3("Output", `${eng.reactorMW.toFixed(0)} MW`),
     kv3("Waste Heat", `${thermalMW.toFixed(0)} MW`),
     kv3("Containment Need", fmtPct(engineState.containNeed)),
@@ -703,7 +784,8 @@ function updateEPSPanel(){
   const superconducting = TlineK<10.5;
   const vectorLight = superconducting ? (eng.stability>0.6?"good":"warn") : "bad";
   setLight($("lightVector"), vectorLight);
-  if($("epsOut")) $("epsOut").innerHTML=[
+  if(!$("epsOut")) return;
+  $("epsOut").innerHTML=[
     kv3("Line Temp", `${TlineK.toFixed(1)} K`),
     kv3("Losses", `${lossesMW.toFixed(1)} MW (${fmtPct(lossFrac)})`),
     kv3("To Coils", `${coilsMW.toFixed(0)} MW`),
@@ -719,7 +801,8 @@ function updateNacellesPanel(){
   const phaseError = (engineState.jitter*100) + 10*Math.abs(eng.rear-eng.front);
   const balance = 1 - Math.min(1, (Math.abs(eng.lr)+Math.abs(eng.ud))/1.2);
   const coilHealth = eng.stability>0.7 ? "ok" : eng.stability>0.45 ? "warn" : "bad";
-  if($("nacelleOut")) $("nacelleOut").innerHTML=[
+  if(!$("nacelleOut")) return;
+  $("nacelleOut").innerHTML=[
     kv3("Coil Field (vis)", `${coilField.toFixed(1)} T`),
     kv3("Vane Vector Effort", `${vaneVec.toFixed(0)} %·unit`),
     kv3("Phase Error", `${phaseError.toFixed(2)}°`),
@@ -740,7 +823,8 @@ function updateBubblePanel(){
   const gttMargin = Math.max(0, gtt - 0.01);
   const status = gtt<=0.01 ? "bad" : gtt<0.05 ? "warn" : "good";
   setLight($("lightBubble"), status);
-  if($("bubbleOut")) $("bubbleOut").innerHTML=[
+  if(!$("bubbleOut")) return;
+  $("bubbleOut").innerHTML=[
     kv3("β (v/c)", beta.toFixed(2)),
     kv3("g<sub>tt</sub> min", gtt.toFixed(5)),
     kv3("Cap", `${cap.toFixed(2)} c`),
@@ -757,19 +841,17 @@ function refreshRealisticSystems(){
   updateNacellesPanel();
   updateBubblePanel();
 }
-function refreshLivePanels(){
-  if (typeof window.energyCalcLive === "function") window.energyCalcLive();
-  if (typeof window.renderMythLive === "function") window.renderMythLive();
-}
 
 /* ====== AUTO LOOP ENGINE ALWAYS ON ====== */
 function mainTick(){
   const now=performance.now(); const dt=Math.min(0.05,(now-lastFrameTime)/1000); lastFrameTime=now;
-  stepEngineDynamics(dt,true);
+  stepEngineDynamics(dt);
+  tickWarpRamp(dt);
   const {eta,v}=computeETASeconds(); // updates lastPhysics
   const speedGain=(v/C_MPS);
   shipProgress = Math.min(1, shipProgress + 0.00035*Math.pow(Math.max(1, Number(($("warpSpeed")?.value)||1)),0.82)*(0.6+0.8*speedGain));
-  drawCurve(); drawOrbitView(); updateAllStatus(); updateOrbitTable(); refreshRealisticSystems(); refreshLivePanels();
+  if(shipProgress>=1){ shipProgress=1; shipArrived=true; }
+  drawCurve(); drawOrbitView(); updateAllStatus(); updateOrbitTable(); refreshRealisticSystems(); if(typeof window.energyCalcLive==="function") window.energyCalcLive(); if(typeof window.renderMythLive==="function") window.renderMythLive(); drawCompass();
   animationFrame=requestAnimationFrame(mainTick);
 }
 
@@ -783,28 +865,38 @@ function mainTick(){
   el.addEventListener("input", ()=>{
     if(id==="calibration") setCalibration(el.value);
     tIST0=performance.now();
-    drawCurve(); drawOrbitView(); updateAllStatus(); updateOrbitTable(); refreshRealisticSystems(); refreshLivePanels();
+    drawCurve(); drawOrbitView(); updateAllStatus(); updateOrbitTable(); refreshRealisticSystems(); if(typeof window.energyCalcLive==="function") window.energyCalcLive(); if(typeof window.renderMythLive==="function") window.renderMythLive(); drawCompass();
   });
 });
 
 /* ====== Resize keeps everything crisp ====== */
-window.addEventListener('resize', ()=>{ drawCurve(); drawOrbitView(); updateAllStatus(); updateOrbitTable(); refreshRealisticSystems(); refreshLivePanels(); });
+window.addEventListener('resize', ()=>{ drawCurve(); drawOrbitView(); updateAllStatus(); updateOrbitTable(); refreshRealisticSystems(); if(typeof window.energyCalcLive==="function") window.energyCalcLive(); if(typeof window.renderMythLive==="function") window.renderMythLive(); drawCompass(); });
 
 /* ====== Initialize LIVE immediately ====== */
 (function boot(){
   try{ const saved=localStorage.getItem('uiScalePct'); if(saved && document.documentElement){ document.documentElement.style.setProperty('--ui-scale',(Number(saved)/100).toString()); if($("uiScale")) $("uiScale").value=saved; } }catch{}
   setCalibration(($("calibration")?.value)||"off");
   setPair('traj-star'); setOrientation('vertical');
-  drawCurve(); drawOrbitView(); updateOrbitTable(); updateAllStatus(); refreshRealisticSystems(); refreshLivePanels();
+  drawCurve(); drawOrbitView(); updateOrbitTable(); updateAllStatus(); refreshRealisticSystems(); if(typeof window.energyCalcLive==="function") window.energyCalcLive(); if(typeof window.renderMythLive==="function") window.renderMythLive();
+  ensureCompass(); drawCompass();
   if(animationFrame) cancelAnimationFrame(animationFrame);
   lastFrameTime=performance.now();
   animationFrame=requestAnimationFrame(mainTick);
 })();
 
-/* ====== Buttons still respond (sim stays live) ====== */
-if($("startBtn")) $("startBtn").addEventListener("click", ()=>{ tone("good"); });
-if($("stopBtn"))  $("stopBtn").addEventListener("click", ()=>{ tone("warn"); });
-if($("resetBtn")) $("resetBtn").addEventListener("click", ()=>{ shipProgress=0; engineState.temp=0.25; engineState.sag=0.03; engineState.jitter=0.01; tIST0=performance.now(); tone("good"); });
+/* ====== Buttons: Start / Stop / Engage (ramp control) ====== */
+if($("startBtn")) $("startBtn").addEventListener("click", ()=>{
+  const target = Number(($("warpSpeed")?.value)||1);
+  setWarpTarget(target, 0.6); tone("good");
+});
+if($("stopBtn"))  $("stopBtn").addEventListener("click", ()=>{
+  setWarpTarget(1, 0.8); tone("warn");
+});
+if($("resetBtn")) $("resetBtn").addEventListener("click", ()=>{
+  shipProgress=0; engineState.temp=0.25; engineState.sag=0.03; engineState.jitter=0.01; tIST0=performance.now();
+  const target = Math.max(1, Number(($("warpSpeed")?.value)||1));
+  setWarpTarget(target, 1.0); tone("good");
+});
 if($("exportBtn")) $("exportBtn").addEventListener("click", ()=>{
   const rows=[["Time","Warp","Destination","ETA","Distance(AU)","v/c"], ...flightLog.map(e=>[e.t,e.warp,e.dest,e.eta,e.distAU,e.vOverC])];
   const csv=rows.map(r=>r.join(",")).join("\n"); const blob=new Blob([csv],{type:"text/csv"});
