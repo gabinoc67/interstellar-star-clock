@@ -2,8 +2,295 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Warp Control Center</title>
+<title>FTL Warp Control System</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body>
+
+<div id="mainContainer">
+
+    <!-- Panel: Warp Factor & Status -->
+    <div class="panel">
+        <h2>Warp Factor</h2>
+        <div>Current: <span id="warpFactorDisplay">0.00</span> <span class="status-light" id="warpStatus"></span></div>
+        <div>Target: <span id="warpTargetDisplay">0.00</span></div>
+        <div>Safe Range: ±5%</div>
+    </div>
+
+    <!-- Panel: FTL Distance & ETA -->
+    <div class="panel">
+        <h2>Distance & ETA</h2>
+        <div>Distance Remaining: <span id="distanceRemaining">0.000</span> AU</div>
+        <div>ETA: <span id="etaDisplay">--:--:--</span></div>
+        <div>Light-Minutes: <span id="lightMinutesDisplay">0</span></div>
+        <div>Light-Hours: <span id="lightHoursDisplay">0</span></div>
+    </div>
+
+    <!-- Panel: Heading & Course -->
+    <div class="panel">
+        <h2>Course Vector</h2>
+        <div>Heading: <span id="headingDegrees">000</span>°</div>
+        <div>Pitch: <span id="pitchDegrees">0</span>°</div>
+        <div>Yaw: <span id="yawDegrees">0</span>°</div>
+    </div>
+
+    <!-- Panel: Magnetic Field -->
+    <div class="panel">
+        <h2>Magnetic Field</h2>
+        <div>Current Field: <span id="magField">0.00</span> Tesla</div>
+        <div>Required: <span id="magFieldTarget">0.00</span> Tesla</div>
+        <div>Status: <span class="status-light" id="magFieldStatus"></span></div>
+    </div>
+
+    <!-- Panel: Engine Pressure -->
+    <div class="panel">
+        <h2>Engine Pressure</h2>
+        <div>Current: <span id="enginePressure">0.00</span> MPa</div>
+        <div>Required: <span id="enginePressureTarget">0.00</span> MPa</div>
+        <div>Status: <span class="status-light" id="enginePressureStatus"></span></div>
+    </div>
+
+    <!-- Panel: Energy Allocation -->
+    <div class="panel">
+        <h2>Energy Allocation</h2>
+        <div>Coils: <span id="energyCoils">0</span> MW</div>
+        <div>Navigation: <span id="energyNav">0</span> MW</div>
+        <div>Shields: <span id="energyShields">0</span> MW</div>
+        <div>Life Support: <span id="energyLife">0</span> MW</div>
+    </div>
+
+    <!-- Panel: Safety Monitor -->
+    <div class="panel">
+        <h2>Safety Monitor</h2>
+        <div>FTL Stability: <span id="stabilityIndex">0.00</span> % <span class="status-light" id="stabilityStatus"></span></div>
+        <div>Hull Integrity: <span id="hullIntegrity">100</span> %</div>
+        <div>Gravity Balance: <span id="gravityBalance">0.00</span> g</div>
+    </div>
+
+    <!-- Panel: Crew Status -->
+    <div class="panel">
+        <h2>Crew Status</h2>
+        <div>Total Crew: <span id="crewTotal">0</span></div>
+        <div>Active Duty: <span id="crewActive">0</span></div>
+        <div>Medical: <span id="crewMedical">0</span></div>
+        <div>Status: <span class="status-light" id="crewStatus"></span></div>
+    </div>
+
+    <!-- Panel: Clocks -->
+    <div class="panel">
+        <h2>Clocks</h2>
+        <div>Ship Time: <span id="clockShip">--:--:--</span></div>
+        <div>Earth Time: <span id="clockEarth">--:--:--</span></div>
+        <div>Destination Time: <span id="clockDest">--:--:--</span></div>
+        <div>Countdown: <span id="countdown">--:--:--</span></div>
+    </div>
+
+    <!-- Panel: Einstein Tensor -->
+    <div class="panel">
+        <h2>Einstein Tensor</h2>
+        <canvas id="tensorCanvas" width="250" height="80"></canvas>
+    </div>
+
+    <!-- Panel: Starfield -->
+    <div class="panel">
+        <h2>Warp Starfield</h2>
+        <canvas id="starfieldCanvas" width="300" height="150"></canvas>
+    </div>
+
+    <!-- Panel: Status Log -->
+    <div class="panel">
+        <h2>Status Log</h2>
+        <div id="statusLog" class="log-box"></div>
+    </div>
+
+</div>
+<script>
+// ==========================
+// SOUND SETUP
+// ==========================
+const humSound = new Audio("https://gabinoc67.github.io/interstellar-star-clock/warpdrive/hum.mp3");
+const warpSound = new Audio("https://gabinoc67.github.io/interstellar-star-clock/warpdrive/warp.mp3");
+const arriveSound = new Audio("https://gabinoc67.github.io/interstellar-star-clock/warpdrive/arrive.mp3");
+
+humSound.loop = true;
+warpSound.loop = true;
+
+let soundOn = true;
+let warpEngaged = false;
+
+// ==========================
+// ENGINE & NAV VARIABLES
+// ==========================
+let warpFactor = 0;
+let warpTarget = 0;
+let distanceRemaining = 0; // AU
+let magField = 0;
+let magTarget = 0;
+let pressure = 0;
+let pressureTarget = 0;
+let stabilityIndex = 100;
+let hullIntegrity = 100;
+let gravityBalance = 1;
+let crewTotal = 50;
+let crewActive = 45;
+let crewMedical = 5;
+
+let tripInterval;
+let arrivalTime;
+
+// ==========================
+// HELPER FUNCTIONS
+// ==========================
+function updateElement(id, value) {
+    document.getElementById(id).textContent = value;
+}
+
+function statusLight(id, status) {
+    let el = document.getElementById(id);
+    if (status === "green") el.style.background = "lime";
+    else if (status === "yellow") el.style.background = "yellow";
+    else el.style.background = "red";
+}
+
+function logStatus(msg, warning = false) {
+    let logBox = document.getElementById("statusLog");
+    let entry = document.createElement("div");
+    entry.style.color = warning ? "red" : "cyan";
+    entry.textContent = msg;
+    logBox.prepend(entry);
+}
+
+// ==========================
+// CLOCK UPDATES
+// ==========================
+function updateClocks() {
+    let now = new Date();
+    updateElement("clockShip", now.toLocaleTimeString());
+    updateElement("clockEarth", now.toUTCString().split(" ")[4]);
+
+    if (arrivalTime) {
+        let destTime = new Date(arrivalTime);
+        updateElement("clockDest", destTime.toLocaleTimeString());
+        let diff = Math.max(0, (destTime - now) / 1000);
+        let hrs = Math.floor(diff / 3600);
+        let mins = Math.floor((diff % 3600) / 60);
+        let secs = Math.floor(diff % 60);
+        updateElement("countdown", `${hrs}:${mins}:${secs}`);
+    }
+}
+
+// ==========================
+// WARP FORMULAS
+// ==========================
+// Warp speed (c) using simple cubic warp factor rule
+function warpSpeed(wf) {
+    return Math.pow(wf, 3); // Simplified warp curve
+}
+
+// Time (in hours) = distance in AU / warp speed in AU/hour
+function travelTimeAU(distanceAU, wf) {
+    let c_in_AUph = 173.145; // 1c in AU/hour
+    return distanceAU / (warpSpeed(wf) * c_in_AUph);
+}
+
+// ==========================
+// PANEL UPDATES
+// ==========================
+function updatePanels() {
+    updateElement("warpFactorDisplay", warpFactor.toFixed(2));
+    updateElement("warpTargetDisplay", warpTarget.toFixed(2));
+
+    updateElement("distanceRemaining", distanceRemaining.toFixed(3));
+    updateElement("lightMinutesDisplay", (distanceRemaining * 8.31675).toFixed(2));
+    updateElement("lightHoursDisplay", (distanceRemaining * 0.1386125).toFixed(2));
+
+    updateElement("headingDegrees", (Math.random() * 360).toFixed(0));
+    updateElement("pitchDegrees", (Math.random() * 10 - 5).toFixed(2));
+    updateElement("yawDegrees", (Math.random() * 10 - 5).toFixed(2));
+
+    magField = magTarget + (Math.random() - 0.5) * 0.05;
+    updateElement("magField", magField.toFixed(2));
+    statusLight("magFieldStatus", Math.abs(magField - magTarget) <= 0.05 ? "green" : "red");
+
+    pressure = pressureTarget + (Math.random() - 0.5) * 0.1;
+    updateElement("enginePressure", pressure.toFixed(2));
+    statusLight("enginePressureStatus", Math.abs(pressure - pressureTarget) <= 0.1 ? "green" : "red");
+
+    updateElement("energyCoils", (warpFactor * 50).toFixed(0));
+    updateElement("energyNav", (warpFactor * 10).toFixed(0));
+    updateElement("energyShields", (warpFactor * 15).toFixed(0));
+    updateElement("energyLife", 200);
+
+    stabilityIndex = 100 - Math.random() * 2;
+    updateElement("stabilityIndex", stabilityIndex.toFixed(2));
+    statusLight("stabilityStatus", stabilityIndex >= 95 ? "green" : "yellow");
+
+    updateElement("hullIntegrity", hullIntegrity.toFixed(2));
+    updateElement("gravityBalance", (1 + (Math.random() - 0.5) * 0.01).toFixed(3));
+
+    updateElement("crewTotal", crewTotal);
+    updateElement("crewActive", crewActive);
+    updateElement("crewMedical", crewMedical);
+    statusLight("crewStatus", crewMedical === 0 ? "green" : "yellow");
+}
+
+// ==========================
+// WARP CONTROL
+// ==========================
+function engageWarp(targetWF, targetAU) {
+    if (warpEngaged) return;
+    warpEngaged = true;
+    warpTarget = targetWF;
+    distanceRemaining = targetAU;
+
+    magTarget = warpTarget * 0.5;
+    pressureTarget = warpTarget * 1.2;
+
+    let travelHours = travelTimeAU(distanceRemaining, warpTarget);
+    arrivalTime = new Date(Date.now() + travelHours * 3600000);
+
+    logStatus(`Warp engaged to ${targetAU} AU at Warp ${targetWF}`);
+    if (soundOn) { humSound.pause(); warpSound.play(); }
+
+    tripInterval = setInterval(() => {
+        warpFactor = warpTarget + (Math.random() - 0.5) * 0.05;
+        distanceRemaining -= warpSpeed(warpFactor) * 0.0001;
+        if (distanceRemaining <= 0) {
+            arriveWarp();
+        }
+        updatePanels();
+        updateClocks();
+        safetyCheck();
+    }, 1000);
+}
+
+function arriveWarp() {
+    clearInterval(tripInterval);
+    warpEngaged = false;
+    warpFactor = 0;
+    distanceRemaining = 0;
+    updatePanels();
+    logStatus("Arrived at destination!");
+    if (soundOn) { warpSound.pause(); arriveSound.play(); setTimeout(() => humSound.play(), 5000); }
+}
+
+function safetyCheck() {
+    if (Math.abs(magField - magTarget) > 0.1 || Math.abs(pressure - pressureTarget) > 0.2 || stabilityIndex < 90) {
+        logStatus("⚠ Safety limits exceeded — Warp disengaging!", true);
+        arriveWarp();
+    }
+}
+
+// ==========================
+// INIT
+// ==========================
+updatePanels();
+setInterval(updateClocks, 1000);
+if (soundOn) humSound.play();
+
+// Example: Auto-engage warp for testing
+setTimeout(() => engageWarp(5, 20), 3000); // Warp 5 to 20 AU
+</script>
 <style>
 body {
     background-color: #05080f;
@@ -12,371 +299,75 @@ body {
     margin: 0;
     padding: 0;
 }
+
 #mainContainer {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    grid-gap: 10px;
-    padding: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    grid-gap: 12px;
+    padding: 12px;
 }
+
+/* Panel styling */
 .panel {
     background-color: #0c1424;
-    padding: 10px;
+    padding: 12px;
     border-radius: 8px;
-    box-shadow: 0 0 10px rgba(0,0,0,0.7);
+    box-shadow: 0 0 12px rgba(0,0,0,0.7);
+    border: 1px solid #3ad5ff;
 }
+
 .panel h2 {
     margin: 0 0 8px;
-    font-size: 1.1em;
+    font-size: 1.2em;
     color: #3ad5ff;
-    text-shadow: 0 0 5px #3ad5ff;
+    text-shadow: 0 0 8px #3ad5ff;
 }
-.center-image {
-    grid-column: span 2;
-    display: flex;
-    justify-content: center;
-    align-items: center;
+
+/* Status light circle */
+.status-light {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: gray;
+    margin-left: 6px;
+    vertical-align: middle;
+    box-shadow: 0 0 6px rgba(255,255,255,0.3);
 }
-.center-img {
-    max-width: 100%;
-    border: 2px solid #3ad5ff;
-    border-radius: 8px;
+
+/* Log box */
+.log-box {
+    height: 160px;
+    overflow-y: auto;
+    background: rgba(0,0,0,0.25);
+    border: 1px solid #3ad5ff;
+    padding: 6px;
+    font-size: 0.95em;
 }
-.top-bar {
-    grid-column: span 3;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    background-color: #121b2e;
-    padding: 10px;
-    border-radius: 8px;
-    font-size: 1.1em;
+
+/* Gauges & values */
+.panel div {
+    font-size: 1.05em;
+    margin-bottom: 4px;
 }
-.controls label {
+
+/* Canvas styling */
+#tensorCanvas, #starfieldCanvas {
     display: block;
-    margin-top: 5px;
-}
-.controls select {
-    width: 100%;
-    margin-bottom: 8px;
-}
-.buttons {
-    display: flex;
-    gap: 5px;
-    margin-top: 5px;
-}
-button {
-    background-color: #1b273d;
-    color: white;
+    background: black;
+    margin-top: 4px;
     border: 1px solid #3ad5ff;
     border-radius: 4px;
-    padding: 5px;
-    cursor: pointer;
 }
-button:hover {
-    background-color: #3ad5ff;
-    color: black;
+
+/* Scrollbar styling for logs */
+.log-box::-webkit-scrollbar {
+    width: 8px;
 }
-.compass {
-    text-align: center;
-}
-#compassCircle {
-    width: 150px;
-    height: 150px;
-    border: 3px solid #3ad5ff;
-    border-radius: 50%;
-    margin: 0 auto;
-    position: relative;
-}
-#compassNeedle {
-    width: 2px;
-    height: 70px;
-    background-color: red;
-    position: absolute;
-    top: 5px;
-    left: 50%;
-    transform-origin: bottom center;
-}
-.gauges div {
-    margin: 3px 0;
-}
-.trip-gauge {
-    color: #facc15;
-}
-.log-box {
-    height: 150px;
-    overflow-y: auto;
-    background: rgba(0,0,0,0.3);
-    border: 1px solid #3ad5ff;
-    padding: 5px;
-    font-size: 0.9em;
-}
-/* Starfield window */
-#starfieldCanvas {
-    background-color: black;
-    border: 1px solid #3ad5ff;
-}
-/* Tensor canvas */
-#tensorCanvas {
-    background-color: black;
-    border: 1px solid #3ad5ff;
+.log-box::-webkit-scrollbar-thumb {
+    background: #3ad5ff;
+    border-radius: 4px;
 }
 </style>
-</head>
-<body>
-
-<div id="mainContainer">
-
-    <!-- Center Main Schematic -->
-    <div class="panel center-image">
-        <img src="ScreenHunter-102.png" alt="Warp Drive Schematic" class="center-img">
-    </div>
-
-    <!-- Top Status Bar -->
-    <div class="top-bar">
-        <h1>🚀 Warp Control Center</h1>
-        <div id="clockSync">CST / IST Sync: --:--:--</div>
-    </div>
-
-    <!-- Flight Controls -->
-    <div class="panel controls">
-        <h2>Flight Plan</h2>
-        <label>Warp Factor:</label>
-        <select id="warpFactor">
-            <option value="1">Warp 1</option>
-            <option value="2">Warp 2</option>
-            <option value="5">Warp 5</option>
-            <option value="9">Warp 9</option>
-        </select>
-        <label>Destination:</label>
-        <select id="destination">
-            <option value="Mars">Mars</option>
-            <option value="Jupiter">Jupiter</option>
-            <option value="Proxima">Proxima Centauri</option>
-        </select>
-        <div class="buttons">
-            <button id="engageWarp">Engage Warp</button>
-            <button id="stopWarp">Stop</button>
-            <button id="muteSound">🔊 Mute</button>
-        </div>
-    </div>
-
-    <!-- Navigation Compass -->
-    <div class="panel compass">
-        <h2>Navigation Compass</h2>
-        <div id="compassCircle">
-            <div id="compassNeedle"></div>
-        </div>
-        <div id="headingDisplay">Heading: 0°</div>
-    </div>
-
-    <!-- Einstein Tensor -->
-    <div class="panel tensor">
-        <h2>Einstein Tensor Mini</h2>
-        <canvas id="tensorCanvas" width="200" height="50"></canvas>
-    </div>
-
-    <!-- Clock Sync -->
-    <div class="panel clocks">
-        <h2>Clock Sync</h2>
-        <div>C1: <span id="clock1">--:--:--</span></div>
-        <div>C2: <span id="clock2">--:--:--</span></div>
-        <div>C3: <span id="clock3">--:--:--</span></div>
-        <div>C4: <span id="clock4">--:--:--</span></div>
-        <div>C5: <span id="clock5">--:--:--</span></div>
-    </div>
-
-    <!-- Warp Starfield -->
-    <div class="panel starfield">
-        <h2>Warp Starfield Window</h2>
-        <canvas id="starfieldCanvas" width="300" height="150"></canvas>
-    </div>
-
-    <!-- Debris Defense -->
-    <div class="panel defense">
-        <h2>Debris Defense Field</h2>
-        <div id="defenseStatus">Defense MW: 0</div>
-    </div>
-
-    <!-- Safety Gauges -->
-    <div class="panel gauges">
-        <h2>Trip Safety Gauges</h2>
-        <div>Front Bias: <span class="trip-gauge" data-value="0">0</span></div>
-        <div>Rear Bias: <span class="trip-gauge" data-value="0">0</span></div>
-        <div>Left/Right Bias: <span class="trip-gauge" data-value="0">0</span></div>
-        <div>Up/Down Bias: <span class="trip-gauge" data-value="0">0</span></div>
-    </div>
-
-    <!-- Status Log -->
-    <div class="panel log">
-        <h2>Status & Log</h2>
-        <div id="statusLog" class="log-box"></div>
-    </div>
-
-</div>
-
-<script>
-// === Sound Setup ===
-const humSound = new Audio("https://gabinoc67.github.io/interstellar-star-clock/warpdrive/hum.mp3");
-const warpSound = new Audio("https://gabinoc67.github.io/interstellar-star-clock/warpdrive/warp.mp3");
-const arriveSound = new Audio("https://gabinoc67.github.io/interstellar-star-clock/warpdrive/arrive.mp3");
-
-humSound.loop = true;
-warpSound.loop = true;
-arriveSound.loop = false;
-
-let soundEnabled = true;
-let warpActive = false;
-let tripInterval;
-
-// === UI Elements ===
-const engageBtn = document.getElementById("engageWarp");
-const stopBtn = document.getElementById("stopWarp");
-const muteBtn = document.getElementById("muteSound");
-const statusLog = document.getElementById("statusLog");
-const headingDisplay = document.getElementById("headingDisplay");
-const tripGauges = document.querySelectorAll(".trip-gauge");
-
-// === Utility ===
-function logStatus(msg, isWarning = false) {
-    const entry = document.createElement("div");
-    entry.textContent = msg;
-    entry.style.color = isWarning ? "#ff5555" : "#00ffcc";
-    statusLog.prepend(entry);
-}
-
-// === Sound Control ===
-function playHum() { if (soundEnabled) { humSound.currentTime = 0; humSound.play(); } }
-function playWarp() { if (soundEnabled) { humSound.pause(); warpSound.currentTime = 0; warpSound.play(); } }
-function playArrival() { if (soundEnabled) { warpSound.pause(); arriveSound.currentTime = 0; arriveSound.play(); } }
-
-// === Safety Check ===
-function checkSafety(values) {
-    for (let val of values) {
-        if (val < -5 || val > 5) {
-            logStatus("⚠ Safety limit exceeded! Warp disengaged.", true);
-            stopWarp();
-            return false;
-        }
-    }
-    return true;
-}
-
-// === Warp Control ===
-function startWarp() {
-    if (warpActive) return;
-    warpActive = true;
-    logStatus("Warp engaged. Calculating trajectory...");
-    playWarp();
-
-    tripInterval = setInterval(() => {
-        let vals = [];
-        tripGauges.forEach(g => {
-            let newVal = (parseFloat(g.dataset.value) || 0) + (Math.random() * 2 - 1);
-            g.dataset.value = newVal.toFixed(2);
-            g.textContent = newVal.toFixed(2);
-            vals.push(newVal);
-        });
-        checkSafety(vals);
-    }, 1000);
-}
-function stopWarp() {
-    if (!warpActive) return;
-    warpActive = false;
-    clearInterval(tripInterval);
-    logStatus("Warp stopped. Engines idle.");
-    playHum();
-}
-function arriveWarp() {
-    warpActive = false;
-    clearInterval(tripInterval);
-    logStatus("Destination reached. Engines idle.");
-    playArrival();
-    setTimeout(playHum, 5000);
-}
-
-// === Compass Animation ===
-let compassAngle = 0;
-function updateCompass() {
-    compassAngle = (compassAngle + 1) % 360;
-    headingDisplay.textContent = `Heading: ${compassAngle}°`;
-    document.getElementById("compassNeedle").style.transform = `rotate(${compassAngle}deg)`;
-    requestAnimationFrame(updateCompass);
-}
-
-// === Clock Sync ===
-function updateClocks() {
-    const now = new Date();
-    for (let i = 1; i <= 5; i++) {
-        document.getElementById(`clock${i}`).textContent = now.toLocaleTimeString();
-    }
-}
-setInterval(updateClocks, 1000);
-
-// === Einstein Tensor Canvas ===
-function animateTensor() {
-    const canvas = document.getElementById("tensorCanvas");
-    const ctx = canvas.getContext("2d");
-    let t = 0;
-    function draw() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.beginPath();
-        for (let x = 0; x < canvas.width; x++) {
-            let y = canvas.height / 2 + Math.sin((x + t) / 10) * 20;
-            ctx.lineTo(x, y);
-        }
-        ctx.strokeStyle = "#3ad5ff";
-        ctx.stroke();
-        t += 2;
-        requestAnimationFrame(draw);
-    }
-    draw();
-}
-animateTensor();
-
-// === Warp Starfield ===
-function animateStarfield() {
-    const canvas = document.getElementById("starfieldCanvas");
-    const ctx = canvas.getContext("2d");
-    let stars = Array.from({ length: 50 }, () => ({
-        x: Math.random() * canvas.width,
-        y: Math.random() * canvas.height,
-        size: Math.random() * 2,
-        speed: Math.random() * 4 + 1
-    }));
-    function draw() {
-        ctx.fillStyle = "black";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = "white";
-        stars.forEach(s => {
-            ctx.beginPath();
-            ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
-            ctx.fill();
-            s.y += s.speed;
-            if (s.y > canvas.height) {
-                s.x = Math.random() * canvas.width;
-                s.y = 0;
-            }
-        });
-        requestAnimationFrame(draw);
-    }
-    draw();
-}
-animateStarfield();
-
-// === Event Listeners ===
-engageBtn.addEventListener("click", startWarp);
-stopBtn.addEventListener("click", stopWarp);
-muteBtn.addEventListener("click", () => {
-    soundEnabled = !soundEnabled;
-    muteBtn.textContent = soundEnabled ? "🔊 Mute" : "🔇 Unmute";
-    if (!soundEnabled) { humSound.pause(); warpSound.pause(); arriveSound.pause(); }
-    else if (!warpActive) { playHum(); }
-});
-
-// === Init ===
-playHum();
-logStatus("System initialized. Ready to engage warp.");
-updateCompass();
-</script>
 </body>
 </html>
