@@ -9,6 +9,19 @@
 
 <div id="mainContainer">
 
+    <!-- Manual Warp Control -->
+    <div class="panel">
+        <h2>Manual Warp Control</h2>
+        <label>Warp Factor:
+            <input type="number" id="inputWarpFactor" min="1" max="9.99" step="0.01" value="5">
+        </label>
+        <label>Distance (AU):
+            <input type="number" id="inputDistance" min="0.1" step="0.01" value="20">
+        </label>
+        <button id="btnEngageWarp">Engage</button>
+        <button id="btnIdle">Idle</button>
+    </div>
+
     <!-- Panel: Warp Factor & Status -->
     <div class="panel">
         <h2>Warp Factor</h2>
@@ -26,10 +39,11 @@
         <div>Light-Hours: <span id="lightHoursDisplay">0</span></div>
     </div>
 
-    <!-- Panel: Heading & Course -->
+    <!-- Panel: Heading & Compass -->
     <div class="panel">
         <h2>Course Vector</h2>
         <div>Heading: <span id="headingDegrees">000</span>°</div>
+        <canvas id="compassCanvas" width="200" height="200"></canvas>
         <div>Pitch: <span id="pitchDegrees">0</span>°</div>
         <div>Yaw: <span id="yawDegrees">0</span>°</div>
     </div>
@@ -97,6 +111,24 @@
         <canvas id="starfieldCanvas" width="300" height="150"></canvas>
     </div>
 
+    <!-- Abbreviations Panels -->
+    <div class="panel">
+        <h2>Navigation Systems</h2>
+        <div id="navAbbr"></div>
+    </div>
+    <div class="panel">
+        <h2>Engine Systems</h2>
+        <div id="engAbbr"></div>
+    </div>
+    <div class="panel">
+        <h2>Crew & Life Support</h2>
+        <div id="crewAbbr"></div>
+    </div>
+    <div class="panel">
+        <h2>Environment & Ship Systems</h2>
+        <div id="envAbbr"></div>
+    </div>
+
     <!-- Panel: Status Log -->
     <div class="panel">
         <h2>Status Log</h2>
@@ -104,194 +136,8 @@
     </div>
 
 </div>
-<script>
-// ==========================
-// SOUND SETUP
-// ==========================
-const humSound = new Audio("https://gabinoc67.github.io/interstellar-star-clock/warpdrive/hum.mp3");
-const warpSound = new Audio("https://gabinoc67.github.io/interstellar-star-clock/warpdrive/warp.mp3");
-const arriveSound = new Audio("https://gabinoc67.github.io/interstellar-star-clock/warpdrive/arrive.mp3");
-
-humSound.loop = true;
-warpSound.loop = true;
-
-let soundOn = true;
-let warpEngaged = false;
-
-// ==========================
-// ENGINE & NAV VARIABLES
-// ==========================
-let warpFactor = 0;
-let warpTarget = 0;
-let distanceRemaining = 0; // AU
-let magField = 0;
-let magTarget = 0;
-let pressure = 0;
-let pressureTarget = 0;
-let stabilityIndex = 100;
-let hullIntegrity = 100;
-let gravityBalance = 1;
-let crewTotal = 50;
-let crewActive = 45;
-let crewMedical = 5;
-
-let tripInterval;
-let arrivalTime;
-
-// ==========================
-// HELPER FUNCTIONS
-// ==========================
-function updateElement(id, value) {
-    document.getElementById(id).textContent = value;
-}
-
-function statusLight(id, status) {
-    let el = document.getElementById(id);
-    if (status === "green") el.style.background = "lime";
-    else if (status === "yellow") el.style.background = "yellow";
-    else el.style.background = "red";
-}
-
-function logStatus(msg, warning = false) {
-    let logBox = document.getElementById("statusLog");
-    let entry = document.createElement("div");
-    entry.style.color = warning ? "red" : "cyan";
-    entry.textContent = msg;
-    logBox.prepend(entry);
-}
-
-// ==========================
-// CLOCK UPDATES
-// ==========================
-function updateClocks() {
-    let now = new Date();
-    updateElement("clockShip", now.toLocaleTimeString());
-    updateElement("clockEarth", now.toUTCString().split(" ")[4]);
-
-    if (arrivalTime) {
-        let destTime = new Date(arrivalTime);
-        updateElement("clockDest", destTime.toLocaleTimeString());
-        let diff = Math.max(0, (destTime - now) / 1000);
-        let hrs = Math.floor(diff / 3600);
-        let mins = Math.floor((diff % 3600) / 60);
-        let secs = Math.floor(diff % 60);
-        updateElement("countdown", `${hrs}:${mins}:${secs}`);
-    }
-}
-
-// ==========================
-// WARP FORMULAS
-// ==========================
-// Warp speed (c) using simple cubic warp factor rule
-function warpSpeed(wf) {
-    return Math.pow(wf, 3); // Simplified warp curve
-}
-
-// Time (in hours) = distance in AU / warp speed in AU/hour
-function travelTimeAU(distanceAU, wf) {
-    let c_in_AUph = 173.145; // 1c in AU/hour
-    return distanceAU / (warpSpeed(wf) * c_in_AUph);
-}
-
-// ==========================
-// PANEL UPDATES
-// ==========================
-function updatePanels() {
-    updateElement("warpFactorDisplay", warpFactor.toFixed(2));
-    updateElement("warpTargetDisplay", warpTarget.toFixed(2));
-
-    updateElement("distanceRemaining", distanceRemaining.toFixed(3));
-    updateElement("lightMinutesDisplay", (distanceRemaining * 8.31675).toFixed(2));
-    updateElement("lightHoursDisplay", (distanceRemaining * 0.1386125).toFixed(2));
-
-    updateElement("headingDegrees", (Math.random() * 360).toFixed(0));
-    updateElement("pitchDegrees", (Math.random() * 10 - 5).toFixed(2));
-    updateElement("yawDegrees", (Math.random() * 10 - 5).toFixed(2));
-
-    magField = magTarget + (Math.random() - 0.5) * 0.05;
-    updateElement("magField", magField.toFixed(2));
-    statusLight("magFieldStatus", Math.abs(magField - magTarget) <= 0.05 ? "green" : "red");
-
-    pressure = pressureTarget + (Math.random() - 0.5) * 0.1;
-    updateElement("enginePressure", pressure.toFixed(2));
-    statusLight("enginePressureStatus", Math.abs(pressure - pressureTarget) <= 0.1 ? "green" : "red");
-
-    updateElement("energyCoils", (warpFactor * 50).toFixed(0));
-    updateElement("energyNav", (warpFactor * 10).toFixed(0));
-    updateElement("energyShields", (warpFactor * 15).toFixed(0));
-    updateElement("energyLife", 200);
-
-    stabilityIndex = 100 - Math.random() * 2;
-    updateElement("stabilityIndex", stabilityIndex.toFixed(2));
-    statusLight("stabilityStatus", stabilityIndex >= 95 ? "green" : "yellow");
-
-    updateElement("hullIntegrity", hullIntegrity.toFixed(2));
-    updateElement("gravityBalance", (1 + (Math.random() - 0.5) * 0.01).toFixed(3));
-
-    updateElement("crewTotal", crewTotal);
-    updateElement("crewActive", crewActive);
-    updateElement("crewMedical", crewMedical);
-    statusLight("crewStatus", crewMedical === 0 ? "green" : "yellow");
-}
-
-// ==========================
-// WARP CONTROL
-// ==========================
-function engageWarp(targetWF, targetAU) {
-    if (warpEngaged) return;
-    warpEngaged = true;
-    warpTarget = targetWF;
-    distanceRemaining = targetAU;
-
-    magTarget = warpTarget * 0.5;
-    pressureTarget = warpTarget * 1.2;
-
-    let travelHours = travelTimeAU(distanceRemaining, warpTarget);
-    arrivalTime = new Date(Date.now() + travelHours * 3600000);
-
-    logStatus(`Warp engaged to ${targetAU} AU at Warp ${targetWF}`);
-    if (soundOn) { humSound.pause(); warpSound.play(); }
-
-    tripInterval = setInterval(() => {
-        warpFactor = warpTarget + (Math.random() - 0.5) * 0.05;
-        distanceRemaining -= warpSpeed(warpFactor) * 0.0001;
-        if (distanceRemaining <= 0) {
-            arriveWarp();
-        }
-        updatePanels();
-        updateClocks();
-        safetyCheck();
-    }, 1000);
-}
-
-function arriveWarp() {
-    clearInterval(tripInterval);
-    warpEngaged = false;
-    warpFactor = 0;
-    distanceRemaining = 0;
-    updatePanels();
-    logStatus("Arrived at destination!");
-    if (soundOn) { warpSound.pause(); arriveSound.play(); setTimeout(() => humSound.play(), 5000); }
-}
-
-function safetyCheck() {
-    if (Math.abs(magField - magTarget) > 0.1 || Math.abs(pressure - pressureTarget) > 0.2 || stabilityIndex < 90) {
-        logStatus("⚠ Safety limits exceeded — Warp disengaging!", true);
-        arriveWarp();
-    }
-}
-
-// ==========================
-// INIT
-// ==========================
-updatePanels();
-setInterval(updateClocks, 1000);
-if (soundOn) humSound.play();
-
-// Example: Auto-engage warp for testing
-setTimeout(() => engageWarp(5, 20), 3000); // Warp 5 to 20 AU
-</script>
 <style>
+/* General body styles */
 body {
     background-color: #05080f;
     font-family: Arial, sans-serif;
@@ -335,6 +181,22 @@ body {
     box-shadow: 0 0 6px rgba(255,255,255,0.3);
 }
 
+/* Flash animations */
+@keyframes flashRed {
+    0%, 100% { background: red; box-shadow: 0 0 8px red; }
+    50% { background: darkred; box-shadow: 0 0 4px darkred; }
+}
+@keyframes flashYellow {
+    0%, 100% { background: yellow; box-shadow: 0 0 8px yellow; }
+    50% { background: gold; box-shadow: 0 0 4px gold; }
+}
+.status-light.red-flash {
+    animation: flashRed 1s infinite;
+}
+.status-light.yellow-flash {
+    animation: flashYellow 1s infinite;
+}
+
 /* Log box */
 .log-box {
     height: 160px;
@@ -344,23 +206,6 @@ body {
     padding: 6px;
     font-size: 0.95em;
 }
-
-/* Gauges & values */
-.panel div {
-    font-size: 1.05em;
-    margin-bottom: 4px;
-}
-
-/* Canvas styling */
-#tensorCanvas, #starfieldCanvas {
-    display: block;
-    background: black;
-    margin-top: 4px;
-    border: 1px solid #3ad5ff;
-    border-radius: 4px;
-}
-
-/* Scrollbar styling for logs */
 .log-box::-webkit-scrollbar {
     width: 8px;
 }
@@ -368,319 +213,379 @@ body {
     background: #3ad5ff;
     border-radius: 4px;
 }
+
+/* Value rows */
+.panel div {
+    font-size: 1.05em;
+    margin-bottom: 4px;
+}
+
+/* Canvas styling */
+#tensorCanvas, #starfieldCanvas, #compassCanvas {
+    display: block;
+    background: black;
+    margin-top: 4px;
+    border: 1px solid #3ad5ff;
+    border-radius: 4px;
+}
+
+/* Abbreviations grid */
+#navAbbr, #engAbbr, #crewAbbr, #envAbbr {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 4px;
+}
+.abbr-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(0,0,0,0.2);
+    border: 1px solid #3ad5ff;
+    padding: 4px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+}
+.abbr-label {
+    color: #9fd6ff;
+}
+.abbr-value {
+    font-weight: bold;
+    min-width: 40px;
+    text-align: right;
+}
+
+/* Flashing abbreviations */
+.abbr-red {
+    color: red;
+    animation: flashRed 1s infinite;
+}
+.abbr-yellow {
+    color: yellow;
+    animation: flashYellow 1s infinite;
+}
+
+/* Compass styles */
+#compassCanvas {
+    background: radial-gradient(circle at center, #000 60%, #0c1424 100%);
+    border: 2px solid #3ad5ff;
+    border-radius: 50%;
+}
+
+/* Buttons */
+button {
+    background: #3ad5ff;
+    color: black;
+    border: none;
+    padding: 6px 12px;
+    margin-top: 6px;
+    font-size: 0.9em;
+    border-radius: 4px;
+    cursor: pointer;
+}
+button:hover {
+    background: #6de0ff;
+}
+button:active {
+    background: #2db9df;
+}
 </style>
-  </script>
-<!-- ===== CSV-driven chips directly under the footer line (layout + animations) ===== -->
-<style>
-  /* Full-width container */
-  .wdp-wrap{
-    width:100%;
-    max-width:none;
-    margin:8px 0 16px;
-    padding:0 12px;
-  }
+<script>
+// ==========================
+// SOUND SETUP
+// ==========================
+const humSound = new Audio("https://gabinoc67.github.io/interstellar-star-clock/warpdrive/hum.mp3");
+const warpSound = new Audio("https://gabinoc67.github.io/interstellar-star-clock/warpdrive/warp.mp3");
+const arriveSound = new Audio("https://gabinoc67.github.io/interstellar-star-clock/warpdrive/arrive.mp3");
 
-  /* Two-row main layout: Nav | Engine | Crew ; and below Ship under Crew */
-  .wdp-sections{
-    display:grid;
-    gap:12px;
-    grid-template-columns: 1fr 1fr 1fr;
-    grid-template-rows: auto auto;
-    grid-template-areas:
-      "nav engine crew"
-      "nav engine ship";
-  }
+humSound.loop = true;
+warpSound.loop = true;
 
-  /* Card placement */
-  .wdp-card[data-loc="Navigation"] { grid-area: nav; }
-  .wdp-card[data-loc="Engine"]     { grid-area: engine; }
-  .wdp-card[data-loc="Crew"]       { grid-area: crew; }
-  .wdp-card[data-loc="Ship"]       { grid-area: ship; }
+let soundOn = true;
+let warpEngaged = false;
 
-  /* Card shell */
-  .wdp-card{
-    border:1px solid #223;
-    border-radius:12px;
-    padding:10px;
-    background:#101521;
-  }
+// ==========================
+// ENGINE & NAV VARIABLES
+// ==========================
+let warpFactor = 0;
+let warpTarget = 0;
+let distanceRemaining = 0; // AU
+let magField = 0;
+let magTarget = 0;
+let pressure = 0;
+let pressureTarget = 0;
+let stabilityIndex = 100;
+let hullIntegrity = 100;
+let gravityBalance = 1;
+let crewTotal = 50;
+let crewActive = 45;
+let crewMedical = 5;
 
-  /* Titles */
-  .wdp-title{
-    display:flex;align-items:center;gap:8px;
-    font-weight:800;
-    font-size:clamp(13px,1.2vw,15px);
-    text-transform:uppercase;letter-spacing:.08em;
-    color:#9fb7ff;margin:0 0 8px;
-  }
+let tripInterval;
+let arrivalTime;
+let heading = 0;
 
-  /* Default chip grid */
-  .wdp-grid{
-    display:grid;
-    gap:6px;
-    grid-template-columns: repeat(3, minmax(160px, 1fr)); /* sensible default */
-  }
+// ==========================
+// HELPER FUNCTIONS
+// ==========================
+function updateElement(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+}
 
-  /* Navigation & Engine: fill space evenly, adapt to width */
-  .wdp-card[data-loc="Navigation"] .wdp-grid,
-  .wdp-card[data-loc="Engine"]     .wdp-grid{
-    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  }
-
-  /* Crew & Ship: exactly 3 columns, evenly spaced */
-  .wdp-card[data-loc="Crew"] .wdp-grid,
-  .wdp-card[data-loc="Ship"] .wdp-grid{
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  /* Ultra-wide screens: let Nav/Engine pack a bit more per row if room allows */
-  @media (min-width: 1800px){
-    .wdp-card[data-loc="Navigation"] .wdp-grid,
-    .wdp-card[data-loc="Engine"]     .wdp-grid{
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+function statusLight(id, status) {
+    let el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove("red-flash", "yellow-flash");
+    if (status === "green") el.style.background = "lime";
+    else if (status === "yellow") {
+        el.style.background = "gold";
+        el.classList.add("yellow-flash");
     }
-  }
-
-  /* Responsive: 2 columns then 1 column */
-  @media (max-width:1200px){
-    .wdp-sections{
-      grid-template-columns: 1fr 1fr;
-      grid-template-areas:
-        "nav engine"
-        "crew ship";
+    else {
+        el.style.background = "red";
+        el.classList.add("red-flash");
     }
-  }
-  @media (max-width:900px){
-    .wdp-card[data-loc="Crew"] .wdp-grid,
-    .wdp-card[data-loc="Ship"] .wdp-grid{
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+function logStatus(msg, warning = false) {
+    let logBox = document.getElementById("statusLog");
+    if (!logBox) return;
+    let entry = document.createElement("div");
+    entry.style.color = warning ? "red" : "cyan";
+    entry.textContent = msg;
+    logBox.prepend(entry);
+}
+
+// ==========================
+// CLOCK UPDATES
+// ==========================
+function updateClocks() {
+    let now = new Date();
+    updateElement("clockShip", now.toLocaleTimeString());
+    updateElement("clockEarth", now.toUTCString().split(" ")[4]);
+
+    if (arrivalTime) {
+        let destTime = new Date(arrivalTime);
+        updateElement("clockDest", destTime.toLocaleTimeString());
+        let diff = Math.max(0, (destTime - now) / 1000);
+        let hrs = Math.floor(diff / 3600);
+        let mins = Math.floor((diff % 3600) / 60);
+        let secs = Math.floor(diff % 60);
+        updateElement("countdown", `${hrs}:${mins}:${secs}`);
     }
-  }
-  @media (max-width:720px){
-    .wdp-sections{
-      grid-template-columns: 1fr;
-      grid-template-areas:
-        "nav"
-        "engine"
-        "crew"
-        "ship";
-    }
-    .wdp-card[data-loc="Crew"] .wdp-grid,
-    .wdp-card[data-loc="Ship"] .wdp-grid{
-      grid-template-columns: 1fr;
-    }
-  }
-
-  /* Chip styles */
-  .wdp-chip{
-    display:flex;align-items:center;gap:8px;
-    border:1px solid #2a3340;border-radius:9999px;
-    padding:7px 10px;min-height:36px;background:#0f1420;
-  }
-  .wdp-dot{width:11px;height:11px;border-radius:50%;box-shadow:0 0 0 1px #334255 inset}
-  .wdp-dot.ok{background:#16a34a}
-  .wdp-dot.warn{background:#eab308}
-  .wdp-dot.bad{background:#ef4444}
-  @keyframes pulseWarn{0%,100%{transform:scale(1);opacity:.95}50%{transform:scale(1.25);opacity:.7}}
-  @keyframes blinkBad{0%,49%{opacity:1}50%,100%{opacity:.25}}
-  .wdp-dot.warn{animation:pulseWarn 1.2s ease-in-out infinite}
-  .wdp-dot.bad{animation:blinkBad .8s steps(2,end) infinite}
-  .wdp-abbr{font-weight:800;font-size:14.3px}
-  .wdp-type{font-size:12px;color:#8ea0bd}
-  .wdp-val{margin-left:auto;font-variant-numeric:tabular-nums;white-space:nowrap;font-size:13px;color:#e6edf3}
-  @keyframes tick{0%{transform:translateY(0);opacity:1}40%{transform:translateY(-2px);opacity:.85}100%{transform:translateY(0);opacity:1}}
-  .wdp-val.tick{animation:tick .35s ease}
-  .wdp-empty{
-    border:1px dashed #2a3340;border-radius:12px;padding:16px;
-    text-align:center;color:#9fb7ff;font-size:13px;background:#0f1420;
-  }
-</style>
-
-<div class="wdp-wrap" id="wdp-panel" aria-label="Warp Drive Demonstrator · CST-Synced Equilibrium">
-  <div class="wdp-sections" id="wdp-sections"></div>
-</div>
-
-<script type="module" id="wdp-chips" data-wdp-csv="https://gabinoc67.github.io/interstellar-star-clock/warpdrive/navengreadings.csv">
-const ORDER=["Navigation","Engine","Crew","Ship"]; // render order
-
-const normalizeType=s=>String(s||"").trim().toLowerCase();
-const truthy=v=>["yes","true","1","y"].includes(String(v||"").trim().toLowerCase());
-const TZ="America/Chicago";
-const fmtTime=new Intl.DateTimeFormat("en-US",{timeZone:TZ,hour12:false,hour:"2-digit",minute:"2-digit",second:"2-digit"});
-const fmtDate=new Intl.DateTimeFormat("en-US",{timeZone:TZ});
-
-function parseCSV(text){
-  const rows=[];let cur=[],val="",q=false;
-  for(let i=0;i<text.length;i++){
-    const c=text[i],n=text[i+1];
-    if(q){ if(c=='"'&&n=='"'){val+='"';i++;} else if(c=='"'){q=false;} else{val+=c;} }
-    else { if(c=='"'){q=true;} else if(c==','){cur.push(val);val="";} else if(c=='\n'){cur.push(val);rows.push(cur);cur=[];val="";} else if(c!='\r'){val+=c;} }
-  }
-  if(val.length||cur.length){cur.push(val);rows.push(cur);}
-  const headers=rows.shift().map(h=>h.trim());
-  return rows.filter(r=>r.some(x=>String(x).trim()!=="")).map(r=>{const o={};headers.forEach((h,i)=>o[h]=r[i]??"");return o;});
-}
-function normalizeRows(rows){
-  return rows.map(r=>{
-    const o={}; for(const k in r){ o[k.trim()] = typeof r[k]==="string" ? r[k].trim() : r[k]; }
-    if(o["Display Type"]) o["Display Type"] = normalizeType(o["Display Type"]);
-    if(o["Display Type"]==="date ") o["Display Type"]="date";
-    return o;
-  });
-}
-function normKey(s){return String(s||"").toLowerCase().replace(/[\s_\-]+/g,"").replace(/[^a-z0-9]/g,"");}
-function detectKey(keys,re){const pairs=keys.map(k=>[k,normKey(k)]);const hit=pairs.find(([k,n])=>re.test(n));return hit?hit[0]:null;}
-function buildKeyMap(sample){
-  const keys=Object.keys(sample||{});
-  return{ label:detectKey(keys,/label(name)?$/)||"Label Name",
-          abbr:detectKey(keys,/(abbr|abbrev|abbreviation)s?$/)||"Abbreviation",
-          dtype:detectKey(keys,/(displaytype|display|type)$/)||"Display Type",
-          circle:detectKey(keys,/(circle)$/)||"Circle",
-          location:detectKey(keys,/(location|loc)$/)||"Location" };
-}
-function groupByLocation(rows,KM){
-  const g={};
-  rows.forEach(r=>{
-    const loc=String(r[KM.location]||"").trim()||"Crew";
-    (g[loc] ||= []).push(r);
-  });
-  Object.keys(g).forEach(k=>{
-    g[k].sort((a,b)=>String(a[KM.abbr]||"").localeCompare(String(b[KM.abbr]||"")));
-  });
-  return g;
-}
-const seedOf=s=>Array.from(String(s||"")).reduce((a,c)=>a+c.charCodeAt(0),0);
-
-function liveValue(typ,labelOrAbbr,t){
-  const seed=seedOf(labelOrAbbr);
-  const base=(seed%1000)/10;
-  const wiggle=(Math.sin((seed+t)/7)+1)*0.5;
-  const v=base*(0.9+0.2*wiggle);
-  switch(typ){
-    case"degrees":  return `${Math.floor((v*3.6+t)%360)}°`;
-    case"time":     return fmtTime.format(new Date());
-    case"numbers":  return Intl.NumberFormat().format(Math.round(v*100+(t%5)));
-    case"watts":    { const degLike=Math.floor((v*3.6+t)%360); return `${Math.round(50+degLike*0.8)} W`; }
-    case"miles":    return `${(v*1.3).toFixed(1)} mi`;
-    case"frequency":return `${(v*7).toFixed(2)} Hz`;
-    case"pressure": return `${(v*2.3).toFixed(2)} psi`;
-    case"speed":    return `${(v*3.1).toFixed(2)} kn`;
-    case"date":     return fmtDate.format(new Date());
-    case"alarm":    return ((seed+t)%17<1) ? "ALARM" : "OK";
-    case"calculation": return (v*42).toFixed(2);
-    default: return "—";
-  }
 }
 
-function circleClassForRow(row,engine){
-  const { v=0, p=0, f=0, r=0, hazard='none' } = engine || {};
-  const imbalance = Math.abs(f - Math.abs(r));
-  const vStress = Math.min(1, v/6);
-  const pStress = Math.min(1, p/8);
-  const vecStress= Math.min(1, imbalance/2);
-  const hazStress= (hazard==='inside')?1 : (hazard==='approach')?0.8 : (hazard==='standby')?0.3 : 0;
-  let stress = (0.35*vStress + 0.25*pStress + 0.25*vecStress + 0.15*hazStress);
-  const seed = seedOf(row.__abbr || row.__label || '');
-  const jitter = ((seed%101)/100 - 0.5) * 0.20;
-  stress = Math.max(0, Math.min(1, stress + jitter));
-  if(stress < 0.35) return 'ok';
-  if(stress < 0.60) return 'warn';
-  return 'bad';
+// ==========================
+// WARP FORMULAS
+// ==========================
+function warpSpeed(wf) {
+    return Math.pow(wf, 3); // simplified warp curve
 }
 
-const host = document.getElementById("wdp-sections");
-const csvSrc = document.getElementById("wdp-chips")?.dataset.wdpCsv || new URL("navengreadings.csv", location.href).href;
+function travelTimeAU(distanceAU, wf) {
+    let c_in_AUph = 173.145; // 1c in AU/hour
+    return distanceAU / (warpSpeed(wf) * c_in_AUph);
+}
 
-function render(groups,KM){
-  host.innerHTML = "";
-  const order = ORDER.filter(k=>groups[k]?.length);
-  if(!order.length){
-    const div=document.createElement("div"); div.className="wdp-empty"; div.textContent="No items found in CSV."; host.appendChild(div); return;
-  }
-  for(const loc of order){
-    const card=document.createElement("section"); card.className="wdp-card"; card.dataset.loc=loc;
-    const h=document.createElement("div"); h.className="wdp-title"; h.textContent=loc; card.appendChild(h);
-    const grid=document.createElement("div"); grid.className="wdp-grid";
+// ==========================
+// PANEL UPDATES
+// ==========================
+function updatePanels() {
+    updateElement("warpFactorDisplay", warpFactor.toFixed(2));
+    updateElement("warpTargetDisplay", warpTarget.toFixed(2));
 
-    groups[loc].forEach(row=>{
-      const typ = normalizeType(row[KM.dtype]);
-      const showCircle = truthy(row[KM.circle]);
-      const abbr = String(row[KM.abbr] || row[KM.label] || "").trim();
-      row.__abbr = abbr; row.__label = row[KM.label];
+    updateElement("distanceRemaining", distanceRemaining.toFixed(3));
+    updateElement("lightMinutesDisplay", (distanceRemaining * 8.31675).toFixed(2));
+    updateElement("lightHoursDisplay", (distanceRemaining * 0.1386125).toFixed(2));
 
-      const chip=document.createElement("div"); chip.className="wdp-chip";
-      if(showCircle){ const dot=document.createElement("span"); dot.className="wdp-dot ok"; chip.appendChild(dot); chip._dot=dot; }
-      const ab=document.createElement("span"); ab.className="wdp-abbr"; ab.textContent=abbr; chip.appendChild(ab);
-      const ty=document.createElement("span"); ty.className="wdp-type"; ty.textContent=typ; chip.appendChild(ty);
-      const val=document.createElement("span"); val.className="wdp-val"; chip.appendChild(val);
+    heading = (heading + 1) % 360;
+    updateElement("headingDegrees", heading.toFixed(0));
+    updateElement("pitchDegrees", (Math.random() * 10 - 5).toFixed(2));
+    updateElement("yawDegrees", (Math.random() * 10 - 5).toFixed(2));
 
-      chip._wdp={ row, valEl:val, abbr, typ, showCircle, prevText:"" };
-      grid.appendChild(chip);
+    magField = magTarget + (Math.random() - 0.5) * 0.05;
+    updateElement("magField", magField.toFixed(2));
+    statusLight("magFieldStatus", Math.abs(magField - magTarget) <= 0.05 ? "green" : "red");
+
+    pressure = pressureTarget + (Math.random() - 0.5) * 0.1;
+    updateElement("enginePressure", pressure.toFixed(2));
+    statusLight("enginePressureStatus", Math.abs(pressure - pressureTarget) <= 0.1 ? "green" : "red");
+
+    updateElement("energyCoils", (warpFactor * 50).toFixed(0));
+    updateElement("energyNav", (warpFactor * 10).toFixed(0));
+    updateElement("energyShields", (warpFactor * 15).toFixed(0));
+    updateElement("energyLife", 200);
+
+    stabilityIndex = 100 - Math.random() * 2;
+    updateElement("stabilityIndex", stabilityIndex.toFixed(2));
+    statusLight("stabilityStatus", stabilityIndex >= 95 ? "green" : "yellow");
+
+    updateElement("hullIntegrity", hullIntegrity.toFixed(2));
+    updateElement("gravityBalance", (1 + (Math.random() - 0.5) * 0.01).toFixed(3));
+
+    updateElement("crewTotal", crewTotal);
+    updateElement("crewActive", crewActive);
+    updateElement("crewMedical", crewMedical);
+    statusLight("crewStatus", crewMedical === 0 ? "green" : "yellow");
+
+    updateAbbreviations();
+}
+
+// ==========================
+// ABBREVIATIONS UPDATE
+// ==========================
+let abbrList = [
+    // Navigation
+    "HDG","PCH","YAW","SPD","DST","ETA","POS","COG","VAR",
+    // Engine
+    "TMP","PRES","MAG","COIL","THR","VIB","FREQ","FLOW","RPM",
+    // Crew
+    "CRW","MED","OFF","ENG","SCI","ACT",
+    // Environment
+    "O2","CO2","TMP_ENV","GRAV","HUM","PRES_ENV"
+];
+
+// plus user’s 100+ custom abbreviations
+for(let i=1;i<=100;i++){ abbrList.push("SYS"+i); }
+
+function updateAbbreviations() {
+    abbrList.forEach(id=>{
+        let el = document.getElementById("abbr-"+id);
+        if (!el) return;
+
+        let value;
+        if (id==="HDG") value = heading+"°";
+        else if (id==="SPD") value = (warpSpeed(warpFactor)*173.145).toFixed(2)+" AU/h";
+        else if (id.includes("PRES")) value = (Math.random()*200).toFixed(2)+" psi";
+        else if (id.includes("MAG")) value = magField.toFixed(2)+" T";
+        else if (id.includes("TMP")) value = (20+Math.random()*5).toFixed(1)+"°C";
+        else value = (Math.random()*100).toFixed(2);
+
+        el.textContent = value;
+
+        // Flash logic for warp
+        if (warpEngaged && Math.random() < 0.05) {
+            el.classList.add("abbr-red");
+            setTimeout(()=>el.classList.remove("abbr-red"), 500);
+        }
     });
-
-    card.appendChild(grid); host.appendChild(card);
-  }
 }
 
-(async function(){
-  try{
-    const res = await fetch(csvSrc, { cache:"no-store" });
-    if(!res.ok) throw new Error(`CSV fetch failed: ${res.status}`);
-    const rows0 = parseCSV(await res.text());
-    const rows  = normalizeRows(rows0);
-    const KM    = buildKeyMap(rows[0]||{});
-    const groups= groupByLocation(rows, KM);
-    render(groups, KM);
+// ==========================
+// WARP CONTROL
+// ==========================
+function engageWarp(targetWF, targetAU) {
+    if (warpEngaged) return;
+    warpEngaged = true;
+    warpTarget = targetWF;
+    distanceRemaining = targetAU;
 
-    const liveSet = new Set(["numbers","degrees","time","watts"]);
-    let redSince=null, lastT=-1;
+    magTarget = warpTarget * 0.5;
+    pressureTarget = warpTarget * 1.2;
 
-    function anim(){
-      const t = Math.floor(performance.now()/1000);
-      if(t !== lastT){
-        lastT = t;
-        const engine = window.__engine_live_state || {v:0,p:0,f:0,r:0,hazard:'none'};
-        let redCount = 0;
+    let travelHours = travelTimeAU(distanceRemaining, warpTarget);
+    arrivalTime = new Date(Date.now() + travelHours * 3600000);
 
-        host.querySelectorAll(".wdp-chip").forEach(ch=>{
-          const ref = ch._wdp; if(!ref) return;
+    logStatus(`Warp engaged to ${targetAU} AU at Warp ${targetWF}`);
+    if (soundOn) { humSound.pause(); warpSound.play(); }
 
-          const vtxt = liveValue(ref.typ, ref.abbr, t);
-          if(liveSet.has(ref.typ)){
-            if(vtxt !== ref.prevText){
-              ref.valEl.textContent = vtxt;
-              ref.prevText = vtxt;
-              ref.valEl.classList.remove('tick'); void ref.valEl.offsetWidth; ref.valEl.classList.add('tick');
-            }
-          } else if(!ref.valEl.textContent){
-            ref.valEl.textContent = vtxt; ref.prevText = vtxt;
-          }
+    tripInterval = setInterval(() => {
+        warpFactor = warpTarget + (Math.random() - 0.5) * 0.05;
+        distanceRemaining -= warpSpeed(warpFactor) * 0.0005;
+        if (distanceRemaining <= 0) {
+            arriveWarp();
+        }
+        updatePanels();
+        updateClocks();
+        safetyCheck();
+    }, 1000);
+}
 
-          if(ref.showCircle && ch._dot){
-            const cls = circleClassForRow(ref.row, engine);
-            ch._dot.classList.remove('ok','warn','bad');
-            ch._dot.classList.add(cls);
-            if(cls==='bad') redCount++;
-          }
-        });
+function arriveWarp() {
+    clearInterval(tripInterval);
+    warpEngaged = false;
+    warpFactor = 0;
+    distanceRemaining = 0;
+    updatePanels();
+    logStatus("Arrived at destination!");
+    if (soundOn) { warpSound.pause(); arriveSound.play(); setTimeout(() => humSound.play(), 5000); }
+}
 
-        const threshold = 20;
-        if(redCount > threshold){
-          if(redSince==null) redSince = performance.now();
-          else if(performance.now() - redSince > 2000 && typeof window.requestEngineShutdown==='function'){
-            window.requestEngineShutdown(`> ${threshold} critical sensor circles`);
-            redSince = null;
-          }
-        } else redSince = null;
-      }
-      requestAnimationFrame(anim);
+function safetyCheck() {
+    if (Math.abs(magField - magTarget) > 0.1 || Math.abs(pressure - pressureTarget) > 0.2 || stabilityIndex < 90) {
+        logStatus("⚠ Safety limits exceeded — Warp disengaging!", true);
+        arriveWarp();
     }
-    requestAnimationFrame(anim);
-  }catch(e){
-    console.error(e);
-    const div=document.createElement("div"); div.className="wdp-empty"; div.textContent="Could not load CSV."; host.appendChild(div);
-  }
-})();
-</script>  
-</body>
+}
+
+// ==========================
+// COMPASS
+// ==========================
+function drawCompass() {
+    const ctx = document.getElementById("compassCanvas").getContext("2d");
+    ctx.clearRect(0,0,200,200);
+    ctx.strokeStyle = "#3ad5ff";
+    ctx.beginPath();
+    ctx.arc(100,100,90,0,Math.PI*2);
+    ctx.stroke();
+
+    ctx.save();
+    ctx.translate(100,100);
+    ctx.rotate((heading*Math.PI)/180);
+    ctx.beginPath();
+    ctx.moveTo(0,-80);
+    ctx.lineTo(0,0);
+    ctx.strokeStyle = "red";
+    ctx.stroke();
+    ctx.restore();
+}
+
+// ==========================
+// EINSTEIN TENSOR VISUAL
+// ==========================
+function drawTensor() {
+    const ctx = document.getElementById("tensorCanvas").getContext("2d");
+    ctx.clearRect(0,0,250,80);
+    ctx.strokeStyle = "#3ad5ff";
+    for(let i=0;i<5;i++){
+        ctx.beginPath();
+        ctx.moveTo(0,Math.random()*80);
+        ctx.lineTo(250,Math.random()*80);
+        ctx.stroke();
+    }
+}
+
+// ==========================
+// STARFIELD
+// ==========================
+let stars = Array.from({length:100}, ()=>({x:Math.random()*300, y:Math.random()*150, speed:Math.random()*2+1}));
+function drawStarfield() {
+    const ctx = document.getElementById("starfieldCanvas").getContext("2d");
+    ctx.clearRect(0,0,300,150);
+    ctx.fillStyle = "white";
+    stars.forEach(s=>{
+        ctx.beginPath();
+        ctx.arc(s.x,s.y,1,0,Math.PI*2);
+        ctx.fill();
+        if (warpEngaged) s.y += s.speed*2; else s.y += s.speed*0.5;
+        if (s.y>150) s.y = 0;
+    });
+}
+
+// ==========================
+// INIT
+// ==========================
+setInterval(updateClocks, 1000);
+setInterval(()=>{
+    updatePanels();
+    drawCompass();
+    drawTensor();
+    drawStarfield();
+}, 500);
+
+if (soundOn) humSound.play();
+
+// Example auto-engage for testing
+setTimeout(()=>engageWarp(5, 20), 3000);
+</script>
 </html>
