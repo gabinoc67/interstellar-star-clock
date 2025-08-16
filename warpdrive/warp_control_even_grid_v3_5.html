@@ -1,69 +1,164 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Warp Control Center</title>
-  <link rel="stylesheet" href="styles.css" />
+  <title>🪐 Live Solar System — Interstellar Star Clock</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      background: #000;
+      margin: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      color: #00ffcc;
+      font-family: 'Courier New', monospace;
+    }
+    canvas {
+      width: 95vmin;
+      height: 95vmin;
+      background: #000;
+      border: 2px solid #064e3b;
+      border-radius: 12px;
+      display: block;
+    }
+  </style>
 </head>
 <body>
-  <!-- CONTROLS PANEL -->
-  <div id="controls-panel">
-    <button id="engage-btn">Engage Warp</button>
-    <button id="reset-btn">Reset</button>
+  <canvas id="solarCanvas"></canvas>
 
-    <label for="planet-select">Destination:</label>
-    <select id="planet-select">
-      <option value="mercury">Mercury</option>
-      <option value="venus">Venus</option>
-      <option value="earth">Earth</option>
-      <option value="mars">Mars</option>
-      <option value="jupiter">Jupiter</option>
-      <option value="saturn">Saturn</option>
-      <option value="uranus">Uranus</option>
-      <option value="neptune">Neptune</option>
-      <option value="pluto">Pluto</option>
-      <option value="moon">Moon</option>
-    </select>
+  <script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const DEG2RAD = Math.PI / 180, RAD2DEG = 180 / Math.PI;
+    function norm360(x){ x = x % 360; return x < 0 ? x + 360 : x; }
+    function norm2pi(x){ x = x % (2*Math.PI); return x < 0 ? x + 2*Math.PI : x; }
 
-    <label for="warp-speed-select">Warp Drive:</label>
-    <select id="warp-speed-select">
-      <option value="1">1</option>
-      <option value="2">2</option>
-      <option value="3">3</option>
-      <option value="4">4</option>
-      <option value="5">5</option>
-      <option value="6">6</option>
-      <option value="7">7</option>
-      <option value="8">8</option>
-      <option value="9">9</option>
-      <option value="10">10</option>
-    </select>
-  </div>
+    function toJulianDate(dateUTC) {
+      const a = Math.floor((14 - (dateUTC.getUTCMonth()+1)) / 12);
+      const y = dateUTC.getUTCFullYear() + 4800 - a;
+      const m = (dateUTC.getUTCMonth()+1) + 12*a - 3;
+      const JDN = dateUTC.getUTCDate()
+        + Math.floor((153*m + 2)/5)
+        + 365*y + Math.floor(y/4) - Math.floor(y/100) + Math.floor(y/400) - 32045;
+      const dayFrac = (dateUTC.getUTCHours() - 12)/24
+        + dateUTC.getUTCMinutes()/1440 + dateUTC.getUTCSeconds()/86400;
+      return JDN + dayFrac;
+    }
 
-  <!-- REAR / FRONT PANELS -->
-  <div id="view-panels">
-    <div class="panel">
-      <h3>Rear View<br><small>(Earth)</small></h3>
-      <canvas id="rear-canvas" width="200" height="200"></canvas>
-    </div>
-    <div class="panel">
-      <h3 id="front-title">Front View</h3>
-      <canvas id="front-canvas" width="200" height="200"></canvas>
-    </div>
-  </div>
+    // Orbital elements
+    const PLANETS = {
+      Mercury:{ a:0.387, e:0.206, L:252.25, dL:149472.67, P:87.969, color:"#9ad" },
+      Venus:{ a:0.723, e:0.007, L:181.98, dL:58517.815, P:224.701, color:"#f7c" },
+      Earth:{ a:1.000, e:0.017, L:100.46, dL:35999.373, P:365.256, color:"#0fc" },
+      Mars:{ a:1.524, e:0.093, L:-4.55, dL:19140.303, P:686.971, color:"#f66" },
+      Jupiter:{ a:5.204, e:0.049, L:34.35, dL:3034.906, P:4332.59, color:"#ffb" },
+      Saturn:{ a:9.537, e:0.054, L:50.08, dL:1222.114, P:10759.22, color:"#fb9" },
+      Uranus:{ a:19.19, e:0.047, L:314.06, dL:428.467, P:30688.5, color:"#9ff" },
+      Neptune:{ a:30.07, e:0.009, L:304.35, dL:218.486, P:60182, color:"#9bf" },
+      Pluto:{ a:39.48, e:0.249, L:238.93, dL:145.208, P:90560, color:"#ddd" }
+    };
 
-  <!-- TRAJECTORY & FIELD VECTORS -->
-  <div id="trajectory-panel">
-    <h3>Trajectory &amp; Field Vectors</h3>
-    <canvas id="traj-canvas" width="300" height="100"></canvas>
-    <div class="angles">
-      <span>ΔX: <b id="ang-x">0°</b></span>
-      <span>ΔY: <b id="ang-y">0°</b></span>
-      <span>Traj: <b id="ang-t">0°</b></span>
-    </div>
-  </div>
+    function solveKeplerElliptic(M, e) {
+      let E = (e < 0.8) ? M : Math.PI;
+      for (let i=0; i<20; i++){
+        const f = E - e*Math.sin(E) - M;
+        const f1 = 1 - e*Math.cos(E);
+        const dE = -f / f1;
+        E += dE;
+        if (Math.abs(dE) < 1e-12) break;
+      }
+      return E;
+    }
 
-  <script src="scripts.js"></script>
+    function orbitState(name, dateUTC){
+      const p = PLANETS[name];
+      const JD = toJulianDate(dateUTC);
+      const T = (JD - 2451545.0) / 36525.0;
+
+      const a = p.a;
+      const e = p.e;
+      const L = p.L + p.dL*T;
+      const Mdeg = norm360(L - 102.9373); // perihelion ref
+      const M = Mdeg * DEG2RAD;
+
+      const E = solveKeplerElliptic(M, e);
+      const rAU = a * (1 - e*Math.cos(E));
+      const nu = 2*Math.atan2(Math.sqrt(1+e)*Math.sin(E/2), Math.sqrt(1-e)*Math.cos(E/2));
+      const x = rAU * Math.cos(nu);
+      const y = rAU * Math.sin(nu);
+
+      return { rAU, x, y, color:p.color, name };
+    }
+
+    const canvas = document.getElementById('solarCanvas');
+    const ctx = canvas.getContext('2d');
+
+    function resizeCanvas(){
+      const size = Math.min(window.innerWidth, window.innerHeight) * 0.95;
+      canvas.width = size;
+      canvas.height = size;
+    }
+
+    function drawSolar(){
+      resizeCanvas();
+      const now = new Date();
+      const w = canvas.width, h = canvas.height;
+      const cx = w/2, cy = h/2;
+
+      const states = Object.keys(PLANETS).map(n => orbitState(n, now));
+      const maxR_AU = Math.max(...states.map(s => Math.hypot(s.x,s.y)));
+      const Rpx = (Math.min(cx, cy) * 0.88) / maxR_AU;
+
+      ctx.clearRect(0,0,w,h);
+
+      // degree ticks
+      ctx.strokeStyle="rgba(255,255,255,0.25)";
+      ctx.fillStyle="rgba(255,255,255,0.7)";
+      ctx.font="12px Courier New";
+      for (let deg=0; deg<360; deg+=10){
+        const rad = deg*DEG2RAD;
+        const len = (deg % 30 === 0)?12:6;
+        const x1 = cx+(cx-len)*Math.cos(rad);
+        const y1 = cy+(cy-len)*Math.sin(rad);
+        const x2 = cx+cx*Math.cos(rad);
+        const y2 = cy+cy*Math.sin(rad);
+        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+        if(deg%30===0) ctx.fillText(`${deg}°`, cx+(cx-30)*Math.cos(rad)-10, cy+(cy-30)*Math.sin(rad)+4);
+      }
+
+      // AU rings
+      ctx.strokeStyle="rgba(255,255,255,0.15)";
+      const rings = [1,2,5,10,20,30,40];
+      rings.forEach(au=>{
+        const r = au*Rpx;
+        if(r<cx){
+          ctx.beginPath(); ctx.arc(cx,cy,r,0,2*Math.PI); ctx.stroke();
+          ctx.fillText(`${au} AU`, cx+r+5, cy+4);
+        }
+      });
+
+      // Sun
+      ctx.beginPath(); ctx.arc(cx,cy,6,0,2*Math.PI);
+      ctx.fillStyle="#ffd27f"; ctx.fill();
+
+      // Planets
+      states.forEach(st=>{
+        const x = cx + st.x*Rpx;
+        const y = cy + st.y*Rpx;
+        ctx.beginPath(); ctx.arc(x,y,4,0,2*Math.PI);
+        ctx.fillStyle=st.color; ctx.fill();
+        ctx.fillText(st.name, x+8, y);
+      });
+
+      ctx.fillStyle="#aaa";
+      ctx.fillText(`Positions @ ${now.toUTCString()}`, 10, h-10);
+    }
+
+    setInterval(drawSolar,1000);
+    window.addEventListener('resize',drawSolar);
+    drawSolar();
+  });
+  </script>
 </body>
 </html>
