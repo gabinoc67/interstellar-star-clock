@@ -1,246 +1,207 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8">
-<title>Warp Control — Full System with Solar Simulation</title>
-<style>
-  :root {
-    --bg:#070b12; --panel:#0c1424; --glass:#0d1a31cc; --edge:#27406b;
-    --text:#eaf2ff; --muted:#a7b9df; --good:#22c55e; --warn:#facc15; --bad:#ef4444;
-  }
-  body {
-    margin:0; background:var(--bg); color:var(--text);
-    font-family:monospace; font-size:14px;
-  }
-  .grid {
-    display:grid;
-    grid-template-columns: repeat(auto-fit, minmax(30%, 1fr));
-    gap:12px;
-    padding:12px;
-  }
-  .panel {
-    background:var(--glass);
-    border:1px solid var(--edge);
-    border-radius:12px;
-    padding:8px;
-    box-shadow:0 0 6px #000 inset;
-    min-height:160px;
-  }
-  h2 {margin:0 0 6px 0;font-size:14px;color:var(--muted)}
-  canvas {background:black;border-radius:8px;display:block;margin:auto}
-  pre {margin:0;white-space:pre-wrap}
-</style>
+  <meta charset="UTF-8" />
+  <title>🪐 Solar System — Live Orbital Positions</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      margin: 0;
+      background: #000;
+      color: #00ffcc;
+      font-family: "Courier New", monospace;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      gap: 20px;
+      padding: 20px;
+      min-height: 100vh;
+    }
+    .wrap {
+      display: grid;
+      grid-template-columns: 1fr 280px;
+      gap: 20px;
+      width: 100%;
+      max-width: 1600px;
+      align-items: start;
+    }
+    canvas {
+      width: 100%;
+      max-width: 880px; /* 5% smaller */
+      aspect-ratio: 1/1;
+      background: #000;
+      border: 1px solid #064e3b;
+      border-radius: 12px;
+    }
+    .info {
+      background: #001a16;
+      border: 1px solid #064e3b;
+      padding: 14px;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      line-height: 1.45;
+    }
+    .info h2 {
+      font-size: 1.05rem;
+      margin: 0 0 10px;
+      color: #0ff;
+    }
+    .planet-line {
+      margin: 4px 0;
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1px dotted #033;
+      padding-bottom: 2px;
+    }
+    .planet-name {
+      font-weight: bold;
+      color: #0ff;
+    }
+  </style>
 </head>
 <body>
-<div class="grid">
-
-  <div class="panel"><h2>Flight Plan</h2><pre id="flightPlan"></pre></div>
-  <div class="panel"><h2>Gravity Vectoring Engine</h2><pre id="gravityEngine"></pre></div>
-  <div class="panel"><h2>Compass</h2><canvas id="compassCanvas" width="220" height="220"></canvas></div>
-
-  <div class="panel"><h2>Center Hub</h2><pre id="centerHub"></pre></div>
-  <div class="panel"><h2>Mode Alternator</h2><pre id="modeAlt"></pre></div>
-  <div class="panel"><h2>Starfield</h2><canvas id="starfield" width="300" height="200"></canvas></div>
-
-  <div class="panel"><h2>Heliocentric Polar Map</h2><pre id="orbitMap"></pre></div>
-  <div class="panel"><h2>Einstein Tensor Mini</h2><pre id="tensorMini"></pre></div>
-  <div class="panel"><h2>Pulse Radiation</h2><pre id="pulseRad"></pre></div>
-
-  <div class="panel"><h2>Debris Defense Field</h2><canvas id="debrisCanvas" width="250" height="150"></canvas></div>
-  <div class="panel"><h2>Warp Stability Monitor</h2><pre id="warpStab"></pre></div>
-  <div class="panel"><h2>Subspace Field Analyzer</h2><pre id="subspace"></pre></div>
-
-  <div class="panel"><h2>Orbital Tracker</h2><pre id="orbit-rows"></pre></div>
-  <div class="panel"><h2>Clock Sync</h2><pre id="clockGrid"></pre></div>
-  <div class="panel"><h2>Crew Panel</h2><pre id="crewPanel"></pre></div>
-
-  <div class="panel"><h2>Environment</h2><pre id="envPanel"></pre></div>
-  <div class="panel"><h2>Power Core</h2><pre id="powerCore"></pre></div>
-  <div class="panel"><h2>Navigation Logs</h2><pre id="navLogs"></pre></div>
-
-  <div class="panel"><h2>Communications</h2><pre id="comms"></pre></div>
-  <div class="panel"><h2>Data Stream</h2><pre id="dataStream"></pre></div>
-  
-  <!-- 🌍 Solar System Simulation Panel -->
-  <div class="panel"><h2>Solar System Simulation</h2>
-    <canvas id="solarCanvas" width="300" height="300"></canvas>
+  <div class="wrap">
+    <canvas id="solarCanvas"></canvas>
+    <div class="info">
+      <h2>🌌 Current Orbital Positions</h2>
+      <div id="planetData"></div>
+    </div>
   </div>
 
-</div>
+  <script>
+  document.addEventListener("DOMContentLoaded", function(){
+    const DEG2RAD = Math.PI / 180, RAD2DEG = 180 / Math.PI;
 
-<script>
-// ===============================
-// Physics Constants
-// ===============================
-const C = 299792458; // m/s
-const AU = 1.496e11;
-const G = 6.67430e-11;
-const M_EARTH = 5.972e24;
-const R_EARTH = 6371000;
-function rand(min,max){return Math.random()*(max-min)+min}
-function fmt(n,d=2){return n.toFixed(d)}
-function nowCST(){
-  const now=new Date();
-  const utc=now.getTime()+now.getTimezoneOffset()*60000;
-  return new Date(utc-(3600000*6));
-}
+    function norm2pi(x){ x = x % (2*Math.PI); return x < 0 ? x + 2*Math.PI : x; }
 
-// ===============================
-// Solar System Panel
-// ===============================
-const solarCanvas=document.getElementById("solarCanvas");
-const sctx=solarCanvas.getContext("2d");
-const W=solarCanvas.width,H=solarCanvas.height,cx=W/2,cy=H/2;
-const planets=[
- {name:"Mercury",r:0.39,color:"#aaa",period:88},
- {name:"Venus",r:0.72,color:"#f5c542",period:225},
- {name:"Earth",r:1.00,color:"#42a5f5",period:365},
- {name:"Mars",r:1.52,color:"#e65100",period:687},
- {name:"Jupiter",r:5.20,color:"#fbc02d",period:4333},
- {name:"Saturn",r:9.58,color:"#fdd835",period:10759},
- {name:"Uranus",r:19.2,color:"#80deea",period:30687},
- {name:"Neptune",r:30.1,color:"#1565c0",period:60190}
-];
-const AU_PIX=20;
-const speed=100;
+    function toJulianDate(dateUTC) {
+      const a = Math.floor((14 - (dateUTC.getMonth()+1)) / 12);
+      const y = dateUTC.getFullYear() + 4800 - a;
+      const m = (dateUTC.getMonth()+1) + 12*a - 3;
+      const JDN = dateUTC.getDate()
+        + Math.floor((153*m + 2)/5)
+        + 365*y + Math.floor(y/4) - Math.floor(y/100) + Math.floor(y/400) - 32045;
+      const dayFrac = (dateUTC.getHours() - 12)/24
+        + dateUTC.getMinutes()/1440 + dateUTC.getSeconds()/86400;
+      return JDN + dayFrac;
+    }
 
-function drawSolar(){
-  sctx.clearRect(0,0,W,H);
-  // Sun
-  sctx.beginPath();
-  sctx.arc(cx,cy,6,0,2*Math.PI);
-  sctx.fillStyle="yellow";sctx.fill();
-  let t=Date.now()/1000*speed;
-  planets.forEach(p=>{
-    let angle=(t/p.period)*2*Math.PI;
-    let x=cx+Math.cos(angle)*p.r*AU_PIX;
-    let y=cy+Math.sin(angle)*p.r*AU_PIX;
-    // orbit path
-    sctx.beginPath();
-    sctx.arc(cx,cy,p.r*AU_PIX,0,2*Math.PI);
-    sctx.strokeStyle="rgba(255,255,255,0.1)";
-    sctx.stroke();
-    // planet
-    sctx.beginPath();
-    sctx.arc(x,y,3,0,2*Math.PI);
-    sctx.fillStyle=p.color;sctx.fill();
-    // label
-    sctx.fillStyle="white";sctx.font="10px monospace";
-    sctx.fillText(p.name,x+6,y+4);
+    const PLANETS = {
+      Mercury:{a:0.387,e:0.206,P:88,color:"#9ad"},
+      Venus:{a:0.723,e:0.007,P:225,color:"#f7c"},
+      Earth:{a:1.000,e:0.017,P:365,color:"#0fc"},
+      Mars:{a:1.524,e:0.093,P:687,color:"#f66"},
+      Jupiter:{a:5.203,e:0.049,P:4332,color:"#ffb"},
+      Saturn:{a:9.537,e:0.054,P:10759,color:"#fb9"},
+      Uranus:{a:19.191,e:0.047,P:30688,color:"#9ff"},
+      Neptune:{a:30.07,e:0.009,P:60182,color:"#9bf"},
+      Pluto:{a:39.482,e:0.249,P:90560,color:"#ddd"}
+    };
+
+    function solveKepler(M,e){let E=M;for(let i=0;i<10;i++)E=M+e*Math.sin(E);return E;}
+
+    function orbitState(name,dateUTC){
+      const p=PLANETS[name],JD=toJulianDate(dateUTC),n=2*Math.PI/p.P;
+      const M=n*(JD%p.P),E=solveKepler(M,p.e);
+      const nu=2*Math.atan2(Math.sqrt(1+p.e)*Math.sin(E/2),Math.sqrt(1-p.e)*Math.cos(E/2));
+      const r=p.a*(1-p.e*Math.cos(E));
+      const x=r*Math.cos(nu),y=r*Math.sin(nu);
+      return {x,y,rAU:r,nudeg:norm2pi(nu)*RAD2DEG,color:p.color};
+    }
+
+    const canvas=document.getElementById("solarCanvas"),ctx=canvas.getContext("2d");
+
+    function resize(){const rect=canvas.getBoundingClientRect();
+      const ratio=window.devicePixelRatio||1;
+      canvas.width=rect.width*ratio; canvas.height=rect.height*ratio;
+      ctx.setTransform(ratio,0,0,ratio,0,0);
+    }
+
+    // Adjust scaling: expand inner planets 10%, compress outer planets 10%
+    function logScale(rAU,maxAU,Rpx){
+      let factor=1;
+      if(rAU < 2){ factor=1.1; }      // inner planets expanded
+      if(rAU > 5){ factor=0.9; }      // outer planets compressed
+      return Math.log(1+rAU*factor)/Math.log(1+maxAU)*Rpx;
+    }
+
+    function draw(){
+      resize();
+      const w=canvas.clientWidth,h=canvas.clientHeight;
+      const cx=w/2,cy=h/2;
+      const now=new Date();
+
+      const states={};
+      for(const name in PLANETS){ states[name]=orbitState(name,now); }
+
+      const maxR=Math.max(...Object.values(states).map(s=>Math.hypot(s.x,s.y)));
+      const Rpx=Math.min(cx,cy)*0.80; // 5% smaller
+
+      ctx.clearRect(0,0,w,h);
+
+      // Degree grid every 20°
+      ctx.strokeStyle="rgba(255,255,255,0.3)";
+      ctx.font="11px Courier New";
+      ctx.fillStyle="#ccc";
+      for(let deg=0;deg<360;deg+=20){
+        const rad=deg*DEG2RAD;
+        const x2=cx+Rpx*Math.cos(rad),y2=cy+Rpx*Math.sin(rad);
+        ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(x2,y2); ctx.stroke();
+        ctx.fillText(`${deg}°`,cx+(Rpx+14)*Math.cos(rad)-10,cy+(Rpx+14)*Math.sin(rad)+4);
+      }
+
+      // AU circles + labels
+      ctx.strokeStyle="rgba(0,255,255,0.25)";
+      ctx.fillStyle="#0ff";
+      const AUsteps=[0.4,0.7,1,1.5,5,10,20,30,40]; 
+      AUsteps.forEach(au=>{
+        const r=logScale(au,maxR,Rpx);
+        ctx.beginPath();
+        ctx.arc(cx,cy,r,0,2*Math.PI);
+        ctx.stroke();
+        ctx.fillText(`${au} AU`,cx+r+4,cy-4);
+      });
+
+      // Sun
+      ctx.beginPath(); ctx.arc(cx,cy,6,0,2*Math.PI);
+      ctx.fillStyle="#ffd27f"; ctx.fill();
+
+      // Planets
+      ctx.font="11px Courier New";
+      for(const name in states){
+        const st=states[name];
+        const r=logScale(Math.hypot(st.x,st.y),maxR,Rpx);
+        const ang=Math.atan2(st.y,st.x);
+        const x=cx+r*Math.cos(ang), y=cy+r*Math.sin(ang);
+
+        // draw radius vector
+        ctx.strokeStyle="rgba(255,255,255,0.25)";
+        ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(x,y); ctx.stroke();
+
+        ctx.beginPath(); ctx.arc(x,y,4,0,2*Math.PI);
+        ctx.fillStyle=st.color; ctx.fill();
+
+        ctx.fillStyle=st.color;
+        ctx.fillText(name,x+8,y);
+      }
+
+      // Update side panel
+      const panel=document.getElementById("planetData");
+      panel.innerHTML="";
+      for(const name of Object.keys(PLANETS)){
+        const st=states[name];
+        const line=document.createElement("div");
+        line.className="planet-line";
+        line.innerHTML=`<span class="planet-name">${name}</span>
+                        <span>${st.nudeg.toFixed(4)}°</span>`;
+        panel.appendChild(line);
+      }
+    }
+
+    setInterval(draw,1000);
+    window.addEventListener("resize",draw);
+    draw();
   });
-  requestAnimationFrame(drawSolar);
-}
-drawSolar();
-
-// ===============================
-// Other Panels (Live Simulation)
-// ===============================
-function updateFlightPlan(){
-  let distLY=rand(4,20);
-  let eta=(distLY*9.461e15/C)/(60*60*24*365);
-  document.getElementById("flightPlan").textContent=
-   `Target: Proxima\nDist: ${fmt(distLY,2)} ly\nETA: ${fmt(eta,2)} y`;
-}
-function updateGravityEngine(){
-  let thrust=rand(1e6,1e7),mass=rand(5e5,2e6);
-  let a=thrust/mass;
-  document.getElementById("gravityEngine").textContent=
-   `Thrust: ${fmt(thrust)} N\nMass: ${fmt(mass)} kg\na=${fmt(a,3)} m/s²`;
-}
-function updateCenterHub(){
-  document.getElementById("centerHub").textContent=
-   `Engine: Idle\nWarp Bubble: Stable\nTemp: ${fmt(rand(270,300))} K`;
-}
-function updateModeAlt(){
-  let modes=["Idle","Impulse","Warp Prep","Warp Cruise"];
-  document.getElementById("modeAlt").textContent="Mode: "+modes[Math.floor(rand(0,modes.length))];
-}
-function updateOrbitMap(){
-  let r=rand(1,10)*AU;let v=Math.sqrt(G*M_EARTH/r);
-  document.getElementById("orbitMap").textContent=`Orbit: ${(r/AU).toFixed(2)} AU\nv=${fmt(v/1000,2)} km/s`;
-}
-function updateTensorMini(){
-  document.getElementById("tensorMini").textContent="Gμν ≈ diag(-1,1,1,1)\nδg ≈ "+fmt(rand(0,1e-3),5);
-}
-function updatePulseRad(){
-  let f=rand(1e3,1e6);
-  document.getElementById("pulseRad").textContent=`Pulse f=${fmt(f)} Hz\nAmp=${fmt(rand(0,5))}`;
-}
-function updateWarpStab(){
-  document.getElementById("warpStab").textContent=`σ=${fmt(rand(0,1e-3),5)}\nBubble: Stable`;
-}
-function updateSubspace(){
-  document.getElementById("subspace").textContent=`Noise:${fmt(rand(0,1))}\nFlux:${fmt(rand(0,1e-2),4)}`;
-}
-function updateClock(){
-  let t=nowCST();
-  document.getElementById("clockGrid").textContent=t.toLocaleString();
-}
-function updateCrew(){
-  document.getElementById("crewPanel").textContent=`Crew: ${Math.floor(rand(80,100))}% fit\nVitals OK`;
-}
-function updateEnv(){
-  document.getElementById("envPanel").textContent=`O₂:${fmt(rand(19,21))}%\nPressure:${fmt(rand(0.9,1.1))} atm`;
-}
-function updatePower(){
-  document.getElementById("powerCore").textContent=`Core:${fmt(rand(60,100))}%\nTemp:${fmt(rand(300,600))} K`;
-}
-function updateNavLogs(){
-  document.getElementById("navLogs").textContent=`Δv=${fmt(rand(0,5))} km/s\nHeading=${fmt(rand(0,360))}°`;
-}
-function updateComms(){
-  document.getElementById("comms").textContent=`Signal SNR:${fmt(rand(10,50))} dB\nLag:${fmt(rand(0,2),3)} s`;
-}
-function updateDataStream(){
-  document.getElementById("dataStream").textContent=`Packets:${Math.floor(rand(1000,2000))}/s\nErr:${fmt(rand(0,0.1),3)}`;
-}
-
-// Compass
-const comp=document.getElementById("compassCanvas");
-const cctx=comp.getContext("2d");
-function drawCompass(){
-  cctx.clearRect(0,0,220,220);
-  cctx.beginPath();cctx.arc(110,110,100,0,2*Math.PI);cctx.strokeStyle="#fff";cctx.stroke();
-  let heading=Date.now()/100 % 360;
-  let rad=heading*Math.PI/180;
-  cctx.beginPath();cctx.moveTo(110,110);
-  cctx.lineTo(110+90*Math.cos(rad),110+90*Math.sin(rad));
-  cctx.strokeStyle="red";cctx.stroke();
-  cctx.fillStyle="white";cctx.fillText(fmt(heading),100,200);
-  requestAnimationFrame(drawCompass);
-}
-drawCompass();
-
-// Starfield
-const star=document.getElementById("starfield");
-const s=star.getContext("2d");
-let stars=Array.from({length:100},()=>({x:rand(0,300),y:rand(0,200),z:rand(1,3)}));
-function drawStars(){
-  s.clearRect(0,0,300,200);
-  stars.forEach(st=>{s.fillStyle="white";s.fillRect(st.x,st.y,st.z,st.z)});
-  requestAnimationFrame(drawStars);
-}
-drawStars();
-
-// Master Loop
-setInterval(()=>{
-  updateFlightPlan();
-  updateGravityEngine();
-  updateCenterHub();
-  updateModeAlt();
-  updateOrbitMap();
-  updateTensorMini();
-  updatePulseRad();
-  updateWarpStab();
-  updateSubspace();
-  updateClock();
-  updateCrew();
-  updateEnv();
-  updatePower();
-  updateNavLogs();
-  updateComms();
-  updateDataStream();
-},1000);
-</script>
+  </script>
 </body>
 </html>
