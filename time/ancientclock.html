@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Zodiac Cosmic Clock + Moon Phase (with Anomaly)</title>
+  <title>Zodiac Cosmic Clock with Precession</title>
   <style>
     body { background:#0a0f1f; color:#fff; text-align:center; font-family:Arial; }
     canvas { background:#111; margin-top:20px; border:2px solid #333; }
@@ -16,7 +16,7 @@
   </style>
 </head>
 <body>
-  <h1>🌌 Top Cosmic Clock — Zodiac, Planets, Moon Phase & Anomaly</h1>
+  <h1>🌌 Top Cosmic Clock — Zodiac with Precession</h1>
 
   <label for="dateInput">Enter a Birthday:</label>
   <input type="date" id="dateInput">
@@ -25,23 +25,21 @@
 
   <div id="output">Enter a date to see cosmic alignment.</div>
 
-  <canvas id="cosmicClock" width="1200" height="800"></canvas>
+  <canvas id="cosmicClock" width="900" height="900"></canvas>
 
   <script>
     const canvas = document.getElementById("cosmicClock");
     const ctx = canvas.getContext("2d");
 
-    // Centers
-    const zodiacCx = 350, zodiacCy = 400, zodiacR = 250;
-    const phaseCx = 900, phaseCy = 400, phaseR = 120;
+    const cx = canvas.width/2, cy = canvas.height/2, zodiacR = 320;
 
-    // Hidden zero epoch: 3111 BCE (approx Aug 11, -3110 JS)
+    // Zero Epoch: 3111 BCE (Aug 11, -3110 in JS)
     const zeroEpoch = new Date(-3110, 7, 11);
 
     // Orbital cycles (days)
     const cycles = {
       Sun: 365,
-      Moon: 29.5306,   // synodic month
+      Moon: 29.5306,
       Mercury: 116,
       Venus: 584,
       Mars: 780,
@@ -49,23 +47,23 @@
       Saturn: 378
     };
 
-    // Pointers (hands)
+    // Planetary hands
     let hands = [
-      {label:"Sun", cycle:"Sun", angle:0, target:0, color:"gold"},
-      {label:"Moon", cycle:"Moon", angle:0, target:0, color:"silver"},
-      {label:"Mercury", cycle:"Mercury", angle:0, target:0, color:"orange"},
-      {label:"Venus", cycle:"Venus", angle:0, target:0, color:"violet"},
-      {label:"Mars", cycle:"Mars", angle:0, target:0, color:"red"},
-      {label:"Jupiter", cycle:"Jupiter", angle:0, target:0, color:"cyan"},
-      {label:"Saturn", cycle:"Saturn", angle:0, target:0, color:"lightgreen"}
+      {label:"Sun", cycle:"Sun", angle:0, target:0, color:"gold", r:zodiacR-80},
+      {label:"Moon", cycle:"Moon", angle:0, target:0, color:"silver", r:zodiacR-100},
+      {label:"Mercury", cycle:"Mercury", angle:0, target:0, color:"orange", r:zodiacR-120},
+      {label:"Venus", cycle:"Venus", angle:0, target:0, color:"violet", r:zodiacR-140},
+      {label:"Mars", cycle:"Mars", angle:0, target:0, color:"red", r:zodiacR-160},
+      {label:"Jupiter", cycle:"Jupiter", angle:0, target:0, color:"cyan", r:zodiacR-180},
+      {label:"Saturn", cycle:"Saturn", angle:0, target:0, color:"lightgreen", r:zodiacR-200}
     ];
 
-    let moonPhaseAngle = 0;
     let animating = false;
+    let zodiacPrecessionAngle = 0;
 
     function toCosmicDate(date) {
       let corrected = new Date(date);
-      corrected.setDate(corrected.getDate() - 12);
+      corrected.setDate(corrected.getDate() - 12); // cosmic correction
       return corrected;
     }
 
@@ -86,7 +84,7 @@
 
     function resetClock() {
       hands.forEach(h => { h.angle = 0; h.target = 0; });
-      moonPhaseAngle = 0;
+      zodiacPrecessionAngle = 0;
       animating = false;
       draw();
       document.getElementById("output").innerHTML = "Reset to Zero Epoch (3111 BCE)";
@@ -95,43 +93,40 @@
     function setTargets(date) {
       let daysSinceZero = Math.floor((date - zeroEpoch) / 86400000);
 
-      // Sun first
-      let sun = hands.find(h=>h.label==="Sun");
-      sun.target = ((daysSinceZero % cycles.Sun) / cycles.Sun) * 2 * Math.PI;
+      // Precession: 1° per 72 years
+      let yearsSinceZero = daysSinceZero / 365.25;
+      zodiacPrecessionAngle = -(yearsSinceZero / 72) * Math.PI/180;
 
-      // Planets
+      // Sun & planets
       hands.forEach(h => {
-        if (h.label !== "Sun" && h.label !== "Moon") {
-          h.target = ((daysSinceZero % cycles[h.cycle]) / cycles[h.cycle]) * 2 * Math.PI;
-        }
+        h.target = ((daysSinceZero % cycles[h.cycle]) / cycles[h.cycle]) * 2 * Math.PI;
       });
 
-      // Moon with anomaly correction (254/19 gear ratio)
+      // Moon anomaly correction (wobble)
       let anomaly = (daysSinceZero % (254*cycles.Moon/19)) / (254*cycles.Moon/19);
-      let correction = 0.1 * Math.sin(2*Math.PI*anomaly); // wobble
+      let correction = 0.1 * Math.sin(2*Math.PI*anomaly);
       let moon = hands.find(h=>h.label==="Moon");
-      moon.target = ((daysSinceZero % cycles.Moon) / cycles.Moon) * 2 * Math.PI + correction;
-
-      // Moon Phase (relative to Sun)
-      moonPhaseAngle = moon.target - sun.target;
+      moon.target += correction;
     }
 
     function drawZodiacDial() {
+      // Outer circle
       ctx.beginPath();
-      ctx.arc(zodiacCx, zodiacCy, zodiacR, 0, Math.PI*2);
+      ctx.arc(cx, cy, zodiacR, 0, Math.PI*2);
       ctx.strokeStyle="#777"; ctx.lineWidth=2; ctx.stroke();
 
       // Degree ticks
       for (let d=0; d<360; d+=10) {
-        let rad = d * Math.PI/180;
-        let x1 = zodiacCx + zodiacR * Math.cos(rad);
-        let y1 = zodiacCy + zodiacR * Math.sin(rad);
-        let x2 = zodiacCx + (zodiacR + (d%90===0?20:10)) * Math.cos(rad);
-        let y2 = zodiacCy + (zodiacR + (d%90===0?20:10)) * Math.sin(rad);
+        let rad = d * Math.PI/180 + zodiacPrecessionAngle;
+        let x1 = cx + zodiacR * Math.cos(rad);
+        let y1 = cy + zodiacR * Math.sin(rad);
+        let x2 = cx + (zodiacR + (d%90===0?20:10)) * Math.cos(rad);
+        let y2 = cy + (zodiacR + (d%90===0?20:10)) * Math.sin(rad);
         ctx.beginPath();
         ctx.moveTo(x1,y1); ctx.lineTo(x2,y2);
         ctx.strokeStyle=(d%90===0)?"#fff":"#555";
         ctx.lineWidth=(d%90===0)?2:1; ctx.stroke();
+
         if (d%90===0){
           ctx.fillStyle="white"; ctx.font="14px Arial";
           ctx.textAlign="center";
@@ -139,61 +134,51 @@
         }
       }
 
-      // Zodiac labels
+      // Zodiac signs
       const zodiacs = ["♈ Aries","♉ Taurus","♊ Gemini","♋ Cancer","♌ Leo","♍ Virgo","♎ Libra","♏ Scorpio","♐ Sagittarius","♑ Capricorn","♒ Aquarius","♓ Pisces"];
       for (let i=0;i<12;i++){
-        let angle=(i*30-75)*Math.PI/180;
-        let tx=zodiacCx+(zodiacR-40)*Math.cos(angle);
-        let ty=zodiacCy+(zodiacR-40)*Math.sin(angle);
+        let angle=(i*30-75)*Math.PI/180 + zodiacPrecessionAngle;
+        let tx=cx+(zodiacR-40)*Math.cos(angle);
+        let ty=cy+(zodiacR-40)*Math.sin(angle);
         ctx.fillStyle="gold"; ctx.font="16px Arial"; ctx.fillText(zodiacs[i], tx, ty);
       }
 
-      // Months labels
+      // Months
       const months=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
       for (let i=0;i<12;i++){
-        let angle=(i*30-60)*Math.PI/180;
-        let tx=zodiacCx+(zodiacR-80)*Math.cos(angle);
-        let ty=zodiacCy+(zodiacR-80)*Math.sin(angle);
+        let angle=(i*30-60)*Math.PI/180 + zodiacPrecessionAngle;
+        let tx=cx+(zodiacR-80)*Math.cos(angle);
+        let ty=cy+(zodiacR-80)*Math.sin(angle);
         ctx.fillStyle="lightblue"; ctx.font="14px Arial"; ctx.fillText(months[i], tx, ty);
       }
     }
 
     function drawHands() {
       hands.forEach(h=>{
-        let dx=zodiacCx+(zodiacR-100)*Math.cos(h.angle);
-        let dy=zodiacCy+(zodiacR-100)*Math.sin(h.angle);
-        ctx.beginPath(); ctx.moveTo(zodiacCx,zodiacCy); ctx.lineTo(dx,dy);
+        // orbit circle
+        ctx.beginPath();
+        ctx.arc(cx, cy, h.r, 0, Math.PI*2);
+        ctx.strokeStyle="#333"; ctx.stroke();
+
+        // hand line
+        let dx=cx+h.r*Math.cos(h.angle);
+        let dy=cy+h.r*Math.sin(h.angle);
+        ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(dx,dy);
         ctx.strokeStyle=h.color; ctx.lineWidth=2; ctx.stroke();
-        ctx.beginPath(); ctx.arc(dx,dy,6,0,Math.PI*2); ctx.fillStyle=h.color; ctx.fill();
+
+        // dot
+        ctx.beginPath(); ctx.arc(dx,dy,6,0,Math.PI*2);
+        ctx.fillStyle=h.color; ctx.fill();
+
+        // label
         ctx.fillStyle=h.color; ctx.font="12px Arial"; ctx.fillText(h.label, dx+15, dy);
       });
-    }
-
-    function drawMoonPhase() {
-      ctx.beginPath();
-      ctx.arc(phaseCx, phaseCy, phaseR, 0, Math.PI*2);
-      ctx.strokeStyle="#777"; ctx.lineWidth=2; ctx.stroke();
-
-      // Phase disk (black/white halves)
-      ctx.save();
-      ctx.translate(phaseCx, phaseCy);
-      ctx.rotate(moonPhaseAngle);
-      ctx.beginPath();
-      ctx.arc(0,0,phaseR-20,0,Math.PI*2);
-      ctx.fillStyle="black"; ctx.fill();
-      ctx.beginPath();
-      ctx.arc(-10,0,phaseR-20,0,Math.PI*2);
-      ctx.fillStyle="white"; ctx.fill();
-      ctx.restore();
-
-      ctx.fillStyle="white"; ctx.font="16px Arial"; ctx.fillText("Moon Phase", phaseCx, phaseCy+phaseR+30);
     }
 
     function draw() {
       ctx.clearRect(0,0,canvas.width,canvas.height);
       drawZodiacDial();
       drawHands();
-      drawMoonPhase();
     }
 
     function animate() {
