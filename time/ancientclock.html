@@ -2,254 +2,413 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Cosmic Clock</title>
+  <title>Cosmic Clock (Venus-Locked + Metonic + Tepe + Maya + Egyptian Decans + Chinese Mansions)</title>
   <style>
-    body {
-      margin: 0;
-      font-family: Arial, sans-serif;
-      background: #0a0f1f;
-      color: #fff;
-      display: flex;
-      height: 100vh;
-      overflow: hidden;
+    body { background:#0a0f1f; color:#fff; font-family:Arial; margin:0; display:flex; justify-content:center; align-items:center; height:100vh; }
+    #container { display:flex; align-items:center; }
+    #infoPanel {
+      width: 340px;   /* +40% wider */
+      text-align:left;
+      margin-right:25px;
+      font-size: 16px;  /* larger text */
+      line-height:1.7em;
     }
-
-    /* Sidebar for input */
-    #controls {
-      width: 280px;
-      background: #0d1324;
-      padding: 20px;
-      box-shadow: 2px 0 10px rgba(0,0,0,0.5);
-    }
-
-    #controls h1 {
-      font-size: 20px;
-      color: #ffcc00;
-      margin-bottom: 10px;
-    }
-
-    label, input, button {
-      display: block;
-      margin-top: 10px;
-      width: 100%;
-    }
-
-    input {
-      padding: 6px;
-      border-radius: 5px;
-      border: none;
-    }
-
+    #infoPanel h1 { color:gold; font-size:26px; margin-bottom:14px; }
+    label, input, button { margin: 8px 0; font-size: 1.05em; }
+    input { width: 95%; padding:7px; font-size:1em; }
     button {
-      background: #007bff;
-      color: #fff;
-      border: none;
-      padding: 8px;
-      margin-top: 8px;
-      cursor: pointer;
-      border-radius: 5px;
+      background: #2563eb; color: white; border: none; padding: 10px 20px; /* +20% bigger */
+      border-radius: 6px; cursor: pointer; font-size:1.1em;
     }
-
-    button:hover {
-      background: #0056b3;
-    }
-
-    /* Main canvas area */
-    #canvasContainer {
-      flex: 1;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      position: relative;
-    }
-
-    canvas {
-      background: #111;
-      border-radius: 50%;
-    }
+    button:hover { background: #1d4ed8; }
+    canvas { background:#111; border:2px solid #333; }
   </style>
 </head>
 <body>
-  <div id="controls">
-    <h1>🪐 Cosmic Clock</h1>
-    <label for="birthday">Birthday:</label>
-    <input type="date" id="birthday">
-    <button id="start">Start</button>
-    <button id="reset">Reset</button>
-    <p>Enter a date to see cosmic alignment.</p>
+  <div id="container">
+    <div id="infoPanel">
+      <h1>🪐 Cosmic Clock</h1>
+      <label for="dateInput">Birthday:</label><br>
+      <input type="date" id="dateInput" placeholder="mm/dd/yyyy"><br>
+      <button onclick="startClock()">Start</button>
+      <button onclick="resetClock()">Reset</button>
+      <div id="output">Enter a date to see cosmic alignment.</div>
+    </div>
+    <canvas id="cosmicClock" width="1250" height="1250"></canvas>
   </div>
 
-  <div id="canvasContainer">
-    <canvas id="cosmicCanvas" width="700" height="700"></canvas>
-  </div>
-<script>
-const canvas = document.getElementById("cosmicCanvas");
-const ctx = canvas.getContext("2d");
-const centerX = canvas.width / 2;
-const centerY = canvas.height / 2;
-const radius = 300;
+  <script>
+    const canvas = document.getElementById("cosmicClock");
+    const ctx = canvas.getContext("2d");
+    const cx = canvas.width/2, cy = canvas.height/2;
 
-function drawCircleBase() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.strokeStyle = "#888";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
-  ctx.stroke();
-}
+    const plateR = 280;
+    const metonicR = 340;
+    const tepeR = 390;
+    const mayaR = 450;
+    const decanR = 510;
+    const chineseR = 580; 
+    let moonR = 220;
 
-/* --- Top Clock: Metonic + Moon + Zodiac --- */
-function drawTopClock() {
-  const topRadius = radius - 50;
+    const zeroEpoch = new Date(-3110, 7, 11);
+    const cycles = { Sun:365, Moon:29.53, Mercury:116, Venus:584, Mars:780, Jupiter:399, Saturn:378 };
 
-  // Outer Zodiac ring (12 sections)
-  const zodiacSigns = ["♈︎","♉︎","♊︎","♋︎","♌︎","♍︎","♎︎","♏︎","♐︎","♑︎","♒︎","♓︎"];
-  for (let i = 0; i < 12; i++) {
-    let angle = (i * 30 - 90) * Math.PI/180;
-    let x = centerX + Math.cos(angle) * (topRadius);
-    let y = centerY + Math.sin(angle) * (topRadius);
-    ctx.font = "20px Arial";
-    ctx.fillStyle = "#ffcc00";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(zodiacSigns[i], x, y);
-  }
+    let hands = [
+      {label:"Sun", cycle:"Sun", angle:0, target:0, color:"gold", r:100},
+      {label:"Mercury", cycle:"Mercury", angle:0, target:0, color:"orange", r:140},
+      {label:"Venus", cycle:"Venus", angle:0, target:0, color:"violet", r:160},
+      {label:"Mars", cycle:"Mars", angle:0, target:0, color:"red", r:180},
+      {label:"Jupiter", cycle:"Jupiter", angle:0, target:0, color:"cyan", r:200},
+      {label:"Saturn", cycle:"Saturn", angle:0, target:0, color:"lightgreen", r:220}
+    ];
 
-  // Degree markers 0–360
-  for (let deg = 0; deg < 360; deg += 10) {
-    let angle = (deg - 90) * Math.PI/180;
-    let inner = topRadius - 10;
-    let outer = topRadius;
-    let x1 = centerX + Math.cos(angle) * inner;
-    let y1 = centerY + Math.sin(angle) * inner;
-    let x2 = centerX + Math.cos(angle) * outer;
-    let y2 = centerY + Math.sin(angle) * outer;
-    ctx.strokeStyle = "#fff";
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
+    let moonDial = { angle:0, target:0 };
+    let animating = false;
+    let compassHeading = 0;
+    const declination = 1.9; 
 
-    // Label every 30°
-    if (deg % 30 === 0) {
-      let lx = centerX + Math.cos(angle) * (inner - 20);
-      let ly = centerY + Math.sin(angle) * (inner - 20);
-      ctx.fillStyle = "#fff";
-      ctx.font = "12px Arial";
-      ctx.fillText(deg, lx, ly);
+    if (window.DeviceOrientationEvent) {
+      window.addEventListener("deviceorientationabsolute", (event) => {
+        if (event.alpha !== null) {
+          compassHeading = event.alpha + declination;
+        }
+      }, true);
     }
-  }
 
-  // Metonic cycle (19 divisions)
-  for (let i = 0; i < 19; i++) {
-    let angle = (i * (360/19) - 90) * Math.PI/180;
-    let inner = topRadius - 40;
-    let outer = topRadius - 20;
-    let x1 = centerX + Math.cos(angle) * inner;
-    let y1 = centerY + Math.sin(angle) * inner;
-    let x2 = centerX + Math.cos(angle) * outer;
-    let y2 = centerY + Math.sin(angle) * outer;
-    ctx.strokeStyle = "#66f";
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
-  }
+    const tepeSymbols = ["🦂","🦊","🦅","🐂","🐍","🐇","🐺","🐟","🐦","🦌","🦃","🐢"];
+    const mayaSigns = ["🐊","🌬️","🌊","🔥","🦅","🐍","🌽","🐢","🕷️","🐒",
+                       "🐕","🌿","🌞","🌑","🌽","🦌","🌴","🦂","🌕","🐟"];
 
-  // Moon phases (8 icons inside)
-  for (let i = 0; i < 8; i++) {
-    let angle = (i * 45 - 90) * Math.PI/180;
-    let x = centerX + Math.cos(angle) * (topRadius - 80);
-    let y = centerY + Math.sin(angle) * (topRadius - 80);
-    ctx.beginPath();
-    ctx.arc(x, y, 12, 0, 2*Math.PI);
-    ctx.fillStyle = (i % 2 === 0) ? "#fff" : "#333";
-    ctx.fill();
-    ctx.strokeStyle = "#999";
-    ctx.stroke();
-  }
-}
-
-// Draw base + top clock
-drawCircleBase();
-drawTopClock();
-</script>
-<script>
-/* --- Bottom Clock: Exeligmos Cycle --- */
-function drawBottomClock() {
-  const bottomRadius = radius - 150;
-  const offsetY = 200; // move down below the top clock
-
-  // Outer circle
-  ctx.strokeStyle = "#0ff";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.arc(centerX, centerY + offsetY, bottomRadius, 0, 2 * Math.PI);
-  ctx.stroke();
-
-  // Degree markers 0–360
-  for (let deg = 0; deg < 360; deg += 10) {
-    let angle = (deg - 90) * Math.PI/180;
-    let inner = bottomRadius - 10;
-    let outer = bottomRadius;
-    let x1 = centerX + Math.cos(angle) * inner;
-    let y1 = centerY + offsetY + Math.sin(angle) * inner;
-    let x2 = centerX + Math.cos(angle) * outer;
-    let y2 = centerY + offsetY + Math.sin(angle) * outer;
-    ctx.strokeStyle = "#0ff";
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
-
-    // Label every 30°
-    if (deg % 30 === 0) {
-      let lx = centerX + Math.cos(angle) * (inner - 25);
-      let ly = centerY + offsetY + Math.sin(angle) * (inner - 25);
-      ctx.fillStyle = "#0ff";
-      ctx.font = "12px Arial";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(deg, lx, ly);
+    function parseLocalDate(input) {
+      const [y, m, d] = input.split("-").map(Number);
+      return new Date(y, m - 1, d);
     }
+
+    function startClock(){
+      let input = document.getElementById("dateInput").value;
+      if(!input) return;
+      let gDate = parseLocalDate(input);
+      let daysSinceZero = Math.floor((gDate - zeroEpoch)/86400000);
+      let moonPhase = (daysSinceZero % cycles.Moon).toFixed(1);
+
+      // Calendar readouts
+      let metonicYear = Math.floor((daysSinceZero/365) % 19) + 1;
+      let tepeIndex = daysSinceZero % tepeSymbols.length;
+      let mayaIndex = daysSinceZero % 260;
+      let mayaDay = mayaSigns[mayaIndex % 20];
+      let decanIndex = Math.floor((daysSinceZero % 360) / 10) + 1;
+      let chineseIndex = (daysSinceZero % 28) + 1;
+
+      document.getElementById("output").innerHTML =
+        "Cosmic Date (52-Year Cycle): " + gDate.toDateString() + "<br>" +
+        "🌙 Moon phase: " + moonPhase + " days<br>" +
+        "📅 Metonic Year: " + metonicYear + "/19<br>" +
+        "🐺 Tepe Symbol: " + tepeSymbols[tepeIndex] + " (" + (tepeIndex+1) + "/12)<br>" +
+        "🌽 Maya Day: " + mayaDay + " (" + (mayaIndex+1) + "/260)<br>" +
+        "🟥 Egyptian Decan: " + decanIndex + "/36<br>" +
+        "🟨 Chinese Mansion: " + chineseIndex + "/28";
+
+      setTargets(daysSinceZero);
+      animating = true;
+      animate();
+    }
+
+    function resetClock(){
+      hands.forEach(h=>{ h.angle=0; h.target=0; });
+      moonDial.angle = 0; moonDial.target=0;
+      animating=false;
+      document.getElementById("dateInput").value = "";
+      document.getElementById("output").innerHTML = "Enter a date to see cosmic alignment.";
+      draw();
+    }
+
+    function setTargets(daysSinceZero){
+      let venusPhase = ((daysSinceZero % cycles.Venus) / cycles.Venus) * 2*Math.PI;
+      let venusShift = -venusPhase;
+
+      hands.forEach(h=>{
+        let rawPhase = ((daysSinceZero % cycles[h.cycle]) / cycles[h.cycle]) * 2*Math.PI;
+        h.target = (rawPhase + venusShift) - compassHeading*Math.PI/180;
+      });
+
+      let moonPhaseAngle = ((daysSinceZero % cycles.Moon) / cycles.Moon) * 2*Math.PI;
+      moonDial.target = (moonPhaseAngle + venusShift) - compassHeading*Math.PI/180;
+    }
+
+    function drawPlate(){
+      ctx.beginPath();
+      ctx.arc(cx,cy,plateR,0,Math.PI*2);
+      ctx.strokeStyle="#555"; ctx.lineWidth=2; ctx.stroke();
+    }
+
+    function drawMetonic(){
+      ctx.beginPath();
+      ctx.arc(cx,cy,metonicR,0,Math.PI*2);
+      ctx.strokeStyle="gold"; ctx.lineWidth=2; ctx.stroke();
+      for(let i=0;i<235;i++){
+        let angle=(i*(360/235)-90)*Math.PI/180;
+        let x1=cx+metonicR*Math.cos(angle);
+        let y1=cy+metonicR*Math.sin(angle);
+        let x2=cx+(metonicR+8)*Math.cos(angle);
+        let y2=cy+(metonicR+8)*Math.sin(angle);
+        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2);
+        ctx.strokeStyle= i%19===0 ? "orange":"#777";
+        ctx.stroke();
+        if(i%19===0){
+          let tx=cx+(metonicR+20)*Math.cos(angle);
+          let ty=cy+(metonicR+20)*Math.sin(angle);
+          ctx.fillStyle="orange"; ctx.font="13px Arial"; 
+          ctx.fillText((i/19+1)+"y",tx,ty);
+        }
+      }
+      ctx.fillStyle="orange"; ctx.font="15px Arial"; 
+      ctx.fillText("Metonic 19-Year Cycle", cx, cy-metonicR-25);
+    }
+
+    function drawTepe(){
+      ctx.beginPath();
+      ctx.arc(cx,cy,tepeR,0,Math.PI*2);
+      ctx.strokeStyle="cyan"; ctx.lineWidth=2; ctx.stroke();
+      tepeSymbols.forEach((symbol,i)=>{
+        let angle=(i*(360/tepeSymbols.length)-90)*Math.PI/180;
+        let tx=cx+(tepeR+20)*Math.cos(angle);
+        let ty=cy+(tepeR+20)*Math.sin(angle);
+        ctx.fillStyle="cyan"; ctx.font="21px Arial"; 
+        ctx.textAlign="center"; ctx.textBaseline="middle";
+        ctx.fillText(symbol, tx, ty);
+      });
+      ctx.fillStyle="cyan"; ctx.font="15px Arial"; 
+      ctx.fillText("Göbekli Tepe Constellations", cx, cy-tepeR-25);
+    }
+
+    function drawMaya(){
+      ctx.beginPath();
+      ctx.arc(cx,cy,mayaR,0,Math.PI*2);
+      ctx.strokeStyle="lime"; ctx.lineWidth=2; ctx.stroke();
+      mayaSigns.forEach((symbol,i)=>{
+        let angle=(i*(360/mayaSigns.length)-90)*Math.PI/180;
+        let tx=cx+(mayaR+22)*Math.cos(angle);
+        let ty=cy+(mayaR+22)*Math.sin(angle);
+        ctx.fillStyle="lime"; ctx.font="19px Arial"; 
+        ctx.textAlign="center"; ctx.textBaseline="middle";
+        ctx.fillText(symbol, tx, ty);
+      });
+      ctx.fillStyle="lime"; ctx.font="15px Arial"; 
+      ctx.fillText("Maya Tzolk’in 260-Day Cycle", cx, cy-mayaR-28);
+    }
+
+    function drawDecans(){
+      ctx.beginPath();
+      ctx.arc(cx,cy,decanR,0,Math.PI*2);
+      ctx.strokeStyle="red"; ctx.lineWidth=2; ctx.stroke();
+      for(let i=0;i<36;i++){
+        let angle=(i*(360/36)-90)*Math.PI/180;
+        let tx=cx+(decanR+20)*Math.cos(angle);
+        let ty=cy+(decanR+20)*Math.sin(angle);
+        ctx.fillStyle="red"; ctx.font="13px Arial"; 
+        ctx.textAlign="center"; ctx.textBaseline="middle";
+        ctx.fillText(i+1, tx, ty);
+      }
+      ctx.fillStyle="red"; ctx.font="15px Arial"; 
+      ctx.fillText("Egyptian Decans (36 x 10 days)", cx, cy-decanR-30);
+    }
+
+    function drawChinese(){
+      ctx.beginPath();
+      ctx.arc(cx,cy,chineseR,0,Math.PI*2);
+      ctx.strokeStyle="yellow"; ctx.lineWidth=2; ctx.stroke();
+      const mansions = Array.from({length:28},(_,i)=>i+1);
+      mansions.forEach((num,i)=>{
+        let angle=(i*(360/mansions.length)-90)*Math.PI/180;
+        let tx=cx+(chineseR+22)*Math.cos(angle);
+        let ty=cy+(chineseR+22)*Math.sin(angle);
+        ctx.fillStyle="yellow"; ctx.font="13px Arial"; 
+        ctx.textAlign="center"; ctx.textBaseline="middle";
+        ctx.fillText(num, tx, ty);
+      });
+      ctx.fillStyle="yellow"; ctx.font="15px Arial"; 
+      ctx.fillText("Chinese 28 Lunar Mansions", cx, cy-chineseR-30);
+    }
+
+    function drawMoonPlate(){
+      ctx.beginPath();
+      ctx.arc(cx,cy,moonR,0,Math.PI*2);
+      ctx.strokeStyle="#666"; ctx.lineWidth=5; ctx.stroke();
+      const phases = ["🌑","🌒","🌓","🌔","🌕","🌖","🌗","🌘"];
+      phases.forEach((symbol,i)=>{
+        let angle=(i*(360/phases.length)-90)*Math.PI/180;
+        let tx=cx+(moonR+18)*Math.cos(angle);
+        let ty=cy+(moonR+18)*Math.sin(angle);
+        ctx.fillStyle="white"; ctx.font="23px Arial"; 
+        ctx.textAlign="center"; ctx.textBaseline="middle";
+        ctx.fillText(symbol, tx, ty);
+      });
+    }
+
+    // ⬇️ Moon dial extends to ChineseR with arrow tip and label
+    function drawMoonDial(){
+      let dx=cx+chineseR*Math.cos(moonDial.angle-Math.PI/2);
+      let dy=cy+chineseR*Math.sin(moonDial.angle-Math.PI/2);
+      ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(dx,dy);
+      ctx.strokeStyle="white"; ctx.lineWidth=4; ctx.stroke();
+
+      // Arrow tip
+      let arrowSize = 18, angle = moonDial.angle - Math.PI/2;
+      ctx.beginPath();
+      ctx.moveTo(dx,dy);
+      ctx.lineTo(dx - arrowSize*Math.cos(angle-Math.PI/6), dy - arrowSize*Math.sin(angle-Math.PI/6));
+      ctx.lineTo(dx - arrowSize*Math.cos(angle+Math.PI/6), dy - arrowSize*Math.sin(angle+Math.PI/6));
+      ctx.closePath();
+      ctx.fillStyle="white"; ctx.fill();
+
+      // Label "Moon"
+      ctx.fillStyle="white"; ctx.font="14px Arial";
+      ctx.textAlign="center"; ctx.textBaseline="middle";
+      let labelX = cx+(chineseR+40)*Math.cos(moonDial.angle-Math.PI/2);
+      let labelY = cy+(chineseR+40)*Math.sin(moonDial.angle-Math.PI/2);
+      ctx.fillText("Moon", labelX, labelY);
+
+      // Center circle
+      ctx.beginPath(); ctx.arc(cx,cy,10,0,Math.PI*2);
+      ctx.fillStyle="white"; ctx.fill();
+    }
+
+    function drawHands(){
+      hands.forEach(h=>{
+        let dx=cx+h.r*Math.cos(h.angle-Math.PI/2);
+        let dy=cy+h.r*Math.sin(h.angle-Math.PI/2);
+        ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(dx,dy);
+        ctx.strokeStyle=h.color; ctx.lineWidth=2; ctx.stroke();
+        ctx.beginPath(); ctx.arc(dx,dy,5,0,Math.PI*2);
+        ctx.fillStyle=h.color; ctx.fill();
+
+        // Label aligned with the dial line
+        ctx.fillStyle=h.color; ctx.font="14px Arial";
+        ctx.textAlign="center"; ctx.textBaseline="middle";
+        let labelX = cx+(h.r+40)*Math.cos(h.angle-Math.PI/2);
+        let labelY = cy+(h.r+40)*Math.sin(h.angle-Math.PI/2);
+        ctx.fillText(h.label, labelX, labelY);
+      });
+    }
+
+    function draw(){
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      drawPlate();
+      drawMetonic();
+      drawTepe();
+      drawMaya();
+      drawDecans();
+      drawChinese();
+      drawMoonPlate();
+      drawMoonDial();
+      drawHands();
+    }
+
+    function animate(){
+      if(!animating) return;
+      let still=false;
+      hands.forEach(h=>{
+        let diff=h.target-h.angle;
+        if(Math.abs(diff)>0.001){h.angle+=diff*0.05; still=true;}
+        else{h.angle=h.target;}
+      });
+      let diff=moonDial.target-moonDial.angle;
+      if(Math.abs(diff)>0.001){moonDial.angle+=diff*0.05; still=true;}
+      else{moonDial.angle=moonDial.target;}
+      draw();
+      if(still) requestAnimationFrame(animate); else animating=false;
+    }
+
+    draw();
+  </script>
+  <!-- 🔹 Bottom Clock (Moon-driven eclipse cycles) -->
+<canvas id="bottomClock" width="800" height="800" style="margin-top:30px; background:#111; border:2px solid #333;"></canvas>
+
+<script>
+  const bottomCanvas = document.getElementById("bottomClock");
+  const btx = bottomCanvas.getContext("2d");
+  const bcx = bottomCanvas.width/2, bcy = bottomCanvas.height/2;
+
+  // Radii
+  const bMetonicR   = 160;  // 235 months
+  const bSarosR     = 220;  // 223 months
+  const bExeligmosR = 280;  // 669 months
+  const bMoonR      = 120;  // moon hand
+
+  // Cycle lengths (months)
+  const metonicMonths   = 235;
+  const sarosMonths     = 223;
+  const exeligmosMonths = 669;
+
+  // Draw function
+  function updateBottomClock(daysSinceZero){
+    btx.clearRect(0,0,bottomCanvas.width,bottomCanvas.height);
+
+    // 🔹 Metonic dial
+    btx.beginPath(); btx.arc(bcx,bcy,bMetonicR,0,Math.PI*2);
+    btx.strokeStyle="gold"; btx.stroke();
+    for(let i=0;i<metonicMonths;i++){
+      let a=(i*(360/metonicMonths)-90)*Math.PI/180;
+      if(i%19===0){ // mark each year
+        let tx=bcx+(bMetonicR+12)*Math.cos(a);
+        let ty=bcy+(bMetonicR+12)*Math.sin(a);
+        btx.fillStyle="gold"; btx.font="10px Arial";
+        btx.fillText(i/19,tx,ty);
+      }
+    }
+    btx.fillStyle="gold"; btx.font="14px Arial";
+    btx.fillText("Metonic (235)", bcx, bcy-bMetonicR-15);
+
+    // 🔹 Saros dial
+    btx.beginPath(); btx.arc(bcx,bcy,bSarosR,0,Math.PI*2);
+    btx.strokeStyle="cyan"; btx.stroke();
+    for(let i=0;i<sarosMonths;i++){
+      if(i%20===0){
+        let a=(i*(360/sarosMonths)-90)*Math.PI/180;
+        let tx=bcx+(bSarosR+12)*Math.cos(a);
+        let ty=bcy+(bSarosR+12)*Math.sin(a);
+        btx.fillStyle="cyan"; btx.font="10px Arial";
+        btx.fillText(i,tx,ty);
+      }
+    }
+    btx.fillStyle="cyan"; btx.font="14px Arial";
+    btx.fillText("Saros (223)", bcx, bcy-bSarosR-15);
+
+    // 🔹 Exeligmos dial
+    btx.beginPath(); btx.arc(bcx,bcy,bExeligmosR,0,Math.PI*2);
+    btx.strokeStyle="lime"; btx.stroke();
+    for(let i=0;i<exeligmosMonths;i++){
+      if(i%50===0){
+        let a=(i*(360/exeligmosMonths)-90)*Math.PI/180;
+        let tx=bcx+(bExeligmosR+12)*Math.cos(a);
+        let ty=bcy+(bExeligmosR+12)*Math.sin(a);
+        btx.fillStyle="lime"; btx.font="10px Arial";
+        btx.fillText(i,tx,ty);
+      }
+    }
+    btx.fillStyle="lime"; btx.font="14px Arial";
+    btx.fillText("Exeligmos (669)", bcx, bcy-bExeligmosR-15);
+
+    // 🔹 Moon hand
+    let moonPhaseAngle = ((daysSinceZero % 29.53) / 29.53) * 2*Math.PI;
+    let dx=bcx+bMoonR*Math.cos(moonPhaseAngle-Math.PI/2);
+    let dy=bcy+bMoonR*Math.sin(moonPhaseAngle-Math.PI/2);
+    btx.beginPath(); btx.moveTo(bcx,bcy); btx.lineTo(dx,dy);
+    btx.strokeStyle="white"; btx.lineWidth=3; btx.stroke();
+
+    // Arrowhead
+    let arrowSize=14, angle=moonPhaseAngle-Math.PI/2;
+    btx.beginPath();
+    btx.moveTo(dx,dy);
+    btx.lineTo(dx-arrowSize*Math.cos(angle-Math.PI/6),dy-arrowSize*Math.sin(angle-Math.PI/6));
+    btx.lineTo(dx-arrowSize*Math.cos(angle+Math.PI/6),dy-arrowSize*Math.sin(angle+Math.PI/6));
+    btx.closePath();
+    btx.fillStyle="white"; btx.fill();
+
+    // Center hub
+    btx.beginPath(); btx.arc(bcx,bcy,8,0,Math.PI*2);
+    btx.fillStyle="white"; btx.fill();
   }
-
-  // Exeligmos cycle divisions (54 years → 54 segments)
-  for (let i = 0; i < 54; i++) {
-    let angle = (i * (360/54) - 90) * Math.PI/180;
-    let inner = bottomRadius - 20;
-    let outer = bottomRadius;
-    let x1 = centerX + Math.cos(angle) * inner;
-    let y1 = centerY + offsetY + Math.sin(angle) * inner;
-    let x2 = centerX + Math.cos(angle) * outer;
-    let y2 = centerY + offsetY + Math.sin(angle) * outer;
-    ctx.strokeStyle = "#f0f";
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
-  }
-}
-
-// Redraw everything
-function drawCosmicClock() {
-  drawCircleBase();
-  drawTopClock();
-  drawBottomClock();
-}
-
-// Hook up controls
-document.getElementById("start").addEventListener("click", () => {
-  const birthday = document.getElementById("birthday").value;
-  if (birthday) {
-    drawCosmicClock();
-  }
-});
-
-document.getElementById("reset").addEventListener("click", () => {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  drawCircleBase();
-});
 </script>
 </body>
 </html>
