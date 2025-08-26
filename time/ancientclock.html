@@ -71,10 +71,10 @@
   </div>
 
   <script>
-    // Helpers to keep everything inside regardless of canvas size
+    // Helpers (auto-fit geometry)
     function dims(canvas){
       const cx = canvas.width/2, cy = canvas.height/2;
-      const rMax = Math.min(cx, cy) - 18;      // safety margin from border
+      const rMax = Math.min(cx, cy) - 18;      // safety margin
       return { cx, cy, rMax };
     }
     function setTextCenter(ctx){ ctx.textAlign="center"; ctx.textBaseline="middle"; }
@@ -87,13 +87,20 @@
     const mayaSigns  = ["🐊","🌬️","🌊","🔥","🦅","🐍","🌽","🐢","🕷️","🐒","🐕","🌿","🌞","🌑","🌽","🦌","🌴","🦂","🌕","🐟"];
     const zodiac     = ["♈","♉","♊","♋","♌","♍","♎","♏","♐","♑","♒","♓"];
 
+    function drawCircle(ctx, cx, cy, r, color, lw=1){
+      ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2);
+      ctx.strokeStyle=color; ctx.lineWidth=lw; ctx.stroke();
+      ctx.lineWidth=1;
+    }
+
     function drawTopClock(){
       const {cx, cy, rMax} = dims(topCanvas);
       tctx.clearRect(0,0,topCanvas.width,topCanvas.height);
       setTextCenter(tctx);
 
-      // Proportional radii (all comfortably inside rMax)
+      // Proportional radii (outer→inner all inside rMax)
       const R = {
+        degRing:  0.96*rMax,  // degree ring (ticks & labels)
         mansions: 0.90*rMax,
         decans :  0.84*rMax,
         maya   :  0.78*rMax,
@@ -103,7 +110,36 @@
         moonPh :  0.39*rMax
       };
 
-      // Zodiac
+      // Light guide rings so placement is obvious
+      drawCircle(tctx, cx, cy, R.mansions, "#333");
+      drawCircle(tctx, cx, cy, R.decans,   "#333");
+      drawCircle(tctx, cx, cy, R.maya,     "#333");
+      drawCircle(tctx, cx, cy, R.tepe,     "#333");
+      drawCircle(tctx, cx, cy, R.zodiac,   "#333");
+      drawCircle(tctx, cx, cy, R.metonic,  "#333");
+
+      // Degree ring with 5° minor/30° major ticks + 0–330 labels
+      tctx.strokeStyle="#666";
+      drawCircle(tctx, cx, cy, R.degRing, "#444");
+      for(let d=0; d<360; d+=5){
+        const a=(d-90)*Math.PI/180;
+        const isMajor = d%30===0;
+        const len = isMajor ? 14 : 7;
+        const x1 = cx + (R.degRing-len)*Math.cos(a);
+        const y1 = cy + (R.degRing-len)*Math.sin(a);
+        const x2 = cx + (R.degRing)*Math.cos(a);
+        const y2 = cy + (R.degRing)*Math.sin(a);
+        tctx.beginPath(); tctx.moveTo(x1,y1); tctx.lineTo(x2,y2); tctx.stroke();
+
+        if(isMajor){
+          tctx.fillStyle="#9aa7bd"; tctx.font="12px Arial";
+          const lx = cx + (R.degRing-28)*Math.cos(a);
+          const ly = cy + (R.degRing-28)*Math.sin(a);
+          tctx.fillText(String(d), lx, ly);
+        }
+      }
+
+      // Zodiac 12 signs (every 30°)
       tctx.fillStyle="violet"; tctx.font="22px Arial";
       zodiac.forEach((z,i)=>{
         const a=(i*30-90)*Math.PI/180;
@@ -153,6 +189,15 @@
         const a=(i*90-90)*Math.PI/180;
         tctx.fillText(p, cx+R.moonPh*Math.cos(a), cy+R.moonPh*Math.sin(a));
       });
+
+      // MAIN DIAL/HAND (points to 0°/top; rotate later as needed)
+      tctx.beginPath();
+      tctx.moveTo(cx,cy);
+      tctx.lineTo(cx, cy - R.mansions);     // up to outer data rings
+      tctx.strokeStyle="gold"; tctx.lineWidth=2; tctx.stroke();
+      tctx.lineWidth=1;
+      // hub
+      tctx.beginPath(); tctx.arc(cx,cy,6,0,Math.PI*2); tctx.fillStyle="gold"; tctx.fill();
     }
 
     // -------------------- BOTTOM CLOCK --------------------
@@ -175,7 +220,7 @@
       setTextCenter(bctx);
 
       // Proportional radii for 7 rings (inner → outer)
-      const base = [0.20, 0.33, 0.46, 0.59, 0.72, 0.85, 0.98]; // all < 1.0 so nothing clips
+      const base = [0.20, 0.33, 0.46, 0.59, 0.72, 0.85, 0.98];
       bottomRings.forEach((ring, i)=>ring.r = base[i]*rMax);
 
       bottomRings.forEach((c)=>{
@@ -184,7 +229,7 @@
         bctx.arc(cx,cy,c.r,0,Math.PI*2);
         bctx.strokeStyle=c.color; bctx.stroke();
 
-        // label just above ring
+        // label
         bctx.fillStyle=c.color; bctx.font="15px Arial";
         bctx.fillText(c.label, cx, cy - c.r - 12);
 
@@ -202,12 +247,16 @@
       bctx.moveTo(cx,cy);
       bctx.lineTo(cx, cy - bottomRings[bottomRings.length-1].r);
       bctx.strokeStyle="yellow"; bctx.lineWidth=2; bctx.stroke();
+
+      // hub
+      bctx.beginPath(); bctx.arc(cx,cy,6,0,Math.PI*2); bctx.fillStyle="yellow"; bctx.fill();
     }
 
     // -------------------- Draw --------------------
     function draw(){ drawTopClock(); drawBottomClock(); }
     draw();
 
+    // Hooks (ready for future dynamics)
     function startClock(){ draw(); }
     function resetClock(){ draw(); }
   </script>
