@@ -62,10 +62,7 @@
       <div id="output">Enter either a <b>Birthday</b> OR <b>Latitude/Longitude</b>.</div>
       <div class="note">
         ⚠️ Antikythera-style mechanism.<br>
-        Choose ONE mode:<br>
-        – Birthday → Sun, Moon & calendars.<br>
-        – Latitude/Longitude → sky alignment.<br>
-        Not both at once.
+        The Moon is the main dial that drives the system.
       </div>
     </div>
 
@@ -90,14 +87,7 @@
     }
     function deg2rad(deg){ return (deg-90)*Math.PI/180; }
 
-    /* ------------------ TOP CLOCK (unchanged) ------------------ */
-    const topCanvas = document.getElementById("cosmicClock");
-    const tctx = topCanvas.getContext("2d");
-
-    const tepeSymbols = ["🦂","🦊","🦅","🐂","🐍","🐇","🐺","🐟","🐦","🦌","🦃","🐢"];
-    const mayaSigns  = ["🐊","🌬️","🌊","🔥","🦅","🐍","🌽","🐢","🕷️","🐒","🐕","🌿","🌞","🌑","🌽","🦌","🌴","🦂","🌕","🐟"];
-    const zodiac     = ["♈","♉","♊","♋","♌","♍","♎","♏","♐","♑","♒","♓"];
-
+    // Draw a simple pointed hand
     function pointer(ctx, cx, cy, r, angleDeg, color){
       const a = deg2rad(angleDeg);
       const tipX = cx + r*Math.cos(a), tipY = cy + r*Math.sin(a);
@@ -113,7 +103,62 @@
       ctx.lineWidth=1;
     }
 
-    function drawTopClock(){
+    /* ------------------ time / cycle engine ------------------ */
+    // Periods (days)
+    const DAY = 1;
+    const TROPICAL_YEAR = 365.2422;
+    const MOON_SYNODIC = 29.530588;        // Moon phase cycle (main dial)
+    const MOON_SIDEREAL = 27.321661;       // For lunar mansions
+    const METONIC = 6939.69;               // ≈ 19 years
+    const SAROS = 6585.321;                // 18y 11d 8h
+    const EXELIGMOS = SAROS * 3;           // 54y
+    const OLYMPIAD = 1461.0;               // 4y
+    const MESOAMERICAN_52Y = 52 * 365.0;   // Calendar Round (simplified)
+    const NATIVE_YEAR = 365.0;
+
+    // Reference epochs
+    const EPOCH = Date.UTC(2000,0,1,0,0,0);             // generic epoch
+    const NEW_MOON_REF = Date.UTC(2000,0,6,18,14,0);    // known new moon
+
+    function daysSince(ms, ref){ return (ms - ref) / (86400000); }
+
+    // Angle helpers
+    function angleFromPeriod(days, period){ return ((days % period + period) % period) / period * 360; }
+
+    // Compute all dial angles for a given Date
+    function computeAngles(date){
+      const t = date.getTime();
+
+      const dMoon = daysSince(t, NEW_MOON_REF);
+      const dEpoch = daysSince(t, EPOCH);
+
+      const moonAngle = angleFromPeriod(dMoon, MOON_SYNODIC);      // main dial
+      return {
+        moon: moonAngle,                      // phases & "Moon Days"
+        mansions: angleFromPeriod(dMoon, MOON_SIDEREAL),
+        zodiac: angleFromPeriod(dEpoch, TROPICAL_YEAR),
+        decans: angleFromPeriod(dEpoch, TROPICAL_YEAR),
+        tepe: angleFromPeriod(dEpoch, TROPICAL_YEAR),
+        maya: angleFromPeriod(dEpoch, 20.0),  // 20-day cycle
+        metonic: angleFromPeriod(dEpoch, METONIC),
+        saros: angleFromPeriod(dEpoch, SAROS),
+        exeligmos: angleFromPeriod(dEpoch, EXELIGMOS),
+        olympiad: angleFromPeriod(dEpoch, OLYMPIAD),
+        meso: angleFromPeriod(dEpoch, MESOAMERICAN_52Y),
+        native365: angleFromPeriod(dEpoch, NATIVE_YEAR)
+      };
+    }
+
+    /* ------------------ TOP CLOCK ------------------ */
+    const topCanvas = document.getElementById("cosmicClock");
+    const tctx = topCanvas.getContext("2d");
+
+    const tepeSymbols = ["🦂","🦊","🦅","🐂","🐍","🐇","🐺","🐟","🐦","🦌","🦃","🐢"];
+    const mayaSigns  = ["🐊","🌬️","🌊","🔥","🦅","🐍","🌽","🐢","🕷️","🐒","🐕","🌿","🌞","🌑","🌽","🦌","🌴","🦂","🌕","🐟"];
+    const zodiac     = ["♈","♉","♊","♋","♌","♍","♎","♏","♐","♑","♒","♓"];
+
+    function drawTopClock(date){
+      const A = computeAngles(date);
       const {cx, cy, rMax} = dims(topCanvas);
       tctx.clearRect(0,0,topCanvas.width,topCanvas.height);
       setMid(tctx);
@@ -168,14 +213,15 @@
       tctx.fillStyle="white"; tctx.font="18px Arial";
       ["🌑","🌓","🌕","🌗"].forEach((p,i)=>{ const a=deg2rad(i*90); tctx.fillText(p, cx+R.moonPh*Math.cos(a), cy+R.moonPh*Math.sin(a)); });
 
+      // Hands — driven by periods (Moon is the master dial)
       const dialColors = { mansions:"#ffd166", decans:"#ff4d4d", maya:"#98fb98", tepe:"#6ee7ff", zodiac:"#c084fc", metonic:"#ffa500", moonPh:"#ffffff" };
-      pointer(tctx,cx,cy,R.mansions,0,dialColors.mansions);
-      pointer(tctx,cx,cy,R.decans,  0,dialColors.decans);
-      pointer(tctx,cx,cy,R.maya,    0,dialColors.maya);
-      pointer(tctx,cx,cy,R.tepe,    0,dialColors.tepe);
-      pointer(tctx,cx,cy,R.zodiac,  0,dialColors.zodiac);
-      pointer(tctx,cx,cy,R.metonic, 0,dialColors.metonic);
-      pointer(tctx,cx,cy,R.moonPh,  0,dialColors.moonPh);
+      pointer(tctx,cx,cy,R.mansions,A.mansions,dialColors.mansions);
+      pointer(tctx,cx,cy,R.decans,  A.decans,  dialColors.decans);
+      pointer(tctx,cx,cy,R.maya,    A.maya,    dialColors.maya);
+      pointer(tctx,cx,cy,R.tepe,    A.tepe,    dialColors.tepe);
+      pointer(tctx,cx,cy,R.zodiac,  A.zodiac,  dialColors.zodiac);
+      pointer(tctx,cx,cy,R.metonic, A.metonic, dialColors.metonic);
+      pointer(tctx,cx,cy,R.moonPh,  A.moon,    dialColors.moonPh);
     }
 
     /* ------------------ BOTTOM CLOCK ------------------ */
@@ -209,10 +255,7 @@
     }
 
     function ringTicksAndNumbers(ctx,cx,cy,r,ring){
-      const {
-        divisions, color, showNumbers, symbols,
-        numbersFontPx=BASE_NUM_PX, tickLen=7
-      } = ring;
+      const { divisions, color, showNumbers, symbols, numbersFontPx=BASE_NUM_PX, tickLen=7 } = ring;
 
       circle(ctx,cx,cy,r,color);
       setMid(ctx);
@@ -236,7 +279,8 @@
       }
     }
 
-    function drawBottomClock(){
+    function drawBottomClock(date){
+      const A = computeAngles(date);
       const {cx, cy, rMax} = dims(bottomCanvas);
       bctx.clearRect(0,0,bottomCanvas.width,bottomCanvas.height);
       setMid(bctx);
@@ -247,19 +291,45 @@
 
       rings.forEach(ring => ringTicksAndNumbers(bctx,cx,cy,ring.r,ring));
 
-      // Draw ONLY a regular pointed arrow from the center to the outermost ring at 6 o'clock.
-      pointer(bctx, cx, cy, rings[rings.length-1].r, 180, "yellow");
-
-      // hub
+      // Single moon-driven arrow from center to outermost ring
+      pointer(bctx, cx, cy, rings[rings.length-1].r, A.moon, "yellow");
+      // Hub
       bctx.beginPath(); bctx.arc(cx,cy,6,0,Math.PI*2); bctx.fillStyle="yellow"; bctx.fill();
     }
 
-    /* ------------------ draw ------------------ */
-    function draw(){ drawTopClock(); drawBottomClock(); }
-    draw();
+    /* ------------------ draw loop & controls ------------------ */
+    let timer = null;
 
-    function startClock(){ draw(); }
-    function resetClock(){ draw(); }
+    function draw(date = new Date()){
+      drawTopClock(date);
+      drawBottomClock(date);
+      // status
+      const di = document.getElementById('dateInput').value;
+      const whenTxt = di ? `for ${di}` : 'for now (live-ready)';
+      document.getElementById('output').innerHTML =
+        `Mode: <b>Moon main dial</b> (Antikythera-style), drawn ${whenTxt}.`;
+    }
+
+    function startClock(){
+      // live animation (ignores birthday while running)
+      if (timer) clearInterval(timer);
+      timer = setInterval(()=> draw(new Date()), 250);  // smooth enough
+      draw(new Date());
+    }
+
+    function resetClock(){
+      if (timer) { clearInterval(timer); timer = null; }
+      const di = document.getElementById('dateInput').value;
+      if (di){
+        // draw the selected day at local noon
+        draw(new Date(`${di}T12:00:00`));
+      }else{
+        draw(new Date());
+      }
+    }
+
+    // initial render (now)
+    resetClock();
   </script>
 </body>
 </html>
