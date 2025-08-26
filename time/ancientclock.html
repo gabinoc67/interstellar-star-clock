@@ -198,37 +198,54 @@
       pointer(tctx,cx,cy,R.moonPh,  0,dialColors.moonPh);
     }
 
-    // ---------- BOTTOM CLOCK (fonts reduced by ~10%) ----------
+    // ---------- BOTTOM CLOCK (with ring-specific sizing tweaks) ----------
     const bottomCanvas = document.getElementById("bottomClock");
     const bctx = bottomCanvas.getContext("2d");
 
+    // numbersFontPx defaults
+    const BASE_NUM_PX = 12.6;                   // global −10% from 14px
+    const DENSE_NUM_PX = BASE_NUM_PX * 0.90;    // extra −10% for dense rings (your request)
+
+    // Add Native American daily ring (outermost), label every 10th day
     const bottomRings = [
-      {label:"Moon Days 1–29", key:"moondays", color:"white",  divisions:29, showNumbers:true},
-      {label:"Moon Phases",    key:"moon",     color:"white",  divisions:8,  symbols:["🌑","🌒","🌓","🌔","🌕","🌖","🌗","🌘"], showNumbers:false},
-      {label:"Metonic 19y",    key:"meton",    color:"orange", divisions:19, showNumbers:true},
-      {label:"Saros 18y+11d",  key:"saros",    color:"red",    divisions:18, showNumbers:true},
-      {label:"Exeligmos 54y",  key:"exel",     color:"cyan",   divisions:54, showNumbers:true},
-      {label:"Olympiad 4y",    key:"olymp",    color:"blue",   divisions:4,  showNumbers:true},
-      {label:"Mesoamerican 52y",key:"meso",    color:"yellow", divisions:52, showNumbers:true},
-      {label:"Agricultural 12", key:"farm",    color:"green",  divisions:12, showNumbers:true}
+      {label:"Native American Days (1–365)", key:"native365", color:"#9acd32", divisions:365, showNumbers:true, labelEvery:10, numbersFontPx:11, tickLen:6},
+      {label:"Moon Days 1–29",               key:"moondays", color:"white",   divisions:29,  showNumbers:true, numbersFontPx:BASE_NUM_PX},
+      {label:"Moon Phases",                   key:"moon",     color:"white",   divisions:8,   symbols:["🌑","🌒","🌓","🌔","🌕","🌖","🌗","🌘"], showNumbers:false, numbersFontPx:BASE_NUM_PX},
+      {label:"Metonic 19y",                   key:"meton",    color:"orange",  divisions:19,  showNumbers:true, numbersFontPx:BASE_NUM_PX},
+      {label:"Saros 18y+11d",                 key:"saros",    color:"red",     divisions:18,  showNumbers:true, numbersFontPx:BASE_NUM_PX},
+      {label:"Exeligmos 54y",                 key:"exel",     color:"cyan",    divisions:54,  showNumbers:true, numbersFontPx:DENSE_NUM_PX},  // extra −10%
+      {label:"Olympiad 4y",                   key:"olymp",    color:"blue",    divisions:4,   showNumbers:true, numbersFontPx:BASE_NUM_PX},
+      {label:"Mesoamerican 52y",              key:"meso",     color:"yellow",  divisions:52,  showNumbers:true, numbersFontPx:DENSE_NUM_PX},  // extra −10%
+      {label:"Agricultural 12",               key:"farm",     color:"green",   divisions:12,  showNumbers:true, numbersFontPx:BASE_NUM_PX}
     ];
 
-    function ringTicksAndNumbers(ctx,cx,cy,r,divs,color,showNumbers,labels){
-      // ring
+    function ringTicksAndNumbers(ctx,cx,cy,r,opts){
+      const {
+        divisions, color, showNumbers, symbols,
+        labelEvery=1, numbersFontPx=BASE_NUM_PX, tickLen=7
+      } = opts;
+
+      // ring stroke
       circle(ctx,cx,cy,r,color);
       // ticks + labels
       setMid(ctx);
-      ctx.strokeStyle=color; ctx.fillStyle=color; ctx.font="12.6px Arial";  // 14px → 12.6px  (−10%)
-      for(let i=0;i<divs;i++){
-        const a=deg2rad(i*(360/divs));
-        // tick (short radial)
-        const x1=cx+(r-7)*Math.cos(a), y1=cy+(r-7)*Math.sin(a);
-        const x2=cx+(r)*Math.cos(a),   y2=cy+(r)*Math.sin(a);
+      ctx.strokeStyle=color; ctx.fillStyle=color; ctx.font=`${numbersFontPx}px Arial`;
+
+      for(let i=0;i<divisions;i++){
+        const a=deg2rad(i*(360/divisions));
+        // tick
+        const x1=cx+(r-tickLen)*Math.cos(a), y1=cy+(r-tickLen)*Math.sin(a);
+        const x2=cx+(r)*Math.cos(a),         y2=cy+(r)*Math.sin(a);
         ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+
         // label
         const tx=cx+(r-20)*Math.cos(a), ty=cy+(r-20)*Math.sin(a);
-        if(labels){ ctx.fillText(labels[i%labels.length], tx, ty); }
-        else if(showNumbers){ ctx.fillText(String(i+1), tx, ty); }
+        if(symbols){ ctx.fillText(symbols[i%symbols.length], tx, ty); }
+        else if(showNumbers){
+          if(labelEvery===1 || i%labelEvery===0){
+            ctx.fillText(String(i+1), tx, ty);
+          }
+        }
       }
     }
 
@@ -237,21 +254,25 @@
       bctx.clearRect(0,0,bottomCanvas.width,bottomCanvas.height);
       setMid(bctx);
 
-      // even radii for 8 rings
-      const outer = 0.95*rMax, inner = 0.22*rMax;
+      // even radii across all rings (outermost first)
+      const outer = 0.95*rMax, inner = 0.20*rMax;
       const steps = bottomRings.length-1;
       const step = (outer-inner)/steps;
       bottomRings.forEach((ring,i)=> ring.r = outer - i*step);
 
       bottomRings.forEach((c)=>{
-        // label above ring (15px → 13.5px)
+        // label above ring (still 13.5px, unchanged from prior bottom reduction)
         bctx.fillStyle=c.color; bctx.font="13.5px Arial";
         bctx.fillText(c.label, cx, cy - c.r - 13);
-        // ticks + numbers / symbols
-        ringTicksAndNumbers(bctx,cx,cy,c.r,c.divisions,c.color,!!c.showNumbers,c.symbols);
+
+        // ticks + numbers / symbols (with per-ring font overrides)
+        ringTicksAndNumbers(bctx,cx,cy,c.r,{
+          divisions:c.divisions, color:c.color, showNumbers:!!c.showNumbers, symbols:c.symbols,
+          labelEvery: c.labelEvery ?? 1, numbersFontPx: c.numbersFontPx ?? BASE_NUM_PX, tickLen: c.tickLen ?? 7
+        });
       });
 
-      // central hand to outermost ring
+      // central hand (kept as before)
       bctx.beginPath();
       bctx.moveTo(cx,cy);
       bctx.lineTo(cx, cy - bottomRings[bottomRings.length-1].r);
