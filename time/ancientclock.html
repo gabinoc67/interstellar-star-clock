@@ -201,7 +201,7 @@ function indexInDiv(angle, divisions){ // 1-based index + degrees into that slic
   const step = 360/divisions;
   const idx = Math.floor(a/step)+1;
   const within = a - Math.floor(a/step)*step;
-  return { index: idx, within };
+  return { index: idx, within, step };
 }
 function moonPhaseName(ageDays){
   const seg = MOON_SYNODIC/8;
@@ -431,7 +431,6 @@ const bottomCanvas = document.getElementById("bottomClock");
 const bctx = bottomCanvas.getContext("2d");
 
 const BASE_NUM_PX = 12.6;
-const BASE_LABEL_PX = 13.5;
 
 const rings = [
   {label:"Moon Cycle (Phases)", key:"moon",     color:"white",   divisions:8,   symbols:["🌑","🌒","🌓","🌔","🌕","🌖","🌗","🌘"], showNumbers:false, numbersFontPx:BASE_NUM_PX, tickLen:5},
@@ -462,7 +461,6 @@ function ringTicksAndNumbers(ctx,cx,cy,r,ring){
   circle(ctx,cx,cy,r,color);
   setMid(ctx);
 
-  // names are in the Legend, not on-canvas
   ctx.strokeStyle=color; ctx.fillStyle=color; ctx.font=`${numbersFontPx}px Arial`;
   const every = ring.labelEvery ?? computeLabelEvery(ctx, r, divisions, numbersFontPx);
 
@@ -540,8 +538,14 @@ function animateTo(targetAngles, targetRot, durationMs=1500){
 }
 
 /* ------------------ Readouts (text under the summary) ------------------ */
+const chineseAnimals = [
+  {name:"Rat",sym:"🐀"},{name:"Ox",sym:"🐂"},{name:"Tiger",sym:"🐅"},{name:"Rabbit",sym:"🐇"},
+  {name:"Dragon",sym:"🐉"},{name:"Snake",sym:"🐍"},{name:"Horse",sym:"🐎"},{name:"Goat",sym:"🐐"},
+  {name:"Monkey",sym:"🐒"},{name:"Rooster",sym:"🐓"},{name:"Dog",sym:"🐕"},{name:"Pig",sym:"🐖"}
+];
+
 function updateReadouts(A, rot, meta){
-  // helpers for indices
+  // indices on each ring
   const mans = indexInDiv(A.mansions, 28);
   const dec  = indexInDiv(A.decans,   36);
   const maya = indexInDiv(A.maya,     20);
@@ -549,12 +553,23 @@ function updateReadouts(A, rot, meta){
   const met  = indexInDiv(A.metonic,  19);
 
   const sun = signDegMin(A.zodiac);
+
   const moonAge = A.moonDay;               // 0..29.53
   const moonDay = Math.floor(moonAge)+1;
   const phaseAng = ((A.moon%360)+360)%360;
   const phaseNm  = moonPhaseName(moonAge);
   const phaseIdx = Math.floor(phaseAng / 45) % 8;
   const phaseSym = rings[0].symbols[phaseIdx];
+
+  // bottom ring indices
+  const moonDaysIdx = indexInDiv(A.moon, 29);
+  const olymp = indexInDiv(A.olympiad, 4);
+  const agri  = indexInDiv(A.tepe, 12);         // reuse 12-div seasonal
+  const metB  = indexInDiv(A.metonic, 19);
+  const sar   = indexInDiv(A.saros, 18);
+  const exel  = indexInDiv(A.exeligmos, 54);
+  const meso  = indexInDiv(A.meso, 52);
+  const nat   = indexInDiv(A.native365, 365);
 
   const where = meta.haveLon ? ` at lat <b>${meta.lat.toFixed(5)}°</b>, lon <b>${meta.lon.toFixed(5)}°</b>` : ``;
   const orientTxt = (meta.orient==="noon") ? "Local noon at location."
@@ -567,17 +582,26 @@ function updateReadouts(A, rot, meta){
       <li><b>Meridian:</b> ${orientTxt} • rotation <b>${dmsStr(rot)}</b></li>
       <li><b>Sun:</b> <b>${sun.sign} ${sun.d}° ${sun.m}′</b> (λ=${dmsStr(A.zodiac)})</li>
       <li><b>Moon (phase):</b> day <b>${moonDay}</b> • <b>${phaseNm}</b> • phase angle <b>${dmsStr(phaseAng)}</b></li>
-      <li><b>Lunar Mansions:</b> station <b>#${mans.index}</b> • ${dmsStr(mans.within)} into station</li>
+      <li><b>Lunar Mansions (28):</b> station <b>#${mans.index}</b> • ${dmsStr(mans.within)} into station</li>
       <li><b>Decans (36):</b> decan <b>#${dec.index}</b> • ${dmsStr(dec.within)} into decan</li>
       <li><b>Maya (20):</b> sign <b>#${maya.index}</b> ${mayaSigns[maya.index-1]} • ${dmsStr(maya.within)} into sign</li>
       <li><b>Tepe (12):</b> step <b>#${tepe.index}</b> ${tepeSymbols[tepe.index-1]} • ${dmsStr(tepe.within)} into step</li>
+      <li><b>Chinese (12):</b> <b>${chineseAnimals[tepe.index-1].name}</b> ${chineseAnimals[tepe.index-1].sym} • ${dmsStr(tepe.within)} into animal sector</li>
       <li><b>Metonic (19y):</b> index <b>#${met.index}</b> • ${dmsStr(met.within)} into segment</li>
     </ul>
 
     <h3>Bottom clock — dial positions</h3>
     <ul>
       <li><b>Meridian:</b> same as above • rotation <b>${dmsStr(rot)}</b>${where ? ` • location${where}` : ``}</li>
-      <li><b>Moon (agri):</b> day <b>${moonDay}</b> • <b>${phaseNm}</b> • 8-phase symbol <b>${phaseSym}</b> • phase angle <b>${dmsStr(phaseAng)}</b></li>
+      <li><b>Moon (agri / 8-phase):</b> day <b>${moonDay}</b> • <b>${phaseNm}</b> • symbol <b>${phaseSym}</b> • phase angle <b>${dmsStr(phaseAng)}</b></li>
+      <li><b>Moon Days (1–29):</b> day <b>#${moonDaysIdx.index}</b> • ${dmsStr(moonDaysIdx.within)} into that day</li>
+      <li><b>Olympiad (4y):</b> year <b>#${olymp.index}</b> • ${dmsStr(olymp.within)} into year</li>
+      <li><b>Agricultural (12):</b> month/step <b>#${agri.index}</b> • ${dmsStr(agri.within)} into step</li>
+      <li><b>Metonic (19y):</b> index <b>#${metB.index}</b> • ${dmsStr(metB.within)} into segment</li>
+      <li><b>Saros (18y+11d):</b> index <b>#${sar.index}</b> • ${dmsStr(sar.within)} into segment</li>
+      <li><b>Exeligmos (54y):</b> index <b>#${exel.index}</b> • ${dmsStr(exel.within)} into segment</li>
+      <li><b>Mesoamerican (52y):</b> year <b>#${meso.index}</b> • ${dmsStr(meso.within)} into year</li>
+      <li><b>Native American Days (1–365):</b> day <b>#${nat.index}</b> • ${dmsStr(nat.within)} into day</li>
     </ul>
   `;
 }
