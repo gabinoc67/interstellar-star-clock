@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Cosmic Clock — Dual Shaft v3 (Clutches, 52‑Day Sync, Speed)</title>
+<style>
+  :root { --ink:#e5e7eb; --muted:#9ca3af; --panel:#0b1327; --border:#1f2937; --bg:#0b1120; --bg2:#0f172a; --accent:#22c55e; --warn:#f59e0b; --blue:#60a5fa; }
+  *{ box-sizing:border-box }
+  body { background:var(--bg); color:var(--ink); font-family:system-ui,Segoe UI,Roboto,Arial; margin:0; }
+  header { padding:16px 24px; border-bottom:1px solid #23304a; }
+  h1 { font-size:20px; margin:0 0 4px 0; }
+  #wrap { display:flex; gap:24px; }
+  #viz { flex: 0 0 1020px; background:var(--bg2); border-right:1px solid #23304a; }
+  #panel { flex: 1; padding:16px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:12px; margin-bottom:12px; }
+  .row { display:flex; gap:12px; align-items:center; margin:6px 0; flex-wrap:wrap; }
+  .col { flex:1; min-width:240px; }
+  button { background:#1d4ed8; border:none; color:#fff; padding:8px 12px; border-radius:8px; cursor:pointer; }
+  button.secondary { background:#334155; }
+  select, input[type="number"] { background:#0f172a; color:var(--ink); border:1px solid var(--border); padding:6px 8px; border-radius:8px; }
+  label { font-size:14px; }
+  .small { font-size:12px; color:var(--muted); }
+  .section-title { font-weight:600; margin-bottom:6px; }
+  .dial-on { stroke: var(--accent) !important; }
+  .dial-off { opacity:0.5; }
+  .chip { background:#111827; border:1px solid #1f2937; padding:3px 8px; border-radius:999px; font-size:12px; color:#cbd5e1 }
+  #log { max-height:160px; overflow:auto; font-family:ui-monospace,Consolas,Menlo,monospace; white-space:pre-wrap; }
+  .moon-ring { stroke-dasharray: 1 5; opacity:0.7 }
+</style>
+</head>
+<body>
+<header>
+  <h1>Cosmic Clock — Dual Shaft v3 (Clutches, 52‑Day Sync, Speed)</h1>
+  <div class="small">Now with <b>speed multiplier</b>, <b>auto‑engaged clutches</b> on load, and per‑dial <b>degree readouts</b> for visibility on long cycles.</div>
+</header>
+
+<div id="wrap">
+  <div id="viz">
+    <svg id="svg" width="1500" height="1150" viewBox="0 0 1500 1150" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
+          <path d="M0,0 L8,4 L0,8 Z" fill="var(--ink)"/>
+        </marker>
+      </defs>
+      <!-- Shafts -->
+      <rect x="452" y="220" width="16" height="900" fill="#64748b"/>
+      <rect x="942" y="220" width="16" height="900" fill="#64748b"/>
+      <!-- Cross-shaft link line (Moon-to-Moon) -->
+      <line id="moonLink" x1="460" y1="320" x2="950" y2="320" stroke="#94a3b8" stroke-width="1.2" stroke-dasharray="6 6" opacity="0.8"/>
+    </svg>
+  </div>
+
+  <div id="panel">
+    <div class="card">
+      <div class="section-title">Handle • Step, Speed & Sync</div>
+      <div class="row">
+        <button id="stepNeg">⟲ −1 step</button>
+        <button id="stepPos">⟳ +1 step</button>
+        <button id="stepNeg10" class="secondary">−10</button>
+        <button id="stepPos10" class="secondary">+10</button>
+        <span class="chip">Step = <span id="stepLabel">1 day</span></span>
+        <span class="chip">Speed = <span id="speedLabel">1×</span></span>
+      </div>
+      <div class="row">
+        <label>Step unit:
+          <select id="stepUnit">
+            <option value="1">1 day</option>
+            <option value="0.5">0.5 day</option>
+            <option value="7">7 days</option>
+            <option value="30">30 days</option>
+            <option value="365">365 days</option>
+          </select>
+        </label>
+        <label>Custom: <input id="stepCustom" type="number" step="0.1" value="1" style="width:90px"/> days</label>
+        <button id="applyCustom" class="secondary">Use custom</button>
+      </div>
+      <div class="row">
+        <label>Speed:
+          <select id="speedMul">
+            <option value="1">1×</option>
+            <option value="10">10×</option>
+            <option value="100">100×</option>
+            <option value="1000">1000×</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="boostVis"/> Boost visibility for long cycles (longer hands)</label>
+        <label><input type="checkbox" id="sync52" checked/> Enable Moon master sync every 52‑day tick</label>
+      </div>
+      <div class="row small">Global day counter: <span id="dayCount">0</span></div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">Clutches</div>
+      <div class="row">
+        <div class="col">
+          <div class="row" style="justify-content:space-between">
+            <b>Top Shaft</b>
+            <span>
+              <button id="topAllOn" class="secondary">Engage all</button>
+              <button id="topAllOff" class="secondary">None</button>
+            </span>
+          </div>
+          <div id="topClutches"></div>
+        </div>
+        <div class="col">
+          <div class="row" style="justify-content:space-between">
+            <b>Bottom Shaft</b>
+            <span>
+              <button id="botAllOn" class="secondary">Engage all</button>
+              <button id="botAllOff" class="secondary">None</button>
+            </span>
+          </div>
+          <div id="botClutches"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">Sync Log</div>
+      <div id="log" class="small"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const leftX = 460, rightX = 950, moonY = 320;
+const svg = document.getElementById('svg');
+
+const TOP = [{"key": "moon_phase_top", "name": "Moon (phase)", "dir": "CW", "period": 29.5306, "y": 320, "r": 28}, {"key": "sun_zodiac_top", "name": "Sun / Zodiac", "dir": "CCW", "period": 365.2422, "y": 395, "r": 36}, {"key": "lunar_mansions_top", "name": "Lunar Mansions (28)", "dir": "CW", "period": 27.32166, "y": 470, "r": 44}, {"key": "maya20_top", "name": "Maya (20)", "dir": "CCW", "period": 20.0, "y": 545, "r": 52}, {"key": "tepe12_top", "name": "Tepe (12)", "dir": "CW", "period": 12.0, "y": 620, "r": 60}];
+const BOT = [{"key": "moon_days_bot", "name": "Moon Days (1\u201329)", "dir": "CW", "period": 29.5306, "y": 320, "r": 28}, {"key": "olympiad_bot", "name": "Olympiad (4y)", "dir": "CCW", "period": 1460.9688, "y": 395, "r": 36}, {"key": "agri12_bot", "name": "Agricultural (12)", "dir": "CW", "period": 12.0, "y": 470, "r": 44}, {"key": "metonic19_bot", "name": "Metonic (19y)", "dir": "CCW", "period": 6939.6018, "y": 545, "r": 52}, {"key": "saros_bot", "name": "Saros (18y+11d)", "dir": "CW", "period": 6585.321, "y": 620, "r": 60}, {"key": "exeligmos_bot", "name": "Exeligmos (54y)", "dir": "CCW", "period": 19755.96, "y": 695, "r": 68}, {"key": "meso52y_bot", "name": "Mesoamerican (52y)", "dir": "CW", "period": 18992.5944, "y": 770, "r": 76}, {"key": "native365_bot", "name": "Native Days (1\u2013365)", "dir": "CCW", "period": 365.0, "y": 845, "r": 84}];
+const dials = [
+  ...TOP.map(d => Object.assign({side:'TOP', cx:leftX}, d)),
+  ...BOT.map(d => Object.assign({side:'BOT', cx:rightX}, d)),
+];
+
+// State
+let dayCounter = 0;
+let stepUnit = 1; // days per step
+let speedMul = 1;
+let boostVis = false;
+dials.forEach(d => d.phase = 0);
+
+// Draw
+dials.forEach(d => {
+  const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  g.setAttribute("id", d.key);
+  svg.appendChild(g);
+
+  // disc
+  const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  c.setAttribute("cx", d.cx);
+  c.setAttribute("cy", d.y);
+  c.setAttribute("r", d.r);
+  c.setAttribute("fill", "#0b1327");
+  c.setAttribute("stroke", "#a3b3c6");
+  c.setAttribute("stroke-width", "1.5");
+  g.appendChild(c);
+
+  // moon 52‑tooth ring
+  if (d.key === 'moon_phase_top' || d.key === 'moon_days_bot') {
+    const ring = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    ring.setAttribute("cx", d.cx);
+    ring.setAttribute("cy", d.y);
+    ring.setAttribute("r", d.r + 8);
+    ring.setAttribute("fill", "none");
+    ring.setAttribute("stroke", "#94a3b8");
+    ring.setAttribute("stroke-width", "1.2");
+    ring.setAttribute("class", "moon-ring");
+    g.appendChild(ring);
+    for (let i=0;i<52;i++){
+      const tick = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      const ang = (i/52)*Math.PI*2;
+      const r1 = d.r + 5, r2 = d.r + 11;
+      const x1 = d.cx + r1*Math.cos(ang);
+      const y1 = d.y + r1*Math.sin(ang);
+      const x2 = d.cx + r2*Math.cos(ang);
+      const y2 = d.y + r2*Math.sin(ang);
+      tick.setAttribute("x1", x1); tick.setAttribute("y1", y1);
+      tick.setAttribute("x2", x2); tick.setAttribute("y2", y2);
+      tick.setAttribute("stroke", "#94a3b8"); tick.setAttribute("stroke-width", "1");
+      tick.setAttribute("opacity","0.8");
+      g.appendChild(tick);
+    }
+  }
+
+  // hand
+  const hand = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  hand.setAttribute("x1", d.cx);
+  hand.setAttribute("y1", d.y);
+  hand.setAttribute("x2", d.cx);
+  hand.setAttribute("y2", d.y - d.r + 3);
+  hand.setAttribute("stroke", "var(--ink)");
+  hand.setAttribute("stroke-width", "2");
+  hand.setAttribute("marker-end", "url(#arrow)");
+  g.appendChild(hand);
+
+  // label
+  const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  t.setAttribute("x", d.cx + d.r + 14);
+  t.setAttribute("y", d.y + 5);
+  t.setAttribute("fill", "var(--ink)");
+  t.setAttribute("font-size", "14");
+  t.setAttribute("font-family", "Arial");
+  t.textContent = d.name + " (" + d.dir + ")";
+  g.appendChild(t);
+
+  // phase + degrees readout
+  const pT = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  pT.setAttribute("x", d.cx - d.r - 10);
+  pT.setAttribute("y", d.y + d.r + 18);
+  pT.setAttribute("fill", "var(--muted)");
+  pT.setAttribute("font-size", "12");
+  pT.setAttribute("font-family", "Arial");
+  pT.setAttribute("text-anchor", "end");
+  g.appendChild(pT);
+
+  d._g = g; d._disc = c; d._hand = hand; d._label = t; d._phaseT = pT;
+});
+
+// Clutch UI
+const topWrap = document.getElementById('topClutches');
+const botWrap = document.getElementById('botClutches');
+const engaged = new Set();
+
+function addClutchCheckbox(d, wrap, autoEngage){
+  const id = "cb_"+d.key;
+  const row = document.createElement('div');
+  row.className = 'row';
+  row.innerHTML = `<label><input type="checkbox" id="${id}" data-key="${d.key}"/> Engage — ${d.name}</label>`;
+  wrap.appendChild(row);
+  const cb = row.querySelector('input');
+  cb.addEventListener('change', (e)=>{
+    if (e.target.checked) engaged.add(d.key); else engaged.delete(d.key);
+    updateVisuals();
+  });
+  if (autoEngage){ cb.checked = true; engaged.add(d.key); }
+}
+
+dials.filter(x=>x.side==='TOP').forEach(d=>addClutchCheckbox(d, topWrap, true));
+dials.filter(x=>x.side==='BOT').forEach(d=>addClutchCheckbox(d, botWrap, true));
+
+document.getElementById('topAllOn').onclick = ()=>{
+  dials.filter(d=>d.side==='TOP').forEach(d=>{ engaged.add(d.key); const cb=document.getElementById('cb_'+d.key); if(cb) cb.checked=true; });
+  updateVisuals();
+};
+document.getElementById('topAllOff').onclick = ()=>{
+  dials.filter(d=>d.side==='TOP').forEach(d=>{ engaged.delete(d.key); const cb=document.getElementById('cb_'+d.key); if(cb) cb.checked=false; });
+  updateVisuals();
+};
+document.getElementById('botAllOn').onclick = ()=>{
+  dials.filter(d=>d.side==='BOT').forEach(d=>{ engaged.add(d.key); const cb=document.getElementById('cb_'+d.key); if(cb) cb.checked=true; });
+  updateVisuals();
+};
+document.getElementById('botAllOff').onclick = ()=>{
+  dials.filter(d=>d.side==='BOT').forEach(d=>{ engaged.delete(d.key); const cb=document.getElementById('cb_'+d.key); if(cb) cb.checked=false; });
+  updateVisuals();
+};
+
+// Controls
+const stepLabel = document.getElementById('stepLabel');
+const speedLabel = document.getElementById('speedLabel');
+function setStep(val){ stepUnit = val; stepLabel.textContent = val + " day" + (Math.abs(val)==1?"":"s"); }
+function setSpeed(val){ speedMul = val; speedLabel.textContent = val + "×"; }
+document.getElementById('stepUnit').addEventListener('change', e=> setStep(parseFloat(e.target.value)));
+document.getElementById('applyCustom').addEventListener('click', ()=>{
+  const v = parseFloat(document.getElementById('stepCustom').value||"1");
+  if (!isNaN(v) && v!=0) setStep(v);
+});
+document.getElementById('speedMul').addEventListener('change', e=> setSpeed(parseFloat(e.target.value)));
+document.getElementById('boostVis').addEventListener('change', e=> { boostVis = e.target.checked; updateVisuals(); });
+setStep(1); setSpeed(1);
+
+// Log helper
+const logEl = document.getElementById('log');
+function log(msg){
+  const ts = new Date().toLocaleTimeString();
+  logEl.textContent += `[${ts}] ${msg}
+`;
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+// Update visuals
+function updateVisuals(){
+  dials.forEach(d=>{
+    let frac = (d.phase % d.period) / d.period;
+    if (frac < 0) frac += 1;
+    const angle = (d.dir === "CW" ? 1 : -1) * 360 * frac;
+    // hand length boost for long cycles
+    const baseLen = d.r - 3;
+    const extra = (boostVis && d.period > 1000) ? Math.min(24, d.r*0.6) : 0;
+    d._hand.setAttribute("x2", d.cx);
+    d._hand.setAttribute("y2", d.y - baseLen - extra);
+    d._hand.setAttribute("transform", `rotate(${angle}, ${d.cx}, ${d.y})`);
+    const deg = ((angle % 360)+360)%360;
+    d._phaseT.textContent = `phase: ${(d.phase % d.period).toFixed(3)} d  |  angle: ${deg.toFixed(2)}° of 360°`;
+    if (engaged.has(d.key)) { d._disc.classList.add('dial-on'); d._disc.classList.remove('dial-off'); }
+    else { d._disc.classList.add('dial-off'); d._disc.classList.remove('dial-on'); }
+  });
+  document.getElementById('dayCount').textContent = dayCounter.toFixed(2);
+}
+
+// 52‑day sync
+function moonSync52(){
+  const sync = document.getElementById('sync52').checked;
+  if (!sync) return;
+  const rem = ((dayCounter % 52) + 52) % 52;
+  if (Math.abs(rem) < 1e-9){
+    const topMoon = dials.find(x=>x.key==='moon_phase_top');
+    const botMoon = dials.find(x=>x.key==='moon_days_bot');
+    if (topMoon && botMoon){
+      const topMod = ((topMoon.phase % 52)+52)%52;
+      const botBase = botMoon.phase - ((botMoon.phase % 52)+52)%52;
+      botMoon.phase = botBase + topMod;
+      const link = document.getElementById('moonLink');
+      link.setAttribute('stroke','#22c55e');
+      setTimeout(()=> link.setAttribute('stroke','#94a3b8'), 300);
+      log(`Moon sync 52: bottom trimmed to top (phase within 52‑day frame = ${topMod.toFixed(3)} d)`);
+    }
+  }
+}
+
+// Move by steps
+function stepDays(steps){
+  const dt = steps * stepUnit * speedMul; // days
+  dayCounter += dt;
+  dials.forEach(d=>{ if (engaged.has(d.key)) d.phase += dt; });
+  moonSync52();
+  updateVisuals();
+}
+
+document.getElementById('stepPos').onclick = ()=> stepDays(+1);
+document.getElementById('stepNeg').onclick = ()=> stepDays(-1);
+document.getElementById('stepPos10').onclick = ()=> stepDays(+10);
+document.getElementById('stepNeg10').onclick = ()=> stepDays(-10);
+
+updateVisuals();
+</script>
+</body>
+</html>
