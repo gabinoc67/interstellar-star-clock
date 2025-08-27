@@ -36,6 +36,16 @@
   .note{ font-size:0.95em; color:#bbb; margin-top:10px; }
   .error{ color:#ff7b7b; }
 
+  /* Readouts panel */
+  #readouts{
+    margin-top:10px; padding:12px;
+    background:#0b1327; border:1px solid #223; border-radius:8px;
+    color:#dbe2ef; font-size:0.96em;
+  }
+  #readouts h3{ margin:6px 0 4px 0; font-size:15px; color:#93c5fd; }
+  #readouts ul{ margin:6px 0 10px 16px; padding:0; }
+  #readouts li{ margin:2px 0; }
+
   /* Right column: clocks + legend stacked */
   #rightCol{ display:flex; flex-direction:column; gap:var(--gap); align-items:center; }
 
@@ -104,6 +114,9 @@
       <div class="note">
         ⚠️ Antikythera-style mechanism. The Moon is the main dial that drives the system.
       </div>
+
+      <!-- Dial Readouts (auto-filled on Start) -->
+      <div id="readouts"></div>
     </div>
 
     <!-- Right: clocks + legend -->
@@ -177,7 +190,27 @@ function normDeg(x){ x%=360; return x<0?x+360:x; }
 function shortestDelta(a,b){ let d=(b-a+540)%360-180; return d; }
 function easeInOut(t){ return t<0.5 ? 2*t*t : -1+(4-2*t)*t; }
 
-// Pointed hand
+function dmsStr(angle){               // 0..360 -> "D° M′"
+  const a = ((angle%360)+360)%360;
+  const d = Math.floor(a);
+  const m = Math.round((a-d)*60);
+  return `${d}° ${m}′`;
+}
+function indexInDiv(angle, divisions){ // 1-based index + degrees into that slice
+  const a = ((angle%360)+360)%360;
+  const step = 360/divisions;
+  const idx = Math.floor(a/step)+1;
+  const within = a - Math.floor(a/step)*step;
+  return { index: idx, within };
+}
+function moonPhaseName(ageDays){
+  const seg = MOON_SYNODIC/8;
+  const i = Math.floor(((ageDays%MOON_SYNODIC)+MOON_SYNODIC)%MOON_SYNODIC/seg);
+  return ["New Moon","Waxing Crescent","First Quarter","Waxing Gibbous",
+          "Full Moon","Waning Gibbous","Last Quarter","Waning Crescent"][i];
+}
+
+/* --------- drawing helpers ---------- */
 function pointer(ctx, cx, cy, r, angleDeg, color){
   const a = deg2rad(angleDeg);
   const tipX = cx + r*Math.cos(a), tipY = cy + r*Math.sin(a);
@@ -192,27 +225,21 @@ function pointer(ctx, cx, cy, r, angleDeg, color){
   ctx.beginPath(); ctx.arc(cx,cy,6,0,Math.PI*2); ctx.fillStyle=color; ctx.fill();
   ctx.lineWidth=1;
 }
-
-// Horizontally oriented label, centered along a hand, offset just above the line
 function labelCenteredOnHand(ctx, cx, cy, r, angleDeg, text, color, perpOffset=12){
   const a = deg2rad(angleDeg);
-  const midR = r * 0.52;                        // center-ish of the line
+  const midR = r * 0.52;
   const mx = cx + midR * Math.cos(a);
   const my = cy + midR * Math.sin(a);
-  const nx = -Math.sin(a), ny =  Math.cos(a);   // unit normal (left of the line)
+  const nx = -Math.sin(a), ny =  Math.cos(a);
   const lx = mx + perpOffset * nx;
   const ly = my + perpOffset * ny;
-
   ctx.save();
   ctx.font = "13px Arial";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  // subtle outline for readability
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = "rgba(0,0,0,0.55)";
+  ctx.lineWidth = 3; ctx.strokeStyle = "rgba(0,0,0,0.55)";
   ctx.strokeText(text, lx, ly);
-  ctx.fillStyle = color;
-  ctx.fillText(text, lx, ly);
+  ctx.fillStyle = color; ctx.fillText(text, lx, ly);
   ctx.restore();
 }
 
@@ -268,11 +295,8 @@ function parseDateFlexible(s){
   if(!s) return null;
   if (s.includes('-')){
     const parts = s.split('-').map(n=>parseInt(n,10));
-    if (parts[0] > 31) { // YYYY-MM-DD
-      const [y,m,d]=parts; if(isFinite(y)&&isFinite(m)&&isFinite(d)) return {y,m,d};
-    } else {             // MM-DD-YYYY
-      const [mm,dd,yy]=parts; if(isFinite(mm)&&isFinite(dd)&&isFinite(yy)) return {y:yy,m:mm,d:dd};
-    }
+    if (parts[0] > 31) { const [y,m,d]=parts; if(isFinite(y)&&isFinite(m)&&isFinite(d)) return {y,m,d}; }
+    else { const [mm,dd,yy]=parts; if(isFinite(mm)&&isFinite(dd)&&isFinite(yy)) return {y:yy,m:mm,d:dd}; }
   }
   if(s.includes('/')){
     const [mm,dd,yy] = s.split('/').map(n=>parseInt(n,10));
@@ -438,7 +462,7 @@ function ringTicksAndNumbers(ctx,cx,cy,r,ring){
   circle(ctx,cx,cy,r,color);
   setMid(ctx);
 
-  // (Names removed from canvas; legend panel shows them)
+  // names are in the Legend, not on-canvas
   ctx.strokeStyle=color; ctx.fillStyle=color; ctx.font=`${numbersFontPx}px Arial`;
   const every = ring.labelEvery ?? computeLabelEvery(ctx, r, divisions, numbersFontPx);
 
@@ -515,6 +539,49 @@ function animateTo(targetAngles, targetRot, durationMs=1500){
   rafId=requestAnimationFrame(step);
 }
 
+/* ------------------ Readouts (text under the summary) ------------------ */
+function updateReadouts(A, rot, meta){
+  // helpers for indices
+  const mans = indexInDiv(A.mansions, 28);
+  const dec  = indexInDiv(A.decans,   36);
+  const maya = indexInDiv(A.maya,     20);
+  const tepe = indexInDiv(A.tepe,     12);
+  const met  = indexInDiv(A.metonic,  19);
+
+  const sun = signDegMin(A.zodiac);
+  const moonAge = A.moonDay;               // 0..29.53
+  const moonDay = Math.floor(moonAge)+1;
+  const phaseAng = ((A.moon%360)+360)%360;
+  const phaseNm  = moonPhaseName(moonAge);
+  const phaseIdx = Math.floor(phaseAng / 45) % 8;
+  const phaseSym = rings[0].symbols[phaseIdx];
+
+  const where = meta.haveLon ? ` at lat <b>${meta.lat.toFixed(5)}°</b>, lon <b>${meta.lon.toFixed(5)}°</b>` : ``;
+  const orientTxt = (meta.orient==="noon") ? "Local noon at location."
+                    : (meta.orient==="lst") ? "Sidereal (LST at location)."
+                    : "Fixed meridian (north up).";
+
+  document.getElementById('readouts').innerHTML = `
+    <h3>Top clock — dial positions</h3>
+    <ul>
+      <li><b>Meridian:</b> ${orientTxt} • rotation <b>${dmsStr(rot)}</b></li>
+      <li><b>Sun:</b> <b>${sun.sign} ${sun.d}° ${sun.m}′</b> (λ=${dmsStr(A.zodiac)})</li>
+      <li><b>Moon (phase):</b> day <b>${moonDay}</b> • <b>${phaseNm}</b> • phase angle <b>${dmsStr(phaseAng)}</b></li>
+      <li><b>Lunar Mansions:</b> station <b>#${mans.index}</b> • ${dmsStr(mans.within)} into station</li>
+      <li><b>Decans (36):</b> decan <b>#${dec.index}</b> • ${dmsStr(dec.within)} into decan</li>
+      <li><b>Maya (20):</b> sign <b>#${maya.index}</b> ${mayaSigns[maya.index-1]} • ${dmsStr(maya.within)} into sign</li>
+      <li><b>Tepe (12):</b> step <b>#${tepe.index}</b> ${tepeSymbols[tepe.index-1]} • ${dmsStr(tepe.within)} into step</li>
+      <li><b>Metonic (19y):</b> index <b>#${met.index}</b> • ${dmsStr(met.within)} into segment</li>
+    </ul>
+
+    <h3>Bottom clock — dial positions</h3>
+    <ul>
+      <li><b>Meridian:</b> same as above • rotation <b>${dmsStr(rot)}</b>${where ? ` • location${where}` : ``}</li>
+      <li><b>Moon (agri):</b> day <b>${moonDay}</b> • <b>${phaseNm}</b> • 8-phase symbol <b>${phaseSym}</b> • phase angle <b>${dmsStr(phaseAng)}</b></li>
+    </ul>
+  `;
+}
+
 /* ------------------ Input / validation / control ------------------ */
 function getInputs(){
   const dateStr = document.getElementById('dateInput').value.trim();
@@ -549,7 +616,7 @@ function startClock(){
 
   const A = computeAngles(res.dateUTC);
 
-  // Orientation
+  // Orientation (rotation)
   let rot = 0;
   if(res.orient === "noon"){
     rot = A.zodiac; // put Sun at 12 o’clock
@@ -568,7 +635,9 @@ function startClock(){
                   : "Fixed meridian (north up).";
   out.innerHTML = `Synced for <b>${ymd}</b>${where} • Sun on zodiac: <b>${s.sign} ${s.d}° ${s.m}′</b> • Moon day: <b>${md}</b> • Orientation: ${orientTxt}`;
 
+  // update dials + readouts
   animateTo(A, rot, 1500);
+  updateReadouts(A, rot, res);
 }
 
 function resetClock(){
@@ -581,6 +650,7 @@ function resetClock(){
   document.getElementById('orientSel').value = "north";
   const out = document.getElementById('output');
   out.className=""; out.innerHTML = 'Clocks are visible. Enter a <b>date</b> (and optional lat/long) and press <b>Start</b> to rotate both faces.';
+  document.getElementById('readouts').innerHTML = "";
   drawFromCurrent();
 }
 
