@@ -13,11 +13,13 @@
       display:flex; align-items:flex-start; justify-content:center; gap:var(--gap);
       padding:18px; max-width:calc(100vw - 18px); overflow:auto; flex-wrap:wrap;
     }
+
+    /* Left control panel */
     #infoPanel{ width:400px; text-align:left; line-height:1.7em; }
     #infoPanel h1{ color:gold; font-size:28px; margin:0 0 12px 0; }
     label{ display:block; margin:8px 0 4px; font-size:1.05em; }
-    input{
-      width:100%; padding:9px 10px; font-size:1.2em;
+    input, select{
+      width:100%; padding:9px 10px; font-size:1.05em;
       border:1px solid #334155; background:#0f172a; color:#e5e7eb; border-radius:8px;
     }
     .btnRow{ margin-top:10px; display:flex; gap:10px; }
@@ -26,39 +28,52 @@
       padding:9px 16px; font-size:1.05em;
     }
     .btn:hover{ background:#1d4ed8; }
-    #output{ font-size:1.05em; margin-top:12px; }
+    #output{ font-size:1.05em; margin-top:12px; min-height:2.2em; }
     .note{ font-size:0.95em; color:#bbb; margin-top:10px; }
     .error{ color:#ff7b7b; }
+
+    /* Right clocks column */
     #clocks{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:var(--gap); }
+
+    /* Canvases */
     canvas{ background:#111; border:2px solid #333; display:block; }
     #cosmicClock, #bottomClock{ width:715px; height:715px; }
   </style>
 </head>
 <body>
   <div id="container">
+    <!-- Left: controls -->
     <div id="infoPanel">
       <h1>🪐 Cosmic Clock</h1>
 
-      <label for="dateInput">Birthday (YYYY-MM-DD, MM/DD/YYYY, or MM-DD-YYYY)</label>
-      <input type="text" id="dateInput" placeholder="e.g. 1987-05-09 or 05/09/1987 or 05-09-1987" />
+      <label for="dateInput">Birthday (YYYY-MM-DD or MM/DD/YYYY)</label>
+      <input type="text" id="dateInput" placeholder="e.g. 1987-05-09 or 05/09/1987" />
 
-      <label for="latInput">Latitude (°)</label>
+      <label for="latInput">Latitude (°) — optional, for orientation</label>
       <input type="number" id="latInput" step="0.00001" placeholder="e.g. 25.93742" />
 
-      <label for="lonInput">Longitude (°)</label>
+      <label for="lonInput">Longitude (°) — optional, for orientation</label>
       <input type="number" id="lonInput" step="0.00001" placeholder="e.g. -97.45960" />
+
+      <label for="orientMode">Orientation</label>
+      <select id="orientMode">
+        <option value="universal">Universal (no rotation)</option>
+        <option value="local_noon">Local noon at location (on that date)</option>
+        <option value="now_here">Right now at location</option>
+      </select>
 
       <div class="btnRow">
         <button class="btn" onclick="startClock()">Start</button>
         <button class="btn" onclick="resetClock()">Reset</button>
       </div>
 
-      <div id="output">Clocks are visible. Enter <b>date + latitude + longitude</b> and press <b>Start</b> to rotate both faces to the correct sky.</div>
+      <div id="output">Clocks are visible. Enter a <b>date</b> (and optionally latitude/longitude) then press <b>Start</b> to rotate/align.</div>
       <div class="note">
         ⚠️ Antikythera-style mechanism. The Moon is the main dial that drives the system.
       </div>
     </div>
 
+    <!-- Right: stacked clocks -->
     <div id="clocks">
       <canvas id="cosmicClock" width="715" height="715"></canvas>
       <canvas id="bottomClock" width="715" height="715"></canvas>
@@ -69,7 +84,7 @@
     /* ------------------ shared helpers ------------------ */
     function dims(canvas){
       const cx = canvas.width/2, cy = canvas.height/2;
-      const rMax = Math.min(cx, cy) - 18;
+      const rMax = Math.min(cx, cy) - 18; // safety margin
       return { cx, cy, rMax };
     }
     function setMid(ctx){ ctx.textAlign="center"; ctx.textBaseline="middle"; }
@@ -123,18 +138,14 @@
       const lambda = L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2*g);
       return normDeg(lambda);
     }
-    function sunZodiacName(lambda){
-      const signs = ["Aries","Taurus","Gemini","Cancer","Leo","Virgo","Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces"];
-      return signs[Math.floor(normDeg(lambda)/30)];
-    }
-    function sunSignDegreeString(lambda){
-      const signs = ["Aries","Taurus","Gemini","Cancer","Leo","Virgo","Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces"];
-      const L = normDeg(lambda);
-      const idx = Math.floor(L/30);
-      const deg = L - idx*30;
-      const d = Math.floor(deg);
-      const m = Math.round((deg - d)*60);
-      return `${signs[idx]} ${d}° ${m}′`;
+
+    const SIGN_NAMES = ["Aries","Taurus","Gemini","Cancer","Leo","Virgo","Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces"];
+    function formatSunPos(lambda){
+      const z = Math.floor(normDeg(lambda)/30);
+      const within = normDeg(lambda) - z*30;
+      const deg = Math.floor(within);
+      const min = Math.round((within - deg)*60);
+      return { sign: SIGN_NAMES[z], text: `${SIGN_NAMES[z]} ${deg}° ${String(min).padStart(2,"0")}'` };
     }
 
     // JD / GMST / LST (deg)
@@ -147,24 +158,28 @@
     }
     function lstDeg(dateUTC, longitudeDeg){ return normDeg(gmstDeg(dateUTC) + longitudeDeg); }
 
-    // Parse YYYY-MM-DD, MM/DD/YYYY, or MM-DD-YYYY
+    // Parse both "YYYY-MM-DD" and "MM/DD/YYYY" and "MM-DD-YYYY"
     function parseDateFlexible(s){
       if(!s) return null;
-      const sep = s.includes('/') ? '/' : (s.includes('-') ? '-' : null);
-      if(!sep) return null;
-      const parts = s.split(sep).map(v => parseInt(v,10));
-      if(parts.length !== 3 || parts.some(v => !Number.isFinite(v))) return null;
-      if(String(parts[0]).length === 4){ // YYYY-…
-        const [y,m,d] = parts; return { y, m, d };
-      } else { // MM-…-YYYY
-        const [m,d,y] = parts; return { y, m, d };
+      if(s.includes('-') && s.split('-')[0].length===4){ // ISO-ish
+        const [y,m,d] = s.split('-').map(n=>parseInt(n,10));
+        if(isFinite(y)&&isFinite(m)&&isFinite(d)) return { y, m, d };
       }
+      if(s.includes('/')){ // US slashes
+        const [mm,dd,yy] = s.split('/').map(n=>parseInt(n,10));
+        if(isFinite(mm)&&isFinite(dd)&&isFinite(yy)) return { y:yy, m:mm, d:dd };
+      }
+      if(s.includes('-')){ // US dashes
+        const [mm,dd,yy] = s.split('-').map(n=>parseInt(n,10));
+        if(isFinite(mm)&&isFinite(dd)&&isFinite(yy)) return { y:yy, m:mm, d:dd };
+      }
+      return null;
     }
 
-    // UTC instant at Local Mean Noon for a given longitude
+    // Build UTC instant at Local Mean Noon for a given longitude
     function utcFromLocalMeanNoonYMD(y,m,d, lonDeg){
       const utcNoon = Date.UTC(y, m-1, d, 12, 0, 0);
-      return new Date(utcNoon - lonDeg*240000); // 4 min/deg
+      return new Date(utcNoon - lonDeg*240000); // 4 min/deg -> ms
     }
 
     function computeAngles(dateUTC){
@@ -173,7 +188,7 @@
       const dEpoch = daysSince(t, EPOCH);
       return {
         moon:      normDeg( norm(dMoon, MOON_SYNODIC) / MOON_SYNODIC * 360 ),
-        moonDay:   norm(dMoon, MOON_SYNODIC),
+        moonDay:   norm(dMoon, MOON_SYNODIC),           // 0..29.53
         mansions:  normDeg(dMoon / MOON_SIDEREAL * 360),
         zodiac:    sunEclipticLongitude(dateUTC),
         decans:    normDeg(dEpoch / TROPICAL_YEAR * 360),
@@ -213,7 +228,7 @@
         moonPh :  outer - step*7
       };
 
-      // Degree ring
+      // Degree ring with ticks
       circle(tctx, cx, cy, R.degRing, "#444");
       for(let d=0; d<360; d+=5){
         const a=deg2rad(d), major = d%30===0, len = major?14:7;
@@ -229,7 +244,7 @@
 
       ["mansions","decans","maya","tepe","zodiacR","metonic"].forEach(k=>circle(tctx,cx,cy,R[k],"#2a3347"));
 
-      // labels
+      // labels (unchanged art)
       tctx.fillStyle="violet"; tctx.font="22px Arial";
       zodiac.forEach((z,i)=>{ const a=deg2rad(i*30); tctx.fillText(z, cx+R.zodiacR*Math.cos(a), cy+R.zodiacR*Math.sin(a)); });
 
@@ -253,18 +268,18 @@
 
       const rot = rotDeg||0;
 
-      // Gray meridian (0° reference)
+      // Gray meridian hand (0° reference)
       pointer(tctx,cx,cy,R.degRing, 0, "#9aa0a6");
 
-      // Hands (relative to orientation)
-      const dialColors = { mansions:"#ffd166", decans:"#ff4d4d", maya:"#98fb98", tepe:"#6ee7ff", zodiac:"#c084fc", metonic:"#ffa500", moonPh:"#ffffff" };
-      pointer(tctx,cx,cy,R.mansions, normDeg(angles.mansions - rot), dialColors.mansions);
-      pointer(tctx,cx,cy,R.decans,   normDeg(angles.decans   - rot), dialColors.decans);
-      pointer(tctx,cx,cy,R.maya,     normDeg(angles.maya     - rot), dialColors.maya);
-      pointer(tctx,cx,cy,R.tepe,     normDeg(angles.tepe     - rot), dialColors.tepe);
-      pointer(tctx,cx,cy,R.zodiacR,  normDeg(angles.zodiac   - rot), dialColors.zodiac);   // Sun
-      pointer(tctx,cx,cy,R.metonic,  normDeg(angles.metonic  - rot), dialColors.metonic);
-      pointer(tctx,cx,cy,R.moonPh,   normDeg(angles.moon     - rot), dialColors.moonPh);   // Moon
+      // Hands (subtract orientation)
+      const C = { mansions:"#ffd166", decans:"#ff4d4d", maya:"#98fb98", tepe:"#6ee7ff", zodiac:"#c084fc", metonic:"#ffa500", moonPh:"#ffffff" };
+      pointer(tctx,cx,cy,R.mansions, normDeg(angles.mansions - rot), C.mansions);
+      pointer(tctx,cx,cy,R.decans,   normDeg(angles.decans   - rot), C.decans);
+      pointer(tctx,cx,cy,R.maya,     normDeg(angles.maya     - rot), C.maya);
+      pointer(tctx,cx,cy,R.tepe,     normDeg(angles.tepe     - rot), C.tepe);
+      pointer(tctx,cx,cy,R.zodiacR,  normDeg(angles.zodiac   - rot), C.zodiac);   // Sun along zodiac
+      pointer(tctx,cx,cy,R.metonic,  normDeg(angles.metonic  - rot), C.metonic);
+      pointer(tctx,cx,cy,R.moonPh,   normDeg(angles.moon     - rot), C.moonPh);   // Moon master
     }
 
     /* ------------------ BOTTOM CLOCK (art) ------------------ */
@@ -337,25 +352,31 @@
       pointer(bctx, cx, cy, rings[rings.length-1].r, 0, "#9aa0a6");
       // Yellow Moon hand
       pointer(bctx, cx, cy, rings[rings.length-1].r, normDeg(angles.moon - rot), "yellow");
+
       bctx.beginPath(); bctx.arc(cx,cy,6,0,Math.PI*2); bctx.fillStyle="yellow"; bctx.fill();
     }
 
     /* ------------------ Controller: always visible + animate ------------------ */
+
+    // Current (drawn) state — start at 0° everywhere
     let rotCurrent = 0;
     let anglesCurrent = {
       moon:0, mansions:0, zodiac:0, decans:0, tepe:0, maya:0, metonic:0,
       saros:0, exeligmos:0, olympiad:0, meso:0, native365:0, moonDay:0
     };
 
+    // Draw the current state (no computations)
     function drawFromCurrent(){
       drawTopClock(anglesCurrent, rotCurrent);
       drawBottomClock(anglesCurrent, rotCurrent);
     }
 
+    // Animate both faces to a target state
     let rafId = null;
     function animateTo(targetAngles, targetRot, durationMs=1500){
       if(rafId) cancelAnimationFrame(rafId);
       const start = performance.now();
+
       const startAngles = {...anglesCurrent};
       const startRot = rotCurrent;
 
@@ -364,12 +385,14 @@
         if (t > 1) t = 1;
         const e = easeInOut(t);
 
-        for(const k in anglesCurrent){
+        const keys = Object.keys(anglesCurrent);
+        keys.forEach(k=>{
           const a0 = startAngles[k] || 0;
           const a1 = targetAngles[k] || 0;
           const d  = shortestDelta(a0, a1);
           anglesCurrent[k] = normDeg(a0 + d*e);
-        }
+        });
+
         const dRot = shortestDelta(startRot, targetRot);
         rotCurrent = normDeg(startRot + dRot*e);
 
@@ -380,72 +403,90 @@
     }
 
     /* ------------------ Input / validation / control ------------------ */
-    function getInputsStrict(){
-      let dateStr = document.getElementById('dateInput').value.trim();
+    function getParsedDate(){
+      const s = document.getElementById('dateInput').value.trim();
+      if(!s) return null;
+      return parseDateFlexible(s);
+    }
+
+    function getLatLon(){
       const latStr  = document.getElementById('latInput').value.trim();
       const lonStr  = document.getElementById('lonInput').value.trim();
-
-      if(!dateStr || !latStr || !lonStr){
-        return { ok:false, msg:"Please enter a <b>date</b>, <b>latitude</b>, and <b>longitude</b> (all three are required to rotate)." };
-      }
-
-      const parts = parseDateFlexible(dateStr);
-      if(!parts){ return { ok:false, msg:"Date must be in <b>YYYY-MM-DD</b>, <b>MM/DD/YYYY</b>, or <b>MM-DD-YYYY</b> format." }; }
-      const {y,m,d} = parts;
-
+      if(!latStr && !lonStr) return null;
       const lat = parseFloat(latStr), lon = parseFloat(lonStr);
-      if(!(isFinite(lat) && isFinite(lon))){
-        return { ok:false, msg:"Latitude/Longitude must be valid numbers." };
-      }
-      if(lat < -90 || lat > 90){ return { ok:false, msg:"Latitude must be between -90 and 90 degrees." }; }
-      if(lon < -180 || lon > 180){ return { ok:false, msg:"Longitude must be between -180 and 180 degrees.<br>Texas is negative (e.g., <b>-97.45960</b>)." }; }
-
-      const dateUTC = utcFromLocalMeanNoonYMD(y,m,d, lon);
-      const isoYMD = `${y.toString().padStart(4,"0")}-${m.toString().padStart(2,"0")}-${d.toString().padStart(2,"0")}`;
-
-      return { ok:true, dateUTC, lat, lon, dateStr:isoYMD };
+      if(!(isFinite(lat) && isFinite(lon))) return { error:"Latitude/Longitude must be valid numbers." };
+      if(lat < -90 || lat > 90) return { error:"Latitude must be between -90 and 90 degrees." };
+      if(lon < -180 || lon > 180) return { error:"Longitude must be between -180 and 180 degrees.<br>Texas is negative (e.g., <b>-97.45960</b>)." };
+      return { lat, lon };
     }
 
     function startClock(){
       const out = document.getElementById('output');
-      const res = getInputsStrict();
-      if(!res.ok){
+      const orientMode = document.getElementById('orientMode').value;
+
+      const dateParts = getParsedDate();
+      if(!dateParts){
         out.className = "error";
-        out.innerHTML = res.msg;
+        out.innerHTML = "Please enter a valid <b>date</b> (YYYY-MM-DD or MM/DD/YYYY).";
         return;
       }
-      out.className = "";
 
-      const A = computeAngles(res.dateUTC);
-      const rot = lstDeg(res.dateUTC, res.lon);
+      const latlon = getLatLon();
+      if(orientMode !== "universal"){
+        if(!latlon || latlon.error){
+          out.className = "error";
+          out.innerHTML = latlon && latlon.error ? latlon.error :
+            "To use this orientation mode, please enter both <b>latitude</b> and <b>longitude</b>.";
+          return;
+        }
+      }
 
-      const sunStr = sunSignDegreeString(A.zodiac);
+      // Build UTC time for positions (date controls the dials)
+      const dateUTC_for_positions = utcFromLocalMeanNoonYMD(dateParts.y, dateParts.m, dateParts.d, 0);
+      const A = computeAngles(dateUTC_for_positions);
+      const sunFmt = formatSunPos(A.zodiac);
       const moonDayRounded = Math.floor(A.moonDay)+1;
-      out.innerHTML =
-        `Synced for <b>${res.dateStr}</b> at lat <b>${res.lat.toFixed(5)}°</b>, lon <b>${res.lon.toFixed(5)}°</b> • Sun on zodiac: <b>${sunStr}</b> • Moon day: <b>${moonDayRounded}</b> • Orientation by LST.`;
 
+      // Orientation (rotation)
+      let rot = 0;
+      if(orientMode === "local_noon"){
+        const dateUTC_noon_here = utcFromLocalMeanNoonYMD(dateParts.y, dateParts.m, dateParts.d, latlon.lon);
+        rot = lstDeg(dateUTC_noon_here, latlon.lon);
+      }else if(orientMode === "now_here"){
+        const nowUTC = new Date(); // current moment
+        rot = lstDeg(nowUTC, latlon.lon);
+      }
+
+      // Report
+      out.className = "";
+      const isoYMD = `${String(dateParts.y).padStart(4,"0")}-${String(dateParts.m).padStart(2,"0")}-${String(dateParts.d).padStart(2,"0")}`;
+      const orientText =
+        orientMode === "universal" ? "Universal (no rotation)" :
+        orientMode === "local_noon" ? "Local noon at location" :
+        "Right now at location";
+      const locText = (orientMode==="universal") ? "" :
+        ` at lat <b>${latlon.lat.toFixed(5)}°</b>, lon <b>${latlon.lon.toFixed(5)}°</b>`;
+      out.innerHTML =
+        `Synced for <b>${isoYMD}</b>${locText} • Sun on zodiac: <b>${sunFmt.text}</b> • Moon day: <b>${moonDayRounded}</b> • Orientation: <b>${orientText}</b>.`;
+
+      // Animate to the new state
       animateTo(A, rot, 1500);
     }
 
     function resetClock(){
+      const out = document.getElementById('output');
       if (rafId) cancelAnimationFrame(rafId);
       rotCurrent = 0;
       for (const k in anglesCurrent) anglesCurrent[k] = 0;
       drawFromCurrent();
-      document.getElementById('dateInput').value = '';
-      document.getElementById('latInput').value  = '';
-      document.getElementById('lonInput').value  = '';
-      const out = document.getElementById('output');
-      out.className = '';
-      out.innerHTML = 'Clocks are visible. Enter <b>date + latitude + longitude</b> and press <b>Start</b> to rotate both faces to the correct sky.';
-    }
 
-    // Enter key support
-    ["dateInput","latInput","lonInput"].forEach(id=>{
-      document.getElementById(id).addEventListener('keydown', e=>{
-        if(e.key === 'Enter') startClock();
-      });
-    });
+      // clear inputs + status
+      document.getElementById('dateInput').value = "";
+      document.getElementById('latInput').value = "";
+      document.getElementById('lonInput').value = "";
+      document.getElementById('orientMode').value = "universal";
+      out.className=""; out.innerHTML = 'Clocks are visible. Enter a <b>date</b> (and optionally latitude/longitude) then press <b>Start</b> to rotate/align.';
+    }
 
     /* ------------------ Initial draw: visible immediately ------------------ */
     drawFromCurrent();
