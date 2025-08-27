@@ -88,7 +88,7 @@
     function deg2rad(deg){ return (deg-90)*Math.PI/180; }
     function normDeg(x){ x%=360; return x<0?x+360:x; }
 
-    // Regular pointed hand from center to r
+    // Pointed hand
     function pointer(ctx, cx, cy, r, angleDeg, color){
       const a = deg2rad(angleDeg);
       const tipX = cx + r*Math.cos(a), tipY = cy + r*Math.sin(a);
@@ -106,22 +106,22 @@
 
     /* ------------------ time / cycle engine ------------------ */
     const TROPICAL_YEAR = 365.2422;
-    const MOON_SYNODIC = 29.530588;                 // phase cycle
-    const MOON_SIDEREAL = 27.321661;                // for mansions
-    const METONIC = 6939.69;                        // ~19 y
-    const SAROS = 6585.321;                         // 18y 11d 8h
-    const EXELIGMOS = SAROS * 3;                    // ~54 y
-    const OLYMPIAD = 1461.0;                        // 4 y
-    const MESOAMERICAN_52Y = 52 * 365.0;            // simplified
+    const MOON_SYNODIC = 29.530588;
+    const MOON_SIDEREAL = 27.321661;
+    const METONIC = 6939.69;
+    const SAROS = 6585.321;
+    const EXELIGMOS = SAROS * 3;
+    const OLYMPIAD = 1461.0;
+    const MESOAMERICAN_52Y = 52 * 365.0;
     const NATIVE_YEAR = 365.0;
 
-    // Reference epochs
-    const EPOCH = Date.UTC(2000,0,1,12,0,0);        // J2000 noon
-    const NEW_MOON_REF = Date.UTC(2000,0,6,18,14,0);// known new moon
+    const EPOCH = Date.UTC(2000,0,1,12,0,0);
+    const NEW_MOON_REF = Date.UTC(2000,0,6,18,14,0);
 
     function daysSince(ms, ref){ return (ms - ref) / 86400000; }
+    function norm(x,p){ x%=p; return x<0?x+p:x; }
 
-    // Sun ecliptic longitude (deg) — simple ~1° accuracy
+    // Simple Sun ecliptic longitude (~1°)
     function sunEclipticLongitude(dateUTC){
       const n = (dateUTC.getTime() - Date.UTC(2000,0,1,0,0,0)) / 86400000;
       const L = 280.460 + 0.9856474 * n;
@@ -144,26 +144,35 @@
     }
     function lstDeg(dateUTC, longitudeDeg){ return normDeg(gmstDeg(dateUTC) + longitudeDeg); }
 
-    // Build a UTC Date representing local mean noon at a given longitude
-    function utcFromLocalMeanNoon(ymd, lonDeg){
-      // ymd = "YYYY-MM-DD"
-      const [y,m,d] = ymd.split('-').map(n=>parseInt(n,10));
-      const utcNoon = Date.UTC(y, m-1, d, 12, 0, 0);
-      // Local Mean Time = UTC + lon/15 h  => UTC = LMT - lon/15 h
-      const ms = utcNoon - (lonDeg * 240000); // 4 min/deg * 60k ms/min
-      return new Date(ms);
+    // Parse both "YYYY-MM-DD" and "MM/DD/YYYY"
+    function parseDateFlexible(s){
+      if(!s) return null;
+      if(s.includes('-')){            // native date input
+        const [y,m,d] = s.split('-').map(n=>parseInt(n,10));
+        if(isFinite(y)&&isFinite(m)&&isFinite(d)) return { y, m, d };
+      }
+      if(s.includes('/')){            // typed as mm/dd/yyyy
+        const [mm,dd,yy] = s.split('/').map(n=>parseInt(n,10));
+        if(isFinite(mm)&&isFinite(dd)&&isFinite(yy)) return { y:yy, m:mm, d:dd };
+      }
+      return null;
     }
 
-    // Core angles
+    // Build UTC instant at Local Mean Noon for a given longitude
+    function utcFromLocalMeanNoonYMD(y,m,d, lonDeg){
+      const utcNoon = Date.UTC(y, m-1, d, 12, 0, 0);
+      return new Date(utcNoon - lonDeg*240000); // 4 min/deg -> ms
+    }
+
     function computeAngles(dateUTC){
       const t = dateUTC.getTime();
       const dMoon = daysSince(t, NEW_MOON_REF);
       const dEpoch = daysSince(t, EPOCH);
       return {
-        moon:      normDeg(((dMoon%MOON_SYNODIC + MOON_SYNODIC)%MOON_SYNODIC) / MOON_SYNODIC * 360),
-        moonDay:   (dMoon%MOON_SYNODIC + MOON_SYNODIC)%MOON_SYNODIC,
+        moon:      normDeg( norm(dMoon, MOON_SYNODIC) / MOON_SYNODIC * 360 ),
+        moonDay:   norm(dMoon, MOON_SYNODIC),           // 0..29.53
         mansions:  normDeg(dMoon / MOON_SIDEREAL * 360),
-        zodiac:    sunEclipticLongitude(dateUTC),      // Sun along zodiac
+        zodiac:    sunEclipticLongitude(dateUTC),
         decans:    normDeg(dEpoch / TROPICAL_YEAR * 360),
         tepe:      normDeg(dEpoch / TROPICAL_YEAR * 360),
         maya:      normDeg(dEpoch / 20.0 * 360),
@@ -176,7 +185,7 @@
       };
     }
 
-    /* ------------------ TOP CLOCK (original layout) ------------------ */
+    /* ------------------ TOP CLOCK ------------------ */
     const topCanvas = document.getElementById("cosmicClock");
     const tctx = topCanvas.getContext("2d");
     const tepeSymbols = ["🦂","🦊","🦅","🐂","🐍","🐇","🐺","🐟","🐦","🦌","🦃","🐢"];
@@ -202,7 +211,7 @@
         moonPh :  outer - step*7
       };
 
-      // Degree ring (ticks + 30° labels)
+      // Degree ring
       circle(tctx, cx, cy, R.degRing, "#444");
       for(let d=0; d<360; d+=5){
         const a=deg2rad(d), major = d%30===0, len = major?14:7;
@@ -216,10 +225,9 @@
         }
       }
 
-      // guide rings
       ["mansions","decans","maya","tepe","zodiacR","metonic"].forEach(k=>circle(tctx,cx,cy,R[k],"#2a3347"));
 
-      // static labels (unchanged)
+      // labels (unchanged art)
       tctx.fillStyle="violet"; tctx.font="22px Arial";
       zodiac.forEach((z,i)=>{ const a=deg2rad(i*30); tctx.fillText(z, cx+R.zodiacR*Math.cos(a), cy+R.zodiacR*Math.sin(a)); });
 
@@ -243,22 +251,21 @@
 
       const rot = rotDeg||0;
 
-      // Gray meridian hand (true north baseline)
+      // Gray meridian hand
       pointer(tctx,cx,cy,R.degRing, 0, "#9aa0a6");
 
-      // Hands driven by angles minus shared rotation (LST)
+      // Hands (subtract orientation)
       const dialColors = { mansions:"#ffd166", decans:"#ff4d4d", maya:"#98fb98", tepe:"#6ee7ff", zodiac:"#c084fc", metonic:"#ffa500", moonPh:"#ffffff" };
       pointer(tctx,cx,cy,R.mansions, normDeg(A.mansions - rot), dialColors.mansions);
       pointer(tctx,cx,cy,R.decans,   normDeg(A.decans   - rot), dialColors.decans);
       pointer(tctx,cx,cy,R.maya,     normDeg(A.maya     - rot), dialColors.maya);
       pointer(tctx,cx,cy,R.tepe,     normDeg(A.tepe     - rot), dialColors.tepe);
-      pointer(tctx,cx,cy,R.zodiacR,  normDeg(A.zodiac   - rot), dialColors.zodiac);   // Sun on zodiac
+      pointer(tctx,cx,cy,R.zodiacR,  normDeg(A.zodiac   - rot), dialColors.zodiac);   // Sun along zodiac
       pointer(tctx,cx,cy,R.metonic,  normDeg(A.metonic  - rot), dialColors.metonic);
-      // Moon phase hand (master)
-      pointer(tctx,cx,cy,R.moonPh,   normDeg(A.moon     - rot), dialColors.moonPh);
+      pointer(tctx,cx,cy,R.moonPh,   normDeg(A.moon     - rot), dialColors.moonPh);   // Moon master
     }
 
-    /* ------------------ BOTTOM CLOCK (original layout) ------------------ */
+    /* ------------------ BOTTOM CLOCK ------------------ */
     const bottomCanvas = document.getElementById("bottomClock");
     const bctx = bottomCanvas.getContext("2d");
 
@@ -298,7 +305,6 @@
       ctx.fillText(ring.label, cx, cy - r - 13);
 
       ctx.strokeStyle=color; ctx.fillStyle=color; ctx.font=`${numbersFontPx}px Arial`;
-
       const every = ring.labelEvery ?? computeLabelEvery(ctx, r, divisions, numbersFontPx);
 
       for(let i=0;i<divisions;i++){
@@ -327,38 +333,40 @@
 
       const rot = rotDeg||0;
 
-      // Gray meridian hand (true north)
+      // Gray meridian hand
       pointer(bctx, cx, cy, rings[rings.length-1].r, 0, "#9aa0a6");
-
-      // Moon master hand (yellow), aligned with the orientation
+      // Yellow Moon hand
       pointer(bctx, cx, cy, rings[rings.length-1].r, normDeg(A.moon - rot), "yellow");
 
-      // Hub
       bctx.beginPath(); bctx.arc(cx,cy,6,0,Math.PI*2); bctx.fillStyle="yellow"; bctx.fill();
     }
 
     /* ------------------ Input / validation / control ------------------ */
     function getInputsStrict(){
-      const dateStr = document.getElementById('dateInput').value.trim();
+      let dateStr = document.getElementById('dateInput').value.trim();
       const latStr  = document.getElementById('latInput').value.trim();
       const lonStr  = document.getElementById('lonInput').value.trim();
 
-      // Require all three
       if(!dateStr || !latStr || !lonStr){
         return { ok:false, msg:"Please enter a <b>date</b>, <b>latitude</b>, and <b>longitude</b> (all three are required)." };
       }
+
+      // Flexible date parsing
+      const parts = parseDateFlexible(dateStr);
+      if(!parts){ return { ok:false, msg:"Date must be in <b>YYYY-MM-DD</b> or <b>MM/DD/YYYY</b> format." }; }
+      const {y,m,d} = parts;
 
       const lat = parseFloat(latStr), lon = parseFloat(lonStr);
       if(!(isFinite(lat) && isFinite(lon))){
         return { ok:false, msg:"Latitude/Longitude must be valid numbers." };
       }
       if(lat < -90 || lat > 90){ return { ok:false, msg:"Latitude must be between -90 and 90 degrees." }; }
-      if(lon < -180 || lon > 180){ return { ok:false, msg:"Longitude must be between -180 and 180 degrees." }; }
+      if(lon < -180 || lon > 180){ return { ok:false, msg:"Longitude must be between -180 and 180 degrees.<br>Texas is negative (e.g., <b>-97.45960</b>)." }; }
 
-      // Build UTC instant using Local Mean Noon at longitude
-      const dateUTC = utcFromLocalMeanNoon(dateStr, lon);
+      const dateUTC = utcFromLocalMeanNoonYMD(y,m,d, lon);
+      const isoYMD = `${y.toString().padStart(4,"0")}-${m.toString().padStart(2,"0")}-${d.toString().padStart(2,"0")}`;
 
-      return { ok:true, dateUTC, lat, lon, dateStr };
+      return { ok:true, dateUTC, lat, lon, dateStr:isoYMD };
     }
 
     function renderStrict(){
@@ -367,24 +375,20 @@
       if(!res.ok){
         out.className = "error";
         out.innerHTML = res.msg;
-        // Clear both canvases so user sees nothing stale
         [topCanvas, bottomCanvas].forEach(c => c.getContext("2d").clearRect(0,0,c.width,c.height));
         return;
       }
       out.className = "";
 
-      // Shared orientation: LST at given longitude
-      const rot = lstDeg(res.dateUTC, res.lon);
-
-      // Draw both synced
+      const rot = lstDeg(res.dateUTC, res.lon);    // sky orientation
       drawTopClock(res.dateUTC, rot);
       drawBottomClock(res.dateUTC, rot);
 
-      // Status (Sun sign + Moon day)
       const lambda = sunEclipticLongitude(res.dateUTC);
       const sign = sunZodiacName(lambda);
-      const moonDay = computeAngles(res.dateUTC).moonDay; // 0–29.53
-      const moonDayRounded = Math.floor(moonDay)+1;       // 1–29/30
+      const moonDay = computeAngles(res.dateUTC).moonDay;
+      const moonDayRounded = Math.floor(moonDay)+1;
+
       out.innerHTML =
         `Synced for <b>${res.dateStr}</b> at lat <b>${res.lat.toFixed(5)}°</b>, lon <b>${res.lon.toFixed(5)}°</b> • Sun on zodiac: <b>${sign}</b> • Moon day: <b>${moonDayRounded}</b> • Orientation by LST.`;
     }
@@ -396,11 +400,8 @@
       document.getElementById('lonInput').value = "";
       const out = document.getElementById('output');
       out.className=""; out.innerHTML = 'Enter <b>date + latitude + longitude</b> to sync both clocks.';
-      // Clear canvases
       [topCanvas, bottomCanvas].forEach(c => c.getContext("2d").clearRect(0,0,c.width,c.height));
     }
-
-    // No auto-draw; wait for valid inputs
   </script>
 </body>
 </html>
