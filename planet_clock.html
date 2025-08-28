@@ -5,46 +5,48 @@
   <title>🪐 Interstellar Star Clock — Planet Clocks</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root{ --fg:#00ffcc; --gap: clamp(10px, 2vmin, 22px); --pad: clamp(10px, 2vmin, 18px); }
+    :root{
+      --fg:#00ffcc;
+      --gap: clamp(12px, 2.2vmin, 26px);
+      --pad: clamp(12px, 2.2vmin, 22px);
+    }
     *{ box-sizing: border-box; }
     body{
       background:#000; color:var(--fg); font-family:'Courier New', monospace;
       margin:0; min-height:100vh; display:flex; justify-content:center; padding: var(--pad);
+      font-size: clamp(15px, 1.15vw, 19px); line-height: 1.5;
     }
-    /* 2-column layout: Info (L) | Planet image (R) */
     .wrap{
       display:grid;
-      grid-template-columns: minmax(360px, 1fr) minmax(240px, .85fr);
+      grid-template-columns: minmax(420px, 1fr) minmax(320px, .9fr);
       gap: var(--gap);
-      max-width: min(1000px, 98vw);
+      max-width: min(1200px, 98vw);
       width:100%;
       align-items:start;
     }
     header{
       grid-column: 1 / -1; display:flex; justify-content:space-between; align-items:center; gap: var(--gap);
     }
-    /* Smaller, tighter title */
-    h1{ margin:0; font-size: clamp(0.85rem, 2vw, 1.25rem); line-height:1.12; letter-spacing:.4px; }
-    .controls{ display:flex; align-items:center; gap:.5rem; font-size: clamp(.8rem, 1.4vw, .95rem); }
+    h1{ margin:0; font-size: clamp(1.05rem, 2.6vw, 1.6rem); line-height:1.12; letter-spacing:.4px; }
+    .controls{ display:flex; align-items:center; gap:.6rem; font-size: clamp(.95rem, 1.6vw, 1.05rem); }
     select{
-      background:#001a16; color:var(--fg); border:1px solid #064e3b; padding:.25rem .45rem; border-radius:6px;
+      background:#001a16; color:var(--fg); border:1px solid #064e3b; padding:.35rem .55rem; border-radius:6px;
+      font-size: inherit;
     }
-
-    /* CENTER: Info panel */
     .content{ text-align:center; padding: var(--pad); }
-    h2{ margin:.2rem 0 .35rem; font-size: clamp(.9rem, 1.7vw, 1.2rem); }
-    .clock-box{ margin-top: .7rem; font-size: clamp(.8rem, 1.3vw, 1.05rem); }
+    h2{ margin:.3rem 0 .5rem; font-size: clamp(1.05rem, 1.9vw, 1.35rem); }
+    .clock-box{ margin-top: .9rem; font-size: clamp(.98rem, 1.5vw, 1.12rem); }
     .muted{ opacity:.85; font-size:.95em; }
-
-    /* RIGHT: Planet image */
-    .planet-image{ display:flex; justify-content:center; align-items:center; }
-    .planet-image img{ width:min(26vw, 42vh, 320px); height:auto; display:block; }
-
-    @media (max-width: 900px){
-      .wrap{
-        grid-template-columns: 1fr;  /* Stack: Info -> Image */
-      }
-      .planet-image img{ width:min(60vw, 48vh, 320px); }
+    .planet-image{ display:flex; justify-content:center; align-items:center; padding: var(--pad); }
+    .planet-image img{
+      width:min(46vw, 70vh, 560px); height:auto; display:block;
+      image-rendering: auto;
+      filter: drop-shadow(0 8px 22px rgba(0,255,204,.18));
+    }
+    @media (max-width: 980px){
+      .wrap{ grid-template-columns: 1fr; }
+      .planet-image img{ width:min(70vw, 60vh, 560px); }
+      .content{ padding: calc(var(--pad) * .8); }
     }
   </style>
 </head>
@@ -54,7 +56,7 @@
       <h1>🪐 Interstellar Star Clock — <span id="titlePlanet">Earth</span> Clocks</h1>
       <div class="controls">
         <label for="planet">Planet:</label>
-        <select id="planet">
+        <select id="planet" aria-label="Choose planet">
           <option>Mercury</option><option>Venus</option><option selected>Earth</option>
           <option>Mars</option><option>Jupiter</option><option>Saturn</option>
           <option>Uranus</option><option>Neptune</option><option>Pluto</option>
@@ -62,7 +64,6 @@
       </div>
     </header>
 
-    <!-- LEFT: Selected planet readouts -->
     <div class="content">
       <div class="clock-box">
         <h2>🌍 Local Time (America/Chicago)</h2>
@@ -75,8 +76,14 @@
       </div>
 
       <div class="clock-box">
-        <h2>🚀 Stardate</h2>
+        <h2>🚀 Stardate (Star Trek style)</h2>
         <div id="starDate" class="muted"></div>
+      </div>
+
+      <div class="clock-box">
+        <h2>🌠 Cosmic Stardate</h2>
+        <div id="cosmicStarDate"></div>
+        <div id="cosmicStarDateNote" class="muted"></div>
       </div>
 
       <div class="clock-box">
@@ -105,7 +112,6 @@
       </div>
     </div>
 
-    <!-- RIGHT: Planet image -->
     <div class="planet-image">
       <img id="planetImg" alt="Planet image">
     </div>
@@ -113,9 +119,11 @@
   <script>
   document.addEventListener("DOMContentLoaded", function () {
     const DEG2RAD = Math.PI/180, RAD2DEG = 180/Math.PI, AU_TO_MILES = 92955807.3;
+
     function norm360(x){ x = x % 360; return x<0 ? x+360 : x; }
     function norm2pi(x){ x = x % (2*Math.PI); return x<0 ? x+2*Math.PI : x; }
 
+    // Astronomical Julian Date (day starts at noon UTC)
     function toJulianDate(dateUTC){
       const a = Math.floor((14 - (dateUTC.getUTCMonth()+1)) / 12);
       const y = dateUTC.getUTCFullYear() + 4800 - a;
@@ -128,6 +136,7 @@
         + dateUTC.getUTCMilliseconds()/86400000;
       return JDN + dayFrac;
     }
+
     function dhmsDays(totalDays){
       const sign = totalDays<0 ? "-" : "";
       totalDays = Math.abs(totalDays);
@@ -138,7 +147,7 @@
       return `${sign}${d}d ${h}h ${m}m ${s}s`;
     }
 
-    // Orbital elements (J2000 + rates)
+    // Orbital elements (approx J2000 + secular rates per century)
     const PLANETS = {
       Mercury:{ a:0.387, da:0.00000066, e:0.2056, de:0.00002527,
         L:252.25, dL:149472.674, varpi:77.456, dvarpi:0.1605,
@@ -166,11 +175,11 @@
         P:10759.22, color:"#fb9" },
       Uranus:{ a:19.19, da:0.00152025, e:0.04717, de:-0.0001915,
         L:314.06, dL:428.467, varpi:173.01, dvarpi:0.1686,
-        Omega:74.23, dOmega:-0.204, i:0.7699, di:-0.0,
+        Omega:74.23, dOmega:-0.204, i:0.7699, di:0.0,
         P:30688.5, color:"#9ff" },
       Neptune:{ a:30.07, da:-0.001252, e:0.00859, de:0.0000251,
         L:304.35, dL:218.486, varpi:48.12, dvarpi:0.02594,
-        Omega:131.72, dOmega:1.18, i:1.7692, di:-0.0,
+        Omega:131.72, dOmega:1.18, i:1.7692, di:0.0,
         P:60182, color:"#9bf" },
       Pluto:{ a:39.48, da:-0.0007691, e:0.2488, de:0.00006465,
         L:238.93, dL:145.208, varpi:224.07, dvarpi:-0.04063,
@@ -180,7 +189,7 @@
 
     function solveKepler(M,e){
       let E = (e<0.8)? M: Math.PI;
-      for(let i=0;i<20;i++){
+      for(let i=0;i<25;i++){
         const f=E-e*Math.sin(E)-M;
         const f1=1-e*Math.cos(E);
         const dE=-f/f1;
@@ -190,21 +199,42 @@
       return E;
     }
 
+    // Compute orbital state + 3D heliocentric position (AU)
     function orbitState(name,dateUTC){
       const p=PLANETS[name];
       const JD=toJulianDate(dateUTC);
       const T=(JD-2451545.0)/36525.0;
-      const a=p.a+p.da*T, e=p.e+p.de*T, L=p.L+p.dL*T;
-      const varpi=p.varpi+p.dvarpi*T, Omega=p.Omega+p.dOmega*T;
-      const i=(p.i+(p.di||0)*T)*DEG2RAD;
-      const Mdeg=norm360(L-varpi), M=Mdeg*DEG2RAD;
-      const n=2*Math.PI/p.P;
+
+      const a=p.a + (p.da||0)*T;
+      const e=p.e + (p.de||0)*T;
+      const L=p.L + (p.dL||0)*T;
+      const varpi=p.varpi + (p.dvarpi||0)*T;
+      const Omega=p.Omega + (p.dOmega||0)*T;
+      const i=(p.i + (p.di||0)*T)*Math.PI/180;
+
+      const Mdeg=norm360(L-varpi), M=Mdeg*Math.PI/180;
+      const n=2*Math.PI/ (p.P);
       const E=solveKepler(M,e);
       const rAU=a*(1-e*Math.cos(E));
       const nu=2*Math.atan2(Math.sqrt(1+e)*Math.sin(E/2), Math.sqrt(1-e)*Math.cos(E/2));
       const nudeg=norm2pi(nu)*RAD2DEG;
-      const sinceDays=norm2pi(M)/n, remainDays=(2*Math.PI-norm2pi(M))/n;
-      return {aAU:a,e,Mdeg,nudeg,rAU,sinceDays,remainDays,percent:(norm2pi(M)/(2*Math.PI))*100};
+
+      const omega = (varpi - Omega) * Math.PI/180;
+      const Ω = Omega * Math.PI/180;
+
+      const cosΩ=Math.cos(Ω), sinΩ=Math.sin(Ω);
+      const cosi=Math.cos(i), sini=Math.sin(i);
+      const coswν=Math.cos(omega+nu), sinwν=Math.sin(omega+nu);
+
+      const x = rAU*(cosΩ*coswν - sinΩ*sinwν*cosi);
+      const y = rAU*(sinΩ*coswν + cosΩ*sinwν*cosi);
+      const z = rAU*(sinwν*sini);
+
+      const sinceDays=norm2pi(M)/n;
+      const remainDays=(2*Math.PI - norm2pi(M))/n;
+      const percent=(norm2pi(M)/(2*Math.PI))*100;
+
+      return {aAU:a,e,Mdeg,nudeg,rAU,sinceDays,remainDays,percent,x,y,z};
     }
 
     const IMG={
@@ -220,37 +250,77 @@
     };
     function setPlanetImage(name){
       const img=document.getElementById('planetImg');
-      img.src=IMG[name]||""; img.alt=name;
+      img.src=IMG[name]||""; img.alt=name + " image";
     }
 
     const planetEl=document.getElementById('planet');
     const titlePlanet=document.getElementById('titlePlanet');
 
+    // ===== Cosmic Stardate helpers =====
+    const CEZ_BCE = 3114;                 // Cosmic Epoch Zero (BCE)
+    const TROPICAL_YEAR = 365.2425;       // for offset conversion
+    const COSMIC_OFFSET_DAYS = 12;        // your +12 day correction
+
+    function fractionOfYearUTC(d){
+      const y = d.getUTCFullYear();
+      const start = Date.UTC(y,0,1,0,0,0,0);
+      const next  = Date.UTC(y+1,0,1,0,0,0,0);
+      return (d.getTime() - start) / (next - start);
+    }
+
+    function computeCosmicStardate(now){
+      // years since CEZ = 3114 + current CE year + fractional year - (12 days)/year
+      const y = now.getUTCFullYear();
+      const frac = fractionOfYearUTC(now);
+      const offset = COSMIC_OFFSET_DAYS / TROPICAL_YEAR;
+      return (CEZ_BCE + y + frac - offset);
+    }
+    // ===================================
+
     function updateClocks(){
-      const now=new Date(); const planet=planetEl.value;
+      const now=new Date();
+      const planet=planetEl.value;
       titlePlanet.textContent=planet;
-      const chicago=new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',
-        year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'}).format(now);
+
+      // Local time (America/Chicago)
+      const chicago=new Intl.DateTimeFormat('en-US',{
+        timeZone:'America/Chicago', year:'numeric',month:'2-digit',day:'2-digit',
+        hour:'2-digit',minute:'2-digit',second:'2-digit', hour12:true
+      }).format(now);
       document.getElementById("localClock").textContent=`${chicago} (America/Chicago)`;
+
+      // Interstellar Time (stylistic)
       const start=new Date("2000-01-01T00:00:00Z");
       const nowDays=(now-start)/86400000, elapsedYears=nowDays/365.25;
       const interstellarYears=elapsedYears*2.26e6;
       document.getElementById("interstellarClock").textContent="Year ~"+Number(interstellarYears.toFixed(2)).toLocaleString();
+
+      // Star Trek-style stardate (stylistic linear map)
       const stardate=40000+(elapsedYears*1000);
       document.getElementById("starDate").textContent="Stardate "+stardate.toFixed(1);
 
-      const st=orbitState(planet,new Date(now.toISOString()));
+      // Cosmic Stardate (your convention)
+      const cosmicSD = computeCosmicStardate(now);
+      document.getElementById("cosmicStarDate").textContent = "Cosmic Stardate " + cosmicSD.toFixed(2);
+      document.getElementById("cosmicStarDateNote").textContent = "CEZ = 3114 BCE; −12-day correction applied";
+
+      // Orbital state (planet & Earth) + distances
+      const nowUTC=new Date(now.toISOString());
+      const st=orbitState(planet, nowUTC);
+      const stEarth=orbitState("Earth", nowUTC);
+
       const milesSun=st.rAU*AU_TO_MILES;
       document.getElementById("distanceFromSun").textContent=Math.round(milesSun).toLocaleString()+" miles";
       document.getElementById("distanceAU").textContent=st.rAU.toFixed(6)+" AU";
 
-      const stEarth=orbitState("Earth",new Date(now.toISOString()));
-      let dx=st.aAU-stEarth.aAU; let dy=0; 
-      const rEarthAU=Math.abs(st.aAU-stEarth.aAU);
+      // Proper 3D Earth–planet distance
+      const dx=st.x - stEarth.x, dy=st.y - stEarth.y, dz=st.z - stEarth.z;
+      const rEarthAU=Math.sqrt(dx*dx + dy*dy + dz*dz);
       const milesEarth=rEarthAU*AU_TO_MILES;
       document.getElementById("distanceFromEarth").textContent=Math.round(milesEarth).toLocaleString()+" miles";
       document.getElementById("distanceEarthAU").textContent=rEarthAU.toFixed(6)+" AU";
 
+      // Angles & orbit clocks
       document.getElementById("trueAnomaly").textContent=`${st.nudeg.toFixed(4)}° true anomaly from perihelion`;
       document.getElementById("orbitSince").textContent=`Elapsed since perihelion (${planet}): ${dhmsDays(st.sinceDays)}`;
       document.getElementById("orbitRemaining").textContent=`Time to next perihelion (${planet}): ${dhmsDays(st.remainDays)}`;
@@ -259,7 +329,9 @@
     }
 
     planetEl.addEventListener('change',()=>{ setPlanetImage(planetEl.value); updateClocks(); });
-    setPlanetImage(planetEl.value); updateClocks(); setInterval(updateClocks,1000);
+    setPlanetImage(planetEl.value);
+    updateClocks();
+    setInterval(updateClocks, 1000);
   });
   </script>
 </body>
