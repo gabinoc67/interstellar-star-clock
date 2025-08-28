@@ -14,7 +14,14 @@
   main{max-width:1200px;margin:0 auto;padding:1rem}
   .controls{display:flex;gap:.75rem;flex-wrap:wrap;align-items:center;margin:.75rem 0 1rem}
   .controls label{font-size:.9rem;color:var(--muted)}
-  .controls input{background:#0f1626;color:var(--text);border:1px solid rgba(255,255,255,.12);border-radius:.6rem;padding:.5rem .7rem;width:15ch}
+  .controls input[type="number"]{
+    background:#0f1626;color:var(--text);border:1px solid rgba(255,255,255,.12);
+    border-radius:.6rem;padding:.5rem .7rem;width:15ch
+  }
+  .controls .inline{
+    display:flex;align-items:center;gap:.5rem;background:#0f1626;border:1px solid rgba(255,255,255,.12);
+    padding:.45rem .6rem;border-radius:.6rem
+  }
   .pill{display:inline-block;padding:.18rem .5rem;border:1px solid rgba(255,255,255,.15);border-radius:999px;font-size:.72rem;color:var(--accent)}
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:1rem}
   .card{background:var(--card);border:1px solid rgba(255,255,255,.08);border-radius:1rem;padding:1rem;box-shadow:0 6px 20px rgba(0,0,0,.25)}
@@ -41,6 +48,14 @@
   <section class="controls">
     <label>Day 0 (IST years ago): <input id="day0Years" type="number" step="1" /></label>
     <label>Days/Year baseline: <input id="daysPerYear" type="number" step="0.001" /></label>
+
+    <span class="inline">
+      <label for="useCosmic" style="margin:0;color:var(--muted);font-size:.9rem">Cosmic offset</label>
+      <input id="useCosmic" type="checkbox" checked />
+      <input id="cosmicDays" type="number" step="0.001" value="12" title="Days to subtract before computing current-orbit phase"/>
+      <span class="pill">phase −12d when enabled</span>
+    </span>
+
     <span class="pill" id="nowIso"></span>
   </section>
 
@@ -51,6 +66,7 @@
     <ul>
       <li><em>Sun</em> shows age since Day 0 (no “orbits around the Sun”).</li>
       <li><em>Baseline days/year</em> is only the tick converter; orbital periods are fixed per planet (Earth days).</li>
+      <li><em>Cosmic offset</em> (default 12 days) shifts the present phase in the current orbit to match your cosmic clock.</li>
     </ul>
   </footer>
 </main>
@@ -89,13 +105,22 @@
 
   // ===== DOM =====
   const $ = id => document.getElementById(id);
-  const cardsEl = $("cards");
+  const cardsEl   = $("cards");
   const inputDay0 = $("day0Years");
   const inputDPY  = $("daysPerYear");
   const nowIso    = $("nowIso");
+  const useCosmic = $("useCosmic");
+  const cosmicDaysEl = $("cosmicDays");
+
+  // Defaults
   inputDay0.value = DEFAULT_DAY0_YEARS_AGO;
   inputDPY.value  = DEFAULT_DAYS_PER_YEAR;
 
+  // Helpers
+  const clampPos = (x, fallback) => {
+    const n = Number(x);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+  };
   const fmt = (n, d=0) => Number(n).toLocaleString(
     undefined,
     {maximumFractionDigits:d, minimumFractionDigits:d}
@@ -133,25 +158,31 @@
 
   // Animation engine
   let t0 = performance.now();
+
   function tick(){
-    const dpy = Number(inputDPY.value || DEFAULT_DAYS_PER_YEAR);  // baseline days per IST year
-    const spy = dpy * 86400;                                      // seconds per IST year
+    // Baseline conversion
+    const dpy = clampPos(inputDPY.value, DEFAULT_DAYS_PER_YEAR); // days per IST year
+    const spy = dpy * 86400;                                     // seconds per IST year
     const elapsedYears = (performance.now()-t0)/1000 / spy;
 
-    const day0AtLoadYears = Number(inputDay0.value || DEFAULT_DAY0_YEARS_AGO);
-    const istYears = day0AtLoadYears + elapsedYears;              // years since Day 0 (IST)
-    const istDays  = istYears * dpy;
+    // Absolute IST years since Day 0
+    const day0AtLoadYears = clampPos(inputDay0.value, DEFAULT_DAY0_YEARS_AGO);
+    const istYears = day0AtLoadYears + elapsedYears;
+    const istDays  = istYears * dpy; // (not shown, but useful if needed)
 
     nowIso.textContent = new Date().toISOString();
+
+    const cosmicOffsetDays = useCosmic.checked ? Number(cosmicDaysEl.value || 12) : 0;
 
     for (let i=0;i<cardElems.length;i++){
       const el = cardElems[i];
       const name = el.name;
-      const offsetY = el.offsetYears;
+      const offsetY = el.offsetYears;           // years
+      const yearLenDays = orbitalDays[name];    // days (sidereal Earth days)
 
       // Age since creation (IST)
       const pYears = Math.max(0, istYears - offsetY);
-      const pDays  = pYears * dpy;
+      const pDays  = Math.max(0, pYears * dpy);
 
       el.off.textContent = bodies[i].offsetMyr.toLocaleString() + " Myr";
 
@@ -162,36 +193,42 @@
         continue;
       }
 
-      // Planet: compute orbits around the Sun since creation
-      const yearLenDays = orbitalDays[name];          // Earth days per revolution
-      const totalOrbitsFloat = pDays / yearLenDays;   // revolutions since creation
+      // Optionally apply cosmic offset to PHASE (subtract before modulo)
+      const phaseDaysRef = Math.max(0, pDays - cosmicOffsetDays);
+
+      // Revolutions since creation
+      const totalOrbitsFloat = phaseDaysRef / yearLenDays;
+
+      // Integer orbits completed (big numbers OK in JS double here)
       const orbitsCompleted  = Math.max(0, Math.floor(totalOrbitsFloat));
-      const frac = totalOrbitsFloat - orbitsCompleted;
+
+      // More stable fractional part via remainder (avoids catastrophic cancellation)
+      const remDays = phaseDaysRef % yearLenDays;  // in [0, yearLenDays)
+      const frac    = remDays / yearLenDays;
 
       // Current orbit index (1-based for human-friendly)
       const currentOrbitNumber = orbitsCompleted + 1;
 
       // Time inside the current orbit
-      const daysIntoOrbit = frac * yearLenDays;
+      const daysIntoOrbit = remDays;
       const percent = frac * 100;
 
       el.mainA.textContent = `Orbits completed: ${fmt(orbitsCompleted,0)} • Current orbit: ${fmt(currentOrbitNumber,0)} (${fmt(percent,2)}%)`;
       el.mainB.textContent = `Age: ${fmt(pYears/1e9,6)} Ga • ${fmt(pYears,0)} years • ${fmt(pDays,0)} days • Orbit length: ${fmt(yearLenDays,3)} days`;
-      if (el.prog) {
-        el.prog.value = frac;
-      }
-      if (el.hint) {
-        el.hint.textContent = `~${fmt(daysIntoOrbit,0)} days into this orbit`;
-      }
+      if (el.prog)  el.prog.value = frac;
+      if (el.hint)  el.hint.textContent = `~${fmt(daysIntoOrbit,0)} days into this orbit${useCosmic.checked ? " (cosmic offset applied)" : ""}`;
     }
 
     requestAnimationFrame(tick);
   }
   tick();
 
-  // Keep continuity after config changes
-  inputDay0.addEventListener("input", ()=>{ t0 = performance.now(); });
-  inputDPY .addEventListener("input", ()=>{ t0 = performance.now(); });
+  // Keep continuity after config changes (restart the small runtime clock)
+  function resetClock(){ t0 = performance.now(); }
+  inputDay0.addEventListener("input", resetClock);
+  inputDPY .addEventListener("input", resetClock);
+  useCosmic.addEventListener("change", resetClock);
+  cosmicDaysEl.addEventListener("input", resetClock);
 </script>
 </body>
 </html>
