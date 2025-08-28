@@ -2,15 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Warp Control — Even Grid + Compact Panels (v3.6.2 • even-panels)</title>
+<title>Warp Control — Even Grid + Compact Panels (v3.6.3 • compact-panels)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
   :root{
     --bg:#070b12; --panel:#0c1424; --glass:#0d1a31cc; --edge:#27406b;
     --text:#eaf2ff; --muted:#a7b9df; --good:#22c55e; --warn:#facc15; --bad:#ef4444;
     --ui-scale:1; --fs:14px; --pad:8px;
-    /* clean, responsive spacing (no oversized % gaps) */
     --gap: clamp(12px, 2.2vmin, 24px);
+    /* NEW: global vertical scaler to trim empty space */
+    --row-scale: 0.85; /* 85% by default; tweak with the Row Height slider */
   }
   *{box-sizing:border-box}
   body{
@@ -31,9 +32,10 @@
   .panel{
     border:1px solid var(--edge);border-radius:12px;padding:calc(var(--pad) - 1px);
     box-shadow:0 10px 24px rgba(0,0,0,.42);
-    display:flex; flex-direction:column; /* let contents fill evenly */
-    height:100%; /* stretch to row height */
-    min-height:260px; /* don’t look cramped on short cards */
+    display:flex; flex-direction:column;
+    height:100%;
+    /* trimmed minimum height, scaled */
+    min-height: calc(240px * var(--row-scale));
   }
   h1,h2,h3{margin:.35rem 0}
   .grid{display:grid;gap:var(--gap)}
@@ -43,10 +45,10 @@
     display:grid;
     grid-template-columns: repeat(4, minmax(260px, 1fr));
     gap:var(--gap);
-    align-items:stretch;          /* all items in a row same height */
-    grid-auto-rows:1fr;           /* rows aim for equal track heights */
+    align-items:stretch;
+    grid-auto-rows:1fr;
   }
-  .evenGrid > .panel{height:100%} /* ensure each card fills the track */
+  .evenGrid > .panel{height:100%}
 
   @media (max-width:1250px){ .evenGrid{ grid-template-columns: repeat(3, minmax(260px, 1fr)); } }
   @media (max-width:980px){  .evenGrid{ grid-template-columns: repeat(2, minmax(260px, 1fr)); } }
@@ -100,13 +102,14 @@
   .status.good{color:#0f0;border-color:#256f2a} .status.warn{color:#222;background:#facc15} .status.bad{color:#fff;background:#ef4444}
   .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 8px;font-size:.84rem;color:#cfe2ff}
 
-  /* canvas sizes (unchanged) */
-  #curveCanvas{width:100%;height:200px}
-  #orbitCanvas{width:100%;height:280px}
-  #debrisCanvas{width:100%;height:180px}
-  #starfieldCanvas{width:100%;height:160px;background:radial-gradient(160px 105px at 50% 60%, #0a1322 0%, #08101d 65%, #060d18 100%)}
-  #shieldCanvas{width:100%;height:160px}
-  #grCanvas{width:100%;height:110px}
+  /* === trimmed canvas heights (scale with --row-scale) === */
+  #curveCanvas{width:100%;height:calc(180px * var(--row-scale))}
+  #orbitCanvas{width:100%;height:calc(260px * var(--row-scale))}
+  #debrisCanvas{width:100%;height:calc(160px * var(--row-scale))}
+  #starfieldCanvas{width:100%;height:calc(140px * var(--row-scale));
+                   background:radial-gradient(160px 105px at 50% 60%, #0a1322 0%, #08101d 65%, #060d18 100%)}
+  #shieldCanvas{width:100%;height:calc(140px * var(--row-scale))}
+  #grCanvas{width:100%;height:calc(90px * var(--row-scale))}
 </style>
 </head>
 <body>
@@ -119,8 +122,13 @@
           <input id="uiScale" type="range" min="70" max="140" step="1" value="100">
           <span id="uiScaleVal" class="badge">100%</span>
         </label>
+        <!-- NEW: row height control -->
+        <label>Row Height
+          <input id="rowScale" type="range" min="70" max="115" step="1" value="85">
+          <span id="rowScaleVal" class="badge">85%</span>
+        </label>
         <label>Sound <input id="soundOn" type="checkbox" checked></label>
-        <span class="badge">v3.6.2 • Even panels</span>
+        <span class="badge">v3.6.3 • Compact panels</span>
       </div>
     </div>
 
@@ -420,7 +428,9 @@ function validateGR(){
   for(let k=0;k<phi.length;k++){ const v=phi[k]; if(v<phiMin)phiMin=v; if(v>phiMax)phiMax=v; }
   const span=Math.max(1e-12, phiMax-phiMin);
 
-  grCanvas.width=grCanvas.clientWidth; grCanvas.height=110; grx.clearRect(0,0,grCanvas.width,grCanvas.height);
+  grCanvas.width=grCanvas.clientWidth;
+  grCanvas.height=grCanvas.clientHeight;  // make height follow CSS (trimmed)
+  grx.clearRect(0,0,grCanvas.width,grCanvas.height);
 
   let rhoMin=+1e99, rhoMax=-1e99, horizons=0;
 
@@ -433,9 +443,9 @@ function validateGR(){
       const gtt=1 + 2*ph/(C_MPS*C_MPS); if(gtt<gttMin)gttMin=gtt; if(gtt<=0)horizons++;
 
       if(j===Math.floor(ny/2)){
-        const x=Math.floor((i/nx)*grCanvas.width), t=(ph - phiMin)/span; 
+        const x=Math.floor((i/nx)*grCanvas.width), t=(ph - phiMin)/span;
         const r=Math.floor(255*Math.max(0,2*t-1)), b=Math.floor(255*Math.max(0,1-2*t));
-        grx.fillStyle=`rgb(${r},0,${b})`; grx.fillRect(x,0,2,110);
+        grx.fillStyle=`rgb(${r},0,${b})`; grx.fillRect(x,0,2,grCanvas.height);
       }
     }
   }
@@ -802,12 +812,19 @@ function updateAllStatus(){
   flightLog.push({t:new Date().toISOString(), warp, dest, eta:etaStr, distAU:dAU.toFixed(3), vOverC:(v/C_MPS).toFixed(2)});
 }
 
-const rootEl=document.documentElement, scaleEl=$("uiScale");
+const rootEl=document.documentElement, scaleEl=$("uiScale"), rowEl=$("rowScale");
 function applyScale(){
   const pct=Number(scaleEl.value||100);
   try{ localStorage.setItem('uiScalePct', String(pct)); }catch{}
   rootEl.style.setProperty('--ui-scale',(pct/100).toString());
   $("uiScaleVal").textContent=pct+"%";
+  drawCurve(); drawOrbitView(); updateAllStatus();
+}
+function applyRowScale(){
+  const pct=Number(rowEl.value||85);
+  rootEl.style.setProperty('--row-scale',(pct/100).toString());
+  $("rowScaleVal").textContent=pct+"%";
+  // Re-render canvases at new CSS heights
   drawCurve(); drawOrbitView(); updateAllStatus();
 }
 
@@ -855,11 +872,12 @@ $("startBtn").onclick=startAll; $("stopBtn").onclick=stopAll; $("resetBtn").oncl
 [
   "warpSpeed","warpExp","warpScale","destination","calibration",
   "istDay0Years","baselineDaysPerYear","reactorMW",
-  "frontPct","rearPct","lrBias","udBias","intakeMode","soundOn","uiScale"
+  "frontPct","rearPct","lrBias","udBias","intakeMode","soundOn","uiScale","rowScale"
 ].forEach(id=>{
   const el=$(id); if(!el) return;
   el.addEventListener("input", ()=>{
     if(id==="uiScale") applyScale();
+    if(id==="rowScale") applyRowScale();
     if(id==="calibration") setCalibration(el.value);
     tIST0=performance.now();
     drawCurve(); drawOrbitView(); updateAllStatus();
@@ -934,6 +952,7 @@ window.onload=()=>{
   }catch{}
   setCalibration($("calibration").value || "off");
   applyScale();
+  applyRowScale();
   updateOrbitTable(); drawCurve(); drawOrbitView(); updateAllStatus();
 };
 </script>
