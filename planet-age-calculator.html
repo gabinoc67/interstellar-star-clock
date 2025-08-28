@@ -19,6 +19,7 @@
       font-family: system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Helvetica,Arial;
     }
     h1{margin:0 0 16px; font-weight:700; letter-spacing:.2px}
+    .subhead{margin:18px 0 8px; color:var(--muted); font-weight:600; letter-spacing:.2px}
     .wrap{max-width:1280px; margin:0 auto}
     .card{
       background:var(--card); border:1px solid var(--border); border-radius:16px; padding:18px;
@@ -32,11 +33,11 @@
       gap:12px; align-items:end;
     }
 
-    /* Row 2 (Timezone + Lived + Actions in SAME row) */
+    /* Row 2 (TZ | Lived | Actions | Cosmic Offset in SAME row) */
     .row-two{
       margin-top:12px;
       display:grid;
-      grid-template-columns: 2fr 2fr auto; /* TZ | Lived | Actions */
+      grid-template-columns: 2fr 2fr auto 1fr; /* TZ | Lived | Actions | Offset */
       gap:12px; align-items:end;
     }
     .field{display:grid; gap:6px}
@@ -80,7 +81,7 @@
     tbody tr:last-child td{border-bottom:none}
 
     @media (max-width: 1100px){
-      .row-two{ grid-template-columns: 1fr; }
+      .row-two{ grid-template-columns: 1fr 1fr; }
       .info-strip{ grid-template-columns: 1fr 1fr; }
     }
     @media (max-width: 980px){
@@ -88,6 +89,7 @@
     }
     @media (max-width: 560px){
       .inputs-grid{ grid-template-columns: 1fr; }
+      .row-two{ grid-template-columns: 1fr; }
       .info-strip{ grid-template-columns: 1fr; }
     }
   </style>
@@ -121,7 +123,7 @@
         </div>
       </div>
 
-      <!-- Row 2: TZ (left) | Lived (center) | Actions (right) -->
+      <!-- Row 2: TZ | Lived | Actions | Cosmic Offset -->
       <div class="row-two" id="row2">
         <div class="field">
           <label for="tz">Birth Time Zone (fixed UTC offset)</label>
@@ -162,6 +164,11 @@
             <button class="btn btn-reset" id="resetBtn">Reset</button>
           </div>
         </div>
+
+        <div class="field">
+          <label for="cosmicOffset">Cosmic Offset (days)</label>
+          <input id="cosmicOffset" type="number" step="0.001" value="12" />
+        </div>
       </div>
 
       <!-- Row 3: wide info strip -->
@@ -184,7 +191,8 @@
         </div>
       </div>
 
-      <!-- Results table -->
+      <!-- Results: Astronomical -->
+      <div class="subhead">Astronomical Ages (no offset)</div>
       <table id="resultsTable">
         <thead>
           <tr>
@@ -196,8 +204,22 @@
         <tbody></tbody>
       </table>
 
-      <div class="status" id="footnote">
+      <!-- Results: Cosmic-Corrected -->
+      <div class="subhead">Cosmic-Corrected Ages (elapsed − offset)</div>
+      <table id="resultsTableCosmic">
+        <thead>
+          <tr>
+            <th>Planet</th>
+            <th>Orbital Period (Earth days)</th>
+            <th>Your Age on Planet (years, Cosmic-Corrected)</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <div class="status" id="footnote" style="margin-top:10px; color:var(--muted);">
         Years list auto-updates each January 1. Orbital periods use mean sidereal values.
+        Cosmic mode subtracts a configurable day-offset (default 12) from elapsed time.
       </div>
     </div>
   </div>
@@ -206,7 +228,7 @@
     const PLANETS = [
       { name: 'Mercury', days: 87.969 },
       { name: 'Venus',   days: 224.701 },
-      { name: 'Earth',   days: 365.256 },
+      { name: 'Earth',   days: 365.256 },   // sidereal Earth year for consistency
       { name: 'Mars',    days: 686.980 },
       { name: 'Jupiter', days: 4332.589 },
       { name: 'Saturn',  days: 10759.22 },
@@ -230,7 +252,10 @@
     const statusDisplay  = document.getElementById('statusDisplay');
     const livedInline    = document.getElementById('livedInline');
 
-    const resultsBody = document.querySelector('#resultsTable tbody');
+    const cosmicOffsetInput = document.getElementById('cosmicOffset');
+
+    const resultsBody       = document.querySelector('#resultsTable tbody');
+    const resultsBodyCosmic = document.querySelector('#resultsTableCosmic tbody');
 
     const pad = n => String(n).padStart(2,'0');
 
@@ -335,13 +360,25 @@
 
         nowDisplay.value = fmtUTC(nowUTC);
         birthDisplay.value = fmtUTC(birthUTC);
+
+        // Raw astronomical elapsed time
         const elapsedMs = nowUTC - birthUTC;
         elapsedDisplay.value = fmtElapsed(elapsedMs);
         livedInline.textContent = fmtElapsedDHMS(elapsedMs);
         statusDisplay.value = 'OK';
 
+        // Clear tables
         resultsBody.innerHTML = '';
+        resultsBodyCosmic.innerHTML = '';
+
+        // Convert to days
         const elapsedDays = elapsedMs / 86400000;
+
+        // COSMIC offset (days); allow negative/zero; clamp so we never go < 0 days lived
+        const offsetDays = parseFloat(cosmicOffsetInput.value || '0');
+        const cosmicDays = Math.max(0, elapsedDays - offsetDays);
+
+        // Fill Astronomical table
         PLANETS.forEach(p=>{
           const planetYears = elapsedDays / p.days;
           const tr = document.createElement('tr');
@@ -350,9 +387,22 @@
                           <td>${planetYears.toFixed(6)}</td>`;
           resultsBody.appendChild(tr);
         });
+
+        // Fill Cosmic-corrected table
+        PLANETS.forEach(p=>{
+          const planetYearsCosmic = cosmicDays / p.days;
+          const trC = document.createElement('tr');
+          trC.innerHTML = `<td>${p.name}</td>
+                           <td>${p.days.toLocaleString(undefined,{maximumFractionDigits:3})}</td>
+                           <td>${planetYearsCosmic.toFixed(6)}</td>`;
+          resultsBodyCosmic.appendChild(trC);
+        });
+
       }catch(err){
         statusDisplay.value = 'Error: ' + err.message;
         livedInline.textContent = 'I have lived —';
+        resultsBody.innerHTML = '';
+        resultsBodyCosmic.innerHTML = '';
       }
     }
 
@@ -366,6 +416,7 @@
       minuteSel.value = '1';
       secondSel.value = '0';
       tzSel.value = '-6';
+      cosmicOffsetInput.value = '12';
 
       nowDisplay.value = '';
       birthDisplay.value = '';
@@ -373,6 +424,7 @@
       statusDisplay.value = '';
       livedInline.textContent = 'I have lived —';
       resultsBody.innerHTML = '';
+      resultsBodyCosmic.innerHTML = '';
     }
 
     populateYears(); populateDays(); populateTime();
