@@ -1,1 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Warp Drive Engine — HTML/SVG Animation (Starter)</title>
+  <style>
+    :root{
+      --bg:#060912; --panel:#0b1222; --ink:#d7e3ff; --muted:#7f8cb3; --accent:#8fd3ff;
+      --ok:#6ee7a8; --warn:#fde68a; --bad:#fca5a5;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;}
+    body{margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial; background:radial-gradient(1200px 1200px at 70% 30%, #0d1730 0%, var(--bg) 55%); color:var(--ink); display:grid; place-items:center}
+    .app{display:grid; grid-template-columns: 320px minmax(720px, 1fr); gap:20px; width:min(1200px, 96vw); align-items:stretch}
+    .card{background:linear-gradient(180deg, #0f1a35 0%, #0b1326 100%); border:1px solid #1d2a4b; border-radius:16px; box-shadow:0 30px 60px #00000055;}
+    .panel{padding:16px 16px 8px}
+    h1{font-size:20px; margin:0 0 8px; letter-spacing:.2px}
+    .sub{color:var(--muted); font-size:12px; margin:0 0 12px}
+    label{display:block; font-size:12px; color:var(--muted); margin:10px 0 6px}
+    input[type="range"]{width:100%}
+    .row{display:flex; gap:10px; align-items:center}
+    .btn{appearance:none; border:1px solid #2a3e6b; background:#0f1a34; color:#dbe7ff; padding:10px 12px; border-radius:12px; font-weight:600; cursor:pointer}
+    .btn[data-state="on"]{border-color:#3d6f5a; background:#0f1f17; color:#b8ffd9}
+    .kbd{font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background:#0b1427; border:1px solid #20355f; padding:2px 6px; border-radius:6px; font-size:11px}
+    .meter{height:8px; border-radius:6px; background:#0b1222; border:1px solid #1d2a4b; overflow:hidden}
+    .meter > i{display:block; height:100%; width:20%; background:linear-gradient(90deg, #184b6d, #1b8bbc)}
+    #viewport{position:relative; display:grid; place-items:center; isolation:isolate}
+    svg{width:100%; height:auto; max-height:78vh;}
+    /* Stars parallax */
+    .stars{position:absolute; inset:0; z-index:0; pointer-events:none; overflow:hidden;}
+    .star{position:absolute; width:2px; height:2px; background:#cfe8ff; border-radius:50%; opacity:.8; filter:drop-shadow(0 0 6px #cfe8ff)}
+    .bubbleGlow{filter:url(#glow)}
+    .note{font-size:11px; color:#95a3cd; margin-top:8px}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- Controls -->
+    <section class="card panel" id="controls">
+      <h1>Warp Engine Controls</h1>
+      <p class="sub">Real‑time, client‑side SVG animation with JavaScript control. No external libraries.</p>
 
+      <label>Power <span id="powerOut" class="kbd">0%</span></label>
+      <input id="power" type="range" min="0" max="100" value="0" step="1" />
+      <div class="meter"><i id="powerBar" style="width:0%"></i></div>
+
+      <label>Field Intensity (Bubble Radius) <span id="radiusOut" class="kbd">40%</span></label>
+      <input id="radius" type="range" min="10" max="100" value="40" step="1" />
+
+      <label>Ring RPM (Base) <span id="rpmOut" class="kbd">12</span></label>
+      <input id="rpm" type="range" min="0" max="60" value="12" step="1" />
+
+      <div class="row">
+        <label class="row" style="gap:8px"><input type="checkbox" id="dirA" checked /> Inner ring CW</label>
+        <label class="row" style="gap:8px"><input type="checkbox" id="dirB" /> Outer ring CW</label>
+      </div>
+
+      <label class="row" style="gap:8px"><input type="checkbox" id="clutch" /> Decouple rings (clutch)</label>
+      <label class="row" style="gap:8px"><input type="checkbox" id="sync52" checked /> 52‑unit sync ratio (inner:outer = 13:5)</label>
+
+      <div class="row" style="margin-top:8px">
+        <button id="toggle" class="btn" data-state="off">▶ Start</button>
+        <button id="reset" class="btn">↺ Reset</button>
+      </div>
+      <p class="note">Shortcuts: <span class="kbd">Space</span> start/stop · <span class="kbd">↑/↓</span> power · <span class="kbd">R</span> reset</p>
+    </section>
+
+    <!-- Viewport -->
+    <section class="card panel" id="viewport">
+      <div class="stars" id="stars"></div>
+      <svg viewBox="-300 -300 600 600" aria-label="Warp Drive Engine">
+        <defs>
+          <radialGradient id="bubble" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#ffffff" stop-opacity="0.35"/>
+            <stop offset="60%" stop-color="#88c7ff" stop-opacity="0.18"/>
+            <stop offset="100%" stop-color="#2aa5ff" stop-opacity="0.06"/>
+          </radialGradient>
+          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="b"/>
+            <feMerge>
+              <feMergeNode in="b"/>
+              <feMergeNode in="SourceGraphic"/>
+            </feMerge>
+          </filter>
+          <linearGradient id="coil" x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0%" stop-color="#99e1ff"/>
+            <stop offset="100%" stop-color="#4868ff"/>
+          </linearGradient>
+        </defs>
+
+        <!-- Warp bubble -->
+        <circle id="bubbleCircle" class="bubbleGlow" r="160" fill="url(#bubble)" />
+
+        <!-- Stator coils -->
+        <g id="stator">
+          <g id="coils"></g>
+          <circle r="210" fill="none" stroke="#25407a" stroke-width="10" stroke-opacity="0.6" />
+        </g>
+
+        <!-- Outer dynamic ring (B) -->
+        <g id="ringB">
+          <circle r="180" fill="none" stroke="#2aa5ff" stroke-opacity="0.5" stroke-width="6" />
+          <g id="spokesB"></g>
+        </g>
+
+        <!-- Inner dynamic ring (A) with Casimir bars -->
+        <g id="ringA">
+          <circle r="120" fill="none" stroke="#86ffea" stroke-opacity="0.7" stroke-width="6" />
+          <g id="barsA"></g>
+        </g>
+
+        <!-- Core -->
+        <g id="core">
+          <circle r="22" fill="#aef7ff" opacity="0.9" />
+          <circle r="36" fill="none" stroke="#35ffd2" stroke-width="3" opacity="0.7" />
+          <circle r="52" fill="none" stroke="#2aa5ff" stroke-width="2" opacity="0.5" />
+        </g>
+
+        <!-- HUD ticks -->
+        <g id="ticks"></g>
+      </svg>
+    </section>
+  </div>
+
+  <script>
+  // --- Utility ---
+  const TAU = Math.PI * 2;
+  const qs = sel => document.querySelector(sel);
+  const el = id => document.getElementById(id);
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+  // --- Controls ---
+  const power = el('power');
+  const radius = el('radius');
+  const rpm = el('rpm');
+  const dirA = el('dirA');
+  const dirB = el('dirB');
+  const clutch = el('clutch');
+  const sync52 = el('sync52');
+  const toggle = el('toggle');
+  const resetBtn = el('reset');
+  const powerOut = el('powerOut');
+  const radiusOut = el('radiusOut');
+  const rpmOut = el('rpmOut');
+  const powerBar = el('powerBar');
+
+  // --- Scene elements ---
+  const ringA = el('ringA');
+  const ringB = el('ringB');
+  const barsA = el('barsA');
+  const spokesB = el('spokesB');
+  const bubbleCircle = el('bubbleCircle');
+  const ticks = el('ticks');
+  const coils = el('coils');
+
+  // --- Create decorative geometry ---
+  function mkTicks(){
+    const STEP = 360/72; // 72 HUD ticks
+    let d = '';
+    for(let i=0;i<72;i++){
+      const a = i*STEP * Math.PI/180;
+      const r1=235, r2=(i%6===0)? 250: 245;
+      const x1=Math.cos(a)*r1, y1=Math.sin(a)*r1;
+      const x2=Math.cos(a)*r2, y2=Math.sin(a)*r2;
+      d += `M ${x1} ${y1} L ${x2} ${y2} `;
+    }
+    const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('d', d.trim());
+    path.setAttribute('stroke','#2c3f6f');
+    path.setAttribute('stroke-width','1');
+    path.setAttribute('opacity','0.7');
+    path.setAttribute('fill','none');
+    ticks.appendChild(path);
+  }
+
+  function mkBarsA(){
+    barsA.innerHTML='';
+    const n = 13; // Casimir bars count
+    for(let i=0;i<n;i++){
+      const a = (i/n)*TAU;
+      const x = Math.cos(a)*120; const y = Math.sin(a)*120;
+      const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+      g.setAttribute('transform',`rotate(${a*180/Math.PI})`);
+      const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+      path.setAttribute('d','M 100 -8 L 132 -3 L 132 3 L 100 8 Z');
+      path.setAttribute('fill','#a6fff1');
+      path.setAttribute('opacity','0.9');
+      const node = document.createElementNS('http://www.w3.org/2000/svg','circle');
+      node.setAttribute('cx', x); node.setAttribute('cy', y); node.setAttribute('r','3');
+      node.setAttribute('fill','#e7fff9'); node.setAttribute('opacity','0.9');
+      g.appendChild(path);
+      barsA.appendChild(g);
+    }
+  }
+
+  function mkSpokesB(){
+    spokesB.innerHTML='';
+    const n = 20; // outer spokes
+    for(let i=0;i<n;i++){
+      const a = (i/n)*TAU;
+      const x = Math.cos(a)*180; const y = Math.sin(a)*180;
+      const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+      g.setAttribute('transform',`rotate(${a*180/Math.PI})`);
+      const p = document.createElementNS('http://www.w3.org/2000/svg','path');
+      p.setAttribute('d','M 150 -5 L 182 -1.5 L 182 1.5 L 150 5 Z');
+      p.setAttribute('fill','url(#coil)');
+      p.setAttribute('opacity','0.85');
+      const dot = document.createElementNS('http://www.w3.org/2000/svg','circle');
+      dot.setAttribute('cx', x); dot.setAttribute('cy', y); dot.setAttribute('r','2.6');
+      dot.setAttribute('fill','#9fc1ff'); dot.setAttribute('opacity','0.9');
+      g.appendChild(p);
+      spokesB.appendChild(g);
+    }
+  }
+
+  function mkCoils(){
+    coils.innerHTML='';
+    const n = 24;
+    for(let i=0;i<n;i++){
+      const a = i/n*TAU;
+      const x = Math.cos(a)*210; const y = Math.sin(a)*210;
+      const arc = document.createElementNS('http://www.w3.org/2000/svg','circle');
+      arc.setAttribute('cx',x); arc.setAttribute('cy',y); arc.setAttribute('r','8');
+      arc.setAttribute('fill','#0c1a31');
+      arc.setAttribute('stroke','#3a6fef');
+      arc.setAttribute('stroke-width','2');
+      arc.setAttribute('opacity','0.6');
+      coils.appendChild(arc);
+    }
+  }
+
+  mkTicks(); mkBarsA(); mkSpokesB(); mkCoils();
+
+  // --- Stars ---
+  const stars = el('stars');
+  function mkStars(count=120){
+    stars.innerHTML='';
+    const w = stars.clientWidth || 800; const h = stars.clientHeight || 600;
+    for(let i=0;i<count;i++){
+      const s = document.createElement('div');
+      s.className='star';
+      const x = Math.random()*w; const y = Math.random()*h; const z = Math.random();
+      s.style.left = x+'px'; s.style.top=y+'px'; s.style.opacity = 0.4 + z*0.6;
+      s.dataset.speed = 0.2 + z*1.2;
+      stars.appendChild(s);
+    }
+  }
+  mkStars();
+  window.addEventListener('resize', mkStars);
+
+  // --- Animation state ---
+  let running = false, last=0;
+  let angleA = 0, angleB = 0; // radians
+
+  function setUI(){
+    powerOut.textContent = power.value + '%';
+    rpmOut.textContent = rpm.value;
+    radiusOut.textContent = radius.value + '%';
+    powerBar.style.width = power.value + '%';
+    const R = 100 + (radius.value/100)*140; // 100..240
+    bubbleCircle.setAttribute('r', R.toFixed(1));
+    bubbleCircle.setAttribute('opacity', (0.2 + (power.value/100)*0.5).toFixed(2));
+  }
+  setUI();
+
+  power.addEventListener('input', setUI);
+  radius.addEventListener('input', setUI);
+  rpm.addEventListener('input', setUI);
+
+  function tick(t){
+    if(!running){ requestAnimationFrame(tick); return; }
+    if(!last) last = t; const dt = (t - last)/1000; last = t;
+
+    // Base angular speed from RPM (rev/min -> rad/sec)
+    const base = (rpm.value/60)*TAU; // rad/sec
+
+    // Power scales the visual intensity & slight speed boost
+    const p = power.value/100;
+    const throttle = base * (0.6 + 0.8*p);
+
+    // Gear/sync relationship
+    let wA = throttle * (dirA.checked? 1 : -1);
+    let wB;
+    if(sync52.checked && !clutch.checked){
+      // 13:5 ratio (inner:outer) as a nod to 52‑unit sync windows
+      wB = wA * (5/13) * (dirB.checked? 1 : -1) * (dirA.checked? 1 : -1);
+    } else {
+      wB = throttle * (dirB.checked? 1 : -1);
+    }
+
+    angleA += wA*dt;
+    angleB += wB*dt;
+
+    // Apply transforms
+    ringA.setAttribute('transform', `rotate(${angleA*180/Math.PI})`);
+    ringB.setAttribute('transform', `rotate(${angleB*180/Math.PI})`);
+
+    // Star drift for parallax effect
+    for(const s of stars.children){
+      const sp = parseFloat(s.dataset.speed);
+      const x = (parseFloat(s.style.left) || 0) - sp;
+      s.style.left = (x < -4 ? stars.clientWidth + Math.random()*40 : x) + 'px';
+    }
+
+    requestAnimationFrame(tick);
+  }
+
+  function setRunning(on){
+    running = on;
+    toggle.textContent = on? '⏸ Pause' : '▶ Start';
+    toggle.dataset.state = on? 'on':'off';
+    if(on){ last = 0; requestAnimationFrame(tick); }
+  }
+
+  toggle.addEventListener('click', ()=> setRunning(!running));
+  resetBtn.addEventListener('click', ()=>{ angleA=angleB=0; setRunning(false); setUI(); ringA.removeAttribute('transform'); ringB.removeAttribute('transform'); });
+
+  // Keyboard shortcuts
+  window.addEventListener('keydown', (e)=>{
+    if(e.code==='Space'){ e.preventDefault(); setRunning(!running); }
+    if(e.key==='r' || e.key==='R'){ resetBtn.click(); }
+    if(e.code==='ArrowUp'){ power.value = clamp(+power.value+4,0,100); setUI(); }
+    if(e.code==='ArrowDown'){ power.value = clamp(+power.value-4,0,100); setUI(); }
+  });
+
+  // Start idle animation (bubble pulsing) even when paused
+  let t0 = 0;
+  function idlePulse(t){
+    const tt = (t - (t0||t))/1000; if(!t0) t0=t;
+    const baseR = 100 + (radius.value/100)*140;
+    const pulse = 3*Math.sin(tt*1.5);
+    bubbleCircle.setAttribute('r', (baseR + pulse).toFixed(1));
+    requestAnimationFrame(idlePulse);
+  }
+  requestAnimationFrame(idlePulse);
+  </script>
+</body>
+</html>
