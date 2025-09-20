@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Casanova Warp Drive — Single File (v4)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root{
+      --bg:#0b0f14; --panel:#111827; --panel2:#0f172a; --ink:#e5e7eb; --muted:#9ca3af;
+      --line:#334155; --accent:#22d3ee; --accent2:#38bdf8; --accent3:#a5f3fc; --ok:#10b981; --warn:#f59e0b; --bad:#ef4444;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,Segoe UI,Roboto,Helvetica,Arial}
+    .wrap{display:grid;grid-template-columns:1fr;gap:14px;padding:16px;max-width:1400px;margin:0 auto}
+    @media(min-width:1300px){.wrap{grid-template-columns:420px 1fr}}
+    h1{margin:6px 0 0;font-size:22px}
+    .muted{color:var(--muted);font-size:12px}
+    .panel{background:var(--panel);border:1px solid #1f2937;border-radius:14px;box-shadow:0 0 0 1px #0f172a inset;padding:12px}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    label.sel{display:block;font-size:12px;min-width:150px}
+    label.sel>div{color:var(--muted);margin-bottom:4px}
+    select,input[type="date"],input[type="number"]{width:100%;background:#0a0f1d;border:1px solid #2b3342;border-radius:10px;color:var(--ink);padding:8px}
+    input[type="range"]{width:100%}
+    button{background:#0f172a;border:1px solid #2b3342;color:var(--ink);padding:6px 10px;border-radius:10px;cursor:pointer}
+    button:hover{border-color:#536079}
+    button.primary{background:rgb(34 211 238 / 0.12);border-color:rgb(56 189 248 / 0.6)}
+    .kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+    .kpi{border:1px solid #1f2937;border-radius:10px;padding:8px}
+    .kpi .lab{color:var(--muted);font-size:11px}
+    .kpi .val{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace}
+    .legend li{display:flex;justify-content:space-between;gap:8px;padding:6px 8px;border:1px solid #1f2937;border-radius:10px}
+    .legend li:hover{border-color:#536079}
+    .legend b{color:var(--ink)}
+    .gridR{display:grid;gap:12px}
+    .gridR .panel{padding:10px}
+    .progress{height:8px;background:#1f2937;border-radius:999px;overflow:hidden}
+    .progress>div{height:100%;background:var(--accent)}
+    .small{font-size:12px}
+    .mono{font-family:ui-monospace, Consolas, Menlo, monospace}
+    .shieldOn{box-shadow:0 0 0 1px rgba(56,189,248,.5) inset, 0 0 20px rgba(56,189,248,.25) inset}
+    .pill{border:1px solid #2b3342;border-radius:999px;padding:3px 8px}
+    .rightHead{display:flex;justify-content:space-between;align-items:center}
+    .events{max-height:140px;overflow:auto}
+    .ev{border:1px solid #1f2937;border-radius:8px;padding:4px 8px}
+    .ev.good{border-color:#10b98166;background:#10b98114}
+    .ev.bad{border-color:#ef444466;background:#ef444414}
+    .callout{color:var(--muted);font-size:11px}
+    #engineSvg{width:100%;height:500px;display:block}
+    #solarSvg{width:100%;height:240px;display:block}
+    .danger{color:#ef4444}
+    .ok{color:#10b981}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <!-- ================= LEFT ================= -->
+    <section>
+      <h1>Casanova Warp Drive Engine</h1>
+      <div class="muted">Idle until ENGAGE. Warp W1–W10 controls speed; shield shows when armed. Ship clock syncs to CST on ENGAGE.</div>
+
+      <div class="panel">
+        <div class="row">
+          <label class="sel">
+            <div>Date (UTC)</div>
+            <input id="dateISO" type="date">
+          </label>
+          <label class="sel" style="display:flex;align-items:center;gap:8px;margin-top:20px">
+            <input id="useEphem" type="checkbox" checked> <span class="muted">Use ephemerides (circular)</span>
+          </label>
+        </div>
+        <div class="callout">Distances use a simple circular-orbit demo model. Can be swapped for high-precision later.</div>
+      </div>
+
+      <div class="panel">
+        <div class="row">
+          <label class="sel">
+            <div>Origin</div>
+            <select id="origin"></select>
+          </label>
+          <label class="sel">
+            <div>Destination</div>
+            <select id="destination"></select>
+          </label>
+        </div>
+
+        <div class="kpis" style="margin-top:6px">
+          <div class="kpi"><div class="lab">Distance (AU)</div><div class="val" id="k_total">—</div></div>
+          <div class="kpi"><div class="lab">Remaining (AU)</div><div class="val" id="k_rem">—</div></div>
+          <div class="kpi"><div class="lab">Warp (Set)</div><div class="val" id="k_warp">W1</div></div>
+          <div class="kpi"><div class="lab">Warp (Active)</div><div class="val" id="k_warpActive">W1.0</div></div>
+          <div class="kpi"><div class="lab">Speed (AU/hr)</div><div class="val" id="k_speed">—</div></div>
+          <div class="kpi"><div class="lab">ETA</div><div class="val" id="k_eta">—</div></div>
+          <div class="kpi"><div class="lab">Elapsed</div><div class="val" id="k_elapsed">—</div></div>
+        </div>
+
+        <div class="row" style="margin-top:8px">
+          <button id="btnEngage" class="primary">ENGAGE (New Trip)</button>
+          <button id="btnHold">HOLD</button>
+          <button id="btnReset">Reset Route</button>
+          <span class="pill small" id="statusPill">Idle</span>
+        </div>
+
+        <div class="panel" style="margin-top:8px">
+          <div class="row" style="justify-content:space-between">
+            <div class="small">Warp Factor (Set)</div>
+            <div class="mono" id="warpLabel">W1</div>
+          </div>
+          <input id="warp" type="range" min="1" max="10" step="1" value="1">
+          <div class="row" style="margin-top:6px">
+            <button id="wDown" class="small">−</button>
+            <button id="wUp" class="small">+</button>
+            <div style="flex:1"></div>
+            <button class="small" data-w="1">W1</button>
+            <button class="small" data-w="5">W5</button>
+            <button class="small" data-w="10">W10</button>
+          </div>
+        </div>
+
+        <div class="panel" id="autoPanel" style="margin-top:8px">
+          <div class="row" style="justify-content:space-between">
+            <div class="small" style="font-weight:600">Auto‑Descent (near arrival)</div>
+            <label class="small"><input id="autoOn" type="checkbox" checked> Enabled</label>
+          </div>
+          <div class="row">
+            <label class="sel">
+              <div>Start within (AU)</div>
+              <input id="autoStartAU" type="number" min="0.05" max="5" step="0.01" value="0.50">
+            </label>
+            <label class="sel">
+              <div>Target Warp</div>
+              <input id="autoTargetWarp" type="number" min="1" max="4" step="1" value="2">
+            </label>
+          </div>
+          <div class="callout">When remaining distance ≤ Start AU, <b>Active Warp</b> smoothly ramps down to Target Warp for approach.</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="row" style="justify-content:space-between">
+          <div class="row"><div style="font-weight:600">Shield System</div></div>
+          <label class="small row"><input id="shieldArmed" type="checkbox"> Armed</label>
+        </div>
+        <div class="row">
+          <label class="sel">
+            <div>Shield Power</div>
+            <input id="shieldPower" type="range" min="0" max="1" step="0.001" value="0.6">
+          </label>
+          <label class="sel">
+            <div>Mode</div>
+            <select id="shieldMode">
+              <option>Balanced</option>
+              <option>Radiative</option>
+              <option>Particle</option>
+              <option>Kinetic</option>
+            </select>
+          </label>
+        </div>
+        <div class="kpis" style="margin-top:6px">
+          <div class="kpi"><div class="lab">Generator</div><div class="val" id="k_gen">—</div></div>
+          <div class="kpi"><div class="lab">Demand</div><div class="val" id="k_dem">—</div></div>
+          <div class="kpi"><div class="lab">Charge</div><div class="val" id="k_chg">—</div></div>
+          <div class="kpi"><div class="lab">Health</div><div class="val" id="k_hp">—</div></div>
+          <div class="kpi"><div class="lab">Absorption</div><div class="val" id="k_abs">—</div></div>
+        </div>
+        <div class="callout">ENGAGE resets & arms shields. Disarm to save power when safe.</div>
+      </div>
+
+      <div class="panel">
+        <div style="font-weight:600;margin-bottom:6px">Clocks & Timeline (CST)</div>
+        <div class="kpis">
+          <div class="kpi"><div class="lab">Earth Clock</div><div class="val" id="earthClock">—</div></div>
+          <div class="kpi"><div class="lab">Ship Clock</div><div class="val" id="shipClock">—</div></div>
+          <div class="kpi"><div class="lab">Departure</div><div class="val" id="k_depart">—</div></div>
+          <div class="kpi"><div class="lab">Arrival (est)</div><div class="val" id="k_arrive">—</div></div>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button id="btnSync">Sync Ship Clock to CST</button>
+          <button id="btnExportTimeline">Export Timeline CSV</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div style="font-weight:600;margin-bottom:6px">Subsystem Legend (hover to highlight)</div>
+        <ul class="legend" id="legend" style="list-style:none;padding:0;margin:0;display:grid;gap:6px"></ul>
+      </div>
+    </section>
+
+    <!-- ================= RIGHT ================= -->
+    <section class="gridR">
+      <div class="panel" id="enginePanel">
+        <div class="rightHead">
+          <div style="font-weight:600">Engine Cutaway</div>
+          <div class="small muted">Moving parts while running. Shield visible when armed.</div>
+        </div>
+        <svg id="engineSvg" viewBox="0 0 1400 500" aria-label="Engine diagram"></svg>
+      </div>
+
+      <div class="panel">
+        <div class="rightHead">
+          <div style="font-weight:600">Solar Map (demo)</div>
+          <div class="small muted"><span id="routeLabel">—</span></div>
+        </div>
+        <svg id="solarSvg" viewBox="0 0 320 240" aria-label="Solar map"></svg>
+      </div>
+
+      <div class="panel">
+        <div class="rightHead">
+          <div style="font-weight:600">Progress</div>
+          <div class="small muted" id="progText">—</div>
+          <div style="display:flex;gap:6px">
+            <button id="btnExportHazards" class="small">Export Hazards CSV</button>
+          </div>
+        </div>
+        <div class="progress"><div id="progBar" style="width:0%"></div></div>
+      </div>
+
+      <div class="panel">
+        <div class="rightHead">
+          <div style="font-weight:600">Hazard Monitor (Sim)</div>
+          <div class="small muted">Training placeholder; not a real defensive model.</div>
+        </div>
+        <div class="row" style="margin:6px 0 8px">
+          <button class="small" data-hit="Micro-debris">Micro-debris</button>
+          <button class="small" data-hit="Small rock (10 cm)">Small rock (10 cm)</button>
+          <button class="small" data-hit="Large rock (1 m)">Large rock (1 m)</button>
+          <button class="small danger" data-hit="Missile (training)">Missile (training)</button>
+        </div>
+        <div class="events" id="events"></div>
+      </div>
+
+      <div class="panel">
+        <div style="font-weight:600;margin-bottom:6px">Step-by-Step Instructions</div>
+        <ol class="small" style="margin-top:0;padding-left:18px">
+          <li>Pick <b>Date</b>, select <b>Origin</b> & <b>Destination</b>.</li>
+          <li>Set <b>Warp (Set)</b> W1..W10. <b>Active Warp</b> may auto‑drop for approach if Auto‑Descent is enabled.</li>
+          <li>Adjust <b>Shield Power</b> & <b>Mode</b>; arm shield when ready.</li>
+          <li>Press <b>ENGAGE</b> — resets the trip, arms the shield, syncs the ship clock, starts travel.</li>
+          <li>Use <b>HOLD</b> to pause. <b>Reset Route</b> returns to idle and clears data.</li>
+          <li>Export <b>Timeline CSV</b> and <b>Hazards CSV</b> anytime.</li>
+        </ol>
+        <div class="callout">Fictional visualization. Not real navigation or defense guidance.</div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===== START OF SCRIPT ===== -->
+  <script>
+  ;(() => {
+    // ---------- Constants ----------
+    const PLANETS = [
+      { key: "Mercury", a_au: 0.39, phase0: 0.2 },
+      { key: "Venus",   a_au: 0.72, phase0: 1.0 },
+      { key: "Earth",   a_au: 1.00, phase0: 0.0 },
+      { key: "Mars",    a_au: 1.52, phase0: 0.8 },
+      { key: "Jupiter", a_au: 5.20, phase0: 0.25 },
+      { key: "Saturn",  a_au: 9.58, phase0: 1.4 },
+      { key: "Uranus",  a_au: 19.2, phase0: 2.0 },
+      { key: "Neptune", a_au: 30.05, phase0: 3.1 },
+      { key: "Pluto",   a_au: 39.48, phase0: 0.6 }
+    ];
+    const BASE_AUHR = 0.25; // Warp 1 speed; slow so travel is visible
+    const TWO_PI = Math.PI * 2;
+
+    const IMPACT_MJ = { // illustrative
+      "Micro-debris": 1,
+      "Small rock (10 cm)": 20,
+      "Large rock (1 m)": 200,
+      "Missile (training)": 500
+    };
+
+    // ---------- State ----------
+    const state = {
+      running: false,
+      warpSet: 1,
+      warpActive: 1,
+      throttle: 0.30,
+      phase: 0.55,
+      bubble: 0.35,
+      plasma: 0.50,
+      auto: { on: true, startAU: 0.5, targetWarp: 2 },
+      shield: { armed: false, power: 0.6, mode: "Balanced", charge: 1.0, health: 1.0 },
+      origin: "Earth",
+      destination: "Mars",
+      useEphem: true,
+      dateISO: isoDateToday(),
+      nav: { totalAU: 0, travelledAU: 0, arrived: false },
+      departTs: null,
+      ang: { bussard: 0, pre: 0, cond: 0, dump: 0, coilA: 0, coilB: 0 },
+      shipTimeMs: null,
+      lastFrame: null,
+      events: [],
+      timeline: [], // per-second samples
+      tAcc: 0
+    };
+
+    // ---------- Helpers ----------
+    function isoDateToday(){ const d = new Date(); const y=d.getUTCFullYear(), m=(d.getUTCMonth()+1+"").padStart(2,"0"), dd=(d.getUTCDate()+"").padStart(2,"0"); return `${y}-${m}-${dd}`; }
+    function fmtCST(msOrDate){ try{ const d = (msOrDate instanceof Date) ? msOrDate : new Date(msOrDate); return new Intl.DateTimeFormat("en-US",{ timeZone:"America/Chicago", year:"numeric", month:"short", day:"2-digit", hour:"2-digit", minute:"2-digit", second:"2-digit" }).format(d);}catch(e){ return (new Date(msOrDate)).toLocaleString(); } }
+    function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
+    function lerp(a,b,t){ return a+(b-a)*t; }
+    function round1(x){ return Math.round(x*10)/10; }
+    function yearsSinceJ2000(dateISO){ const d=dateISO? new Date(dateISO+"T00:00:00Z"): new Date(); const j2000=Date.UTC(2000,0,1,12,0,0); return (d.getTime()-j2000)/(365.25*24*3600*1000); }
+    function heliocentricPolar(a_au, phase0, tYears){ const P=Math.pow(a_au,1.5); const w=TWO_PI/Math.max(1e-6,P); const theta=(phase0+w*tYears)%TWO_PI; return {x:a_au*Math.cos(theta), y:a_au*Math.sin(theta)}; }
+    function distance2D(a,b){ const dx=a.x-b.x, dy=a.y-b.y; return Math.hypot(dx,dy); }
+    function generatorMW(throttle,temp){ return 200*(0.5 + 0.8*throttle + 0.4*temp); }
+    function shieldDemandMW(power,mode){ const k={Balanced:1.0, Radiative:1.1, Particle:1.2, Kinetic:1.15}[mode]||1.0; return 180*power*k; }
+    function absorptionFraction(power,mode,bubble,charge,health){ const base=0.45 + 0.4*power + 0.15*bubble + 0.2*charge; const modeBoost={Balanced:1.0,Radiative:1.05,Particle:1.05,Kinetic:1.08}[mode]||1.0; return clamp(base*modeBoost*health,0,1); }
+    function fmtH(h){ if(!isFinite(h)) return "—"; const hours=Math.floor(h), minutes=Math.floor((h-hours)*60), seconds=Math.floor(((h-hours)*60-minutes)*60); return `${hours}h ${minutes}m ${seconds}s`; }
+
+    // ---------- DOM ----------
+    const dom = {
+      origin: qs("#origin"), destination: qs("#destination"), useEphem: qs("#useEphem"), dateISO: qs("#dateISO"),
+      btnEngage: qs("#btnEngage"), btnHold: qs("#btnHold"), btnReset: qs("#btnReset"), statusPill: qs("#statusPill"),
+      warp: qs("#warp"), warpLabel: qs("#warpLabel"), wDown: qs("#wDown"), wUp: qs("#wUp"), warpQuick: qsa('button[data-w]'),
+      k_total: qs("#k_total"), k_rem: qs("#k_rem"), k_warp: qs("#k_warp"), k_warpActive: qs("#k_warpActive"), k_speed: qs("#k_speed"), k_eta: qs("#k_eta"), k_elapsed: qs("#k_elapsed"), k_depart: qs("#k_depart"), k_arrive: qs("#k_arrive"),
+      shieldArmed: qs("#shieldArmed"), shieldPower: qs("#shieldPower"), shieldMode: qs("#shieldMode"),
+      k_gen: qs("#k_gen"), k_dem: qs("#k_dem"), k_chg: qs("#k_chg"), k_hp: qs("#k_hp"), k_abs: qs("#k_abs"),
+      earthClock: qs("#earthClock"), shipClock: qs("#shipClock"), btnSync: qs("#btnSync"),
+      engineSvg: qs("#engineSvg"), solarSvg: qs("#solarSvg"), routeLabel: qs("#routeLabel"), progBar: qs("#progBar"), progText: qs("#progText"),
+      events: qs("#events"), legend: qs("#legend"), enginePanel: qs("#enginePanel"),
+      btnExportHazards: qs("#btnExportHazards"), btnExportTimeline: qs("#btnExportTimeline"),
+      autoOn: qs("#autoOn"), autoStartAU: qs("#autoStartAU"), autoTargetWarp: qs("#autoTargetWarp")
+    };
+    function qs(s){return document.querySelector(s)}; function qsa(s){return Array.from(document.querySelectorAll(s))}
+
+    // Populate selects
+    PLANETS.forEach(p=>{ const o1=ce("option",p.key); o1.value=p.key; dom.origin.appendChild(o1); const o2=ce("option",p.key); o2.value=p.key; dom.destination.appendChild(o2); });
+    dom.origin.value = state.origin; dom.destination.value = state.destination; dom.dateISO.value = state.dateISO;
+
+    // Legend
+    const LEGEND_ITEMS = [
+      { k:"Bussard", label:"Intake / Bussard Collector", c:"Harvests sparse medium; ion funnel" },
+      { k:"Magnetic Grid", label:"Magnetic Grid", c:"Pre-aligns flow" },
+      { k:"Pre-Stage Flux", label:"Pre-Stage Flux Fan", c:"Compress / seed plasma" },
+      { k:"Plasma Conditioner", label:"Plasma Conditioner", c:"RF + EM shaping" },
+      { k:"Casimir Plates", label:"Casimir Plates", c:"Vacuum-mode tuning (Δρ_vac)" },
+      { k:"Entanglement Core", label:"Entanglement Core", c:"Quantum link stabilization" },
+      { k:"Field Coils", label:"Field Coils (AFT Expansion)", c:"Compression / expansion" },
+      { k:"Plasma Flow", label:"Plasma Flow", c:"Conditioned stream path" },
+      { k:"Shield Envelope", label:"Shield Envelope", c:"Protective energy layer" }
+    ];
+    let highlightKey=""; // for hover highlights (reserved)
+    LEGEND_ITEMS.forEach(x=>{ const li=ce("li"); li.innerHTML = `<b>${x.label}</b><span class="muted small">${x.c}</span>`; li.addEventListener("mouseenter",()=>highlightKey=x.k); li.addEventListener("mouseleave",()=>highlightKey=""); dom.legend.appendChild(li); });
+
+    // ---------- SVG helpers ----------
+    const svgNS = "http://www.w3.org/2000/svg";
+    function se(tag, attrs={}, parent){ const el=document.createElementNS(svgNS,tag); for(const k in attrs) el.setAttribute(k, attrs[k]); if(parent) parent.appendChild(el); return el; }
+    function ce(tag, text){ const el=document.createElement(tag); if(text!=null) el.textContent=text; return el; }
+
+    // ---------- Engine SVG ----------
+    let parts = {};
+    buildEngine();
+    function buildEngine(){
+      const svg = dom.engineSvg; svg.innerHTML=""; const W=1400,H=500; const y=H/2; const x0=50,x1=170,x2=310,x3=470,x4=650,x5=820,x6=1080,x7=1320;
+      const defs = se("defs",{},svg);
+      const grad = se("radialGradient",{id:"plasma",cx:"0%",cy:"50%",r:"120%"},defs);
+      se("stop",{offset:"0%","stop-color":"#5ee7ff","stop-opacity":"0.95"},grad);
+      se("stop",{offset:"60%","stop-color":"#5ee7ff","stop-opacity":"0.55"},grad);
+      se("stop",{offset:"100%","stop-color":"#4fb3d6","stop-opacity":"0.0"},grad);
+      const metal = se("linearGradient",{id:"metal",x1:"0",x2:"1"},defs);
+      se("stop",{offset:"0%","stop-color":"#c7c7c7"},metal); se("stop",{offset:"100%","stop-color":"#8b8b8b"},metal);
+      const filterGlow = se("filter",{id:"glow"},defs); se("feGaussianBlur",{"stdDeviation":"5",result:"b"},filterGlow); const feMerge=se("feMerge",{},filterGlow); se("feMergeNode",{"in":"b"},feMerge); se("feMergeNode",{"in":"SourceGraphic"},feMerge);
+      const shieldGlow = se("filter",{id:"shieldGlow"},defs); se("feGaussianBlur",{"stdDeviation":"10",result:"s"},shieldGlow); const sgm=se("feMerge",{},shieldGlow); se("feMergeNode",{"in":"s"},sgm); se("feMergeNode",{"in":"SourceGraphic"},sgm);
+      const pattern = se("pattern",{id:"grid",width:"12",height:"12",patternUnits:"userSpaceOnUse"},defs); se("path",{d:"M0 12 L12 12 M12 0 L12 12",stroke:"#4b5563","stroke-width":"1"},pattern);
+
+      const bodyPath = `M ${x0-30},${y} C ${x1-80},${y-90} ${x3-50},${y-120} ${x4},${y-95} S ${x6-20},${y-60} ${x7},${y-40} L ${x7},${y+40} C ${x6-20},${y+60} ${x4},${y+95} ${x1-80},${y+90} S ${x0-30},${y} ${x0-30},${y} Z`;
+      se("path",{d:bodyPath,fill:"url(#metal)","fill-opacity":"0.18",stroke:"#9ca3af","stroke-width":"2"},svg);
+
+      parts.bussardG = se("g",{},svg);
+      se("circle",{cx:x0,cy:y,r:54,fill:"#0ea5e9","fill-opacity":"0.12",stroke:"#67e8f9","stroke-dasharray":"6 10","stroke-width":"1"},parts.bussardG);
+      se("circle",{cx:x0,cy:y,r:28,fill:"#0ea5e9","fill-opacity":"0.18"},parts.bussardG);
+      parts.bussardBlades = se("g",{},parts.bussardG); blades(parts.bussardBlades,x0,y,48,12,4);
+
+      se("rect",{x:x1-18,y:y-60,width:36,height:120,fill:"url(#grid)",opacity:"0.5"},svg);
+
+      parts.preG = se("g",{},svg); se("circle",{cx:x2,cy:y,r:52,fill:"#111827",stroke:"#94a3b8","stroke-width":"1"},parts.preG); parts.preBlades=se("g",{},parts.preG); blades(parts.preBlades,x2,y,50,12,6);
+      parts.condG = se("g",{},svg); se("circle",{cx:x3,cy:y,r:46,fill:"#0b0f1a",stroke:"#94a3b8","stroke-width":"1"},parts.condG); parts.condBlades=se("g",{},parts.condG); blades(parts.condBlades,x3,y,44,10,5);
+
+      parts.plates=[]; for(let i=0;i<9;i++){ const r=se("rect",{x:x4+i*10,y:y-70,width:6,height:140,fill:"#a1a1aa",opacity:0.35},svg); parts.plates.push(r); }
+
+      parts.coreG=se("g",{},svg); se("circle",{cx:x5,cy:y,r:70,fill:"#0ea5e9",opacity:"0.10"},parts.coreG); se("circle",{cx:x5,cy:y,r:54,fill:"none",stroke:"#22d3ee","stroke-dasharray":"8 10","stroke-width":"1"},parts.coreG); parts.coreBlades=se("g",{},parts.coreG); blades(parts.coreBlades,x5,y,52,14,3);
+
+      parts.coilA = ring(svg,x6-60,y,64); parts.coilB = ring(svg,x6+40,y,72);
+
+      parts.dumpG=se("g",{},svg); parts.dumpBlades=se("g",{},parts.dumpG); blades(parts.dumpBlades,x7-28,y,22,12,4);
+
+      const flow = `M ${x0},${y} C ${x2-40},${y-20} ${x4-30},${y-10} ${x5-20},${y} S ${x6+40},${y+10} ${x7},${y}`;
+      parts.flow=se("path",{d:flow,stroke:"url(#plasma)","stroke-width":"16",fill:"none",filter:"url(#glow)"},svg);
+
+      parts.shield1=se("ellipse",{cx:(x6+x7)/2,cy:y,rx:(x7-x6)*0.6,ry:90+(state.bubble*28+6),fill:"none",stroke:"#38bdf8","stroke-opacity":"0.0","stroke-dasharray":"6 10","stroke-width":"8",filter:"url(#shieldGlow)"},svg);
+      parts.shield2=se("ellipse",{cx:(x6+x7)/2,cy:y,rx:(x7-x6)*0.6,ry:90+(state.bubble*28+6),fill:"none",stroke:"#a5f3fc","stroke-opacity":"0.0","stroke-width":"2"},svg);
+
+      addLabel(svg,x0,y-76,"Bussard Collector"); addLabel(svg,x2,y-76,"Pre-Stage Flux"); addLabel(svg,x3,y-76,"Plasma Conditioner"); addLabel(svg,x4+24,y-84,"Casimir Plates"); addLabel(svg,x5,y-86,"Entanglement Core"); addLabel(svg,x6-60,y-86,"Field Coils (AFT Expansion)"); addLabel(svg,x7-6,y-76,"Nozzle","end");
+    }
+    function blades(group,cx,cy,r,count,thick){ for(let i=0;i<count;i++){ const a=i/count*TWO_PI; const xA=cx+Math.cos(a)*(r*0.2), yA=cy+Math.sin(a)*(r*0.2); const xB=cx+Math.cos(a)*r, yB=cy+Math.sin(a)*r; se("line",{x1:xA,y1:yA,x2:xB,y2:yB,stroke:"#e5e7eb","stroke-width":thick,"stroke-linecap":"round",opacity:"0.9"},group); } }
+    function ring(svg,cx,cy,r){ const g=se("g",{},svg); se("circle",{cx,cy,r,fill:"#0b0f1a",stroke:"#94a3b8","stroke-width":"1"},g); const arcs=se("g",{},g); const marks=12; for(let i=0;i<marks;i++){ const a0=i/marks*TWO_PI, a1=a0+0.12; const x0=cx+Math.cos(a0)*r, y0=cy+Math.sin(a0)*r; const x1=cx+Math.cos(a1)*(r*1.02), y1=cy+Math.sin(a1)*(r*1.02); se("line",{x1:x0,y1:y0,x2:x1,y2:y1,stroke:"#e5e7eb","stroke-width":"4","stroke-linecap":"round"},arcs);} addLabel(svg,cx,cy-(r+26),"AFT Expansion"); return {g,arcs,cx,cy,r}; }
+    function addLabel(svg,x,y,text,anchor="middle"){ const t=se("text",{x,y,"text-anchor":anchor,"font-size":"12",fill:"#d1d5db"},svg); t.textContent=text; }
+
+    // ---------- Solar Map ----------
+    let solar={}; buildSolar();
+    function buildSolar(){ const s=dom.solarSvg; s.innerHTML=""; const cx=160,cy=120,size=320,pad=10; solar={cx,cy,size,pad}; const defs=se("defs",{},s); const sun=se("radialGradient",{id:"sun",cx:"50%",cy:"50%",r:"60%"},defs); se("stop",{offset:"0%","stop-color":"#fde68a"},sun); se("stop",{offset:"100%","stop-color":"#f59e0b"},sun); }
+
+    function drawSolarBackground(){ const s=dom.solarSvg; // keep defs
+      const defs = s.querySelector('defs'); s.innerHTML=''; if(defs) s.appendChild(defs);
+      const {cx,cy,size,pad}=solar; se("circle",{cx,cy,r:10,fill:"url(#sun)"},s);
+      const R = mapRadius(); const rO=(size/2-pad)*(Math.hypot(state.nav.Opos.x,state.nav.Opos.y)/R); const rD=(size/2-pad)*(Math.hypot(state.nav.Dpos.x,state.nav.Dpos.y)/R);
+      se("circle",{cx,cy,r:rO,fill:"none",stroke:"#334155","stroke-dasharray":"3 3"},s);
+      se("circle",{cx,cy,r:rD,fill:"none",stroke:"#334155","stroke-dasharray":"3 3"},s);
+      const sx=x=>cx+(x/R)*(size/2-pad), sy=y=>cy-(y/R)*(size/2-pad);
+      se("circle",{cx:sx(state.nav.Opos.x), cy:sy(state.nav.Opos.y), r:4, fill:"#60a5fa"},s);
+      se("text",{x:sx(state.nav.Opos.x)+6,y:sy(state.nav.Opos.y)-4,"font-size":"10",fill:"#9ca3af"},s).textContent=state.origin;
+      se("circle",{cx:sx(state.nav.Dpos.x), cy:sy(state.nav.Dpos.y), r:4, fill:"#f472b6"},s);
+      se("text",{x:sx(state.nav.Dpos.x)+6,y:sy(state.nav.Dpos.y)-4,"font-size":"10",fill:"#9ca3af"},s).textContent=state.destination;
+      se("line",{x1:sx(state.nav.Opos.x),y1:sy(state.nav.Opos.y),x2:sx(state.nav.Dpos.x),y2:sy(state.nav.Dpos.y),stroke:"#64748b","stroke-dasharray":"4 4"},s);
+    }
+
+    function drawSolarShip(){ const s=dom.solarSvg; Array.from(s.querySelectorAll('.ship')).forEach(n=>n.remove()); const {cx,cy,size,pad}=solar; const R=mapRadius(); const sx=x=>cx+(x/R)*(size/2-pad), sy=y=>cy-(y/R)*(size/2-pad); const frac=state.nav.totalAU>0? state.nav.travelledAU/state.nav.totalAU:0; const shipX=state.nav.Opos.x+(state.nav.Dpos.x-state.nav.Opos.x)*frac; const shipY=state.nav.Opos.y+(state.nav.Dpos.y-state.nav.Opos.y)*frac; const g=se("g",{class:"ship", transform:`translate(${sx(shipX)} ${sy(shipY)})`}, s); se("polygon",{points:"0,-6 10,0 0,6 2,0", fill:"#22d3ee"}, g); }
+
+    function mapRadius(){ const maxR=Math.max(Math.hypot(state.nav.Opos.x,state.nav.Opos.y), Math.hypot(state.nav.Dpos.x,state.nav.Dpos.y)); return Math.max(1.6, maxR+0.6); }
+
+    // ---------- Navigation ----------
+    function computeNav(){ const O=PLANETS.find(p=>p.key===state.origin)||PLANETS[2]; const D=PLANETS.find(p=>p.key===state.destination)||PLANETS[3]; const tYears=yearsSinceJ2000(state.dateISO); const Opos=state.useEphem? heliocentricPolar(O.a_au,0.0,tYears):{x:O.a_au,y:0}; const Dpos=state.useEphem? heliocentricPolar(D.a_au,D.phase0,tYears):{x:D.a_au,y:0}; const totalAU=distance2D(Opos,Dpos); state.nav={ totalAU, travelledAU:0, arrived: totalAU===0, Opos, Dpos }; dom.routeLabel.textContent=`${state.origin} → ${state.destination}`; drawSolarBackground(); }
+
+    // ---------- UI bindings ----------
+    dom.origin.addEventListener('change', e=>{ state.origin=e.target.value; computeNav(); refreshUI(); });
+    dom.destination.addEventListener('change', e=>{ state.destination=e.target.value; computeNav(); refreshUI(); });
+    dom.useEphem.addEventListener('change', e=>{ state.useEphem=e.target.checked; computeNav(); refreshUI(); });
+    dom.dateISO.addEventListener('change', e=>{ state.dateISO=e.target.value; computeNav(); refreshUI(); });
+
+    dom.warp.addEventListener('input', e=>{ state.warpSet=parseInt(e.target.value,10); dom.warpLabel.textContent=`W${state.warpSet}`; refreshUI(); });
+    dom.wDown.addEventListener('click', ()=>{ state.warpSet=clamp(state.warpSet-1,1,10); dom.warp.value=state.warpSet; dom.warpLabel.textContent=`W${state.warpSet}`; refreshUI(); });
+    dom.wUp.addEventListener('click', ()=>{ state.warpSet=clamp(state.warpSet+1,1,10); dom.warp.value=state.warpSet; dom.warpLabel.textContent=`W${state.warpSet}`; refreshUI(); });
+    dom.warpQuick.forEach(b=> b.addEventListener('click', ()=>{ state.warpSet=parseInt(b.dataset.w,10); dom.warp.value=state.warpSet; dom.warpLabel.textContent=`W${state.warpSet}`; refreshUI(); }));
+
+    dom.autoOn.addEventListener('change', e=>{ state.auto.on = e.target.checked; });
+    dom.autoStartAU.addEventListener('input', e=>{ state.auto.startAU = clamp(parseFloat(e.target.value)||0.5, 0.05, 5); });
+    dom.autoTargetWarp.addEventListener('input', e=>{ state.auto.targetWarp = clamp(parseInt(e.target.value,10)||2, 1, 4); });
+
+    dom.shieldArmed.addEventListener('change', e=>{ state.shield.armed = e.target.checked; refreshUI(); });
+    dom.shieldPower.addEventListener('input', e=>{ state.shield.power = parseFloat(e.target.value); });
+    dom.shieldMode.addEventListener('change', e=>{ state.shield.mode = e.target.value; });
+
+    dom.btnEngage.addEventListener('click', ()=> engage());
+    dom.btnHold.addEventListener('click', ()=> hold());
+    dom.btnReset.addEventListener('click', ()=> resetRoute());
+
+    dom.btnSync.addEventListener('click', ()=> syncShipClock());
+
+    qsa('button[data-hit]').forEach(b=> b.addEventListener('click', ()=> simulateImpact(b.dataset.hit)));
+
+    dom.btnExportHazards.addEventListener('click', ()=> exportHazardsCSV());
+    dom.btnExportTimeline.addEventListener('click', ()=> exportTimelineCSV());
+
+    // ---------- Actions ----------
+    function engage(){ resetRoute(); state.shield.armed=true; dom.shieldArmed.checked=true; syncShipClock(); state.running=true; state.departTs=Date.now(); dom.statusPill.textContent='Engaged'; state.warpActive = state.warpSet; refreshUI(); }
+    function hold(){ state.running=false; dom.statusPill.textContent='Idle'; }
+    function resetRoute(){ state.running=false; computeNav(); state.nav.travelledAU=0; state.nav.arrived=state.nav.totalAU===0; state.ang={ bussard:0, pre:0, cond:0, dump:0, coilA:0, coilB:0 }; state.shield.charge=1.0; state.shield.health=1.0; state.events=[]; dom.events.innerHTML=''; state.departTs=null; state.timeline=[]; state.tAcc=0; dom.statusPill.textContent='Idle'; state.warpActive = state.warpSet; refreshUI(); drawSolarShip(); }
+
+    function simulateImpact(kind){ const eMJ=(IMPACT_MJ[kind]??5); const abs= state.shield.armed ? absorptionFraction(state.shield.power, state.shield.mode, state.bubble, state.shield.charge, state.shield.health) : 0; const absorbed=eMJ*abs; const leftover=Math.max(0,eMJ-absorbed); if(state.shield.armed){ state.shield.charge = clamp(state.shield.charge - absorbed*0.0015, 0, 1); } state.shield.health = clamp(state.shield.health - leftover*0.003, 0, 1); const breached = leftover>5; const ts = new Date().toISOString().slice(11,19); state.events.unshift({ts, kind, eMJ:round1(eMJ), absorbed:round1(absorbed), leftover:round1(leftover), breached}); state.events = state.events.slice(0, 200); renderEvents(); }
+
+    function renderEvents(){ dom.events.innerHTML=''; if(state.events.length===0){ const p=ce('div'); p.className='muted small'; p.textContent='No events yet. Use the buttons to run a simulation.'; dom.events.appendChild(p); return; } state.events.forEach(e=>{ const d=ce('div'); d.className='ev small '+(e.breached?'bad':'good'); d.textContent=`[${e.ts}] ${e.kind} → E=${e.eMJ} MJ, absorbed=${e.absorbed} MJ, leftover=${e.leftover} MJ ${e.breached?'— BREACH':'— contained'}`; dom.events.appendChild(d); }); }
+
+    function syncShipClock(){ const now=Date.now(); state.shipTimeMs = now; refreshUI(); }
+
+    // ---------- CSV Exports ----------
+    function exportHazardsCSV(){ const rows = [ ['timestamp_cst','kind','energy_MJ','absorbed_MJ','leftover_MJ','breach'] ]; state.events.slice().reverse().forEach(e=>{ rows.push([ e.ts, e.kind, e.eMJ, e.absorbed, e.leftover, e.breached?1:0 ]); }); downloadCSV(`hazards_${Date.now()}.csv`, rows); }
+    function exportTimelineCSV(){ const rows = [ ['timestamp_cst','elapsed_s','warp_set','warp_active','total_AU','travelled_AU','remaining_AU','speed_AU_hr'] ]; state.timeline.forEach(r=> rows.push(r)); downloadCSV(`timeline_${Date.now()}.csv`, rows); }
+    function downloadCSV(filename, rows){ const csv = rows.map(r=> r.map(x=> (typeof x==='string' && (x.includes(',')||x.includes('"')||x.includes('\n'))) ? '"'+x.replace(/"/g,'""')+'"' : x).join(',')).join('\n'); const blob = new Blob([csv], {type:'text/csv'}); const url = URL.createObjectURL(blob); const a = ce('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 0); }
+
+    // ---------- Init Navigation ----------
+    computeNav(); refreshUI(); drawSolarShip();
+
+    // ---------- Animation loop ----------
+    requestAnimationFrame(frame);
+    function frame(ts){ if(state.lastFrame==null) state.lastFrame=ts; const dt=Math.min(0.05,(ts-state.lastFrame)/1000); state.lastFrame=ts;
+      // Clocks
+      dom.earthClock.textContent = fmtCST(Date.now()); if(state.shipTimeMs==null) state.shipTimeMs=Date.now(); state.shipTimeMs += dt*1000; dom.shipClock.textContent = fmtCST(state.shipTimeMs);
+
+      // Determine active warp (auto-descent)
+      const rem = Math.max(0, state.nav.totalAU - state.nav.travelledAU);
+      let targetActive = state.warpSet;
+      if(state.auto.on && rem <= state.auto.startAU){ targetActive = Math.min(state.warpSet, state.auto.targetWarp); }
+      state.warpActive = lerp(state.warpActive, targetActive, Math.min(1, dt*3)); // smooth ramp
+
+      // Travel
+      if(state.running && !state.nav.arrived){ const v = BASE_AUHR * (state.warpActive*state.warpActive); state.nav.travelledAU = Math.min(state.nav.totalAU, state.nav.travelledAU + v*(dt/3600)); if(state.nav.travelledAU >= state.nav.totalAU - 1e-9){ state.nav.arrived = true; state.running=false; dom.statusPill.textContent='Arrived'; } }
+
+      // Engine spins (running only)
+      const spinGate = state.running ? 1 : 0; const w = state.warpActive; const rpmBussard=(30+40*w+120*state.throttle)*spinGate; const rpmPre=(60+50*w+300*state.throttle)*spinGate; const rpmCond=(45+40*w+220*state.throttle)*spinGate; const rpmDump=(25+30*w+160*state.throttle)*spinGate; const rpmCoilA=(15+25*w+60*state.throttle)*spinGate; const rpmCoilB=(15+25*w+60*state.throttle)*spinGate; const ddeg=dt*360; state.ang.bussard+=ddeg*(rpmBussard/60); state.ang.pre+=ddeg*(rpmPre/60); state.ang.cond+=ddeg*(rpmCond/60); state.ang.dump+=ddeg*(rpmDump/60); state.ang.coilA+=ddeg*(rpmCoilA/60); state.ang.coilB+=ddeg*(rpmCoilB/60);
+
+      // Update SVG transforms
+      qs('#engineSvg g').dataset; // no-op to ensure svg exists
+      // centers: (50,250), (310,250), (470,250), (1292,250), (820,250)
+      const setT = (el,cx,cy,ang)=> el && el.setAttribute('transform', `rotate(${ang.toFixed(3)} ${cx} ${cy})`);
+      setT(parts.bussardBlades, 50, 250, state.ang.bussard);
+      setT(parts.preBlades, 310, 250, state.ang.pre);
+      setT(parts.condBlades, 470, 250, state.ang.cond);
+      setT(parts.dumpBlades, 1292, 250, state.ang.dump);
+      setT(parts.coreBlades, 820, 250, (state.ang.coilA+state.ang.coilB)/2);
+
+      // Casimir shimmer
+      for(let i=0;i<parts.plates.length;i++){ const base=0.35, amp=0.5; const ph=(((i%2===0)? state.ang.coilA: state.ang.coilB)/360); const op= base + amp * ((Math.sin(ph*TWO_PI)+1)/2)*0.6; parts.plates[i].setAttribute('opacity', op.toFixed(3)); }
+
+      // Shield envelope
+      const shell=state.bubble*28+6; parts.shield1.setAttribute('ry', 90+shell); parts.shield2.setAttribute('ry', 90+shell); const charge=state.shield.charge, armed=state.shield.armed; const s1=armed ? (0.45 + 0.45*charge) : 0.0; const s2=armed ? (0.25 + 0.35*charge) : 0.0; parts.shield1.setAttribute('stroke-opacity', s1.toFixed(3)); parts.shield2.setAttribute('stroke-opacity', s2.toFixed(3)); dom.enginePanel.classList.toggle('shieldOn', armed);
+
+      // Shield charge dynamics
+      const gen = generatorMW(state.throttle, state.plasma); const dem = state.shield.armed? shieldDemandMW(state.shield.power, state.shield.mode) : 0; const dQ=(gen-dem)*0.00006; state.shield.charge = clamp(state.shield.charge + dQ*dt, 0, 1); if(state.shield.armed && state.shield.charge>0.9) state.shield.health = clamp(state.shield.health + 0.003*dt, 0, 1);
+
+      // Solar ship marker
+      drawSolarShip();
+
+      // KPIs
+      const vEff = BASE_AUHR * (state.warpActive*state.warpActive); const etaH = (Math.max(0, state.nav.totalAU - state.nav.travelledAU))/Math.max(1e-6, vEff);
+      dom.k_total.textContent = state.nav.totalAU.toFixed(2); dom.k_rem.textContent = Math.max(0, state.nav.totalAU - state.nav.travelledAU).toFixed(2); dom.k_warp.textContent = `W${state.warpSet}`; dom.k_warpActive.textContent = `W${(Math.round(state.warpActive*10)/10).toFixed(1)}`; dom.k_speed.textContent = vEff.toFixed(2); dom.k_eta.textContent = fmtH(etaH); dom.k_elapsed.textContent = state.departTs ? fmtH((Date.now()-state.departTs)/3600000) : '—'; dom.k_depart.textContent = state.departTs ? fmtCST(state.departTs) : '—'; dom.k_arrive.textContent = state.nav.arrived ? fmtCST(Date.now()) : fmtCST(Date.now() + etaH*3600*1000);
+
+      // Shield KPIs
+      const abs = state.shield.armed ? absorptionFraction(state.shield.power, state.shield.mode, state.bubble, state.shield.charge, state.shield.health) : 0; dom.k_gen.textContent=`${round1(gen)} MW`; dom.k_dem.textContent=`${round1(dem)} MW`; dom.k_chg.textContent=`${Math.round(state.shield.charge*100)}%`; dom.k_hp.textContent=`${Math.round(state.shield.health*100)}%`; dom.k_abs.textContent=`${Math.round(abs*100)}%`;
+
+      // Progress
+      const frac = state.nav.totalAU>0 ? state.nav.travelledAU/state.nav.totalAU : 0; dom.progBar.style.width = `${frac*100}%`; dom.progText.textContent = `${state.origin} → ${state.destination}${state.nav.arrived ? ' • Arrived' : ''}`;
+
+      // Timeline logging (once per ~1s while engaged or moving)
+      state.tAcc += dt; if(state.departTs && state.tAcc >= 1){ state.tAcc = 0; const nowCST = fmtCST(Date.now()); const elapsedS = Math.round((Date.now()-state.departTs)/1000); state.timeline.push([ nowCST, elapsedS, state.warpSet, Math.round(state.warpActive*10)/10, state.nav.totalAU.toFixed(3), state.nav.travelledAU.toFixed(3), Math.max(0, state.nav.totalAU - state.nav.travelledAU).toFixed(3), (BASE_AUHR*(state.warpActive*state.warpActive)).toFixed(3) ]); if(state.timeline.length>12000) state.timeline.shift(); }
+
+      requestAnimationFrame(frame);
+    }
+
+    function refreshUI(){ dom.warp.value=state.warpSet; dom.warpLabel.textContent=`W${state.warpSet}`; }
+
+    // ---------- Start Idle ----------
+    resetRoute();
+
+  })();
+  </script>
+  <!-- ===== END OF SCRIPT / HTML END ===== -->
+</body>
+</html>
