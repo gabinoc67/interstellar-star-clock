@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Warp Tunnels on a 2D Disk (Earth‑Centered)</title>
+  <style>
+    :root{
+      --bg:#0b0f19;--panel:#0f1629;--ink:#e8ecf3;--muted:#9fb0d0;--accent:#7aa2ff;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu;background:radial-gradient(1200px 800px at 20% -10%,#14203b,var(--bg));color:var(--ink)}
+    .wrap{max-width:1200px;margin:24px auto;padding:16px}
+    .title{font-size:28px;font-weight:800;letter-spacing:.3px;display:flex;align-items:baseline;gap:12px}
+    .title small{color:var(--muted);font-weight:500}
+    .grid{display:grid;grid-template-columns:1.2fr .8fr;gap:16px}
+    .card{background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,.01));border:1px solid rgba(255,255,255,.08);border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.05);overflow:hidden}
+    .card h2{margin:0;padding:12px 14px;font-size:16px;letter-spacing:.3px;background:linear-gradient(180deg,rgba(122,162,255,.12),rgba(122,162,255,0));border-bottom:1px solid rgba(255,255,255,.06)}
+    .card .body{padding:12px 14px;display:grid;gap:10px}
+    canvas{width:100%;height:600px;display:block;background:radial-gradient(900px 520px at 50% 40%,rgba(122,162,255,.06),rgba(0,0,0,0))}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:center}
+    label{color:var(--muted);font-size:13px}
+    input[type="range"],select{width:100%;accent-color:var(--accent)}
+    .cols{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .btn{cursor:pointer;user-select:none;display:inline-flex;align-items:center;gap:8px;padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(122,162,255,.12);color:var(--ink);font-weight:700}
+    .btn:hover{background:rgba(122,162,255,.2)}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:rgba(122,162,255,.12);border:1px solid rgba(122,162,255,.4);color:var(--accent);font-size:11px;letter-spacing:.2px}
+    .note{color:var(--muted);font-size:12px;line-height:1.35}
+    .kv{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;align-items:baseline}
+    .kv .k{color:var(--muted);font-size:12px}
+    .kv .v{font-weight:800}
+    @media (max-width:1100px){.grid{grid-template-columns:1fr}canvas{height:520px}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="title">2D Ball (Disk) → Earth‑Centered Warp Tunnels <small>inner planets expanded • outer planets compressed</small></div>
+    <div class="grid">
+      <div class="card">
+        <h2>Disk View — Earth at center (R is visual radius)</h2>
+        <div class="body">
+          <div class="cols">
+            <div class="row"><label>Visual radius R (px)</label><input id="R" type="range" min="220" max="520" value="430"></div>
+            <div class="row"><label>Nonlinear radial map α (expand inner / compress outer)</label><input id="alpha" type="range" min="0.2" max="6" step="0.01" value="2.4"></div>
+          </div>
+          <div class="cols">
+            <div class="row"><label>Warp factor (×c)</label><input id="warp" type="range" min="0.1" max="20" step="0.1" value="3"></div>
+            <div class="row"><label>Destination planet</label>
+              <select id="dest"></select>
+            </div>
+          </div>
+          <div class="cols">
+            <div class="row"><label>Show orbits</label><select id="showOrbits"><option value="1" selected>Yes</option><option value="0">No</option></select></div>
+            <div class="row"><label>Tunnel style</label><select id="tunnelStyle"><option value="curve" selected>Curved (arc)</option><option value="straight">Straight (reference)</option></select></div>
+          </div>
+          <canvas id="cv"></canvas>
+          <div class="cols">
+            <div class="kv">
+              <div class="k">Mapping</div><div class="v"><span class="pill">r′ = R·atan(α·r/Rmax) / atan(α)</span></div>
+              <div class="k">Earth→Dest (AU)</div><div class="v" id="auDist">—</div>
+              <div class="k">Tunnel length (visual AU*)</div><div class="v" id="tunLen">—</div>
+              <div class="k">Est. time at warp ×c</div><div class="v" id="eta">—</div>
+            </div>
+            <div class="note">
+              *Visual AU uses the same scale factor for all planets after mapping, so comparisons hold even though space is compressed at large radii. <br>Drag to pan, scroll to zoom. Click <b>Engage</b> to animate along the selected tunnel.
+            </div>
+          </div>
+          <div>
+            <button class="btn" id="engage">▶ Engage Tunnel</button>
+            <button class="btn" id="reset">↺ Reset View</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>How this 2D Disk shows “warp tunnels”</h2>
+        <div class="body">
+          <div class="note">
+            • <b>Earth‑centered</b>: Earth is fixed at the origin (1 AU true radius). Other planets are placed on their mean orbital radii in AU with nominal angles.<br>
+            • <b>Nonlinear radial mapping</b>: We apply <code>r′ = R·atan(α·r/Rmax)/atan(α)</code>. Larger α <i>expands</i> the inner system (Mercury→Mars) and <i>compresses</i> the outer (Jupiter→Neptune) so you can see all tunnels at once.<br>
+            • <b>Tunnels</b>: A tunnel is drawn as a smooth curve from Earth to the target orbit, bowed outward to avoid the Sun’s strong well (stylistic). The straight line is shown for reference if selected.<br>
+            • <b>Time estimate</b>: We compute the curve length in mapped AU, then divide by warp speed (×c). This is a qualitative planner, not an orbital transfer solver.
+          </div>
+          <div class="kv">
+            <div class="k">Inner emphasis</div><div class="v">Mercury, Venus, Mars are visually separated.</div>
+            <div class="k">Outer compression</div><div class="v">Jupiter–Neptune pulled closer to stay in frame.</div>
+            <div class="k">Controls</div><div class="v">Change α to rebalance, R to zoom canvas bounds.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function(){
+  const TAU = Math.PI*2;
+  const AU_KM = 149_597_870.7; // km
+  const C_KM_S = 299_792.458; // km/s
+
+  const PLANETS = [
+    { key:'mercury', name:'Mercury', a:0.387, color:'#f5d08a', ang: 15 },
+    { key:'venus',   name:'Venus',   a:0.723, color:'#ffcf9b', ang: 75 },
+    { key:'earth',   name:'Earth',   a:1.000, color:'#7aa2ff', ang: 0 },
+    { key:'mars',    name:'Mars',    a:1.524, color:'#ff8a7a', ang: 130 },
+    { key:'jupiter', name:'Jupiter', a:5.204, color:'#d6c3a1', ang: 200 },
+    { key:'saturn',  name:'Saturn',  a:9.582, color:'#f0e2b7', ang: 300 },
+    { key:'uranus',  name:'Uranus',  a:19.20, color:'#a8e3ff', ang: 250 },
+    { key:'neptune', name:'Neptune', a:30.05, color:'#82b7ff', ang: 330 }
+  ];
+  const EARTH = PLANETS[2];
+  const RMAX_AU = PLANETS[PLANETS.length-1].a; // Neptune ~ 30 AU
+
+  // --- Elements ---
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  const REl = document.getElementById('R');
+  const alphaEl = document.getElementById('alpha');
+  const warpEl = document.getElementById('warp');
+  const destEl = document.getElementById('dest');
+  const showOrbitsEl = document.getElementById('showOrbits');
+  const tunnelStyleEl = document.getElementById('tunnelStyle');
+  const auDistEl = document.getElementById('auDist');
+  const tunLenEl = document.getElementById('tunLen');
+  const etaEl = document.getElementById('eta');
+  const engageBtn = document.getElementById('engage');
+  const resetBtn = document.getElementById('reset');
+
+  PLANETS.forEach(p=>{ if(p.key!=='earth'){ const opt=document.createElement('option'); opt.value=p.key; opt.textContent=p.name; destEl.appendChild(opt);} });
+  destEl.value = 'mars';
+
+  // --- Camera / interaction ---
+  let cam = {x:0,y:0,s:1,dragging:false,lx:0,ly:0};
+  function resizeCanvas(){
+    const dpr = Math.min(window.devicePixelRatio||1,2);
+    const rect = cv.getBoundingClientRect();
+    cv.width = Math.floor(rect.width*dpr);
+    cv.height = Math.floor(rect.height*dpr);
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.scale(dpr,dpr);
+  }
+  resizeCanvas();
+  window.addEventListener('resize', ()=>{ resizeCanvas(); draw(); });
+  cv.addEventListener('mousedown', e=>{ cam.dragging=true; cam.lx=e.clientX; cam.ly=e.clientY; });
+  window.addEventListener('mouseup', ()=> cam.dragging=false);
+  window.addEventListener('mousemove', e=>{ if(!cam.dragging) return; cam.x += (e.clientX-cam.lx); cam.y += (e.clientY-cam.ly); cam.lx=e.clientX; cam.ly=e.clientY; draw(); });
+  cv.addEventListener('wheel', e=>{ e.preventDefault(); const k=Math.exp(-e.deltaY*0.001); cam.s=Math.max(0.5,Math.min(3,cam.s*k)); draw(); }, {passive:false});
+  resetBtn.addEventListener('click', ()=>{ cam={x:0,y:0,s:1,dragging:false,lx:0,ly:0}; draw(); });
+
+  // --- Mapping r(AU) -> r'(pixels) ---
+  function mapR(au, Rpx, alpha){
+    // r′ = R · atan(alpha · r / Rmax) / atan(alpha)
+    const num = Math.atan(alpha * (au / RMAX_AU));
+    const den = Math.atan(alpha);
+    return Rpx * (num/den);
+  }
+
+  // Get XY in canvas space
+  function planetXY(p, Rpx, alpha){
+    const rpx = mapR(p.a, Rpx, alpha);
+    const ang = (p.ang/180)*Math.PI; // nominal angle
+    return { x: rpx*Math.cos(ang), y: rpx*Math.sin(ang) };
+  }
+
+  // Distance Earth->dest in true AU
+  function trueDistanceAU(dest){
+    const a1=EARTH.a, a2=dest.a; // rough: chord at nominal angles
+    const th1=0, th2=(dest.ang/180)*Math.PI; // Earth angle 0 by convention
+    const x1=a1*Math.cos(th1), y1=a1*Math.sin(th1);
+    const x2=a2*Math.cos(th2), y2=a2*Math.sin(th2);
+    const dx=x2-x1, dy=y2-y1; return Math.hypot(dx,dy);
+  }
+
+  // Tunnel curve between Earth and dest in mapped space (quadratic bezier bowed outward)
+  function tunnelCurvePts(Rpx, alpha, dest, samples=240){
+    const E = planetXY(EARTH, Rpx, alpha);
+    const D = planetXY(dest , Rpx, alpha);
+    const mid = { x:(E.x+D.x)/2, y:(E.y+D.y)/2 };
+    // Bow outward proportionally to average radius
+    const rE = mapR(EARTH.a, Rpx, alpha), rD = mapR(dest.a, Rpx, alpha);
+    const out = (rE+rD)/2 * 0.35; // bow magnitude
+    // normal vector from Sun (0,0) to mid, then normalize
+    const nx = mid.x, ny = mid.y; const nlen = Math.hypot(nx,ny)||1; const ux = nx/nlen, uy = ny/nlen;
+    const C = { x: mid.x + ux*out, y: mid.y + uy*out };
+
+    const pts = [];
+    for(let i=0;i<=samples;i++){
+      const t=i/samples; const mt=1-t; // quadratic bezier
+      const x = mt*mt*E.x + 2*mt*t*C.x + t*t*D.x;
+      const y = mt*mt*E.y + 2*mt*t*C.y + t*t*D.y;
+      pts.push({x,y});
+    }
+    return pts;
+  }
+
+  function polylineLength(pts){
+    let L=0; for(let i=1;i<pts.length;i++){ L += Math.hypot(pts[i].x-pts[i-1].x, pts[i].y-pts[i-1].y); } return L;
+  }
+
+  function drawGrid(g){
+    const step=50; g.save(); g.strokeStyle='rgba(255,255,255,0.06)'; g.lineWidth=1;
+    for(let x=-2000; x<=2000; x+=step){ g.beginPath(); g.moveTo(x,-2000); g.lineTo(x,2000); g.stroke(); }
+    for(let y=-2000; y<=2000; y+=step){ g.beginPath(); g.moveTo(-2000,y); g.lineTo(2000,y); g.stroke(); }
+    g.restore();
+  }
+
+  let anim = { active:false, t:0, pts:[], speed:0.35 }; // speed is fraction per second
+  engageBtn.addEventListener('click', ()=>{
+    const Rpx = +REl.value, alpha = +alphaEl.value; const dest = PLANETS.find(p=>p.key===destEl.value);
+    anim.pts = tunnelCurvePts(Rpx, alpha, dest, 360);
+    anim.t = 0; anim.active = true;
+  });
+
+  function draw(){
+    const Rpx = +REl.value; const alpha = +alphaEl.value; const warp = +warpEl.value;
+    resizeCanvas();
+    ctx.clearRect(0,0,cv.width,cv.height);
+    ctx.save();
+    const rect = cv.getBoundingClientRect();
+    ctx.translate(rect.width/2 + cam.x, rect.height/2 + cam.y);
+    ctx.scale(cam.s, cam.s);
+
+    drawGrid(ctx);
+
+    // Sun
+    ctx.fillStyle='rgba(255,215,120,0.25)'; ctx.beginPath(); ctx.arc(0,0,12,0,TAU); ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,0.3)'; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(0,0,12,0,TAU); ctx.stroke();
+
+    // Orbits
+    if(showOrbitsEl.value==='1'){
+      PLANETS.forEach(p=>{
+        const rr = mapR(p.a, Rpx, alpha);
+        ctx.strokeStyle='rgba(255,255,255,0.12)'; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(0,0,rr,0,TAU); ctx.stroke();
+      });
+    }
+
+    // Planets
+    PLANETS.forEach(p=>{
+      const {x,y} = planetXY(p, Rpx, alpha);
+      ctx.fillStyle=p.color; ctx.beginPath(); ctx.arc(x,y, p.key==='earth'?6:4, 0, TAU); ctx.fill();
+      // label
+      ctx.fillStyle='rgba(255,255,255,0.9)'; ctx.font='12px ui-sans-serif'; ctx.textAlign='left'; ctx.fillText(p.name, x+8, y-6);
+    });
+
+    // Tunnels (active destination)
+    const dest = PLANETS.find(p=>p.key===destEl.value);
+    const E = planetXY(EARTH, Rpx, alpha);
+    const D = planetXY(dest , Rpx, alpha);
+
+    // straight reference
+    if(tunnelStyleEl.value==='straight'){
+      ctx.strokeStyle='rgba(255,255,255,0.5)'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(E.x,E.y); ctx.lineTo(D.x,D.y); ctx.stroke();
+    } else {
+      const pts = tunnelCurvePts(Rpx, alpha, dest, 240);
+      ctx.strokeStyle='rgba(122,162,255,0.9)'; ctx.lineWidth=2.5; ctx.beginPath();
+      for(let i=0;i<pts.length;i++){ const p=pts[i]; if(i===0) ctx.moveTo(p.x,p.y); else ctx.lineTo(p.x,p.y); }
+      ctx.stroke();
+      // glow
+      ctx.strokeStyle='rgba(122,162,255,0.35)'; ctx.lineWidth=6; ctx.beginPath(); for(let i=0;i<pts.length;i++){ const p=pts[i]; if(i===0) ctx.moveTo(p.x,p.y); else ctx.lineTo(p.x,p.y); } ctx.stroke();
+
+      // metrics based on mapped AU scale (pixels per mapped AU at Earth radius)
+      const pxPerAU = mapR(1, Rpx, alpha) / 1; // pixels for 1 AU ring after mapping
+      const Lpx = polylineLength(pts); const LAU = Lpx / pxPerAU;
+      updateMetrics(dest, LAU);
+
+      // animation
+      if(anim.active && anim.pts.length){
+        const dt = Math.min(0.033, (performance.now()-lastFrame)/1000);
+        anim.t += anim.speed*dt; if(anim.t>=1){ anim.t=1; anim.active=false; }
+        const idx = Math.floor(anim.t*(anim.pts.length-1)); const ship = anim.pts[idx];
+        ctx.fillStyle='white'; ctx.beginPath(); ctx.arc(ship.x, ship.y, 5, 0, TAU); ctx.fill();
+      }
+    }
+
+    ctx.restore();
+
+    // numerical metrics not dependent on draw order
+    if(tunnelStyleEl.value==='straight'){
+      const distAU = trueDistanceAU(dest); updateMetrics(dest, distAU);
+    }
+  }
+
+  function updateMetrics(dest, tunnelLenAU){
+    const distAU = trueDistanceAU(dest);
+    auDistEl.textContent = distAU.toFixed(3) + ' AU';
+    tunLenEl.textContent = tunnelLenAU.toFixed(3) + ' AU*';
+
+    const warp = +warpEl.value;
+    // time = distance (km) / (warp*c km/s)
+    const km = tunnelLenAU * AU_KM; const v = warp * C_KM_S; const seconds = km / v;
+    etaEl.textContent = formatDuration(seconds) + `  (warp ${warp.toFixed(1)}×c)`;
+  }
+
+  function formatDuration(sec){
+    if(sec<60) return sec.toFixed(1)+' s';
+    const m = Math.floor(sec/60); const s = Math.round(sec%60);
+    if(m<60) return `${m} m ${s} s`;
+    const h = Math.floor(m/60); const m2 = m%60; if(h<48) return `${h} h ${m2} m`;
+    const d = Math.floor(h/24); const h2 = h%24; return `${d} d ${h2} h`;
+  }
+
+  // frame timer for animation
+  let lastFrame = performance.now();
+  function loop(){ const now = performance.now(); lastFrame = now; draw(); requestAnimationFrame(loop); }
+
+  [REl, alphaEl, warpEl, destEl, showOrbitsEl, tunnelStyleEl].forEach(el=> el.addEventListener('input', draw));
+
+  loop();
+})();
+</script>
+</body>
+</html>
