@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Arrow Shield — Autonomous Hazard Avoidance Demo</title>
+<style>
+  :root{
+    --bg:#0b1020; --fg:#e8f0ff; --muted:#9fb3d1;
+    --ok:#14b8a6; --warn:#f59e0b; --bad:#ef4444; --info:#3b82f6; --panel:#111830;
+    --accent:#6ee7b7;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,"Helvetica Neue",Arial;background:linear-gradient(180deg,#0b1020 0%,#0e1630 100%);color:var(--fg)}
+  header{padding:14px 18px;border-bottom:1px solid #1b2342;background:#0f1733;position:sticky;top:0;z-index:10}
+  h1{margin:0;font-size:18px;letter-spacing:0.5px}
+  .sub{font-size:12px;color:var(--muted)}
+  .wrap{display:grid;grid-template-columns: 320px 1fr; gap:14px; padding:14px}
+  .panel{background:var(--panel);border:1px solid #1b264a;border-radius:16px;box-shadow:0 8px 26px rgba(0,0,0,.25)}
+  .controls{padding:16px}
+  .row{display:flex;align-items:center;gap:10px;margin:10px 0}
+  .row label{flex:1;font-size:12px;color:var(--muted)}
+  .row input[type=range]{flex:1}
+  .row input[type=number]{width:80px;background:#0c1330;border:1px solid #25315c;color:var(--fg);border-radius:8px;padding:6px}
+  .btns{display:flex;gap:8px;margin-top:10px}
+  button{cursor:pointer;border:none;border-radius:12px;padding:10px 12px;background:#1d2a52;color:var(--fg);font-weight:600}
+  button.primary{background:linear-gradient(135deg,#2563eb,#22d3ee)}
+  button.warn{background:linear-gradient(135deg,#f59e0b,#ef4444)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .badge{display:inline-flex;align-items:center;gap:8px;padding:8px 10px;border-radius:12px;font-weight:700;letter-spacing:.4px}
+  .state-CRUISE{background:rgba(20,184,166,.12);color:var(--ok);border:1px solid rgba(20,184,166,.4)}
+  .state-CAUTION{background:rgba(245,158,11,.12);color:var(--warn);border:1px solid rgba(245,158,11,.4)}
+  .state-AVOID{background:rgba(239,68,68,.12);color:var(--bad);border:1px solid rgba(239,68,68,.4)}
+  .state-RECENTER{background:rgba(59,130,246,.12);color:var(--info);border:1px solid rgba(59,130,246,.4)}
+  .state-RESUME{background:rgba(110,231,183,.12);color:var(--accent);border:1px solid rgba(110,231,183,.4)}
+  #canvasWrap{position:relative}
+  #alert{position:absolute;left:16px;top:16px;padding:10px 12px;border-radius:12px;font-weight:800;backdrop-filter: blur(8px);}
+  #log{height:180px;overflow:auto;padding:12px;font-size:12px;color:var(--muted);border-top:1px solid #1b264a}
+  #simCanvas{width:100%;height:68vh;display:block;border-radius:16px}
+  .legend{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted);padding:10px 12px;border-top:1px solid #1b264a}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:10px;height:10px;border-radius:50%}
+  .dot.particle{background:#e5e7eb}
+  .dot.safe{background:#10b981}
+  .dot.threat{background:#ef4444}
+  .dot.cone{background:#60a5fa}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Arrow Shield — Autonomous Hazard Avoidance (AHA) Demonstration</h1>
+    <div class="sub">Sensor fusion → Risk scoring → Action ladder (Cone widen ▸ Ablation pulse ▸ Heading nudge) → Return to tunnel</div>
+  </header>
+
+  <div class="wrap">
+    <aside class="panel">
+      <div class="controls">
+        <div class="row"><span class="badge state-CRUISE" id="stateBadge">CRUISE</span></div>
+        <div class="row">
+          <label>Half‑cone angle θ (°)</label>
+          <input id="theta" type="range" min="2" max="15" value="4" step="0.5">
+          <input id="thetaNum" type="number" min="2" max="15" value="4" step="0.5">
+        </div>
+        <div class="row">
+          <label>Warn TTI (s)</label>
+          <input id="tWarn" type="range" min="2" max="12" value="6" step="0.5">
+          <input id="tWarnNum" type="number" min="2" max="12" value="6" step="0.5">
+        </div>
+        <div class="row">
+          <label>Avoid TTI (s)</label>
+          <input id="tAvoid" type="range" min="1" max="8" value="3" step="0.5">
+          <input id="tAvoidNum" type="number" min="1" max="8" value="3" step="0.5">
+        </div>
+        <div class="row">
+          <label>Safe miss distance (m)</label>
+          <input id="dSafe" type="range" min="10" max="150" value="50" step="5">
+          <input id="dSafeNum" type="number" min="10" max="150" value="50" step="5">
+        </div>
+        <div class="row">
+          <label>Particle density</label>
+          <input id="density" type="range" min="0" max="100" value="35" step="1">
+          <input id="densityNum" type="number" min="0" max="100" value="35" step="1">
+        </div>
+        <div class="row">
+          <label>Ship speed (m/s, sim units)</label>
+          <input id="speed" type="range" min="100" max="2000" value="800" step="50">
+          <input id="speedNum" type="number" min="100" max="2000" value="800" step="50">
+        </div>
+        <div class="btns">
+          <button class="primary" id="startBtn">Start</button>
+          <button id="pauseBtn">Pause</button>
+          <button class="warn" id="resetBtn">Reset</button>
+        </div>
+      </div>
+      <div id="log" class="panel"></div>
+    </aside>
+
+    <section class="panel" id="canvasWrap">
+      <canvas id="simCanvas"></canvas>
+      <div id="alert" class="badge state-CRUISE">CRUISE — Tunnel nominal</div>
+      <div class="legend">
+        <span><span class="dot particle"></span> Particle</span>
+        <span><span class="dot safe"></span> Cleared by cone</span>
+        <span><span class="dot threat"></span> Hazard</span>
+        <span><span class="dot cone"></span> Ionization cone edge</span>
+      </div>
+    </section>
+  </div>
+
+<script>
+(()=>{
+  // --- Utility & Audio ---
+  const $ = sel => document.querySelector(sel);
+  const logEl = $('#log');
+  function log(msg){
+    const t = new Date().toLocaleTimeString();
+    logEl.innerHTML = `<div>[${t}] ${msg}</div>` + logEl.innerHTML;
+  }
+  let audioCtx;
+  function beep(freq=880, ms=120, type='sine'){
+    try{
+      audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = type; o.frequency.value = freq; o.connect(g); g.connect(audioCtx.destination);
+      g.gain.value = 0.0001; g.gain.exponentialRampToValueAtTime(0.1, audioCtx.currentTime+0.01);
+      o.start(); setTimeout(()=>{g.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime+ms/1000);o.stop(audioCtx.currentTime+ms/1000+0.02)}, ms);
+    }catch(e){}
+  }
+
+  // --- Parameters (bound to controls) ---
+  const bindPair=(id)=>{
+    const r = $('#'+id), n = $('#'+id+'Num');
+    const sync=(from, to)=>{ to.value = from.value; }; 
+    r.addEventListener('input',()=>{sync(r,n)});
+    n.addEventListener('input',()=>{sync(n,r)});
+    return {get value(){return parseFloat(r.value)} , set(v){r.value=v; n.value=v;}};
+  }
+  const theta = bindPair('theta');
+  const tWarn = bindPair('tWarn');
+  const tAvoid = bindPair('tAvoid');
+  const dSafe = bindPair('dSafe');
+  const density = bindPair('density');
+  const speed = bindPair('speed');
+
+  // --- Canvas setup ---
+  const canvas = $('#simCanvas');
+  const ctx = canvas.getContext('2d');
+  let W=0, H=0, DPR=1;
+  function resize(){
+    DPR = Math.max(1, Math.min(2, window.devicePixelRatio||1));
+    W = canvas.clientWidth * DPR; H = canvas.clientHeight * DPR;
+    canvas.width = W; canvas.height = H;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // --- Simulation state ---
+  const State = {CRUISE:'CRUISE', CAUTION:'CAUTION', AVOID:'AVOID', RECENTER:'RECENTER', RESUME:'RESUME'};
+  let state = State.CRUISE, lastState = State.CRUISE;
+  let running=false;
+  const ship = { x: W*0.2, y: H*0.5, heading: 0, v: speed.value }; // heading radians, 0 = +X
+  let coneHalfAngle = deg2rad(theta.value);
+  let tunnelHeading = 0; // planned corridor
+  const particles = new Set();
+  let tPrev=0;
+
+  // --- UI state update ---
+  const alertEl = $('#alert');
+  const badgeEl = $('#stateBadge');
+  function setState(s){
+    if (s===state) return;
+    lastState = state; state=s;
+    badgeEl.className = 'badge state-'+s; badgeEl.textContent = s;
+    alertEl.className = 'badge state-'+s;
+    const textMap={CRUISE:'CRUISE — Tunnel nominal', CAUTION:'CAUTION — Widening cone, arming pulses', AVOID:'AVOID — Autopilot sidestep engaged', RECENTER:'RECENTER — Returning to tunnel', RESUME:'RESUME — Back on corridor'};
+    alertEl.textContent = textMap[s]||s;
+    // audio cues
+    if (s===State.CAUTION) beep(740,140,'triangle');
+    if (s===State.AVOID)   beep(420,200,'sawtooth');
+    if (s===State.RECENTER)beep(660,120,'square');
+    if (s===State.RESUME)  beep(880,100,'sine');
+    log(`STATE → ${s}`);
+  }
+
+  // --- Particle model ---
+  function spawnParticle(){
+    // spawn ahead of ship within forward sector
+    const spawnY = Math.random()*H;
+    const size = Math.random()<0.85 ? (Math.random()*2+1) : (Math.random()*6+3); // px
+    const speedRel = speed.value + 200 + Math.random()*600; // incoming speed relative to ship
+    const x = W + 40; // offscreen right
+    const y = spawnY;
+    const vx = -speedRel; // move left
+    const vy = (Math.random()-0.5)*50; // slight vertical drift
+    particles.add({x,y,vx,vy,size,tag:0});
+  }
+
+  // --- Helpers ---
+  function deg2rad(d){return d*Math.PI/180}
+  function rad2deg(r){return r*180/Math.PI}
+  function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+
+  function drawShip(){
+    const {x,y} = ship;
+    ctx.save(); ctx.translate(x,y); ctx.rotate(ship.heading);
+    // body
+    ctx.beginPath();
+    ctx.moveTo(28,0); ctx.lineTo(-18,-12); ctx.lineTo(-10,0); ctx.lineTo(-18,12); ctx.closePath();
+    ctx.fillStyle = '#9bd2ff'; ctx.shadowColor = '#66ccff'; ctx.shadowBlur = 15; ctx.fill();
+    ctx.shadowBlur = 0;
+    // tunnel centerline
+    ctx.strokeStyle = 'rgba(110,231,183,.6)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-2000,0); ctx.lineTo(2500,0); ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawCone(){
+    const {x,y} = ship; const a = coneHalfAngle;
+    ctx.save(); ctx.translate(x,y); ctx.rotate(ship.heading);
+    const r = Math.min(W*0.8, 1400);
+    ctx.strokeStyle = '#60a5fa'; ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.9;
+    // left edge
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(r*Math.cos(a), r*Math.sin(a)); ctx.stroke();
+    // right edge
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(r*Math.cos(a), -r*Math.sin(a)); ctx.stroke();
+    // fill faint
+    ctx.globalAlpha = 0.08; ctx.fillStyle = '#60a5fa';
+    ctx.beginPath();
+    ctx.moveTo(0,0); 
+    ctx.arc(0,0,r, -a, a);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
+  // Predict TTImpact and lateral miss distance in ship frame
+  function analyze(p){
+    // transform into ship-aligned frame (heading = 0 along +x)
+    const s = Math.sin(ship.heading), c = Math.cos(ship.heading);
+    const dx = p.x - ship.x, dy = p.y - ship.y;
+    const rx =  dx*c + dy*s; // forward range
+    const ry = -dx*s + dy*c; // lateral offset
+    const rvx = p.vx*c + p.vy*s - ship.v; // relative forward velocity (toward -x if negative)
+    const rvy = -p.vx*s + p.vy*c; // lateral relative vel
+    const vrel = Math.hypot(rvx, rvy);
+    const approaching = (rvx < 0 && rx > 0);
+    let TTI = Infinity, miss = Math.abs(ry);
+    if (approaching){
+      TTI = rx/(-rvx+1e-9);
+      // closest approach lateral distance
+      const tmin = clamp(-(ry*rvy + rx*rvx)/(vrel*vrel+1e-9), 0, TTI);
+      const yAtMin = ry + rvy*tmin; miss = Math.abs(yAtMin);
+    }
+    // inside cone?
+    const ang = Math.abs(Math.atan2(ry, rx));
+    const inCone = (ang <= coneHalfAngle) && rx>0;
+    return {TTI, miss, inCone, rx, ry, vrel, rvx, rvy};
+  }
+
+  function step(dt){
+    // Update ship speed from control
+    ship.v = speed.value;
+    // Drift ship heading toward tunnel when RECENTER
+    if (state===State.RECENTER){
+      const err = normalizeAngle(tunnelHeading - ship.heading);
+      ship.heading += clamp(err, -0.003, 0.003);
+      if (Math.abs(err) < 0.002){ setState(State.RESUME); }
+    }
+
+    // Spawn particles per density
+    const spawnProb = density.value/100;
+    for (let i=0;i<5;i++) if (Math.random()<spawnProb*dt*0.6) spawnParticle();
+
+    // Move particles
+    for (const p of particles){ p.x += p.vx*dt; p.y += p.vy*dt; if (p.x < -60 || p.y<-60 || p.y>H+60) particles.delete(p); }
+
+    // Analyze risks
+    let worst = null; let maxRisk = 0; let anyWarn=false, anyAvoid=false;
+    for (const p of particles){
+      const A = analyze(p); p.tag = A; // attach analysis
+      // simple risk function: larger when TTI small and miss small and outside cone
+      let R = 0;
+      if (Number.isFinite(A.TTI)){
+        const tScore = Math.max(0, (tWarn.value - A.TTI)/tWarn.value); // 0..1 for <= tWarn
+        const mScore = Math.max(0, (dSafe.value - A.miss)/dSafe.value); // 0..1 for miss < dSafe
+        const conePenalty = A.inCone ? 0.2 : 1.0; // if in cone, mostly safe
+        R = tScore * 0.6 + mScore * 0.6; R *= conePenalty;
+      }
+      p.R = R;
+      if (R>maxRisk){maxRisk=R; worst = p;}
+      if (Number.isFinite(A.TTI) && A.TTI <= tWarn.value && A.miss < dSafe.value*1.2 && !A.inCone) anyWarn=true;
+      if (Number.isFinite(A.TTI) && A.TTI <= tAvoid.value && A.miss < dSafe.value && !A.inCone) anyAvoid=true;
+    }
+
+    // State transitions
+    if (anyAvoid){ setState(State.AVOID); }
+    else if (anyWarn){ setState(State.CAUTION); }
+    else if (state!==State.CRUISE && particles.size===0){ setState(State.RECENTER); }
+    else if (!anyWarn && !anyAvoid && state!==State.CRUISE && state!==State.RECENTER){ setState(State.RECENTER); }
+    else if (!anyWarn && !anyAvoid && state===State.RESUME){ setState(State.CRUISE); }
+    else if (!anyWarn && !anyAvoid && state===State.CAUTION){ setState(State.RECENTER); }
+    else if (!anyWarn && !anyAvoid && state===State.AVOID){ setState(State.RECENTER); }
+
+    // Actions per state
+    if (state===State.CAUTION){
+      coneHalfAngle = lerp(coneHalfAngle, deg2rad(theta.value*1.6), 0.1);
+    } else if (state===State.AVOID){
+      // widen cone and apply minimal heading change away from worst hazard
+      coneHalfAngle = lerp(coneHalfAngle, deg2rad(theta.value*2.1), 0.12);
+      if (worst){
+        const A = worst.tag;
+        const sign = Math.sign(A.ry); // steer away from hazard lateral position
+        const Tgo = Math.max(0.5, A.TTI);
+        const need = (dSafe.value - Math.min(dSafe.value, A.miss))/Math.max(1,Tgo); // m/s lateral
+        const dvOverV = clamp(need/Math.max(200, ship.v), 0.0002, 0.01);
+        ship.heading += -sign * dvOverV; // small nudge away
+      }
+    } else {
+      coneHalfAngle = lerp(coneHalfAngle, deg2rad(theta.value), 0.08);
+    }
+  }
+
+  function render(){
+    ctx.clearRect(0,0,W,H);
+    // background stars
+    ctx.fillStyle = '#0a0f22'; ctx.fillRect(0,0,W,H);
+    for (let i=0;i<120;i++){
+      const x = (i*97 % W); const y = (i*53 % H); const a = (i%7)/7;
+      ctx.fillStyle = `rgba(255,255,255,${0.05+a*0.25})`; ctx.fillRect(x,y,1,1);
+    }
+
+    drawCone();
+    drawShip();
+
+    // draw particles
+    for (const p of particles){
+      const A = p.tag || analyze(p);
+      // classify color
+      let clr = '#e5e7eb'; // neutral
+      if (A.inCone) clr = '#10b981'; else if (Number.isFinite(A.TTI) && A.TTI < tWarn.value && A.miss < dSafe.value) clr = '#ef4444';
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI*2);
+      ctx.fillStyle = clr; ctx.shadowColor = clr; ctx.shadowBlur = (clr==='#ef4444')?12:0; ctx.fill(); ctx.shadowBlur = 0;
+
+      // visualize projected closest approach
+      if (Number.isFinite(A.TTI)){
+        const px = p.x + p.vx*(A.TTI*0.7); const py = p.y + p.vy*(A.TTI*0.7);
+        ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(px,py); ctx.strokeStyle='rgba(148,163,184,.25)'; ctx.stroke();
+      }
+    }
+  }
+
+  function lerp(a,b,t){return a+(b-a)*t}
+  function normalizeAngle(a){ while(a> Math.PI) a-=2*Math.PI; while(a<-Math.PI) a+=2*Math.PI; return a; }
+
+  // --- Main loop ---
+  function loop(ts){
+    if (!running){ requestAnimationFrame(loop); return; }
+    if (!tPrev) tPrev = ts; const dt = Math.min(0.05,(ts - tPrev)/1000); tPrev = ts;
+    step(dt); render();
+    requestAnimationFrame(loop);
+  }
+
+  // --- Controls ---
+  $('#startBtn').addEventListener('click',()=>{ running=true; tPrev=0; log('Simulation started'); requestAnimationFrame(loop); });
+  $('#pauseBtn').addEventListener('click',()=>{ running=!running; log(running?'Resumed':'Paused'); if(running){requestAnimationFrame(loop);} });
+  $('#resetBtn').addEventListener('click',()=>{ particles.clear(); ship.heading=0; tunnelHeading=0; setState(State.CRUISE); running=false; render(); log('Reset'); });
+
+  // keep θ synced
+  function syncTheta(){ coneHalfAngle = deg2rad(theta.value); }
+  $('#theta').addEventListener('input', syncTheta); $('#thetaNum').addEventListener('input', syncTheta);
+
+  // initial draw
+  render();
+})();
+</script>
+  <section class="panel" style="margin:14px; padding:16px; border-radius:16px; border:1px solid #1b264a; background:#0f1733">
+    <h2 style="margin:4px 0 8px 0; font-size:18px">Arrow Shield Theory & Formulas</h2>
+    <p class="sub" style="margin:0 0 10px 0">How the pointed ("arrow") shield deflects particles using photons, plasma, and magnetic fields, plus the guidance math the demo references.</p>
+
+    <h3 style="font-size:14px; margin:12px 0 6px 0">1) Concept Overview</h3>
+    <ul style="line-height:1.5">
+      <li><b>Ionization Cone (photons)</b>: A hollow, forward cone uses light (laser/microwave) to partially ionize neutral dust/ice ahead of the ship. The cone in the demo visualizes this geometry.</li>
+      <li><b>Magnetic Wedge</b>: Superconducting coils shape a conical magnetic field that bends the newly charged particles left/right (Lorentz force) so they miss the hull.</li>
+      <li><b>Ablation Pulses</b>: Short, high‑peak laser pulses create a tiny surface plume on larger bits, giving them a small lateral thrust so the magnetic wedge can finish the deflection.</li>
+      <li><b>Passive Layers</b>: Whipple panels and electrostatic grids mop up residual dust after active deflection.</li>
+    </ul>
+
+    <h3 style="font-size:14px; margin:12px 0 6px 0">2) Photon Physics (why photons matter but pressure alone isn’t enough)</h3>
+    <ul style="line-height:1.5">
+      <li><b>Photon momentum</b>: <code>p = E / c = h / λ</code>. Radiation pressure on a perfect mirror: <code>P ≈ 2I / c</code> (I = intensity). Near Earth sunlight, this is micro‑Newtons per m² — too small to push debris by pressure alone at high speed.</li>
+      <li><b>Use photons for <i>ionization</i> and <i>ablation</i></b>: Instead of relying on pressure, we use light to make matter easier to steer (ionize it) or to generate a micro‑jet (ablation) that imparts lateral Δv efficiently.</li>
+    </ul>
+
+    <h3 style="font-size:14px; margin:12px 0 6px 0">3) Magnetic Deflection (after ionization)</h3>
+    <ul style="line-height:1.5">
+      <li><b>Lorentz force</b>: <code>F = q (v × B)</code>. A charged grain follows a curved path with gyro radius <code>r_L = m v / (|q| B)</code>.</li>
+      <li><b>Field sizing for a small deflection</b>: To bend by half‑angle <code>θ</code> over interaction length <code>L</code>:
+        <div style="padding:8px 10px; background:#111a36; border:1px dashed #25315c; border-radius:10px; display:inline-block; margin-top:6px"> 
+          <code>B ≈ (m · v · θ) / (q · L)</code>
+        </div>
+      </li>
+      <li><b>Design levers</b>: Larger <code>L</code> or smaller <code>θ</code> reduces required <code>B</code>. Pre‑charging (photoionization) increases <code>q</code>, making bending easier.</li>
+    </ul>
+
+    <h3 style="font-size:14px; margin:12px 0 6px 0">4) Ablation Nudge (for mm–cm objects)</h3>
+    <ul style="line-height:1.5">
+      <li><b>Energy to heat/vaporize</b> (order‑of‑magnitude): <code>E ≈ m (c_p ΔT + L_vap)</code>.</li>
+      <li><b>Micro‑jet impulse</b>: If a pulse ejects mass <code>m_e</code> at speed <code>v_e</code>, the target gets impulse <code>I ≈ m_e v_e</code> → lateral speed <code>Δv_⊥ ≈ I / m_target</code>.</li>
+      <li>Goal is not to destroy the object—just push it slightly so the magnetic wedge clears it.</li>
+    </ul>
+
+    <h3 style="font-size:14px; margin:12px 0 6px 0">5) Guidance & Avoidance Math (used by the AHA logic)</h3>
+    <ul style="line-height:1.5">
+      <li><b>Time‑to‑impact</b>: <code>TTI = range / closing_speed</code>.</li>
+      <li><b>Increase miss distance</b>: Required lateral velocity <code>Δv_⊥ ≈ (d_safe − d_miss) / T_go</code>, with <code>T_go = TTI</code>.</li>
+      <li><b>Minimal heading change</b> for small angles: <code>δψ ≈ Δv_⊥ / v_ship</code>.</li>
+      <li>These relations drive when the demo widens the cone (CAUTION), pulses (conceptually), or nudges heading (AVOID).</li>
+    </ul>
+
+    <h3 style="font-size:14px; margin:12px 0 6px 0">6) Power Budget (laser/coil reality check)</h3>
+    <ul style="line-height:1.5">
+      <li><b>Laser average power</b>: <code>P_avg = E_pulse · f_rep</code>. Peak power can be much higher for short pulses.</li>
+      <li><b>Coil power</b>: Superconducting coils reduce steady losses; transients handled by capacitors. Field shaping focuses power where needed (only within the cone).</li>
+    </ul>
+
+    <h3 style="font-size:14px; margin:12px 0 6px 0">7) Design Knobs (what you can tune)</h3>
+    <ul style="line-height:1.5">
+      <li>Half‑cone angle <code>θ</code> (narrow = lower power, wide = safer in swarms)</li>
+      <li>Interaction length <code>L</code> (longer = easier magnetic deflection)</li>
+      <li>Ionization level / charge state <code>q</code> (more charge = easier bend)</li>
+      <li>Pulse energy & repetition (ablation efficiency vs. heat load)</li>
+      <li>Safe miss distance <code>d_safe</code> (safety margin vs. maneuver cost)</li>
+    </ul>
+
+    <p style="margin-top:10px">These equations and trade‑offs are consistent with the simulation logic above. The visualized cone represents the <i>engagement frustum</i>; CAUTION widens it to capture more debris with lower <code>B</code> and fewer pulses; AVOID adds a minimal heading change computed from the guidance relations.</p>
+  </section>
+</body>
+</html>
