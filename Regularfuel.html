@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CST Warp‑Geometry Mission Planner — Quantum/Cosmic Clocks (ENGAGE)</title>
+<style>
+  :root{--bg:#0b1220;--panel:#111a2c;--ink:#e9f0ff;--sub:#9fb2d9;--accent:#38bdf8;--good:#22c55e;--warn:#f59e0b;--bad:#ef4444}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif}
+  .wrap{max-width:1260px;margin:0 auto;padding:16px}
+  h1{font-size:28px;margin:8px 0 16px}
+  h2{font-size:20px;margin:20px 0 8px;color:var(--accent)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .card{background:var(--panel);border-radius:14px;padding:14px;box-shadow:0 10px 30px rgba(0,0,0,.3)}
+  select,button,input[type=number]{background:#0f172a;color:var(--ink);border:1px solid #24324d;border-radius:10px;padding:8px 10px}
+  label{font-size:12px;color:var(--sub)}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .kv{display:grid;grid-template-columns:200px 1fr;gap:8px;margin:6px 0}
+  .pill{display:inline-flex;align-items:center;gap:6px;background:#0f172a;border:1px solid #24324d;padding:6px 10px;border-radius:999px;font-size:12px;color:var(--sub)}
+  .btn{cursor:pointer;transition:transform .06s ease}
+  .btn:active{transform:scale(.98)}
+  canvas{width:100%;height:360px;background:#0a0f1d;border-radius:12px}
+  .bar{height:10px;background:#1f2a44;border-radius:999px;position:relative;overflow:hidden}
+  .fill{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#22c55e,#84cc16);border-radius:999px}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
+  .muted{color:var(--sub)}
+  .print{position:fixed;right:14px;bottom:14px;z-index:10}
+  .timeline{display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap}
+  .node{background:#0f172a;border:1px solid #24324d;border-radius:12px;padding:10px 12px}
+  .panel3{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .below{margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>CST Warp‑Geometry Mission Planner — with Quantum, Cosmic, CST, and UTC Clocks</h1>
+  <p class="muted">Fuel bar and clocks sit <b>under</b> the tunnel canvas. The Ship panel is center‑locked; <b>smalls reflect left/right</b>, <b>bigs</b> trigger a <b>vertical dodge</b> and a <b>laser pulse</b> that shrinks/destroys them, then small‑particle reflection takes over. Ship always re‑centers after the hazard.</p>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Mission Inputs</h2>
+      <div class="row">
+        <div>
+          <label>Rocket loading</label><br>
+          <select id="loading">
+            <option value="light">Simple Rocket (dry 10 t)</option>
+            <option value="medium" selected>Medium Loaded (dry 50 t)</option>
+            <option value="max">Maximum Loaded (dry 100 t)</option>
+          </select>
+        </div>
+        <div>
+          <label>Destination</label><br>
+          <select id="dest">
+            <option value="mars" selected>Mars (≈ 75.3 million km)</option>
+            <option value="jupiter">Jupiter (≈ 588 million km)</option>
+            <option value="pluto">Pluto (≈ 4.8 billion km)</option>
+          </select>
+        </div>
+        <div>
+          <label>Warp mode</label><br>
+          <select id="warpMode">
+            <option value="auto" selected>Auto (α=0.50)</option>
+            <option value="manual">Manual α</option>
+          </select>
+        </div>
+        <div>
+          <label>Warp shortening α</label><br>
+          <input id="alpha" type="number" step="0.01" min="0.40" max="1" value="0.50" disabled>
+        </div>
+        <div>
+          <label>Cruise speed</label><br>
+          <span class="pill">192 km/s (≈ 692,000 km/h)</span>
+        </div>
+        <div>
+          <label>Isp (fusion‑class)</label><br>
+          <span class="pill">30,000 s</span>
+        </div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button class="btn" id="engage">🚀 ENGAGE</button>
+        <button class="btn" id="reset">⟲ RESET</button>
+        <button class="btn print" onclick="window.print()">🖨️ Print Trip Summary</button>
+      </div>
+
+      <div class="kv mono" style="margin-top:8px">
+        <div>Separation (flat)</div><div id="sep"></div>
+        <div>Effective path (warp)</div><div id="eff"></div>
+        <div>Time flat @192 km/s</div><div id="tflat"></div>
+        <div>Time warp @192 km/s</div><div id="twarp"></div>
+        <div>Δv accelerate</div><div id="dv1"></div>
+        <div>Δv decelerate</div><div id="dv2"></div>
+        <div>Propellant (start burn)</div><div id="propStart"></div>
+        <div>Propellant (arrival burn)</div><div id="propEnd"></div>
+        <div>Total propellant</div><div id="propTot"></div>
+        <div>Fuel cost (est. $3,000/kg)</div><div id="cost"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Warp Tunnel Visualization</h2>
+      <canvas id="viz"></canvas>
+      <div class="below">
+        <div class="bar"><div id="fuelFill" class="fill" style="width:0%"></div></div>
+        <p class="muted mono" id="fuelLabel"></p>
+        <div class="row mono" id="clocksRow">
+          <div class="pill" id="clockQuantum">Quantum: 00:00:00</div>
+          <div class="pill" id="clockCosmic">Cosmic: 00:00:00</div>
+          <div class="pill" id="clockCST">CST: 00:00:00</div>
+          <div class="pill" id="clockUTC">UTC: 00:00:00</div>
+          <div class="pill" id="stability" title="Max drift between clocks">Stability: —</div>
+          <div class="pill" id="eta">ETA: —</div>
+          <div class="pill" id="progress">Progress: 0%</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel3" style="margin-top:16px">
+    <div class="card">
+      <h2>Straight vs Warp Arrival‑Time Demo</h2>
+      <canvas id="arrive"></canvas>
+      <p class="muted mono">Blue arc ETA is used in the top viz; visual motion is time‑compressed so the dot is clearly moving.</p>
+    </div>
+    <div class="card">
+      <h2>Earth→Mars Time‑Shortening (Illustrative)</h2>
+      <canvas id="bars"></canvas>
+      <p class="muted mono">Hohmann ≈ 260 d; Fast transfer ≈150 d; CST warp‑geometry + aerobrake ≈120 d.</p>
+    </div>
+  </div>
+
+  <div class="panel3" style="margin-top:16px">
+    <div class="card">
+      <h2>Ship Shield & Course‑Change Panel (Center‑Locked)</h2>
+      <canvas id="miniShip"></canvas>
+      <p class="muted mono">Small particles always reflect left/right off the shield. Big hazards: ship nudges up/down and fires a laser pulse that shrinks/clears the hazard, then re‑centers.</p>
+    </div>
+    <div class="card">
+      <h2>Logistics Sizing (Isp = 30,000 s)</h2>
+      <canvas id="logi"></canvas>
+      <p class="muted mono" id="logiText"></p>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h2>Timeline of Scientific Lineage</h2>
+    <div class="timeline">
+      <div class="node"><b>Hero of Alexandria</b><br><span class="muted">Bending paths in water</span></div>
+      <div class="node"><b>Galileo</b><br><span class="muted">Arc descent intuition</span></div>
+      <div class="node"><b>Bernoulli</b><br><span class="muted">Brachistochrone→cycloid</span></div>
+      <div class="node"><b>Fermat</b><br><span class="muted">Least time → Snell</span></div>
+      <div class="node"><b>Euler</b><br><span class="muted">Variational calculus</span></div>
+      <div class="node"><b>Maupertuis</b><br><span class="muted">Least action</span></div>
+      <div class="node"><b>Hamilton</b><br><span class="muted">Hamiltonian mechanics</span></div>
+      <div class="node"><b>Casanova</b><br><span class="muted">Warp‑tunnel geometry</span></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h2>References (for typical values)</h2>
+    <ul>
+      <li>Standard Earth–Mars Hohmann and fast‑transfer analyses (Lambert problem).</li>
+      <li>Parker Solar Probe speed (~192 km/s) — context for extreme cruise speeds.</li>
+      <li>New Horizons launch speed (~16.26 km/s) — fast deep‑space chemical example.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+// ===== Constants & helpers =====
+const g0 = 9.80665;           // m/s^2
+const ISP = 30000;            // s (fusion-class)
+const V = 192000;             // m/s (192 km/s)
+const COST_PER_KG = 3000;     // $/kg (illustrative)
+const AUTO_ALPHA = 0.50;      // auto mode α (50%)
+const DESTS = { mars: 75.3e6, jupiter: 588e6, pluto: 4.8e9 }; // km
+const VIS_MAX = 24;           // seconds to complete visual arc (time-compressed)
+
+const $ = (id)=>document.getElementById(id);
+function fmtKm(x){return (x/1000).toLocaleString('en-US')+" km"}
+function fmtDays(sec){const d=sec/86400;return d.toFixed(2)+" days"}
+function fmtHMS(sec){const d=Math.floor(sec/86400);sec%=86400;const h=Math.floor(sec/3600);sec%=3600;const m=Math.floor(sec/60);const s=Math.floor(sec%60);return `${d}d ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`}
+function tons(x){return (x/1000).toFixed(1)+" t"}
+function dollars(x){return "$"+Number(x).toLocaleString('en-US',{maximumFractionDigits:0})}
+function dryMass(choice){ if(choice==='light') return 10_000; if(choice==='medium') return 50_000; return 100_000; }
+function massRatio(dv){ return Math.exp(dv/(g0*ISP)); }
+
+let sim = null; // animation handle
+let state = null;
+
+function compute(){
+  const loading = $('loading').value;
+  const destKey = $('dest').value;
+  const mode = $('warpMode').value;
+  const alpha = (mode==='auto') ? AUTO_ALPHA : parseFloat($('alpha').value||'0.5');
+  const D = DESTS[destKey]; // km
+  const Deff = D*alpha;     // km
+  const tFlat = (D*1000)/V;   // s
+  const tWarp = (Deff*1000)/V;// s
+  const dv1 = V, dv2 = V, dvTot = dv1+dv2; // impulsive start/stop
+  const mf = dryMass(loading); // kg
+  const MR = massRatio(dvTot);
+  const m0 = MR*mf; const prop = m0 - mf; // kg
+  const MR1 = massRatio(dv1);
+  const propStart = MR1*mf - mf; // accelerate
+  const propEnd = prop - propStart; // decelerate
+  return {loading,destKey,alpha,mode,D,Deff,tFlat,tWarp,dv1,dv2,dvTot,mf,m0,prop,propStart,propEnd};
+}
+
+function updateNumbers(st){
+  $('sep').textContent = fmtKm(st.D*1000);
+  $('eff').textContent = `${(st.alpha*100).toFixed(0)}% → `+fmtKm(st.Deff*1000);
+  $('tflat').textContent = fmtDays(st.tFlat)+` (${fmtHMS(st.tFlat)})`;
+  $('twarp').textContent = fmtDays(st.tWarp)+` (${fmtHMS(st.tWarp)})`;
+  $('dv1').textContent = (st.dv1/1000).toFixed(3)+" km/s";
+  $('dv2').textContent = (st.dv2/1000).toFixed(3)+" km/s";
+  $('propStart').textContent = tons(st.propStart);
+  $('propEnd').textContent   = tons(st.propEnd);
+  $('propTot').textContent   = tons(st.prop);
+  $('cost').textContent      = dollars(st.prop*COST_PER_KG);
+  $('fuelFill').style.width  = '0%';
+  $('fuelLabel').textContent = `Fuel remaining: ${tons(st.prop)} (100%) — start burn: ${tons(st.propStart)}, arrival burn: ${tons(st.propEnd)}`;
+}
+
+// ---- Main visualization ----
+const viz = $('viz'); const vctx = viz.getContext('2d');
+function drawArc(cx,cy,R){
+  vctx.strokeStyle = '#77b7ff'; vctx.lineWidth=3; vctx.beginPath();
+  for(let a=0;a<=Math.PI;a+=0.01){
+    const x = cx + R*Math.cos(Math.PI-a);
+    const y = cy - R*Math.sin(a);
+    if(a===0) vctx.moveTo(x,y); else vctx.lineTo(x,y);
+  }
+  vctx.stroke();
+}
+function drawTunnel(){
+  const W = viz.width = viz.clientWidth; const H= viz.height = viz.clientHeight;
+  const pad=30; const R = Math.min(W,H)/2 - pad; const cx=W/2, cy=H/2+20;
+  vctx.clearRect(0,0,W,H);
+  drawArc(cx,cy,R);
+  return {W,H,cx,cy,R};
+}
+
+// arrival demo
+const arrive = $('arrive'); const ax = arrive.getContext('2d');
+function drawArrival(st){
+  const W = arrive.width = arrive.clientWidth; const H = arrive.height = arrive.clientHeight;
+  ax.clearRect(0,0,W,H);
+  ax.strokeStyle='#486089'; ax.beginPath(); ax.moveTo(40,H-40); ax.lineTo(W-20,H-40); ax.stroke();
+  const tf = st.tFlat, tw = st.tWarp; const tmax = Math.max(tf, tw);
+  const xFor = (t)=> 40+(W-60)*(t/tmax);
+  ax.fillStyle='#4ea1ff'; ax.fillRect(40,H-80,xFor(tf)-40,20);
+  ax.fillStyle='#22c55e'; ax.fillRect(40,H-110,xFor(tw)-40,20);
+  ax.fillStyle='#9fb2d9'; ax.font='12px ui-monospace';
+  ax.fillText(`Flat: ${fmtHMS(tf)}`, xFor(tf)-120, H-85);
+  ax.fillText(`Warp: ${fmtHMS(tw)}`, xFor(tw)-120, H-115);
+}
+
+// time-shortening bars
+const bars = $('bars'); const bx = bars.getContext('2d');
+function drawBars(){
+  const W = bars.width = bars.clientWidth, H = bars.clientHeight = 300;
+  bx.clearRect(0,0,W,H);
+  const labels=['Hohmann','Fast Transfer','CST Warp-Geom'];
+  const days=[260,150,120]; const colors=['#f59e0b','#38bdf8','#22c55e'];
+  const max=Math.max(...days); const bw= (W-120)/3; const base=H-30;
+  labels.forEach((lab,i)=>{
+    const h= (days[i]/max)*(H-80);
+    bx.fillStyle=colors[i]; bx.fillRect(60+i*bw, base-h, bw*0.7, h);
+    bx.fillStyle='#9fb2d9'; bx.font='12px ui-monospace';
+    bx.fillText(`${days[i]} d`, 60+i*bw+6, base-h-8);
+    bx.fillText(lab, 60+i*bw, base+14);
+  });
+}
+
+// logistics stacked bars (Δv=384 km/s)
+const logi = $('logi'); const lx = logi.getContext('2d');
+function drawLogi(){
+  const W = logi.width = logi.clientWidth, H = logi.clientHeight = 280;
+  lx.clearRect(0,0,W,H);
+  const classes=[{n:'Light',m:10_000},{n:'Workhorse',m:50_000},{n:'Heavy',m:100_000}];
+  const dvTot=2*V; const MR = Math.exp(dvTot/(g0*ISP)); const bw=(W-100)/3; const base=H-30; let text="";
+  classes.forEach((c,i)=>{
+    const mf=c.m; const m0=MR*mf; const prop=m0-mf; const scale=(H-80)/m0;
+    lx.fillStyle='#38bdf8'; lx.fillRect(50+i*bw, base-mf*scale, bw*0.6, mf*scale);
+    lx.fillStyle='#22c55e'; lx.fillRect(50+i*bw, base-m0*scale, bw*0.6, prop*scale);
+    lx.fillStyle='#9fb2d9'; lx.font='12px ui-monospace';
+    lx.fillText(c.n, 50+i*bw, base+14);
+    lx.fillText(`Dry ${tons(mf)}`, 50+i*bw, base-mf*scale-6);
+    lx.fillText(`Prop ${tons(prop)}`, 50+i*bw, base-m0*scale-20);
+    text += `${c.n}: Prop ${tons(prop)} | `;
+  });
+  $('logiText').textContent = text.replace(/ \| $/, '');
+}
+
+// ===== Ship Shield & Course‑Change Panel (center‑locked with laser) =====
+const mini = $('miniShip'); const mx = mini.getContext('2d');
+function clearMini(){ mx.clearRect(0,0,mini.width = mini.clientWidth, mini.height = 260); }
+function drawShip(x,y){
+  // body
+  mx.fillStyle = '#e2e8f0'; mx.beginPath(); mx.arc(x,y,5,0,Math.PI*2); mx.fill();
+  // triangular shield pointing right
+  mx.strokeStyle = '#a7f3d0'; mx.lineWidth = 1.6; mx.beginPath();
+  mx.moveTo(x+0,y-10); mx.lineTo(x+22,y); mx.lineTo(x+0,y+10); mx.closePath(); mx.stroke();
+}
+
+function pickDeflectSide(cxm, cym, small, hazards){
+  // Prefer the side away from the nearest big hazard in a forward window
+  const winX1=cxm-20, winX2=cxm+80, winY=40; let nearest=null,best=1e9;
+  for(const h of hazards){ if(!h.big) continue; if(h.x>winX1&&h.x<winX2&&Math.abs(h.y-cym)<winY){ const d=Math.hypot(h.x-cxm,h.y-cym); if(d<best){best=d; nearest=h;} } }
+  if(nearest) return (nearest.x < cxm) ? 'RIGHT' : 'LEFT';
+  return (small.seed & 1) ? 'LEFT' : 'RIGHT';
+}
+
+function engage(){
+  if(sim) cancelAnimationFrame(sim);
+  const st = state = compute(); updateNumbers(st); drawArrival(st); drawBars(); drawLogi();
+  // main viz setup
+  const geo = drawTunnel(); const W=geo.W,H=geo.H,cx=geo.cx,cy=geo.cy,R=geo.R;
+  const duration = st.tWarp; const t0_perf = performance.now()/1000; const t0_real = Date.now()/1000;
+  let fuel = st.prop; const startSpan = Math.max(0.04*duration,0.8); const endSpan = Math.max(0.04*duration,0.8);
+  const particles = Array.from({length:120},()=>({x:Math.random()*W,y:Math.random()*H,vx:-80-Math.random()*140,vy:(Math.random()-.5)*22, big:Math.random()<0.12 }));
+
+  // mini panel setup
+  clearMini();
+  const cxm = mini.width/2, cym = mini.height/2; let sy = cym; let targetY = cym;
+  const minY = 24, maxY = mini.height-24;
+  let miniParticles = Array.from({length:120},(_,i)=>({
+    x: mini.width + Math.random()*120,
+    y: Math.random()*mini.height,
+    r: (Math.random()<0.14? 10+Math.random()*12 : 2+Math.random()*2),
+    big: Math.random()<0.14,
+    vx: -2 - Math.random()*2,
+    vy: 0,
+    seed: i,
+    alive: true
+  }));
+  let laser = null; // {x1,y1,x2,y2,t}
+
+  function fireLaser(tx,ty){
+    laser = {x1: cxm+12, y1: sy, x2: tx, y2: ty, t: 0};
+  }
+
+  function updateLaser(dt){
+    if(!laser) return;
+    laser.t += dt*3; // speed of laser animation
+    if(laser.t>=1){
+      // impact: shrink/kill closest big hazard near impact point
+      let hit=null, best=1e9;
+      miniParticles.forEach(p=>{ if(p.big && p.alive){ const d=Math.hypot(p.x-laser.x2,p.y-laser.y2); if(d<best){best=d; hit=p;} } });
+      if(hit && best<18){
+        hit.r = Math.max(3, hit.r*0.5); // shrink by half
+        if(hit.r<=4){ hit.big=false; } // becomes small and will be reflected next pass
+      }
+      laser=null; // pulse done
+    }
+  }
+
+  function drawLaser(){
+    if(!laser) return;
+    mx.strokeStyle = '#60a5fa'; mx.lineWidth=2;
+    const x = laser.x1 + (laser.x2 - laser.x1)*laser.t;
+    const y = laser.y1 + (laser.y2 - laser.y1)*laser.t;
+    mx.beginPath(); mx.moveTo(laser.x1, laser.y1); mx.lineTo(x,y); mx.stroke();
+  }
+
+  function drawMiniFrame(dt){
+    clearMini();
+    // stars
+    for(let i=0;i<60;i++){ const px=(Math.random()*mini.width)|0, py=(Math.random()*mini.height)|0; mx.fillStyle='#1f2937'; mx.fillRect(px,py,1,1); }
+
+    // update particles and reflect smalls
+    miniParticles.forEach(p=>{
+      if(!p.alive) return;
+      p.x += p.vx; p.y += p.vy; if(p.x<-20){ p.x = mini.width + Math.random()*100; p.y = Math.random()*mini.height; p.vy = 0; p.big = p.big && Math.random()<0.5; p.r = p.big? (10+Math.random()*12) : (2+Math.random()*2); }
+      const dx = p.x - cxm, dy = p.y - sy; const d = Math.hypot(dx,dy);
+      const reflectR = 20; const inCone = (dx<60 && Math.abs(dy)<22);
+      if(!p.big && (d<reflectR || inCone)){
+        const side = pickDeflectSide(cxm, sy, p, miniParticles);
+        const sp = Math.max(1.4, Math.hypot(p.vx,p.vy));
+        p.vx = (side==='RIGHT' ?  sp : -sp);
+        p.vy *= 0.2; p.x += (side==='RIGHT'? 5 : -5);
+      }
+      // draw particle
+      mx.fillStyle = p.big ? '#ef4444' : '#475569';
+      if(p.big){ mx.beginPath(); mx.arc(p.x,p.y,p.r,0,Math.PI*2); mx.fill(); }
+      else { mx.fillRect(p.x,p.y,2,2); }
+    });
+
+    // detect big hazard requiring dodge + laser
+    let threat=null, bestX=1e9;
+    miniParticles.forEach(p=>{
+      if(!p.big) return; const dx=p.x-cxm, dy=p.y-sy; if(dx>0 && dx<80 && Math.abs(dy)<24){ if(dx<bestX){bestX=dx; threat=p;} }
+    });
+    if(threat){
+      // vertical dodge away from threat and fire laser once when entering cone
+      const desired = (threat.y>sy) ? Math.max(24, sy-60) : Math.min(mini.height-24, sy+60);
+      targetY = desired;
+      if(!laser) fireLaser(threat.x, threat.y);
+    } else {
+      targetY = cym; // back to center
+    }
+
+    // smooth vertical ship motion and clamp
+    sy += (targetY - sy)*0.22; sy = Math.max(minY, Math.min(maxY, sy));
+
+    // after laser impact, big rocks might be small—small reflection on next loop handles them
+    updateLaser(dt); drawLaser();
+
+    // draw ship and its cone
+    drawShip(cxm, sy);
+    mx.strokeStyle='#38bdf8'; mx.beginPath(); mx.moveTo(cxm,sy); mx.lineTo(cxm+28,sy-12); mx.moveTo(cxm,sy); mx.lineTo(cxm+28,sy+12); mx.stroke();
+  }
+
+  function frame(){
+    const now = performance.now()/1000; const el= now - t0_perf;
+    // visual progress (compressed)
+    const vizDur = Math.min(duration, VIS_MAX); const p = Math.min(el/vizDur,1);
+
+    // redraw main viz
+    vctx.clearRect(0,0,W,H); drawArc(cx,cy,R);
+    // moving dot along arc
+    const theta = Math.PI*(1-p); const sxArc = cx + R*Math.cos(theta); const syArc = cy - R*Math.sin(theta);
+    const pulse = 6 + 3*Math.sin(now*8);
+    vctx.beginPath(); vctx.arc(sxArc,syArc,pulse,0,Math.PI*2); vctx.strokeStyle='#a7f3d0'; vctx.lineWidth=1.8; vctx.stroke();
+    vctx.fillStyle='#e2e8f0'; vctx.beginPath(); vctx.arc(sxArc,syArc,3.8,0,Math.PI*2); vctx.fill();
+
+    // flow of particles past dot
+    particles.forEach(pt=>{
+      const dx=pt.x-sxArc, dy=pt.y-syArc; const d=Math.hypot(dx,dy); const cone=(dx<30 && Math.abs(dy)<22);
+      if(d<22 || (pt.big && cone)){ const sp=Math.hypot(pt.vx,pt.vy); const nx=dx/(d||1), ny=dy/(d||1); pt.vx = nx*sp; pt.vy = ny*sp; }
+      pt.x += pt.vx*0.016; pt.y += pt.vy*0.016; if(pt.x<0){pt.x=W; pt.y=Math.random()*H}
+      vctx.fillStyle= pt.big ? '#ef4444' : '#475569'; vctx.fillRect(pt.x,pt.y, pt.big?3:2, pt.big?3:2);
+    });
+
+    // fuel usage windows (map real mission time to compressed viz)
+    const realEl = el * (duration/Math.min(duration,VIS_MAX));
+    const startSpan = Math.max(0.04*duration,0.8); const endSpan = Math.max(0.04*duration,0.8);
+    if(realEl <= startSpan){ const f = realEl/startSpan; fuel = state.prop - f*state.propStart; }
+    else if(realEl < duration - endSpan){ fuel = state.prop - state.propStart; }
+    else { const f = (realEl - (duration-endSpan))/endSpan; fuel = Math.max(0, state.prop - state.propStart - f*state.propEnd); }
+    const pct = state.prop>0 ? (fuel/state.prop)*100 : 0; $('fuelFill').style.width=pct.toFixed(1)+'%';
+    $('fuelLabel').textContent = `Fuel remaining: ${tons(fuel)} (${pct.toFixed(1)}%)`;
+
+    // clocks & stability (use real wall time)
+    const utcElapsed = (Date.now()/1000 - t0_real);
+    const driftRate = 0.002; // 0.2% simulated cosmic drift
+    const q = realEl; const c = realEl * (1 + driftRate * Math.sin(realEl/30)); const utc = utcElapsed; const cst = utcElapsed;
+    $('clockQuantum').textContent = 'Quantum: '+fmtHMS(q);
+    $('clockCosmic').textContent  = 'Cosmic:  '+fmtHMS(c);
+    $('clockUTC').textContent     = 'UTC:     '+fmtHMS(utc);
+    $('clockCST').textContent     = 'CST:     '+fmtHMS(cst);
+    const drift = Math.max(q,c,utc,cst) - Math.min(q,c,utc,cst);
+    $('stability').textContent    = 'Stability: '+fmtHMS(drift);
+    $('stability').style.color = drift<1? 'var(--good)' : (drift<10? 'var(--warn)':'var(--bad)');
+
+    // ETA & progress (based on real mission duration)
+    const rem = Math.max(0,duration-realEl); $('eta').textContent = 'ETA: '+fmtHMS(rem); $('progress').textContent = 'Progress: '+(Math.min(realEl/duration,1)*100).toFixed(1)+'%';
+
+    // mini panel update (center-locked ship + laser)
+    const dt = 1/60; drawMiniFrame(dt);
+
+    if(p<1) sim = requestAnimationFrame(frame);
+  }
+  sim = requestAnimationFrame(frame);
+}
+
+function resetSim(){ if(sim) cancelAnimationFrame(sim); sim=null; const st=state=compute(); updateNumbers(st); drawTunnel(); drawArrival(st); drawBars(); drawLogi(); clearMini(); ['clockQuantum','clockCosmic','clockCST','clockUTC','stability','eta','progress'].forEach(id=>$(id).textContent=$(id).id.includes('clock')?$(id).textContent.split(':')[0]+': 00:00:00':'Progress: 0%'); }
+
+function hookUI(){
+  $('warpMode').addEventListener('change',()=>{ const m=$('warpMode').value; $('alpha').disabled = (m!=='manual'); resetSim();});
+  ['loading','dest','alpha'].forEach(id=> $(id).addEventListener('change', resetSim));
+  $('engage').addEventListener('click', engage);
+  $('reset').addEventListener('click', resetSim);
+}
+
+function init(){ hookUI(); resetSim(); }
+init();
+</script>
+</body>
+</html>
