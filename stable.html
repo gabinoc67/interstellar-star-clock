@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Warp Tunnel Stability Lab — Live Perturbation & Travel Demo</title>
+<style>
+  :root{
+    --bg:#0b1020; --ink:#eaf0ff; --muted:#b8c4ff; --card:#111631; --accent:#9bb4ff;
+    --ok:#33e1b5; --warn:#ffcc66; --bad:#ff6b6b; --border:#22305c;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
+  a{color:var(--accent)}
+  .wrap{max-width:1200px;margin:0 auto;padding:20px}
+  h1{margin:.2rem 0 .2rem;font-size:26px}
+  p{color:var(--muted)}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:14px}
+  .grid{display:grid;grid-template-columns:1fr;gap:16px}
+  @media (min-width: 1100px){ .grid{grid-template-columns: 400px 1fr;}}
+  .controls label{display:flex;justify-content:space-between;gap:10px;align-items:center;margin:8px 0;font-size:14px;color:var(--muted)}
+  .controls input[type=number]{width:120px;background:#0c1228;color:var(--ink);border:1px solid var(--border);border-radius:8px;padding:6px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .btn{background:linear-gradient(180deg,#30418a,#1d2a60);border:1px solid #3b4da0;color:#fff;padding:8px 12px;border-radius:10px;cursor:pointer}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  canvas{background:linear-gradient(180deg,#0d1430,#0b1020);border:1px solid var(--border);border-radius:14px}
+  .pill{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;border:1px solid var(--border);background:#0c1228;color:var(--muted);font-size:12px}
+  .readout{display:grid;grid-template-columns:repeat(3,minmax(160px,1fr));gap:8px}
+  .kv{background:#0c1228;border:1px solid var(--border);border-radius:10px;padding:8px}
+  .kv b{display:block;font-size:12px;color:var(--muted)}
+  .badge{padding:4px 10px;border-radius:999px;font-weight:600;border:1px solid var(--border)}
+  .stable{background:rgba(51,225,181,.15);color:var(--ok);}
+  .unstable{background:rgba(255,107,107,.15);color:var(--bad);}
+  .marginal{background:rgba(255,204,102,.15);color:var(--warn)}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Warp Tunnel Stability Lab — Live Perturbation & Travel Demo</h1>
+    <div class="row" style="margin:.4rem 0 1rem">
+      <span class="pill">ω<sub>n</sub>=<span id="omn">—</span></span>
+      <span class="pill">ζ=<span id="zeta">—</span></span>
+      <span id="stabilityBadge" class="pill badge marginal">computing…</span>
+      <span id="clock" class="pill">t = 0.00 s</span>
+    </div>
+
+    <div class="grid">
+      <!-- Controls -->
+      <section class="card controls">
+        <h3 style="margin:4px 0 8px">Parameters</h3>
+        <label>Scenario
+          <select id="scenario">
+            <optgroup label="Stable presets">
+              <option value="stable_earth_moon">Earth → Moon (stable)</option>
+              <option value="stable_earth_mars">Earth → Mars (stable)</option>
+              <option value="stable_jupiter">Jupiter sling (stable)</option>
+              <option value="stable_star">Nearby star (stable)</option>
+              <option value="stable_galaxy">Galaxy hop (stable)</option>
+            </optgroup>
+            <optgroup label="Unstable demos (for alarm)">
+              <option value="unstable_low_damping">Low damping (ζ≈0)</option>
+              <option value="unstable_negative_kg">k − g ≤ 0 (forbidden)</option>
+              <option value="unstable_zero_damping">Zero damping (c=0)</option>
+            </optgroup>
+            <optgroup label="Other">
+              <option value="random">Randomized (demo)</option>
+              <option value="custom">Custom</option>
+            </optgroup>
+          </select>
+        </label>
+        <label>R₀ (nominal radius)
+          <input id="R0" type="number" min="1" step="1" value="110" />
+        </label>
+        <label>m (effective inertia)
+          <input id="m" type="number" min="0.01" step="0.01" value="1.2" />
+        </label>
+        <label>k (wall stiffness)
+          <input id="k" type="number" min="0" step="0.1" value="24" />
+        </label>
+        <label>c (damping)
+          <input id="c" type="number" min="0" step="0.1" value="7" />
+        </label>
+        <label>g (feedback gain)
+          <input id="g" type="number" min="0" step="0.1" value="6" />
+        </label>
+        <hr style="border-color:var(--border)">
+        <label>Disturbance type
+          <select id="dist">
+            <option value="noise" selected>white noise</option>
+            <option value="sine">sinusoid</option>
+            <option value="none">none</option>
+          </select>
+        </label>
+        <label>Amplitude A (impulse/sine)
+          <input id="A" type="number" step="0.1" value="6" />
+        </label>
+        <label>Frequency ω<sub>p</sub> (sine)
+          <input id="w" type="number" step="0.1" value="2" />
+        </label>
+        <label>Noise level σ (white noise)
+          <input id="sigma" type="number" step="0.1" value="0.6" />
+        </label>
+        <label>Δt (time step)
+          <input id="dt" type="number" step="0.001" value="0.016" />
+        </label>
+        <hr style="border-color:var(--border)">
+        <label>Route distance D (units)
+          <input id="D" type="number" step="1" value="384" />
+        </label>
+        <label>Ship speed u (units/s)
+          <input id="u" type="number" step="1" value="35" />
+        </label>
+        <div class="row" style="margin-top:8px">
+          <button class="btn" id="btnStart">▶ Start</button>
+          <button class="btn" id="btnPause">⏸ Pause</button>
+          <button class="btn" id="btnReset">↺ Reset</button>
+          <button class="btn" id="btnPreset">Apply Scenario</button>
+          <button class="btn" id="btnImpulse">⚡ Inject impulse</button>
+        </div>
+      </section>
+
+      <!-- Visuals -->
+      <section>
+        <div class="card" style="display:flex;flex-direction:column;gap:10px">
+          <b>Bubble & Route View</b>
+          <canvas id="bubble" width="420" height="280"></canvas>
+          <b>Phase Portrait x vs ẋ (trail + live dot)</b>
+          <canvas id="phase" width="320" height="200"></canvas>
+        </div>
+        <div class="card" style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
+          <b>Time Series: x(t) and Energy V(t)</b>
+          <canvas id="series" width="760" height="260"></canvas>
+          <div class="readout">
+            <div class="kv"><b>ω<sub>n</sub></b><span id="omnOut">—</span></div>
+            <div class="kv"><b>ζ</b><span id="zetaOut">—</span></div>
+            <div class="kv"><b>Stability</b><span id="stab">—</span></div>
+            <div class="kv"><b>V(t)</b><span id="V">—</span></div>
+            <div class="kv"><b>Distance left</b><span id="left">—</span></div>
+            <div class="kv"><b>Status</b><span id="status">—</span></div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Tutorial Instructions -->
+    <section class="card" style="margin-top:16px">
+      <h3>Interactive Tutorial</h3>
+      <ol>
+        <li><b>Choose a Stable preset</b> (e.g., Earth→Moon). Press <i>Apply Scenario</i> then <i>Start</i>. You’ll see smooth oscillations, a green badge, and no alarm.</li>
+        <li><b>Test instability</b>: pick an Unstable demo (like “Zero damping”). The badge turns red and an alarm sounds — energy grows and the bubble deviates.</li>
+        <li><b>Recover stability</b>:
+          <ul>
+            <li>Increase <b>c</b> (damping) → ζ increases, oscillations die out.</li>
+            <li>Raise <b>k</b> or lower <b>g</b> until <b>k − g &gt; 0</b>.</li>
+            <li>Reduce noise (<b>σ</b>), impulse (<b>A</b>), or move sine frequency away from ω<sub>n</sub>.</li>
+          </ul>
+        </li>
+        <li><b>Confirm success</b>: when stable, the badge turns green, oscillations shrink, and the alarm stops while the ship keeps progressing.</li>
+      </ol>
+      <p>This demonstrates that warp tunnels can remain viable under disturbances if parameters are kept in a stable regime.</p>
+    </section>
+  </div>
+
+<script>
+(function(){
+  // ===== State =====
+  let running = false, t = 0;
+  let x = 0, v = 0;       // deviation and velocity
+  let R0=110, m=1.2, k=24, c=7, g=6; // defaults
+  let dist='noise', A=6, w=2, sigma=0.6, dt=0.016;
+  let D=384, u=35, s=0;   // route distance, speed, progress
+  let impulsePending = false; // guaranteed kick
+
+  // UI refs
+  const $ = id=>document.getElementById(id);
+  const ui = {
+    scenario: $('scenario'), R0:$('R0'), m:$('m'), k:$('k'), c:$('c'), g:$('g'),
+    dist:$('dist'), A:$('A'), w:$('w'), sigma:$('sigma'), dt:$('dt'), D:$('D'), u:$('u'),
+    start:$('btnStart'), pause:$('btnPause'), reset:$('btnReset'), preset:$('btnPreset'), impulse:$('btnImpulse'),
+    bubble:$('bubble'), phase:$('phase'), series:$('series'), clock:$('clock'),
+    badge:$('stabilityBadge'),
+    omn:$('omnOut'), zeta:$('zetaOut'), stab:$('stab'), V:$('V'), left:$('left'), status:$('status'),
+    omnTop:$('omn'), zetaTop:$('zeta')
+  };
+  const ctxB = ui.bubble.getContext('2d');
+  const ctxP = ui.phase.getContext('2d');
+  const ctxS = ui.series.getContext('2d');
+
+  const N = 900; // samples stored
+  const dataX = new Array(N).fill(0);
+  const dataV = new Array(N).fill(0);
+
+  // ===== Helpers =====
+  function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+  function gauss(){ let u=0,v=0; while(u===0) u=Math.random(); while(v===0) v=Math.random(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+
+  function readParams(){
+    R0=parseFloat(ui.R0.value)||R0; m=Math.max(1e-6,parseFloat(ui.m.value)||m);
+    k=Math.max(0,parseFloat(ui.k.value)||k); c=Math.max(0,parseFloat(ui.c.value)||c); g=Math.max(0,parseFloat(ui.g.value)||g);
+    dist=ui.dist.value; A=parseFloat(ui.A.value)||A; w=parseFloat(ui.w.value)||w; sigma=parseFloat(ui.sigma.value)||sigma; dt=Math.max(0.001,parseFloat(ui.dt.value)||dt);
+    D=Math.max(1,parseFloat(ui.D.value)||D); u=Math.max(1,parseFloat(ui.u.value)||u);
+    updateStability();
+  }
+
+  // Presets (stable + unstable) + random
+  const presets={
+    // Stable presets
+    stable_earth_moon:{R0:110,m:1.2,k:24,c:7,g:6,sigma:0.6,D:384,u:35},
+    stable_earth_mars:{R0:120,m:1.4,k:30,c:10,g:8,sigma:0.8,D:7800,u:120},
+    stable_jupiter:   {R0:140,m:1.8,k:36,c:16,g:10,sigma:1.0,D:62800,u:300},
+    stable_star:      {R0:160,m:2.2,k:44,c:22,g:16,sigma:1.2,D:4e6,u:1200},
+    stable_galaxy:    {R0:180,m:3.0,k:60,c:34,g:26,sigma:1.6,D:1e8,u:6000},
+    // Unstable demos
+    unstable_low_damping:{R0:120,m:1.4,k:30,c:0.2,g:8,sigma:0.8,D:7800,u:120},
+    unstable_negative_kg:{R0:120,m:1.0,k:12,c:6,g:16,sigma:0.6,D:500,u:60}, // k-g<0
+    unstable_zero_damping:{R0:110,m:1.2,k:22,c:0.0,g:6,sigma:0.6,D:384,u:35}
+  };
+
+  function applyScenario(){
+    const sc=ui.scenario.value; let p;
+    if(sc==='random'){
+      p={R0:rand(110,190), m:rand(1,3.2), k:rand(20,70), c:rand(0.2,36), g:rand(4,28), sigma:rand(0.3,1.8), D:rand(300,1e5), u:rand(30,1500)};
+    } else if (sc!=='custom') {
+      p=presets[sc];
+    } else { return; }
+
+    ui.R0.value=p.R0.toFixed(0);
+    ui.m.value=p.m.toFixed(2);
+    ui.k.value=p.k.toFixed(0);
+    ui.c.value=p.c.toFixed(2);
+    ui.g.value=p.g.toFixed(0);
+    ui.sigma.value=p.sigma.toFixed(2);
+    ui.D.value=p.D;
+    ui.u.value=p.u;
+    ui.dist.value='noise';
+
+    readParams();
+    running=true; // animate immediately
+    ui.status.textContent = sc.startsWith('unstable') ? 'UNSTABLE demo — adjust params!' : 'Cruising…';
+  }
+
+  function rand(a,b){ return a + Math.random()*(b-a); }
+
+  function updateStability(){
+    const kg=k-g;
+    const omn=(kg>0)? Math.sqrt(kg/m) : NaN;
+    const zeta=(kg>0)? c/(2*Math.sqrt(m*kg)) : 0;
+    const unstable = (kg<=0 || c<=0);
+
+    ui.omn.textContent = isFinite(omn)? omn.toFixed(3): '—';
+    ui.omnTop.textContent = ui.omn.textContent;
+    ui.zeta.textContent = isFinite(zeta)? zeta.toFixed(3): '—';
+    ui.zetaTop.textContent = ui.zeta.textContent;
+
+    if(unstable){
+      ui.badge.textContent='UNSTABLE — adjust k,g,c';
+      ui.badge.className='pill badge unstable';
+      ui.stab.textContent='Unstable';
+      startAlarm();
+    } else if (zeta < 0.01){
+      ui.badge.textContent='Marginal (ζ≈0)';
+      ui.badge.className='pill badge marginal';
+      ui.stab.textContent='Marginal';
+      stopAlarm();
+    } else if (zeta < 1){
+      ui.badge.textContent='Stable underdamped';
+      ui.badge.className='pill badge stable';
+      ui.stab.textContent='Stable (underdamped)';
+      stopAlarm();
+    } else {
+      ui.badge.textContent='Stable overdamped';
+      ui.badge.className='pill badge stable';
+      ui.stab.textContent='Stable (overdamped)';
+      stopAlarm();
+    }
+  }
+
+  // ===== Simulation step =====
+  function step(){
+    // forcing
+    let ft=0;
+    if(dist==='sine') ft = A*Math.sin(w*t);
+    else if(dist==='noise') ft = sigma*gauss();
+    if(impulsePending){ v += A/Math.max(1e-6,m); impulsePending=false; ui.status.textContent='Impulse applied'; }
+
+    const kg=k-g;
+    const acc=(ft - c*v - kg*x)/m;
+    v += dt*acc;
+    x += dt*v;
+    x = clamp(x,-500,500); v = clamp(v,-500,500);
+
+    // Energy & instability checks
+    const V = (kg>0)? 0.5*m*v*v + 0.5*kg*x*x : 0.5*m*v*v + 1000; // penalize bad kg
+    ui.V.textContent = V.toFixed(3);
+
+    const diverging = (!isFinite(V) || V>1e4 || Math.abs(x)>300);
+    if(kg<=0 || c<=0 || diverging){
+      ui.status.textContent='UNSTABLE — reset or increase c, increase k, or lower g';
+      startAlarm();
+    } else {
+      if(s<D) ui.status.textContent='Cruising…';
+      stopAlarm();
+    }
+
+    // progress
+    s += u*dt; if(s>=D){ s=D; ui.status.textContent='Arrived'; stopAlarm(); running=false; }
+    t += dt; ui.clock.textContent='t = '+t.toFixed(2)+' s';
+
+    dataX.push(x); dataX.shift();
+    dataV.push(V); dataV.shift();
+
+    draw();
+  }
+
+  // ===== Drawing =====
+  function draw(){ drawBubbleRoute(); drawPhase(); drawSeries(); }
+
+  function drawBubbleRoute(){
+    const W=ui.bubble.width, H=ui.bubble.height, ctx=ctxB; ctx.clearRect(0,0,W,H);
+    ctx.fillStyle='#0c1228'; ctx.fillRect(0,0,W,H);
+    ctx.strokeStyle='rgba(155,180,255,0.25)'; ctx.beginPath(); ctx.moveTo(20,H/2); ctx.lineTo(W-20,H/2); ctx.stroke();
+
+    const labels=['Earth','Moon','Mars','Jupiter','Star','Galaxy']; const steps=[0,0.05,0.15,0.6,0.9,1.0];
+    ctx.fillStyle='rgba(200,210,255,0.85)';
+    for(let i=0;i<steps.length;i++){ const px=20+steps[i]*(W-40); ctx.fillRect(px-1,H/2-6,2,12); ctx.fillText(labels[i], px-18, H/2+22); }
+
+    const prog = s/D; const xPos=20+clamp(prog,0,1)*(W-40);
+    const Rnom=clamp(R0,10,120); const Rcur=clamp(R0+x,5,160);
+
+    ctx.save(); ctx.translate(xPos,H/2);
+    ctx.strokeStyle='rgba(153,204,255,0.6)'; ctx.setLineDash([6,6]);
+    ctx.beginPath(); ctx.ellipse(0,0,Rnom,Rnom*0.6,0,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
+
+    ctx.shadowColor='rgba(51,225,181,0.6)'; ctx.shadowBlur=10; ctx.strokeStyle='rgba(51,225,181,0.95)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.ellipse(0,0,Rcur,Rcur*0.6,0,0,Math.PI*2); ctx.stroke(); ctx.shadowBlur=0;
+
+    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(0,0,3,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+
+    ui.left.textContent = Math.max(0,D-s).toFixed(1);
+    if(running && s<D && ui.status.textContent!=='Impulse applied') ui.status.textContent='Cruising…';
+  }
+
+  function drawPhase(){
+    const W=ui.phase.width, H=ui.phase.height, ctx=ctxP; ctx.clearRect(0,0,W,H);
+    ctx.fillStyle='#0c1228'; ctx.fillRect(0,0,W,H);
+    ctx.strokeStyle='rgba(155,180,255,0.25)'; ctx.beginPath(); ctx.moveTo(0,H/2); ctx.lineTo(W,H/2); ctx.moveTo(W/2,0); ctx.lineTo(W/2,H); ctx.stroke();
+
+    // trail
+    ctx.strokeStyle='rgba(153,204,255,0.9)'; ctx.beginPath(); const M=Math.min(N,360);
+    for(let i=N-M;i<N;i++){
+      const xi=dataX[i]; const vi=(i>0 ? (dataX[i]-dataX[i-1])/dt : 0);
+      const px=W/2 + xi*3.2; const py=H/2 - vi*0.7; if(i===N-M) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+    }
+    ctx.stroke();
+
+    // live dot
+    const vi=(dataX[N-1]-dataX[N-2])/dt;
+    ctx.fillStyle='rgba(51,225,181,0.95)'; ctx.beginPath(); ctx.arc(W/2 + x*3.2, H/2 - vi*0.7, 3, 0, Math.PI*2); ctx.fill();
+  }
+
+  function drawSeries(){
+    const W=ui.series.width, H=ui.series.height, ctx=ctxS; ctx.clearRect(0,0,W,H);
+    ctx.fillStyle='#0c1228'; ctx.fillRect(0,0,W,H);
+
+    // x(t)
+    ctx.strokeStyle='rgba(51,225,181,0.95)'; ctx.beginPath();
+    for(let i=0;i<N;i++){ const px=i/N*W; const py=H*0.30 - dataX[i]*12 + 20; if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);}
+    ctx.stroke(); ctx.fillStyle='rgba(51,225,181,0.9)'; ctx.fillText('x(t)', 8, 16);
+
+    // V(t)
+    ctx.strokeStyle='rgba(155,180,255,0.95)'; ctx.beginPath();
+    for(let i=0;i<N;i++){ const px=i/N*W; const py=H*0.82 - Math.min(200, dataV[i])*1.0 + 20; if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);}
+    ctx.stroke(); ctx.fillStyle='rgba(155,180,255,0.9)'; ctx.fillText('V(t)', 8, H*0.56);
+  }
+
+  function reset(){
+    running=false; t=0; x=0; v=0; s=0; impulsePending=false; ui.status.textContent='Ready';
+    for(let i=0;i<N;i++){ dataX[i]=0; dataV[i]=0; } readParams(); draw(); ui.clock.textContent='t = 0.00 s';
+  }
+
+  // ===== Events =====
+  ui.start.addEventListener('click', ()=>{ running=true; ensureAudio(); });
+  ui.pause.addEventListener('click', ()=>{ running=false; });
+  ui.reset.addEventListener('click', ()=>{ reset(); stopAlarm(); });
+  ui.preset.addEventListener('click', ()=>{ ensureAudio(); applyScenario(); draw(); });
+  ui.impulse.addEventListener('click', ()=>{ impulsePending=true; });
+
+  ['R0','m','k','c','g','dist','A','w','sigma','dt','D','u'].forEach(id=> $(id).addEventListener('input', ()=>{ readParams(); draw(); }));
+  ui.scenario.addEventListener('change', ()=>{ applyScenario(); });
+
+  function loop(){ if(running) step(); requestAnimationFrame(loop); }
+
+  // ===== Alarm (WebAudio) =====
+  let audioCtx=null, beepOsc=null, beepGain=null, alarmOn=false;
+  function ensureAudio(){ if(!audioCtx){ audioCtx = new (window.AudioContext||window.webkitAudioContext)(); } }
+  function startAlarm(){ if(alarmOn) return; if(!audioCtx) return; alarmOn=true; beepOsc=audioCtx.createOscillator(); beepGain=audioCtx.createGain();
+    beepOsc.type='sine'; beepOsc.frequency.value=680; beepGain.gain.value=0.001;
+    beepOsc.connect(beepGain).connect(audioCtx.destination); beepOsc.start(); pulse();
+  }
+  function pulse(){ if(!alarmOn||!beepGain||!audioCtx) return; const now=audioCtx.currentTime; const g=beepGain.gain;
+    g.cancelScheduledValues(now); g.setValueAtTime(0.0001, now); g.linearRampToValueAtTime(0.12, now+0.08);
+    g.linearRampToValueAtTime(0.0001, now+0.18); setTimeout(pulse, 260);
+  }
+  function stopAlarm(){ if(!alarmOn) return; alarmOn=false; try{ beepOsc.stop(); }catch{}; try{ beepOsc.disconnect(); beepGain.disconnect(); }catch{}; beepOsc=null; beepGain=null; }
+
+  // ===== Init =====
+  applyScenario(); readParams(); running=true; loop();
+})();
+</script>
+</body>
+</html>
