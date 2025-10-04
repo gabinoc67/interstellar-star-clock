@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Master Equation Reset Hub — Interactive Simulator</title>
+  <style>
+    :root{
+      --bg:#0b1020; --ink:#eaf0ff; --muted:#b8c4ff; --card:#12183a; --accent:#9bb4ff; --ok:#20e3b2; --warn:#ffd166; --bad:#ff6b6b; --grid:#22305c;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,sans-serif}
+    a{color:var(--accent)}
+    .wrap{max-width:1200px;margin:0 auto;padding:20px}
+    h1{margin:.2rem 0 .4rem;font-size:26px}
+    h2{margin:.8rem 0 .4rem;font-size:18px}
+    p{color:var(--muted);margin:.4rem 0}
+    .grid{display:grid;grid-template-columns:360px 1fr;gap:16px}
+    .card{background:var(--card);border:1px solid var(--grid);border-radius:14px;padding:14px}
+    .row{display:flex;align-items:center;gap:10px;margin:.35rem 0}
+    .row label{flex:1;color:var(--muted);font-size:13px}
+    .row input[type="range"]{flex:2}
+    .badge{display:inline-flex;align-items:center;gap:6px;background:#0f1530;border:1px solid var(--grid);padding:4px 8px;border-radius:999px;color:var(--muted);font-size:12px}
+    .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+    button{background:var(--accent);color:#091022;border:none;border-radius:10px;padding:8px 12px;font-weight:600;cursor:pointer}
+    button.ghost{background:transparent;border:1px solid var(--grid);color:var(--ink)}
+    .legend{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+    .pill{display:inline-flex;align-items:center;gap:8px;background:#0f1530;border:1px solid var(--grid);padding:6px 8px;border-radius:999px}
+    .dot{width:10px;height:10px;border-radius:50%}
+    canvas{width:100%;height:520px;background:conic-gradient(from 180deg at 50% 50%, rgba(255,255,255,.02), rgba(255,255,255,0));border:1px solid var(--grid);border-radius:14px}
+    .equations{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;color:#d8ddff;font-size:12.5px;background:#0f1530;border:1px solid var(--grid);border-radius:10px;padding:10px;overflow:auto}
+    .small{font-size:12px;color:var(--muted)}
+    .tests{margin-top:10px}
+    .tests pre{background:#0f1530;border:1px solid var(--grid);border-radius:10px;padding:10px;color:#d8ddff;overflow:auto;font-size:12px}
+    .about{margin-top:16px}
+    .about .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .about .card ul{margin:.2rem 0 .4rem 1rem;color:var(--muted)}
+    @media (max-width: 1120px){.grid{grid-template-columns:1fr}}
+    @media (max-width: 800px){.about .grid2{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Master Equation Reset Hub — Interactive Simulator</h1>
+    <p>Explore a simplified unification toy model: a central <em>reset hub</em> synchronizes five fields — <strong>Time</strong>, <strong>Space</strong>, <strong>Matter</strong>, <strong>Energy</strong>, <strong>Vibration</strong>. Each field is an oscillator with natural frequency <code>ω_i = h_i · ω_0</code>. Coupling (<code>K</code>) implements a Kuramoto-like phase lock, illustrating how a global reset enforces coherence across a warp corridor.</p>
+
+    <div class="grid">
+      <!-- Controls -->
+      <div class="card" id="controls">
+        <div class="badge">Controls</div>
+        <div class="row">
+          <label>Master frequency <code>ω₀</code> (Hz)</label>
+          <input id="omega0" type="range" min="0.1" max="5" step="0.1" value="1.2">
+          <span id="omega0v" class="small">1.2</span>
+        </div>
+        <div class="row">
+          <label>Coupling <code>K</code> (sync strength)</label>
+          <input id="K" type="range" min="0" max="3" step="0.05" value="0.8">
+          <span id="Kv" class="small">0.80</span>
+        </div>
+        <div class="row">
+          <label>Damping <code>γ</code></label>
+          <input id="gamma" type="range" min="0" max="1" step="0.02" value="0.10">
+          <span id="gammav" class="small">0.10</span>
+        </div>
+        <div class="row">
+          <label>Reset pulse (ms)</label>
+          <input id="pulse" type="range" min="0" max="1500" step="50" value="300">
+          <span id="pulsev" class="small">300</span>
+        </div>
+        <div class="row">
+          <label>Sim speed (× realtime)</label>
+          <input id="speed" type="range" min="0.25" max="3" step="0.25" value="1">
+          <span id="speedv" class="small">1.00</span>
+        </div>
+        <div class="badge" style="margin-top:8px">Harmonics (<code>h_i</code>)</div>
+        <div id="harmonics"></div>
+        <div class="btns">
+          <button id="btnReset">Reset phases</button>
+          <button id="btnPulse" class="ghost">Apply reset pulse</button>
+          <button id="btnPause" class="ghost">Pause</button>
+          <button id="btnRunTests" class="ghost">Run Tests</button>
+        </div>
+        <div class="legend" id="legend"></div>
+      </div>
+
+      <!-- Visualization & Equations -->
+      <div class="card">
+        <canvas id="viz" width="900" height="520"></canvas>
+        <div class="equations" style="margin-top:10px">
+          <div><strong>Model</strong></div>
+          <div>Kuramoto-like phase dynamics with damping:</div>
+          <pre>dφ_i/dt = ω_i  +  (K/N) Σ_j sin(φ_j − φ_i)  − γ (φ_i − φ_ref)</pre>
+          <div>where <code>ω_i = h_i · ω₀</code> and <code>φ_ref</code> is the hub phase. Oscillator radii show instantaneous amplitudes <code>A_i(t) = A_i(0) · e^{−γ t}</code>.</div>
+          <div style="margin-top:6px"><strong>Field superposition (conceptual)</strong></div>
+          <pre>G(t) = G₀ + Σ_i A_i cos(φ_i(t))</pre>
+        </div>
+        <div class="tests">
+          <div class="badge">Test Output</div>
+          <pre id="testLog">(No tests run yet)</pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="about">
+      <div class="grid2">
+        <div class="card">
+          <div class="badge">Instructions</div>
+          <ul>
+            <li>Set the <strong>Master frequency (ω₀)</strong>. Each field i runs at <code>ω_i = h_i · ω₀</code>.</li>
+            <li>Increase <strong>K</strong> to tighten synchronization; increase <strong>γ</strong> to damp deviations faster.</li>
+            <li>Use <strong>Apply reset pulse</strong> to simulate a global reference reset (like re-aligning clocks after jet lag).</li>
+            <li>Adjust each field’s <strong>harmonic h_i</strong> to create de‑sync, then re‑sync with a pulse.</li>
+            <li>Watch the hub color: green = high order (coherence). The on‑screen “Order (sync)” shows the order parameter ∈ [0, 1].</li>
+            <li>Click <strong>Run Tests</strong> to verify core behaviors (canvas exists, order in range, pulse effect).</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="badge">How this ties to String Theory</div>
+          <p>This simulator is a coarse‑grained, engineering‑style analogue of ideas from string theory and unified models:</p>
+          <ul>
+            <li><strong>Worldsheet vs. Hub:</strong> In string theory, a string’s 2D worldsheet has an internal clock; here the <em>hub phase</em> plays that role as a shared reference.</li>
+            <li><strong>Vibrational Modes:</strong> Strings have quantized vibrations; the five fields are oscillators with <code>ω_i = h_i · ω₀</code> (harmonics), representing quantized modes you can tune.</li>
+            <li><strong>Background Geometry:</strong> Strings propagate on a curved spacetime background; here, the hub enforces a common background phase so fields remain coherent (a simplified gauge choice).</li>
+            <li><strong>Lattice vs. Continuum:</strong> Real calculations often discretize fields (lattice gauge theory). Our harmonics and coupling are a minimal lattice‑like control layer over a continuous phase.</li>
+            <li><strong>Reset ≈ RG Flow:</strong> The reset pulse mimics driving the system toward a fixed point (like renormalization group flow) where phases align and a universal description emerges.</li>
+            <li><strong>Unification Intuition:</strong> A single generator (the master rhythm) coordinates time, space, matter, energy, and vibration—mirroring how a unifying principle would coordinate sectors in a full theory.</li>
+          </ul>
+          <p><em>Takeaway:</em> While not string theory itself, this tool shows how a shared reference (reset hub) + coupled vibrations can achieve global coherence—exactly the kind of control a warp corridor would need.</p>
+        </div>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <div class="badge">Suggested Experiments</div>
+        <ul>
+          <li><strong>De‑sync then Recover:</strong> Set <code>h = [1, 3.5, 1.5, 4, 2]</code>, low <code>K</code>, observe disorder; apply a reset pulse and raise <code>K</code>.</li>
+          <li><strong>Damping Sweep:</strong> With fixed <code>K</code>, sweep <code>γ</code> from 0 → 0.6 and note time to re‑lock (order rises faster with larger <code>γ</code>).</li>
+          <li><strong>Master Frequency Shift:</strong> Step <code>ω₀</code> from 1.0 → 2.0 and watch transient de‑sync, then re‑sync.</li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="small" style="margin-top:10px">Tip: increase <b>K</b> or press <b>Apply reset pulse</b> to force rapid re‑synchronization (like recovering from jet lag). Vary the harmonics to explore de‑sync and re‑sync behavior. The hub turns greener as order rises.</p>
+  </div>
+
+  <script>
+    // Ensure DOM is ready before accessing elements
+    document.addEventListener('DOMContentLoaded', () => {
+      // --- State ---
+      const N = 5;
+      const names = ["Time","Space","Matter","Energy","Vibration"];
+      const colors = ["#7aa2ff","#33e1b5","#ffd166","#ff6b6b","#c792ea"];
+      let omega0 = 1.2, K = 0.8, gamma = 0.10, speed = 1.0;
+      let pulseMs = 300;
+      const h = [1, 1, 2, 3, 5]; // harmonics default
+      let phi = new Array(N).fill(0).map(()=>Math.random()*Math.PI*2);
+      let paused = false; // single declaration (fix duplicate-declaration bug)
+
+      // --- UI helpers ---
+      const $ = id=>document.getElementById(id);
+
+      // Canvas/ctx
+      const canvas = $("viz");
+      const ctx = canvas.getContext('2d');
+
+      function orderParam(){
+        const v = phi.reduce((acc,th)=>{acc[0]+=Math.cos(th); acc[1]+=Math.sin(th); return acc;},[0,0]);
+        return Math.hypot(v[0],v[1])/N;
+      }
+
+      function draw(){
+        const {width, height} = canvas; ctx.clearRect(0,0,width,height);
+        const cx = width/2, cy = height/2, R = Math.min(width,height)*0.37;
+
+        // Background rings
+        ctx.save(); ctx.translate(cx,cy);
+        ctx.strokeStyle = "#22305c"; ctx.lineWidth=1;
+        for(let r=R*0.4; r<=R; r+=R*0.12){ ctx.beginPath(); ctx.arc(0,0,r,0,Math.PI*2); ctx.stroke(); }
+
+        // Hub disk color by order parameter (coherence)
+        const order = orderParam();
+        const hubColor = `rgba(${Math.round((1-order)*255)}, ${Math.round(order*255)}, 120, 0.9)`;
+        ctx.fillStyle = hubColor; ctx.beginPath(); ctx.arc(0,0,R*0.1,0,Math.PI*2); ctx.fill();
+
+        // Spokes & dots
+        for(let i=0;i<N;i++){
+          const ang = i*(2*Math.PI/N);
+          const amp = 0.55 + 0.25*Math.cos(phi[i]);
+          const len = R*(0.5+0.45*amp);
+          const x = Math.cos(ang)*len, y = Math.sin(ang)*len;
+          ctx.strokeStyle = colors[i]; ctx.lineWidth=3;
+          ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(x,y); ctx.stroke();
+          const rr = R*0.08; const px = Math.cos(phi[i])*rr + Math.cos(ang)*(len-rr);
+          const py = Math.sin(phi[i])*rr + Math.sin(ang)*(len-rr);
+          ctx.fillStyle = colors[i]; ctx.beginPath(); ctx.arc(px,py,6,0,Math.PI*2); ctx.fill();
+          ctx.fillStyle = "#c7cffc"; ctx.font = "12px system-ui, sans-serif"; ctx.textAlign = "center";
+          ctx.fillText(names[i], Math.cos(ang)*(len+18), Math.sin(ang)*(len+18));
+        }
+        ctx.restore();
+
+        // Order meter
+        ctx.fillStyle = "#c7cffc"; ctx.font = "12px system-ui, sans-serif";
+        ctx.fillText(`Order (sync): ${order.toFixed(3)}`, 12, 20);
+      }
+
+      function bindSlider(id){
+        const el=$(id), out=$(id+"v");
+        const f=()=>{ out.textContent=(+el.value).toFixed(2); draw(); };
+        el.addEventListener('input', f); f();
+        return el;
+      }
+
+      const sOmega0 = bindSlider("omega0");
+      const sK = bindSlider("K");
+      const sGamma = bindSlider("gamma");
+      const sPulse = $("pulse"); const sPulseV=$("pulsev");
+      sPulse.addEventListener('input',()=>{sPulseV.textContent=sPulse.value}); sPulseV.textContent=sPulse.value;
+      const sSpeed = bindSlider("speed");
+
+      // Harmonics controls
+      const harmonicsDiv = $("harmonics");
+      function renderHarmonics(){
+        harmonicsDiv.innerHTML = "";
+        names.forEach((nm,i)=>{
+          const row = document.createElement('div'); row.className='row';
+          const lab = document.createElement('label'); lab.textContent = `${nm} harmonic h_${i+1}`; row.appendChild(lab);
+          const rng = document.createElement('input'); rng.type='range'; rng.min='0.5'; rng.max='8'; rng.step='0.5'; rng.value=h[i]; row.appendChild(rng);
+          const val = document.createElement('span'); val.className='small'; val.textContent=h[i].toFixed(1); row.appendChild(val);
+          rng.addEventListener('input',()=>{ h[i]=+rng.value; val.textContent=h[i].toFixed(1); });
+          harmonicsDiv.appendChild(row);
+        });
+      }
+      renderHarmonics();
+
+      // Legend
+      const legend = $("legend");
+      names.forEach((nm,i)=>{
+        const pill = document.createElement('div'); pill.className='pill';
+        const dot = document.createElement('div'); dot.className='dot'; dot.style.background=colors[i]; pill.appendChild(dot);
+        const sp = document.createElement('span'); sp.textContent=nm; pill.appendChild(sp);
+        legend.appendChild(pill);
+      });
+
+      // Buttons (use the single shared `paused` variable)
+      $("btnReset").onclick = ()=>{ phi = phi.map(()=>0); draw(); };
+      $("btnPulse").onclick = ()=> applyPulse();
+      $("btnPause").onclick = (e)=>{ paused=!paused; e.target.textContent = paused?"Resume":"Pause"; };
+
+      // Dynamics
+      let last = performance.now();
+      function step(dt){
+        omega0 = +sOmega0.value; K = +sK.value; gamma=+sGamma.value; speed=+sSpeed.value; pulseMs=+sPulse.value;
+        const w = h.map(x=>x*omega0*2*Math.PI);
+        const vec = phi.reduce((acc,th)=>{acc.x+=Math.cos(th); acc.y+=Math.sin(th); return acc;},{x:0,y:0});
+        const hub = Math.atan2(vec.y, vec.x);
+        for(let i=0;i<N;i++){
+          let coupling = 0;
+          for(let j=0;j<N;j++) if(i!==j) coupling += Math.sin(phi[j]-phi[i]);
+          const dphi = w[i] + (K/(N))*coupling - gamma*(phi[i]-hub);
+          phi[i] += dphi*dt*speed;
+        }
+      }
+
+      function applyPulse(){
+        const kOld = K, gOld = gamma;
+        K = Math.max(K, 2.5); gamma = Math.min(gamma, 0.04);
+        const start = performance.now();
+        function relax(){
+          const t = performance.now()-start;
+          if(t < pulseMs){ requestAnimationFrame(relax); }
+          else { K = +sK.value; gamma = +sGamma.value; }
+        }
+        relax();
+      }
+
+      function loop(ts){
+        const dt = Math.min(0.05, (ts - last)/1000); last=ts;
+        if(!paused){ step(dt); draw(); }
+        requestAnimationFrame(loop);
+      }
+      draw(); requestAnimationFrame(loop);
+
+      // --- Tests ---
+      const testLog = $("testLog");
+      function log(line){ testLog.textContent += (testLog.textContent==="(No tests run yet)"?"":"\n") + line; console.log(line); }
+      async function runTests(){
+        testLog.textContent = "Running tests...";
+        // Test 1: Canvas exists
+        try{ if(!canvas) throw new Error('Canvas not found'); log('✓ Test 1: Canvas element exists.'); }catch(e){ log('✗ Test 1 FAILED: '+e.message); }
+        // Test 2: Order parameter within [0,1]
+        try{ const o=orderParam(); if(!(o>=0 && o<=1)) throw new Error('Order out of range'); log('✓ Test 2: Order parameter within [0,1].'); }catch(e){ log('✗ Test 2 FAILED: '+e.message); }
+        // Test 3: Reset pulse applies without crash and reports order shift
+        try{ const before=orderParam(); applyPulse(); await new Promise(r=>setTimeout(r, Math.max(350, pulseMs+50))); const after=orderParam(); log(`✓ Test 3: Pulse applied. Order before=${before.toFixed(3)} after=${after.toFixed(3)}.`); }catch(e){ log('✗ Test 3 FAILED: '+e.message); }
+        // Test 4: Harmonic slider effect (programmatic change as proxy)
+        try{ const oldH = h[0]; h[0]=oldH+0.5; await new Promise(r=>setTimeout(r,200)); const changed = h[0]!==oldH; log(changed? '✓ Test 4: Harmonic value updates.' : '✗ Test 4 FAILED: Harmonic did not change.'); }catch(e){ log('✗ Test 4 ERROR: '+e.message); }
+        // Test 5: Pause/Resume halts and resumes phase evolution
+        try{
+          const pauseBtn = $("btnPause");
+          const snap = phi.slice();
+          pauseBtn.click(); // pause
+          await new Promise(r=>setTimeout(r, 350));
+          const still = phi.every((v,i)=>Math.abs(v - snap[i]) < 1e-9);
+          pauseBtn.click(); // resume
+          await new Promise(r=>setTimeout(r, 350));
+          const moved = phi.some((v,i)=>Math.abs(v - snap[i]) > 1e-6);
+          log((still && moved) ? '✓ Test 5: Pause freezes; resume advances phases.' : '✗ Test 5 FAILED: Pause/resume behavior unexpected.');
+        }catch(e){ log('✗ Test 5 ERROR: '+e.message); }
+      }
+      $("btnRunTests").onclick = runTests;
+    });
+  </script>
+</body>
+</html>
