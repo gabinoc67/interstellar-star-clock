@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Hybrid Warp Engine — Sub-C Propulsion and Warp Bubble Visualization</title>
+<style>
+:root {
+  --bg:#0b1020; --ink:#eaf0ff; --muted:#b8c4ff; --card:#111631; 
+  --accent:#9bb4ff; --ok:#33e1b5; --warn:#ffcc66; --bad:#ff6b6b;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;line-height:1.5}
+.wrap{max-width:1200px;margin:0 auto;padding:16px}
+.panel{background:var(--card);border:1px solid var(--accent);padding:10px;margin-bottom:12px;border-radius:8px}
+h1{margin:.3rem 0 .6rem}
+h2{margin:.4rem 0 .3rem}
+h2.small{font-size:1rem}
+button{background:var(--accent);color:#000;border:none;padding:6px 12px;
+  margin-right:4px;border-radius:4px;cursor:pointer;font-weight:600}
+button:hover{filter:brightness(1.15)}
+.grid{display:grid;gap:6px}
+.row{display:flex;gap:6px;align-items:center}
+.tele{width:100%;border-collapse:collapse}
+.tele td{border:1px solid var(--border,#22305c);padding:2px 4px}
+.tele td.k{color:var(--muted)}
+.help dt{font-weight:700;color:var(--accent)}
+.help dd{margin:0 0 6px 0;color:var(--muted)}
+canvas{width:100%;height:460px;background:radial-gradient(circle at 50% 50%,#111631 0%,#060915 80%);border-radius:8px;margin-top:8px}
+svg text{fill:var(--muted);font-size:12px}
+svg rect{fill:#1b2142;stroke:var(--accent);stroke-width:1.2}
+svg line{stroke:var(--accent);stroke-width:1.2}
+.legend{margin-top:6px;font-size:.9rem}
+</style>
+</head>
+
+<body>
+<div class="wrap">
+  <h1>Hybrid Warp Engine Visualization — Sub-C & Warp Bubble Modes</h1>
+
+  <div class="panel">
+    <div class="row" style="justify-content:space-between">
+      <div class="row">
+        <button id="btnDemo">▶ Run Demo</button>
+        <button id="btnStopDemo">■ Stop Demo</button>
+        <button id="toggleLabels">Hide labels</button>
+      </div>
+      <div class="row">
+        <label for="labelMode">Mode:</label>
+        <select id="labelMode">
+          <option value="subc">Sub-C Engineering</option>
+          <option value="warp">Warp Bubble (theoretical)</option>
+        </select>
+      </div>
+    </div>
+    <p id="disclaimer" style="color:var(--warn)">
+      Sub-c engineering mode: fusion/nuclear/plasma + magnetic nozzle + HTS coils; physics-realistic.
+    </p>
+    <canvas id="view" width="1150" height="460"></canvas>
+
+    <svg id="labelLayer" width="1150" height="460" style="position:relative;z-index:2">
+      <g class="lbl"><line x1="120" y1="160" x2="180" y2="300"/><rect x="60" y="120" width="140" height="34"/><text x="70" y="142">Temporal Synchronizer</text></g>
+      <g class="lbl"><line x1="240" y1="140" x2="260" y2="320"/><rect x="180" y="100" width="160" height="34"/><text x="190" y="122">Control Core (AI + CLF/SMC/PTAC)</text></g>
+      <g class="lbl"><line x1="340" y1="120" x2="360" y2="330"/><rect x="280" y="80" width="160" height="34"/><text x="290" y="102">Quantum Sensors</text></g>
+      <g class="lbl"><line x1="440" y1="110" x2="460" y2="350"/><rect x="380" y="70" width="150" height="34"/><text x="390" y="92">RF Stack</text></g>
+      <g class="lbl"><line x1="560" y1="120" x2="520" y2="380"/><rect x="500" y="90" width="160" height="34"/><text x="510" y="112">HTS Coil Lattice</text></g>
+      <g class="lbl"><line x1="680" y1="140" x2="620" y2="380"/><rect x="600" y="100" width="160" height="34"/><text x="610" y="122">Resonant Chamber</text></g>
+      <g class="lbl"><line x1="800" y1="160" x2="700" y2="380"/><rect x="700" y="120" width="160" height="34"/><text x="710" y="142">Power Block</text></g>
+      <g class="lbl"><line x1="900" y1="200" x2="760" y2="400"/><rect x="780" y="160" width="160" height="34"/><text x="790" y="182">Cryostat & Vacuum</text></g>
+      <g class="lbl"><line x1="920" y1="340" x2="820" y2="410"/><rect x="800" y="300" width="160" height="34"/><text x="810" y="322">Metamaterial Rings</text></g>
+      <g class="lbl"><line x1="940" y1="460" x2="840" y2="450"/><rect x="780" y="480" width="180" height="34"/><text x="790" y="502">Magnetic Nozzle / Exhaust</text></g>
+    </svg>
+
+    <div class="row" style="margin-top:8px;justify-content:space-between">
+      <h2 class="small">Telemetry</h2>
+      <div class="row"><button id="teleDensity">Compact</button></div>
+    </div>
+    <div class="tele-wrap"><table id="tele" class="tele"></table></div>
+
+    <div class="legend" id="clockRow">
+      <strong>UTC:</strong><span id="utc">--:--:--</span> |
+      <strong>CST:</strong><span id="cst">--:--:--</span> |
+      <strong>Warp Time:</strong><span id="warpClock">--:--:--</span>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:12px">
+    <h2>Subsystem Explanations & Quick Instructions</h2>
+    <dl class="help">
+      <dt>Temporal Synchronizer</dt><dd>Locks CST/UTC clocks and warp-time drift for relativity visualization.</dd>
+      <dt>Control Core (AI + CLF/SMC/PTAC)</dt><dd>Adaptive stabilization control loop using classical and AI predictive components.</dd>
+      <dt>Quantum Sensors</dt><dd>Measure local spacetime stress and feed back to control core for bubble stability.</dd>
+      <dt>RF Stack / Magnetic Nozzle</dt><dd>Plasma acceleration and confinement using RF power and magnetic field shaping.</dd>
+      <dt>HTS Coil Lattice</dt><dd>High-temperature superconducting coils generate strong controllable fields.</dd>
+      <dt>Resonant Chamber</dt><dd>Standing wave chamber coupling EM and plasma oscillations for energy transfer.</dd>
+      <dt>Power Block</dt><dd>Hybrid fusion/nuclear source providing energy for coils and RF stack.</dd>
+      <dt>Cryostat & Vacuum</dt><dd>Thermal management maintaining superconductivity (2–20 K).</dd>
+      <dt>Metamaterial Rings</dt><dd>Fine-tune magnetic-field curvature for propulsion symmetry.</dd>
+      <dt>Power → Thrust / Acceleration</dt><dd>Computes thrust and acceleration from input power and exhaust velocity.</dd>
+      <dt>Radiator & Dust Environment</dt><dd>Thermal and particle shielding parameters for realistic operation.</dd>
+    </dl>
+  </div>
+</div>
+
+<!-- === SCRIPT START === -->
+<script>
+/* === Core constants & helpers === */
+const $=id=>document.getElementById(id);
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2,C=299792458;
+function parseVe(txt){if(!txt)return NaN;txt=txt.trim();if(txt.endsWith('c')||txt.endsWith('C'))return parseFloat(txt)*C;const n=Number(txt);return isFinite(n)?n:NaN;}
+
+/* === DOM refs === */
+const canvas=$('view'),ctx=canvas.getContext('2d');let running=false,raf=null,demoTimer=null,demoDir=1,fanAngle=0,warpClock=Date.now();
+
+/* === animation parameters === */
+function speedMult(w){return lerp(1,6,(w-1)/9);}
+function aspectX(w){return lerp(1,1.9,(w-1)/9);}
+function aspectY(w){return lerp(0.9,0.6,(w-1)/9);}
+function plasmaLen(w){return Math.round(lerp(90,260,(w-1)/9));}
+function plasmaRad(w){return Math.round(lerp(10,36,(w-1)/9));}
+
+const L={cx:520,cy:380},base={rx:150,ry:90};
+function drawBody(){ctx.fillStyle='#22284b';ctx.fillRect(100,330,600,100);ctx.fill();}
+function drawFan(a){const cx=160,cy=L.cy;ctx.fillStyle='#a4b2d8';ctx.beginPath();ctx.arc(cx,cy,28,0,TAU);ctx.fill();
+  for(let i=0;i<6;i++){const ang=a+i*TAU/6;const r1=12,r2=46;
+    ctx.fillStyle='#c7d4ff';ctx.beginPath();ctx.moveTo(cx+Math.cos(ang)*r1,cy+Math.sin(ang)*r1);
+    ctx.lineTo(cx+Math.cos(ang+.18)*r2,cy+Math.sin(ang+.18)*r2);
+    ctx.lineTo(cx+Math.cos(ang+.36)*r1,cy+Math.sin(ang+.36)*r1);ctx.closePath();ctx.fill();}}
+function drawPlasma(w){const len=plasmaLen(w),rad=plasmaRad(w),x0=L.cx+120;
+  const g=ctx.createLinearGradient(x0,L.cy-10,x0+len,L.cy-10);
+  g.addColorStop(0,'rgba(255,220,168,0.8)');g.addColorStop(1,'rgba(255,220,168,0.03)');
+  ctx.fillStyle=g;ctx.beginPath();ctx.moveTo(x0,L.cy-rad);ctx.lineTo(x0+len,L.cy-rad*.35);
+  ctx.lineTo(x0+len,L.cy+rad*.35);ctx.lineTo(x0,L.cy+rad);ctx.closePath();ctx.fill();return{len,rad};}
+function drawField(w){const rx=base.rx*aspectX(w),ry=base.ry*aspectY(w);
+  ctx.strokeStyle='rgba(51,225,181,0.3)';ctx.lineWidth=3;
+  for(let i=0;i<5;i++){ctx.beginPath();ctx.ellipse(L.cx,L.cy,rx+i*16,ry+i*8,0,0,TAU);ctx.stroke();}
+  return{rx,ry};}
+
+/* === telemetry === */
+const tele=$('tele');
+function setTele(k,v){let el=tele.querySelector(`[data-k="${k}"]`);
+  if(!el){const r=document.createElement('tr');r.innerHTML=`<td class="k">${k}</td><td data-k="${k}">${v}</td>`;
+    tele.appendChild(r);el=r.children[1];}el.textContent=v;}
+
+/* === animation loop === */
+let photons=[];function spawnPhoton(m){photons.push({x:240,y:L.cy+(Math.random()-0.5)*60,spd:m*(0.9+Math.random()*0.2)});}
+function step(){if(!running)return;const w=+$('warp')?.value||5;ctx.clearRect(0,0,canvas.width,canvas.height);
+  drawBody();drawFan(fanAngle);drawField(w);drawPlasma(w);
+  photons.forEach(p=>{p.x+=p.spd;ctx.fillStyle='#9bb4ff';ctx.fillRect(p.x,p.y,3,2);});
+  photons=photons.filter(p=>p.x<1200);if(Math.random()<.4)spawnPhoton(speedMult(w));fanAngle+=.01*speedMult(w);
+  setTele('Warp',w);raf=requestAnimationFrame(step);}
+
+/* === buttons === */
+$('btnDemo').onclick=()=>{running=true;if(!raf)raf=requestAnimationFrame(step);};
+$('btnStopDemo').onclick=()=>{running=false;if(raf){cancelAnimationFrame(raf);raf=null;}};
+$('toggleLabels').onclick=()=>{const layer=$('labelLayer');
+  layer.style.display=(layer.style.display==='none'?'block':'none');
+  $('toggleLabels').textContent=(layer.style.display==='none'?'Show labels':'Hide labels');};
+$('labelMode').onchange=()=>{$('disclaimer').textContent=
+  ($('labelMode').value==='warp')
+  ?'Warp-bubble (theoretical): requires exotic stress–energy; demonstration only.'
+  :'Sub-c engineering mode: fusion/nuclear/plasma + magnetic nozzle + HTS coils; physics-realistic.';};
+
+/* === clock update === */
+setInterval(()=>{const now=Date.now();
+  $('utc').textContent=new Date(now).toLocaleTimeString('en-GB',{timeZone:'UTC'});
+  $('cst').textContent=new Date(now).toLocaleTimeString('en-US',{timeZone:'America/Chicago'});
+  warpClock+=250;$('warpClock').textContent=new Date(warpClock).toLocaleTimeString('en-US',{hour12:false});},1000);
+
+/* === calculator === */
+const calcBox=document.createElement('div');
+calcBox.className='panel';calcBox.style.marginTop='8px';
+calcBox.innerHTML=`<h2 class="small">Relativistic Rocket Calculator</h2>
+<div class="grid" style="grid-template-columns:repeat(3,1fr);gap:8px;">
+<div><label>Payload mass (kg)</label><input id="calcMass" type="number" value="1000" style="width:100%"></div>
+<div><label>Exhaust velocity (fraction of c)</label><input id="calcVe" type="number" step="0.01" value="0.1" style="width:100%"></div>
+<div><label>Target speed (fraction of c)</label><input id="calcV" type="number" step="0.01" value="0.9" style="width:100%"></div></div>
+<div class="row" style="justify-content:space-between;margin-top:6px;">
+<button id="calcBtn">Compute</button><button id="syncBtn">Set Demo to 1 g Cruise</button></div>
+<table class="tele" id="calcOut" style="margin-top:6px;">
+<tr><td>Mass Ratio m₀/m_f</td><td id="calcMR">—</td></tr>
+<tr><td>Energy (J)</td><td id="calcE">—</td></tr>
+<tr><td>Energy (MT TNT)</td><td id="calcMT">—</td></tr>
+<tr><td>Proper Time to target (1 g)</td><td id="calcTau">—</td></tr></table>`;
+document.body.appendChild(calcBox);
+
+$('calcBtn').onclick=()=>{const m=+$('calcMass').value,veFrac=+$('calcVe').value,vFrac=+$('calcV').value;
+  const ve=veFrac*C,v=vFrac*C,phi=Math.atanh(v/C),mr=Math.exp(phi*(v/ve));
+  const gamma=1/Math.sqrt(1-(v*v)/(C*C)),E=(gamma-1)*m*C*C,Emt=E/4.184e15,tau=(C*Math.atanh(v/C)/9.80665);
+  $('calcMR').textContent=mr.toExponential(3);$('calcE').textContent=E.toExponential(3);
+  $('calcMT').textContent=Emt.toFixed(1);$('calcTau').textContent=(tau/3.154e7).toFixed(2)+' years (ship time)';};
+$('syncBtn').onclick=()=>{$('warp').value=1;setTele('Cruise Mode','1 g constant accel');};
+
+/* === beamed-power mode === */
+const beamBox=document.createElement('div');
+beamBox.className='panel';beamBox.innerHTML=`<h2 class="small">Beamed-Power Mode</h2>
+<div class="grid" style="grid-template-columns:repeat(3,1fr);gap:8px;">
+<div><label>Beam Power (MW)</label><input id="beamP" type="number" value="1000"></div>
+<div><label>Mirror Diameter (m)</label><input id="beamD" type="number" value="1000"></div>
+<div><label>Distance (km)</label><input id="beamR" type="number" value="1000"></div></div>
+<div class="row" style="margin-top:6px;"><button id="beamCalc">Compute</button></div>
+<table class="tele" style="margin-top:6px;">
+<tr><td>Spot Size (m)</td><td id="beamSpot">—</td></tr>
+<tr><td>Intensity (W/m²)</td><td id="beamInt">—</td></tr>
+<tr><td>Thrust (N, if 100% reflection)</td><td id="beamT">—</td></tr></table>`;
+document.body.appendChild(beamBox);
+
+$('beamCalc').onclick=()=>{const P=+$('beamP').value*1e6,D=+$('beamD').value,R=+$('beamR').value*1e3;
+  const λ=1e-6,θ=1.22*λ/D,spot=θ*R,int=P/(Math.PI*(spot/2)**2),thrust=2*P/C;
+  $('beamSpot').textContent=spot.toFixed(2);$('beamInt').textContent=int.toExponential(3);$('beamT').textContent=thrust.toFixed(2);};
+setTele('System','Ready');
+</script>
+</body>
+</html>
