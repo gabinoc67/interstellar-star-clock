@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Einstein Master Equation — CST-Timed Self-Consistency Dashboard</title>
+<!-- MathJax for equations -->
+<script>
+window.MathJax = {tex: {inlineMath: [['$', '$'], ['\\(', '\\)']]}};
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#121822; --ink:#e6edf7; --muted:#98a2b3; --accent:#6ee7ff; --ok:#3ddc97; --warn:#ffdd57; --bad:#ff5c7a;
+    --grid:#1b2430; --card:#0f1420; --accent2:#a78bfa;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink); background: linear-gradient(180deg,#0a0e13, #0c1220 40%, #0a0f1a 100%);
+  }
+  header{
+    padding:20px 24px; border-bottom:1px solid #1c2532; position:sticky; top:0; backdrop-filter: blur(6px);
+    background: rgba(10,14,19,0.8);
+  }
+  h1{margin:0; font-size:24px; letter-spacing:0.2px}
+  .sub{color:var(--muted); margin-top:6px; font-size:14px}
+  main{max-width:1200px; margin:24px auto; padding:0 16px 80px}
+  .grid{display:grid; gap:16px}
+  .cols-3{grid-template-columns:repeat(3,1fr)}
+  .cols-2{grid-template-columns:repeat(2,1fr)}
+  .card{
+    background: linear-gradient(180deg, var(--panel), #0f1723);
+    border:1px solid #1e2a3b; border-radius:16px; padding:16px; box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+  }
+  .card h2, .card h3{margin:0 0 8px 0}
+  .kicker{color:var(--accent); font-size:12px; letter-spacing:.12em; text-transform:uppercase}
+  label{display:block; font-size:12px; color:var(--muted); margin:8px 0 4px}
+  input, select{
+    width:100%; background:#0b1220; color:var(--ink); border:1px solid #263349; border-radius:10px; padding:10px 12px;
+    outline:none; box-shadow: inset 0 0 0 1px transparent; transition:.2s border-color, .2s box-shadow;
+  }
+  input:focus, select:focus{border-color:var(--accent); box-shadow: inset 0 0 0 1px var(--accent)}
+  .btnrow{display:flex; gap:12px; flex-wrap:wrap; margin-top:12px}
+  button{
+    background:linear-gradient(180deg,#1b2637,#141e2c); color:#e6f3ff; border:1px solid #223149; border-radius:12px;
+    padding:10px 14px; cursor:pointer; transition:.2s transform,.2s background, .2s border-color;
+  }
+  button:hover{transform:translateY(-1px); border-color:#2f4668}
+  button.primary{
+    background:linear-gradient(180deg,#00bcd4,#0094b2); border-color:#00a5be; color:#00131a; font-weight:700;
+  }
+  canvas{width:100%; height:220px; background:conic-gradient(from .5turn at 110% -10%, rgba(110,231,255,.06), transparent 20%) , radial-gradient(1200px 420px at 120% -30%, rgba(167,139,250,.06), transparent 40%), #0a0f17; border-radius:12px}
+  .eq{font-family: ui-serif, Georgia, serif; color:#eaf2ff; font-size:14px; line-height:1.55; background:#0b1220; border:1px solid #243149; border-radius:12px; padding:12px}
+  .badge{display:inline-flex; align-items:center; gap:6px; font-size:12px; padding:4px 10px; border-radius:999px; border:1px solid #1e2a3b; background:#0b1220}
+  .ok{color:var(--ok); border-color:#1e3b2d}
+  .bad{color:var(--bad); border-color:#3b1e27}
+  .warn{color:var(--warn); border-color:#3b361e}
+  table{width:100%; border-collapse:collapse; overflow:hidden; border-radius:12px; border:1px solid #1e2a3b}
+  th, td{padding:10px 12px; text-align:left; border-bottom:1px solid #1b2533; font-size:14px}
+  th{color:#c7d4e8; background:#10192a; font-weight:600}
+  tr:last-child td{border-bottom:none}
+  .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
+  footer{margin-top:24px; color:var(--muted); font-size:12px}
+  .row{display:flex; gap:12px; align-items:baseline; flex-wrap:wrap}
+</style>
+</head>
+<body>
+<header>
+  <h1>Einstein Master Equation — CST-Timed Self-Consistency Dashboard</h1>
+  <div class="sub">Enter first-run parameters, press <b>Run Simulation</b>, and watch residuals, energy & validation update live.</div>
+</header>
+<main class="grid">
+  <!-- Inputs -->
+  <section class="card">
+    <div class="kicker">First-Run Test Plan</div>
+    <h2>Simulation Inputs & Tolerances</h2>
+    <div class="grid cols-3">
+      <div>
+        <label>Steps (N)</label>
+        <input id="steps" type="number" min="10" max="10000" step="10" value="500">
+        <label>Δt (time step)</label>
+        <input id="dt" type="number" min="1e-6" step="0.001" value="0.02">
+      </div>
+      <div>
+        <label>ε<sub>GR</sub> tolerance</label>
+        <input id="epsGR" type="number" min="1e-16" step="1e-6" value="1e-6">
+        <label>ε<sub>QM</sub> tolerance</label>
+        <input id="epsQM" type="number" min="1e-16" step="1e-6" value="1e-6">
+      </div>
+      <div>
+        <label>Target ΔC final</label>
+        <input id="epsDC" type="number" min="1e-16" step="1e-6" value="1e-6">
+        <label>Consecutive steps to declare “solved”</label>
+        <input id="hold" type="number" min="5" step="5" value="50">
+      </div>
+    </div>
+    <div class="grid cols-3" style="margin-top:10px">
+      <div>
+        <label>Initial residual R<sub>GR</sub>(0)</label>
+        <input id="Rgr0" type="number" step="0.001" value="0.08">
+        <label>Initial residual R<sub>QM</sub>(0)</label>
+        <input id="Rqm0" type="number" step="0.001" value="0.06">
+      </div>
+      <div>
+        <label>Initial error ΔC(0)</label>
+        <input id="dC0" type="number" step="0.001" value="0.10">
+        <label>Initial h-spectrum imbalance (0–1)</label>
+        <input id="spec0" type="number" min="0" max="1" step="0.01" value="0.70">
+      </div>
+      <div>
+        <label>PD gain k<sub>p</sub></label>
+        <input id="kp" type="number" step="0.001" value="1.6">
+        <label>PD gain k<sub>d</sub></label>
+        <input id="kd" type="number" step="0.001" value="0.3">
+      </div>
+    </div>
+    <div class="btnrow">
+      <button class="primary" id="runBtn">Run Simulation</button>
+      <button id="resetBtn">Reset</button>
+      <span id="statusBadge" class="badge warn">Idle — awaiting run</span>
+    </div>
+    <div style="margin-top:10px; color:var(--muted); font-size:12px">
+      Tips: start with small k<sub>p</sub>, k<sub>d</sub>. Increase slowly after damping appears. Keep ε values realistic.
+    </div>
+  </section>
+
+  <!-- Equations -->
+  <section class="card">
+    <div class="kicker">Equations</div>
+    <h2>Master System & Control Law</h2>
+    <div class="grid cols-2">
+      <div class="eq">
+        <b>Linearized Einstein equation</b><br/>
+        \[
+          \square\,\bar{h}_{\mu\nu} = -16\pi G\,S_{\mu\nu},\quad
+          S_{\mu\nu}=\langle \hat T_{\mu\nu}\rangle + T_{\mu\nu}^{\text{class}} + F^{\text{CST}}_{\mu\nu}
+        \]
+        <b>Quantum single-mode Lindblad</b><br/>
+        \[
+          \dot{\hat\rho} = -\frac{i}{\hbar}\left[\hbar\omega\big(1+\gamma\,\Phi[h]\big)a^\dagger a,\hat\rho\right]
+          + \kappa \mathcal D[a]\hat\rho
+          + \gamma_\phi \mathcal D[a^\dagger a]\hat\rho
+          + \mathcal L_{\text{CST}}
+        \]
+      </div>
+      <div class="eq">
+        <b>CST feedback (PD)</b><br/>
+        \[
+          F^{\text{CST}}_{\mu\nu} = -k_p\,\Delta h_{\mu\nu} - k_d\,\Delta \dot h_{\mu\nu},\quad
+          \Delta h_{\mu\nu} = h_{\mu\nu} - h^{\text{target}}_{\mu\nu}(t_{\text{CST}})
+        \]<br/>
+        <b>Renormalized vacuum</b><br/>
+        \[
+          T_{\mu\nu}^{(\text{vac})} = 
+          \langle 0|\hat T_{\mu\nu}|0\rangle - \langle 0|\hat T_{\mu\nu}|0\rangle_{\text{flat}}
+        \]
+      </div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <span class="badge">Fix Lorenz gauge & monitor constraints</span>
+      <span class="badge">Avoid hidden energy injection</span>
+      <span class="badge">Tune controller gradually</span>
+    </div>
+  </section>
+
+  <!-- Plots -->
+  <section class="card">
+    <div class="kicker">Run Log</div>
+    <h2>Residuals vs. Time (Convergence)</h2>
+    <canvas id="residuals"></canvas>
+    <div class="row" style="margin-top:8px">
+      <span class="badge" id="solvedBadge">Self-consistency: —</span>
+      <span class="badge" id="stableBadge">Stability: —</span>
+      <span class="badge" id="physicalBadge">Physicality: —</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="kicker">Field Plots</div>
+    <h2>h<sub>μν</sub> Snapshots & Spectral Content</h2>
+    <div class="grid cols-2">
+      <div>
+        <h3 style="margin-bottom:6px">Snapshot: pre-control</h3>
+        <canvas id="snapPre"></canvas>
+      </div>
+      <div>
+        <h3 style="margin-bottom:6px">Snapshot: post-control</h3>
+        <canvas id="snapPost"></canvas>
+      </div>
+    </div>
+    <div class="grid cols-2" style="margin-top:12px">
+      <div>
+        <h3 style="margin-bottom:6px">Spectrum: pre</h3>
+        <canvas id="specPre"></canvas>
+      </div>
+      <div>
+        <h3 style="margin-bottom:6px">Spectrum: post</h3>
+        <canvas id="specPost"></canvas>
+      </div>
+    </div>
+  </section>
+
+  <!-- Energy accounting -->
+  <section class="card">
+    <div class="kicker">Energy</div>
+    <h2>Input Power vs. Curvature Change (Efficiency)</h2>
+    <canvas id="energy"></canvas>
+    <div class="row" style="margin-top:8px">
+      <span class="badge" id="effBadge">Efficiency: —</span>
+      <span class="badge" id="powerBadge">Total power: —</span>
+    </div>
+  </section>
+
+  <!-- Validation -->
+  <section class="card">
+    <div class="kicker">Validation</div>
+    <h2>Observable Checks (Pass/Fail)</h2>
+    <table>
+      <thead>
+        <tr><th>Test</th><th>Target</th><th>Measured</th><th>Status</th></tr>
+      </thead>
+      <tbody id="valTable">
+        <tr><td>Solar-system orbits (fractional err/orbit)</td><td><span class="mono">&lt; 1e-8</span></td><td id="orbitVal" class="mono">—</td><td id="orbitStatus">—</td></tr>
+        <tr><td>Cosmology (recover Friedmann in homogeneous limit)</td><td><span class="mono">match</span></td><td id="frwVal" class="mono">—</td><td id="frwStatus">—</td></tr>
+        <tr><td>Lab EM cavity (Δf vs synthetic h)</td><td><span class="mono">linear</span></td><td id="labVal" class="mono">—</td><td id="labStatus">—</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Six categories -->
+  <section class="card">
+    <div class="kicker">Checkoff</div>
+    <h2>Six Categories — Status</h2>
+    <div class="grid cols-3">
+      <div class="eq"><b>Geometry</b><br/>Specify \(g_{\mu\nu}(x,t;\theta)\)<br/><span id="geomStatus" class="badge">—</span></div>
+      <div class="eq"><b>Source</b><br/>Closed forms for \(T_{\mu\nu}^{\text{matter}},T_{\mu\nu}^{\text{EM}},T_{\mu\nu}^{\text{plasma}},T_{\mu\nu}^{\text{vac}}\)<br/><span id="srcStatus" class="badge">—</span></div>
+      <div class="eq"><b>Boundaries</b><br/>Initial & asymptotic conditions<br/><span id="bndStatus" class="badge">—</span></div>
+      <div class="eq"><b>Computation</b><br/>Tensor integrator / solver<br/><span id="cmpStatus" class="badge">—</span></div>
+      <div class="eq"><b>Feedback</b><br/>CST law \(F_{\mu\nu}=K_{\mu\nu}\Delta h_{\mu\nu}+D_{\mu\nu}\Delta\dot h_{\mu\nu}\)<br/><span id="fbkStatus" class="badge">—</span></div>
+      <div class="eq"><b>Validation</b><br/>Observable tests<br/><span id="valStatus" class="badge">—</span></div>
+    </div>
+  </section>
+
+  <footer>
+    This page uses simple toy dynamics (exponential damping & synthetic spectra) to exercise the workflow.
+    Replace the integrator with your GR + QM solver outputs to go from “demo” to “real yes”.
+  </footer>
+</main>
+
+<script>
+(function(){
+  // Utility drawing
+  function clearCanvas(c){const ctx=c.getContext('2d'); ctx.clearRect(0,0,c.width,c.height); return ctx;}
+  function sizeCanvas(c){const dpr=window.devicePixelRatio||1; c.width=Math.floor(c.clientWidth*dpr); c.height=Math.floor(c.clientHeight*dpr); c.getContext('2d').setTransform(dpr,0,0,dpr,0,0);}
+
+  // Simple line plot
+  function linePlot(canvas, series, colors, labels){
+    sizeCanvas(canvas);
+    const ctx=clearCanvas(canvas);
+    const W=canvas.clientWidth, H=canvas.clientHeight;
+    // axes
+    ctx.strokeStyle="#1b2a3d"; ctx.lineWidth=1;
+    for(let i=1;i<=4;i++){const y=H*i/5; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();}
+    // bounds
+    let xmin=Infinity,xmax=-Infinity,ymin=Infinity,ymax=-Infinity;
+    series.forEach(s=>{
+      s.forEach(p=>{xmin=Math.min(xmin,p[0]); xmax=Math.max(xmax,p[0]); ymin=Math.min(ymin,p[1]); ymax=Math.max(ymax,p[1]);});
+    });
+    if (!isFinite(ymin) || !isFinite(ymax)){ymin=0; ymax=1;}
+    if (ymin===ymax){ymax=ymin+1;}
+    const pad=8; const xmap=x=> (x-xmin)/(xmax-xmin||1)*(W-2*pad)+pad;
+    const ymap=y=> H - ((y-ymin)/(ymax-ymin||1))*(H-2*pad)-pad;
+    series.forEach((s,i)=>{
+      ctx.strokeStyle=colors[i%colors.length]; ctx.lineWidth=2; ctx.beginPath();
+      s.forEach((p,j)=>{const X=xmap(p[0]); const Y=ymap(p[1]); j?ctx.lineTo(X,Y):ctx.moveTo(X,Y);});
+      ctx.stroke();
+    });
+    // legend
+    ctx.font="12px system-ui"; let x=8, y=16;
+    labels.forEach((L,i)=>{ctx.fillStyle=colors[i%colors.length]; ctx.fillRect(x,y-8,10,10); ctx.fillStyle="#cfe6ff"; ctx.fillText(" "+L, x+12, y); x+=120;});
+  }
+
+  // Heat-like blob for snapshot
+  function blob(canvas, strength, seed){
+    sizeCanvas(canvas);
+    const ctx=clearCanvas(canvas);
+    const W=canvas.clientWidth, H=canvas.clientHeight;
+    const cx=W*0.5, cy=H*0.5;
+    const grd=ctx.createRadialGradient(cx,cy,10, cx,cy, Math.max(W,H)*0.6);
+    const a=Math.max(0.12, Math.min(0.85, strength));
+    grd.addColorStop(0, `rgba(110,231,255,${a})`);
+    grd.addColorStop(0.35, `rgba(167,139,250,${a*0.7})`);
+    grd.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle=grd; ctx.fillRect(0,0,W,H);
+    // add waves
+    ctx.globalAlpha=0.4;
+    ctx.strokeStyle="rgba(110,231,255,0.35)"; ctx.lineWidth=1.2;
+    for(let k=1;k<=6;k++){
+      ctx.beginPath();
+      for(let x=0;x<W;x++){
+        const y=cy + Math.sin((x/W)*Math.PI*2*(k+seed))* (10+strength*20)/(k*0.6);
+        x===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+      }
+      ctx.stroke();
+    }
+    ctx.globalAlpha=1;
+  }
+
+  // Spectrum bars
+  function bars(canvas, vec){
+    sizeCanvas(canvas);
+    const ctx=clearCanvas(canvas);
+    const W=canvas.clientWidth, H=canvas.clientHeight;
+    const n=vec.length, w = (W-20)/n;
+    for(let i=0;i<n;i++){
+      const v=Math.max(0,Math.min(1,vec[i]));
+      const h=v*H*0.9;
+      ctx.fillStyle = `rgba(167,139,250,${0.25+0.6*v})`;
+      ctx.fillRect(10+i*w, H-h-10, w*0.7, h);
+    }
+  }
+
+  // Efficiency gauge badge
+  function setBadge(el, text, cls){
+    el.textContent=text; el.className='badge '+cls;
+  }
+
+  // Validation row setter
+  function setValRow(valEl, statusEl, measured, pass){
+    valEl.textContent = measured;
+    statusEl.innerHTML = pass ? `<span class="badge ok">PASS</span>` : `<span class="badge bad">FAIL</span>`;
+  }
+
+  // Main simulation (toy)
+  const runBtn = document.getElementById('runBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const statusBadge = document.getElementById('statusBadge');
+  const resCanvas = document.getElementById('residuals');
+  const snapPre = document.getElementById('snapPre');
+  const snapPost = document.getElementById('snapPost');
+  const specPre = document.getElementById('specPre');
+  const specPost = document.getElementById('specPost');
+  const energyC = document.getElementById('energy');
+
+  const solvedBadge = document.getElementById('solvedBadge');
+  const stableBadge = document.getElementById('stableBadge');
+  const physicalBadge = document.getElementById('physicalBadge');
+
+  const orbitVal = document.getElementById('orbitVal');
+  const orbitStatus = document.getElementById('orbitStatus');
+  const frwVal = document.getElementById('frwVal');
+  const frwStatus = document.getElementById('frwStatus');
+  const labVal = document.getElementById('labVal');
+  const labStatus = document.getElementById('labStatus');
+
+  const geomStatus = document.getElementById('geomStatus');
+  const srcStatus = document.getElementById('srcStatus');
+  const bndStatus = document.getElementById('bndStatus');
+  const cmpStatus = document.getElementById('cmpStatus');
+  const fbkStatus = document.getElementById('fbkStatus');
+  const valStatus = document.getElementById('valStatus');
+
+  // mark six categories as assumed specified for now
+  function markCategories(){
+    setBadge(geomStatus,"Geometry ✓","ok");
+    setBadge(srcStatus,"Source ✓","ok");
+    setBadge(bndStatus,"Boundaries ✓","ok");
+    setBadge(cmpStatus,"Computation ✓","ok");
+    setBadge(fbkStatus,"Feedback ✓","ok");
+    setBadge(valStatus,"Validation (pending run)","warn");
+  }
+  markCategories();
+
+  function parseNum(id){ return parseFloat(document.getElementById(id).value); }
+
+  // Fake integrator to emulate convergence with PD-like damping
+  function simulate(){
+    const N=parseInt(document.getElementById('steps').value,10);
+    const dt=parseNum('dt');
+    const epsGR=parseNum('epsGR');
+    const epsQM=parseNum('epsQM');
+    const epsDC=parseNum('epsDC');
+    const hold=parseInt(document.getElementById('hold').value,10);
+    const Rgr0=parseNum('Rgr0');
+    const Rqm0=parseNum('Rqm0');
+    const dC0=parseNum('dC0');
+    const spec0=Math.max(0,Math.min(1,parseNum('spec0')));
+    const kp=parseNum('kp');
+    const kd=parseNum('kd');
+
+    // toy decay rates derived from gains (bounded)
+    const alphaGR = Math.max(0.1, Math.min(5, 0.2*kp + 0.05*kd));
+    const alphaQM = Math.max(0.08, Math.min(5, 0.17*kp + 0.07*kd));
+    const alphaDC = Math.max(0.12, Math.min(5, 0.22*kp + 0.04*kd));
+
+    let t=0;
+    let Rgr=Rgr0, Rqm=Rqm0, dC=dC0;
+    let solvedCount=0;
+    const seriesGR=[], seriesQM=[], seriesDC=[], seriesPow=[], seriesEff=[];
+    let totPower=0, totCurv=0;
+
+    for(let i=0;i<N;i++){
+      // exponential-like damp with small colored noise to mimic iteration
+      const noiseGR = (Math.random()-0.5)*Rgr0*0.002;
+      const noiseQM = (Math.random()-0.5)*Rqm0*0.002;
+      const noiseDC = (Math.random()-0.5)*dC0*0.002;
+
+      Rgr = Math.max(0, Rgr*Math.exp(-alphaGR*dt) + noiseGR);
+      Rqm = Math.max(0, Rqm*Math.exp(-alphaQM*dt) + noiseQM);
+      dC  = Math.max(0,  dC*Math.exp(-alphaDC*dt) + noiseDC);
+
+      // PD "power" ~ kp*ΔC^2 + kd*(ΔC')^2 (use finite diff for ΔC')
+      const dCdot = -alphaDC*dC; // toy
+      const power = Math.max(0, kp*Math.pow(dC,2) + kd*Math.pow(dCdot,2));
+      const dCurv = Math.max(0, (Rgr0+Rqm0)-(Rgr+Rqm))*0.5; // proxy curvature improvement
+
+      totPower += power*dt;
+      totCurv  += dCurv*dt;
+
+      seriesGR.push([t,Rgr]);
+      seriesQM.push([t,Rqm]);
+      seriesDC.push([t,dC]);
+      seriesPow.push([t, power]);
+      seriesEff.push([t, totPower>0 ? totCurv/totPower : 0]);
+
+      // solved window
+      if (Rgr<epsGR && Rqm<epsQM && dC<epsDC) solvedCount++; else solvedCount=0;
+      t += dt;
+    }
+
+    // Draw residuals
+    linePlot(resCanvas, [seriesGR,seriesQM,seriesDC], ["#6ee7ff","#a78bfa","#3ddc97"], ["R_GR","R_QM","ΔC"]);
+
+    // Snapshots & spectra (toy)
+    blob(snapPre, spec0, 2);
+    blob(snapPost, Math.max(0,spec0-0.55), 4);
+
+    // spectra vectors
+    const pre = Array.from({length:24},(_,i)=> Math.max(0, 0.2 + 0.8*Math.sin((i/24)*Math.PI*2*3 + 0.4) ) * (0.6+0.5*spec0) );
+    const post= pre.map(v=> Math.max(0, v*(0.35+0.25*Math.random())) );
+    bars(specPre, pre);
+    bars(specPost, post);
+
+    // Energy
+    linePlot(energyC, [seriesPow, seriesEff], ["#ffdd57","#3ddc97"], ["input power","efficiency"]);
+
+    // Badges
+    const solved = solvedCount>=parseInt(hold,10);
+    setBadge(solvedBadge, solved ? "Self-consistency: PASS" : "Self-consistency: NOT MET", solved ? "ok":"bad");
+    // crude stability: check if last 20% is monotone decreasing-ish
+    const tail = Math.floor(seriesDC.length*0.8);
+    const stable = seriesDC.slice(tail).every((p,idx,arr)=> idx===0 || p[1] <= arr[idx-1][1]+1e-9);
+    setBadge(stableBadge, stable ? "Stability: DAMPED" : "Stability: UNSTABLE?", stable ? "ok":"warn");
+    // physicality: proxy conditions
+    const physical = true; // placeholder until linked to real constraints
+    setBadge(physicalBadge, physical ? "Physicality: OK (proxy)" : "Check constraints", physical ? "ok":"warn");
+
+    // Energy badges
+    const eff = seriesEff.at(-1)[1];
+    setBadge(document.getElementById('effBadge'), `Efficiency: ${(eff*100).toFixed(2)}%`, eff>0.2 ? "ok" : (eff>0.05 ? "warn":"bad"));
+    setBadge(document.getElementById('powerBadge'), `Total power: ${totPower.toExponential(3)} (arb)`, "badge");
+
+    // Validation — toy pass/fail derived from final metrics
+    const orbitErr = Math.max(1e-10, Rgr*0.5 + Rqm*0.5); // pretend mapping
+    const frwOK = (Rgr<epsGR*5 && Rqm<epsQM*5);
+    const labLinear = (Math.abs(spec0 - (spec0-0.55)) > 0.4); // fake “linear response” proxy
+
+    setValRow(orbitVal, orbitStatus, orbitErr.toExponential(2), orbitErr < 1e-8);
+    setValRow(frwVal, frwStatus, frwOK ? "match" : "mismatch", frwOK);
+    setValRow(labVal, labStatus, labLinear ? "linear" : "nonlinear", labLinear);
+
+    // Six category validation
+    setBadge(valStatus, (orbitErr < 1e-8 && frwOK && labLinear) ? "Validation ✓" : "Validation — check items", (orbitErr < 1e-8 && frwOK && labLinear) ? "ok" : "warn");
+
+    // Header status
+    if (solved && stable) {
+      statusBadge.className="badge ok";
+      statusBadge.textContent="Solved (toy): residuals within tolerance & stable";
+    } else {
+      statusBadge.className="badge warn";
+      statusBadge.textContent="Incomplete: tune gains or tolerances and rerun";
+    }
+  }
+
+  runBtn.addEventListener('click', ()=>{ statusBadge.className="badge"; statusBadge.textContent="Running…"; setTimeout(simulate, 60); });
+  resetBtn.addEventListener('click', ()=>{
+    document.getElementById('steps').value=500;
+    document.getElementById('dt').value=0.02;
+    document.getElementById('epsGR').value=1e-6;
+    document.getElementById('epsQM').value=1e-6;
+    document.getElementById('epsDC').value=1e-6;
+    document.getElementById('hold').value=50;
+    document.getElementById('Rgr0').value=0.08;
+    document.getElementById('Rqm0').value=0.06;
+    document.getElementById('dC0').value=0.10;
+    document.getElementById('spec0').value=0.70;
+    document.getElementById('kp').value=1.6;
+    document.getElementById('kd').value=0.3;
+    statusBadge.className="badge warn";
+    statusBadge.textContent="Idle — awaiting run";
+    // clear canvases
+    [resCanvas,snapPre,snapPost,specPre,specPost,energyC].forEach(c=>{sizeCanvas(c); clearCanvas(c);});
+    markCategories();
+    setBadge(solvedBadge,"Self-consistency: —","badge");
+    setBadge(stableBadge,"Stability: —","badge");
+    setBadge(physicalBadge,"Physicality: —","badge");
+    setValRow(orbitVal, orbitStatus, "—", false);
+    setValRow(frwVal, frwStatus, "—", false);
+    setValRow(labVal, labStatus, "—", false);
+  });
+
+  // initial layout sizing
+  window.addEventListener('resize', ()=>{
+    [resCanvas,snapPre,snapPost,specPre,specPost,energyC].forEach(c=>{sizeCanvas(c);});
+  });
+  [resCanvas,snapPre,snapPost,specPre,specPost,energyC].forEach(c=>sizeCanvas(c));
+})();
+</script>
+</body>
+</html>
