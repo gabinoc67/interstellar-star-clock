@@ -50,6 +50,18 @@
   /* Gauges */
   .gauge{position:relative;height:10px;background:#0f1a33;border:1px solid #23335a;border-radius:8px;overflow:hidden}
   .gauge>span{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#65ffc7,#6ee7ff);width:0%}
+
+  /* NEW: inline labels that sit on the connector lines */
+  .linelab{
+    position:absolute; pointer-events:none; transform:translate(-50%,-50%);
+    font-size:11px; color:var(--muted);
+    background:#0b142ad0; border:1px solid #22345c; border-radius:8px; padding:3px 6px;
+    white-space:nowrap; backdrop-filter:saturate(120%) blur(2px);
+  }
+  .linelab .dot{display:inline-block;width:6px;height:6px;border-radius:999px;margin-right:6px}
+  .emdot{background:var(--em)} .noisedot{background:var(--ring)}
+  .plasdot{background:#7cffd2} .photdot{background:var(--photon)}
+  .cstdot{background:#6ee7ff} .breachdot{background:#ff6b8b}
 </style>
 </head>
 <body>
@@ -131,6 +143,14 @@
       <div class="call" id="labPhotons" style="left:540px;top:28px">Photon/Ion Flow <span class="wavebar" id="wbPhot"></span></div>
       <div class="call" id="labCST" style="left:740px;top:28px">CST Sync <span class="wavebar" id="wbCST"></span></div>
       <div class="call" id="labBreach" style="right:20px;top:28px">Breach Control <span class="wavebar" id="wbBreach"></span></div>
+
+      <!-- NEW: inline description labels on the connector lines -->
+      <div class="linelab" id="LL_EM"><span class="dot emdot"></span>EM Pressure Vector</div>
+      <div class="linelab" id="LL_NOISE"><span class="dot noisedot"></span>HF Noise Rings (phase-locked)</div>
+      <div class="linelab" id="LL_PLASMA"><span class="dot plasdot"></span>Plasma Window (seal)</div>
+      <div class="linelab" id="LL_PHOT"><span class="dot photdot"></span>Photon / Ion Inflow</div>
+      <div class="linelab" id="LL_CST"><span class="dot cstdot"></span>CST Phase-Lock Timing</div>
+      <div class="linelab" id="LL_BREACH"><span class="dot breachdot"></span>Breach Vector & Patch Control</div>
     </div>
   </div>
 </div>
@@ -148,6 +168,7 @@
    - Photons/Ions particles
    - Breach + Plasma Window with vector steering
    - 5-minute demo timeline
+   - NEW: Inline labels that describe each connector line
    ============================================== */
 const cv = document.getElementById('scene');
 const ctx = cv.getContext('2d');
@@ -182,6 +203,14 @@ const ui = {
   wbPhot:document.getElementById('wbPhot'),
   wbCST: document.getElementById('wbCST'),
   wbBreach:document.getElementById('wbBreach'),
+
+  // NEW inline line labels
+  LL_EM: document.getElementById('LL_EM'),
+  LL_NOISE: document.getElementById('LL_NOISE'),
+  LL_PLASMA: document.getElementById('LL_PLASMA'),
+  LL_PHOT: document.getElementById('LL_PHOT'),
+  LL_CST: document.getElementById('LL_CST'),
+  LL_BREACH: document.getElementById('LL_BREACH'),
 };
 
 let running = false;
@@ -438,7 +467,6 @@ function interactParticles(baseR){
 
     // Plasma window across breach: absorb if crossing sheet
     if(breach.active){
-      // distance to line through (cx,cy) normal to breach vector
       const cx = ship.x + breach.nx* (130);
       const cy = ship.y + breach.ny* (130);
       const nx = breach.nx, ny = breach.ny;
@@ -447,11 +475,9 @@ function interactParticles(baseR){
       const len = 180 + parseFloat(ui.plasma.value)*220;
       const thick = 6 + breach.plasmaLevel*18;
       if(along < len/2 && dist < thick/2){
-        // Absorb with probability based on plasma level
         if(Math.random() < (0.6*breach.plasmaLevel + 0.2*stability())){
           p.life = 0;
         }else{
-          // reflect
           const vn = p.vx*nx + p.vy*ny;
           p.vx -= 2*vn*nx; p.vy -= 2*vn*ny;
         }
@@ -469,6 +495,35 @@ function drawParticles(){
     ctx.fill();
   }
 }
+
+/* ---------- NEW: position & text for inline line labels ---------- */
+function place(el, x, y){ el.style.left = x + "px"; el.style.top = y + "px"; }
+
+function updateLineLabels(baseR, px, py){
+  // Source points (start of each connector line near the top labels)
+  const EMs = {x:90,y:60},     EMe = {x: ship.x - baseR - 20, y: ship.y};
+  const Ns  = {x:270,y:60},    Ne  = {x: ship.x, y: ship.y - (baseR+70)};
+  const Ps  = {x:430,y:60},    Pe  = {x: px, y: py};
+  const Phs = {x:615,y:60},    Phe = {x: cv.width-60, y: cv.height/2};
+  const Cs  = {x:820,y:60},    Ce  = {x: ship.x, y: ship.y};
+  const Bs  = {x: cv.width-140, y:60}, Be  = {x: px, y: py};
+
+  // Midpoint helpers
+  function mid(a,b){ return {x:(a.x+b.x)/2, y:(a.y+b.y)/2}; }
+
+  // Dynamic wording for plasma/breach depending on state
+  ui.LL_PLASMA.innerHTML = `<span class="dot plasdot"></span>${breach.active ? "Plasma Window (seal)" : "Plasma Channel (standby)"}`;
+  ui.LL_BREACH.innerHTML = `<span class="dot breachdot"></span>${breach.active ? ("Breach Vector — " + breach.side) : "Breach Control Path"}`;
+
+  // Place labels
+  place(ui.LL_EM,     mid(EMs,EMe).x,     mid(EMs,EMe).y);
+  place(ui.LL_NOISE,  mid(Ns,Ne).x,       mid(Ns,Ne).y);
+  place(ui.LL_PLASMA, mid(Ps,Pe).x,       mid(Ps,Pe).y);
+  place(ui.LL_PHOT,   mid(Phs,Phe).x,     mid(Phs,Phe).y);
+  place(ui.LL_CST,    mid(Cs,Ce).x,       mid(Cs,Ce).y);
+  place(ui.LL_BREACH, mid(Bs,Be).x,       mid(Bs,Be).y);
+}
+/* ----------------------------------------------------------------- */
 
 function step(dt){
   t += dt;
@@ -491,9 +546,7 @@ function step(dt){
   if(demoMode){
     const elapsed = t - demoStart;
     const s = clamp(elapsed/DEMO_MS, 0, 1);
-    // 0-60s ramp
     const ramp = clamp(elapsed/60000, 0, 1);
-    // 60-150s cruise minor oscillation
     const osc = 0.02*Math.sin(elapsed*0.0008);
     if(elapsed < 60000){
       ui.em.value = 0.4 + 0.4*ramp;
@@ -507,7 +560,6 @@ function step(dt){
       ui.amp.value = clamp(parseFloat(ui.amp.value)-osc,0,1);
       ui.plasma.value = clamp(parseFloat(ui.plasma.value)+osc,0,1);
     }else if(elapsed < 300000){
-      // breach at 150s; hold and fight leak, then heal near the end
       if(!breach.active) triggerBreach("Starboard", 1, 0);
       if(elapsed > 285000){ // last 15s auto-heal
         healBreach();
@@ -523,6 +575,11 @@ function render(){
   drawShip();
   const baseR = drawEMBubble();
   drawNoiseRings(baseR);
+
+  // For connectors that depend on breach/standby targets:
+  const px = breach.active ? ship.x + breach.nx*130 : ship.x + 10;
+  const py = breach.active ? ship.y + breach.ny*130 : ship.y + baseR + 40;
+
   drawPlasmaWindow();
   drawParticles();
   updateGauges();
@@ -536,18 +593,17 @@ function render(){
   // Noise: to rings
   ctx.beginPath(); ctx.moveTo(270,60); ctx.lineTo(ship.x, ship.y - (baseR+70)); ctx.stroke();
   // Plasma: to breach sheet (or near bubble if idle)
-  ctx.beginPath(); ctx.moveTo(430,60);
-  const px = breach.active ? ship.x + breach.nx*130 : ship.x + 10;
-  const py = breach.active ? ship.y + breach.ny*130 : ship.y + baseR + 40;
-  ctx.lineTo(px, py); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(430,60); ctx.lineTo(px, py); ctx.stroke();
   // Photons: to incoming stream
   ctx.beginPath(); ctx.moveTo(615,60); ctx.lineTo(cv.width-60, cv.height/2); ctx.stroke();
   // CST: to ship center
   ctx.beginPath(); ctx.moveTo(820,60); ctx.lineTo(ship.x, ship.y); ctx.stroke();
   // Breach: to breach location
-  ctx.beginPath(); ctx.moveTo(cv.width-140,60);
-  ctx.lineTo(px,py); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cv.width-140,60); ctx.lineTo(px,py); ctx.stroke();
   ctx.restore();
+
+  // NEW: place the inline labels on the midpoints of those lines
+  updateLineLabels(baseR, px, py);
 }
 
 function loop(now){
@@ -560,20 +616,9 @@ function loop(now){
 requestAnimationFrame(loop);
 
 // Controls
-ui.start.addEventListener('click', ()=>{ running=true; });
-ui.stop.addEventListener('click', ()=>{ running=false; });
-ui.reset.addEventListener('click', ()=>{
-  t=0; running=false; demoMode=false; particles=[]; breach.active=false; breach.leak=0; ui.status.textContent='Idle';
-});
-ui.demo.addEventListener('click', ()=>{
-  running=true; demoMode=true; demoStart=t; particles=[]; breach.active=false; breach.leak=0;
-  ui.status.textContent='DEMO running (5 min)…';
-});
-
 function triggerBreach(side, nx, ny){
   breach.active = true; breach.side = side; breach.nx = nx; breach.ny = ny; breach.leak=1; breach.plasmaLevel=0.2;
   ui.status.textContent = 'Breach ' + side + ' — Vectoring fields';
-  // Blink breach label faster
   document.getElementById('labBreach').classList.add('blink');
 }
 function healBreach(){
@@ -581,6 +626,16 @@ function healBreach(){
   document.getElementById('labBreach').classList.remove('blink');
   ui.status.textContent = 'Patch sealed — Ramp down';
 }
+
+ui.start.addEventListener('click', ()=>{ running=true; });
+ui.stop.addEventListener('click', ()=>{ running=false; });
+ui.reset.addEventListener('click', ()=>{
+  t=0; running=false; demoMode=false; particles=[]; breach.active=false; breach.leak=0; ui.status.textContent='Idle';
+});
+ui.demo.addEventListener('click', ()=>{
+  running=true; demoMode=true; demoStart=t; particles=[]; breach.active=false; breach.leak=0;
+  ui.status.textContent = 'DEMO running (5 min)…';
+});
 ui.breachL.addEventListener('click', ()=>{ running=true; triggerBreach("Port", -1, 0); });
 ui.breachR.addEventListener('click', ()=>{ running=true; triggerBreach("Starboard", 1, 0); });
 ui.breachN.addEventListener('click', ()=>{ running=true; triggerBreach("Fore", 0, -1); });
