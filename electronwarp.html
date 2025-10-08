@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>FOBAS + AEWFC — Electron Warp Assist, Auto-Heal Breach, Status Ticker (Gabino Casanova)</title>
+<style>
+  :root{
+    --bg:#070a12; --panel:#0d1322; --ink:#e8eefc; --muted:#9fb0d9; --accent:#7ad3ff;
+    --coil:#72e6ff; --electron:#86f7ff; --zoneRing:#7effc4;
+    --grid:#12233e; --border:#1b2b4d; --ok:#3ae89a; --warn:#ffd166; --bad:#ff6b8b;
+    --shield:#7da2ff; --ship:#0f1b34;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:radial-gradient(1200px 900px at 70% 5%, #0b1222 0%, #070a12 60%, #060910 100%);color:var(--ink);font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1250px;margin:0 auto;padding:18px}
+  header{display:grid;gap:8px;margin-bottom:12px}
+  h1{font-size:20px;margin:0}
+  p.lead{margin:0;color:var(--muted);line-height:1.45}
+  .card{background:linear-gradient(180deg,#0e1527 0%, #0b1120 100%);border:1px solid var(--border);border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+  .panel{display:grid;grid-template-columns:1fr 330px;gap:12px;padding:12px}
+  .canvasWrap{position:relative;border-radius:12px;overflow:hidden}
+  canvas{width:100%;height:640px;display:block;background:
+    linear-gradient(0deg, rgba(8,15,30,.65), rgba(8,15,30,.65)),
+    radial-gradient(1800px 1000px at 50% 0%, #0b1a30 0%, #081222 60%, #07101b 100%)}
+  .hud{display:grid;gap:10px;padding:12px}
+  .group{border:1px solid var(--border);border-radius:12px;padding:10px;background:rgba(10,18,36,.5)}
+  .group h3{margin:.1rem 0 .35rem;font-size:14px;color:var(--accent);font-weight:600}
+  .ctlRow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .meter{height:10px;background:#0b1630;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+  .meter>i{display:block;height:100%;background:linear-gradient(90deg,var(--ok),var(--warn));width:0%}
+  .legend{display:grid;gap:6px;font-size:13px;color:var(--muted)}
+  .chip{display:inline-flex;gap:6px;align-items:center;padding:3px 8px;border-radius:999px;border:1px solid var(--border);background:#0a162f}
+  .dot{width:10px;height:10px;border-radius:50%}
+  .lab{position:absolute;padding:4px 8px;border-radius:8px;background:rgba(6,12,28,.72);border:1px solid var(--border);backdrop-filter:blur(4px);font-size:12px;pointer-events:none}
+  .badge{display:inline-block;padding:2px 8px;border-radius:999px;background:#0c1b35;border:1px solid var(--border);font-size:12px;color:var(--muted)}
+  button{background:#0f2248;border:1px solid var(--border);color:var(--ink);padding:8px 12px;border-radius:10px;cursor:pointer}
+  button:hover{filter:brightness(1.2)}
+  input[type=range]{width:160px}
+  footer{margin-top:14px;color:var(--muted);font-size:12px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+
+  .countdown{color:#fff;background:rgba(255,107,139,.12);border:1px solid rgba(255,107,139,.35);border-radius:8px;padding:2px 8px}
+
+  /* Status ticker */
+  .tickerWrap{position:absolute;left:0;right:0;bottom:0;background:rgba(6,12,28,.75);border-top:1px solid var(--border);padding:6px 10px}
+  .ticker{display:flex;gap:12px;align-items:center;white-space:nowrap;overflow:hidden}
+  .tickItem{font-size:12px;color:var(--muted);padding:2px 8px;border-radius:999px;border:1px solid var(--border);background:#0a162f}
+  .tickGood{color:#c7ffe6;border-color:rgba(61,220,151,.5)}
+  .tickWarn{color:#ffe9b3;border-color:rgba(255,209,102,.5)}
+  .tickBad{color:#ffd0d8;border-color:rgba(255,107,139,.5)}
+  .tickerMarquee{display:inline-block;animation:marquee 16s linear infinite}
+  @keyframes marquee{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+
+  details{user-select:none}
+  details summary{cursor:pointer;color:var(--accent)}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>How Electrons Could Warp Spacetime — The Quantum Core of a Warp Engine <span class="badge">FOBAS + AEWFC • by Gabino Casanova</span></h1>
+      <p class="lead">
+        Electron (−) charge lights the engine coils and circulates coherently to form a <b>warp-assist pocket</b>. The spacetime grid “bends” visually; on a hull/compartment <b>breach</b>, the <b>EM shield</b> auto-boosts on the affected side and then <b>auto-heals</b> after ~5 s. CST phase keeps everything in lockstep. (Concept visualization; not a physics solver.)
+      </p>
+    </header>
+
+    <div class="card panel">
+      <div class="canvasWrap">
+        <canvas id="sim" width="860" height="640"></canvas>
+
+        <!-- On-canvas labels -->
+        <div id="labCoils" class="lab">AEWFC Coils (Drive & Phase)</div>
+        <div id="labElectrons" class="lab">Electron Lattice (− charge)</div>
+        <div id="labPocket" class="lab">Warp-Assist Pocket (Negative-Energy Zone)</div>
+        <div id="labShield" class="lab">EM Shield (Auto-Boost Near Breach)</div>
+        <div id="labCST" class="lab">CST Clock (Phase-Lock)</div>
+        <div id="labShip" class="lab">Ship Hull</div>
+        <div id="labCountdown" class="lab countdown" style="display:none">Auto-heal in 5s</div>
+
+        <!-- Status ticker -->
+        <div class="tickerWrap">
+          <div class="ticker">
+            <div id="tickerStream" class="tickerMarquee"></div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="hud">
+        <div class="group">
+          <h3>Controls</h3>
+          <div class="ctlRow">
+            <button id="btnStart">Start</button>
+            <button id="btnPause">Pause</button>
+            <button id="btnReset">Reset</button>
+          </div>
+          <div class="ctlRow" style="margin-top:6px">
+            <span class="badge">Electron Count</span>
+            <input id="count" type="range" min="60" max="360" step="20" value="200"/>
+            <span id="countVal">200</span>
+          </div>
+          <div class="ctlRow">
+            <span class="badge">Coil Drive</span>
+            <input id="drive" type="range" min="0" max="100" value="70"/>
+            <span id="driveVal">70%</span>
+          </div>
+          <div class="ctlRow">
+            <span class="badge">CST Phase</span>
+            <input id="phase" type="range" min="0" max="360" value="0"/>
+            <span id="phaseVal">0°</span>
+          </div>
+        </div>
+
+        <div class="group">
+          <h3>Breach Simulation</h3>
+          <div class="ctlRow">
+            <button id="btnBreach">Trigger Breach (Starboard)</button>
+            <button id="btnHeal">Heal Now</button>
+          </div>
+          <div style="margin-top:8px">
+            <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted)"><span>Shield Boost (Starboard)</span><span id="boostVal">0%</span></div>
+            <div class="meter"><i id="boostBar" style="width:0%"></i></div>
+          </div>
+        </div>
+
+        <div class="group">
+          <h3>Field Readouts</h3>
+          <div class="ctlRow" style="width:100%">
+            <div style="flex:1">
+              <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted)"><span>Warp-Assist Index</span><span id="warpVal">0.0%</span></div>
+              <div class="meter"><i id="warpBar" style="width:0%"></i></div>
+            </div>
+          </div>
+          <div class="ctlRow" style="width:100%;margin-top:6px">
+            <div style="flex:1">
+              <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted)"><span>Negative-Energy Likelihood</span><span id="negVal">0.0%</span></div>
+              <div class="meter"><i id="negBar" style="width:0%"></i></div>
+            </div>
+          </div>
+          <div class="ctlRow" style="width:100%;margin-top:6px">
+            <div style="flex:1">
+              <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted)"><span>Breach Containment</span><span id="containVal">Stable</span></div>
+              <div class="meter"><i id="containBar" style="width:0%"></i></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="group">
+          <h3>Purpose (Short & Professional)</h3>
+          <p style="margin:.2rem 0;color:var(--muted);font-size:13px">
+            AEWFC drives a <b>negative-charge electron lattice</b>, forming a central <b>negative-energy pocket</b> that assists warp control. The grid shows indicative curvature. On breach, the <b>shield</b> boosts locally and <b>auto-heals</b> after ~5 s, keeping pocket stability under CST phase. Concept visualization only.
+          </p>
+        </div>
+
+        <div class="group">
+          <h3>Physics Explainer</h3>
+          <details open>
+            <summary>Newtonian → Atomic → Warp (summary)</summary>
+            <div style="font-size:13px;color:var(--muted);margin-top:6px;display:grid;gap:6px">
+              <div><b>Newtonian gravity (classical)</b> — mass creates gravity; larger mass → stronger pull. Space and time are treated as fixed backgrounds.</div>
+              <div><b>Relativity upgrade</b> — mass–energy <i>warps spacetime</i>; higher energy density produces more curvature and slower local time.</div>
+              <div><b>Atomic theory</b> — atoms are divisible; <b>electrons (negative charge)</b> are light, mobile, and can form coherent currents/plasmas. While negative charge ≠ negative energy, organized electron fields let us sculpt local <b>energy density</b> (vacuum polarization/Casimir-like effects).</div>
+              <div><b>Why negative charge matters</b> — tightly controlled electron lattices + EM fields can deepen a central low-energy region (a warp-assist pocket) while surrounding fields manage compression/expansion.</div>
+              <div><b>What this system does</b> — generates CST-timed electron motion to <b>form and maintain</b> a low-energy pocket; <b>entangled feedback</b> phase-locks coils/plasma/shields; on breach, EM intensity <b>auto-boosts</b> locally to preserve stability.</div>
+              <div><b>Purpose</b> — explore a practical control pathway to warp-assist conditions using <b>electromagnetism + timing</b>, scalable from lab demos to higher-energy prototypes.</div>
+              <div style="opacity:.9"><b>Reality check</b> — EM fields contribute to curvature; sustained macroscopic negative energy is unproven. This is a <b>theoretical engineering roadmap</b>, not a finished FTL device.</div>
+            </div>
+          </details>
+        </div>
+
+        <div class="group">
+          <h3>Legend</h3>
+          <div class="legend">
+            <span class="chip"><span class="dot" style="background:var(--electron)"></span> Electron (− charge)</span>
+            <span class="chip"><span class="dot" style="background:var(--coil)"></span> Coil Lighting</span>
+            <span class="chip"><span class="dot" style="background:var(--zoneRing)"></span> Pocket Edge</span>
+            <span class="chip"><span class="dot" style="background:var(--shield)"></span> EM Shield</span>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <footer>
+      <span>FOBAS (robot) + AEWFC (field controller) • CST-Synchronized Entanglement</span>
+      <span>© Gabino Casanova</span>
+    </footer>
+  </div>
+
+<script>
+(function(){
+  const canvas = document.getElementById('sim');
+  const ctx = canvas.getContext('2d');
+
+  // DOM references
+  const countEl = document.getElementById('count');
+  const driveEl = document.getElementById('drive');
+  const phaseEl = document.getElementById('phase');
+  const countVal = document.getElementById('countVal');
+  const driveVal = document.getElementById('driveVal');
+  const phaseVal = document.getElementById('phaseVal');
+
+  const warpVal = document.getElementById('warpVal');
+  const negVal  = document.getElementById('negVal');
+  const containVal = document.getElementById('containVal');
+  const warpBar = document.getElementById('warpBar');
+  const negBar  = document.getElementById('negBar');
+  const containBar  = document.getElementById('containBar');
+
+  const boostVal = document.getElementById('boostVal');
+  const boostBar = document.getElementById('boostBar');
+
+  const btnStart = document.getElementById('btnStart');
+  const btnPause = document.getElementById('btnPause');
+  const btnReset = document.getElementById('btnReset');
+  const btnBreach = document.getElementById('btnBreach');
+  const btnHeal = document.getElementById('btnHeal');
+
+  const labCoils = document.getElementById('labCoils');
+  const labElectrons = document.getElementById('labElectrons');
+  const labPocket = document.getElementById('labPocket');
+  const labShield = document.getElementById('labShield');
+  const labCST = document.getElementById('labCST');
+  const labShip = document.getElementById('labShip');
+  const labCountdown = document.getElementById('labCountdown');
+
+  const tickerStream = document.getElementById('tickerStream');
+
+  const W = canvas.width, H = canvas.height;
+  const cx = W/2, cy = H/2;
+
+  let electrons = [];
+  let running = true;
+  let t = 0;
+
+  let drive = parseInt(driveEl.value,10);     // 0..100
+  let phaseDeg = parseInt(phaseEl.value,10);  // 0..360
+  let baseCount = parseInt(countEl.value,10); // electrons
+
+  // Breach state (starboard/right side) + auto-heal
+  let breach = false;
+  let breachBoost = 0; // 0..1
+  let healTimer = 0;   // ms remaining; 0 = off
+
+  // --- STATUS TICKER ---
+  const status = [];
+  function pushStatus(text, cls=''){ 
+    const time = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    status.push({text, cls, time});
+    if(status.length>10) status.shift();
+    renderTicker();
+  }
+  function renderTicker(){
+    // Show last 6 twice to create seamless marquee
+    const last = status.slice(-6);
+    const html = [...last, ...last].map(s=>{
+      const cls = s.cls ? `tickItem ${s.cls}` : 'tickItem';
+      return `<span class="${cls}">[${s.time}] ${s.text}</span>`;
+    }).join('  •  ');
+    tickerStream.innerHTML = html || `<span class="tickItem">[--:--:--] Idle — systems nominal</span>`;
+  }
+
+  // Place labels relative to canvas
+  function placeLabels(){
+    const rect = canvas.getBoundingClientRect();
+    const wrapRect = canvas.parentElement.getBoundingClientRect();
+    function pos(el, x, y){ el.style.left = (rect.left - wrapRect.left + x) + "px"; el.style.top = (rect.top - wrapRect.top + y) + "px"; }
+    pos(labCoils, W-200, 32);
+    pos(labElectrons, 22, H-80);
+    pos(labPocket, cx-120, cy-18);
+    pos(labShield, W-200, H-65);
+    pos(labCST, 24, 24);
+    pos(labShip, cx-40, cy+160);
+    pos(labCountdown, W-210, H-115);
+  }
+  window.addEventListener('resize', placeLabels);
+  placeLabels();
+
+  function resetElectrons(n){
+    electrons = [];
+    const rMin = 90, rMax = 260;
+    for(let i=0;i<n;i++){
+      const r = rMin + Math.random()*(rMax-rMin);
+      const a = Math.random()*Math.PI*2;
+      const speed = 0.002 + Math.random()*0.004;
+      electrons.push({
+        r, a, speed,
+        jitter: (Math.random()*0.6 + 0.4),
+      });
+    }
+  }
+
+  function drawSpacetimeGrid(time){
+    ctx.save();
+    ctx.lineWidth = 1;
+    const phase = phaseDeg*Math.PI/180;
+    const warpPulse = 1 + 0.06*Math.sin(time*0.003 + phase) + 0.08*(drive/100);
+
+    for(let y=0;y<=H;y+=36){
+      ctx.beginPath();
+      for(let x=0;x<=W;x+=18){
+        const dx = x - cx;
+        const dy = y - cy;
+        const r = Math.hypot(dx,dy);
+        const bend = 12*Math.sin(r*0.02 + time*0.002) * warpPulse;
+        const bx = x + bend * (dx/(r+1));
+        const by = y + bend * (dy/(r+1));
+        if(x===0) ctx.moveTo(bx,by); else ctx.lineTo(bx,by);
+      }
+      ctx.strokeStyle = 'rgba(18,35,62,0.35)';
+      ctx.stroke();
+    }
+    for(let x=0;x<=W;x+=40){
+      ctx.beginPath();
+      for(let y=0;y<=H;y+=18){
+        const dx = x - cx;
+        const dy = y - cy;
+        const r = Math.hypot(dx,dy);
+        const bend = 12*Math.sin(r*0.02 + time*0.002 + Math.PI/3) * warpPulse;
+        const bx = x + bend * (dx/(r+1));
+        const by = y + bend * (dy/(r+1));
+        if(y===0) ctx.moveTo(bx,by); else ctx.lineTo(bx,by);
+      }
+      ctx.strokeStyle = 'rgba(18,35,62,0.35)';
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawCoils(time){
+    const coils = [
+      {x:cx-270,y:cy,rx:70,ry:170},
+      {x:cx+270,y:cy,rx:70,ry:170},
+      {x:cx,y:cy-240,rx:170,ry:70},
+      {x:cx,y:cy+240,rx:170,ry:70},
+    ];
+    const phase = phaseDeg*Math.PI/180;
+    coils.forEach((c,idx)=>{
+      const ph = phase + idx*Math.PI/2;
+      const intensity = 0.35 + 0.65*(drive/100)*0.5*(1+Math.sin(time*0.003+ph));
+      ctx.save();
+      ctx.translate(c.x,c.y);
+
+      for(let k=0;k<3;k++){
+        ctx.beginPath();
+        ctx.ellipse(0,0,c.rx+k*6,c.ry+k*6,0,0,Math.PI*2);
+        ctx.strokeStyle = `rgba(114,230,255,${0.12 - k*0.03})`;
+        ctx.lineWidth = 10 + k*4;
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.ellipse(0,0,c.rx,c.ry,0,0,Math.PI*2);
+      ctx.strokeStyle = `rgba(114,230,255,${intensity})`;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.restore();
+    });
+  }
+
+  // --- SHIP DRAWING ---
+  const USE_EMBLEM = false; // set to true after pasting your SVG path in drawEmblem()
+  function drawShip(){
+    ctx.save();
+    ctx.translate(cx,cy);
+    if(USE_EMBLEM){
+      drawEmblem(); // paste your emblem path inside
+      ctx.restore(); return;
+    }
+    ctx.fillStyle = 'rgba(15,27,52,0.9)';
+    ctx.strokeStyle = 'rgba(30,50,90,0.9)';
+    ctx.lineWidth = 2;
+
+    // Hull body
+    ctx.beginPath();
+    ctx.moveTo(0,-90);
+    ctx.quadraticCurveTo(60,-40,70,0);
+    ctx.quadraticCurveTo(60,40,0,100);
+    ctx.quadraticCurveTo(-60,40,-70,0);
+    ctx.quadraticCurveTo(-60,-40,0,-90);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+
+    // Nacelles
+    ctx.beginPath();
+    ctx.ellipse(-85, 15, 26, 10, 0, 0, Math.PI*2);
+    ctx.ellipse( 85, 15, 26, 10, 0, 0, Math.PI*2);
+    ctx.fillStyle = 'rgba(18,32,64,0.9)';
+    ctx.fill();
+
+    ctx.restore();
+  }
+  function drawEmblem(){
+    // === Paste your SVG path here ===
+    // Example:
+    // ctx.save();
+    // ctx.scale(0.9,0.9);
+    // const p = new Path2D("M0,-90 Q60,-40 70,0 Q60,40 0,100 Q-60,40 -70,0 Q-60,-40 0,-90 Z");
+    // ctx.fillStyle = 'rgba(15,27,52,0.95)';
+    // ctx.strokeStyle = 'rgba(30,50,90,0.95)';
+    // ctx.lineWidth = 2; ctx.fill(p); ctx.stroke(p);
+    // ctx.restore();
+  }
+
+  function drawPocket(time){
+    const base = 120;
+    const pulse = 10*Math.sin(time*0.004 + phaseDeg*Math.PI/180);
+    const R = base + pulse*(drive/100);
+
+    const grad = ctx.createRadialGradient(cx,cy,0,cx,cy,R*1.25);
+    grad.addColorStop(0, 'rgba(10,29,61,0.85)');
+    grad.addColorStop(1, 'rgba(10,29,61,0.0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(cx,cy,R*1.25,0,Math.PI*2); ctx.fill();
+
+    ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2);
+    ctx.strokeStyle = 'rgba(126,255,196,0.85)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6,6]); ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  function drawShield(time){
+    ctx.save();
+    const baseR = 210;
+    const shimmer = 4*Math.sin(time*0.006);
+    const R = baseR + shimmer;
+
+    // Base shield
+    ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2);
+    ctx.strokeStyle = 'rgba(125,162,255,0.25)';
+    ctx.lineWidth = 3; ctx.stroke();
+
+    // Starboard sector boost ramp
+    const boost = breach ? Math.min(1, breachBoost + 0.02) : Math.max(0, breachBoost - 0.02);
+    breachBoost = boost;
+
+    if(boost>0.01){
+      const startA = -Math.PI/6;
+      const endA   =  Math.PI/6;
+      for(let k=0;k<5;k++){
+        ctx.beginPath();
+        ctx.arc(cx,cy,R+2*k, startA, endA);
+        ctx.strokeStyle = `rgba(125,162,255,${0.15 + 0.12*(1-k*0.18)*boost})`;
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+      const grad = ctx.createRadialGradient(cx,cy, R-10, cx,cy, R+60);
+      grad.addColorStop(0, `rgba(125,162,255,${0.18*boost})`);
+      grad.addColorStop(1, `rgba(125,162,255,0)`);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(cx,cy);
+      ctx.arc(cx,cy,R+60,startA,endA);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+
+    boostVal.textContent = Math.round(breachBoost*100) + '%';
+    boostBar.style.width = Math.round(breachBoost*100) + '%';
+  }
+
+  function drawCSTClock(time){
+    const r = 52;
+    ctx.save();
+    ctx.translate(84,80);
+    ctx.beginPath(); ctx.arc(0,0,r,0,Math.PI*2);
+    ctx.strokeStyle = 'rgba(122,211,255,0.6)'; ctx.lineWidth = 2; ctx.stroke();
+    for(let i=0;i<12;i++){
+      const a = i*Math.PI/6;
+      const x1 = (r-8)*Math.cos(a), y1=(r-8)*Math.sin(a);
+      const x2 = r*Math.cos(a), y2=r*Math.sin(a);
+      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2);
+      ctx.strokeStyle = 'rgba(122,211,255,0.4)'; ctx.lineWidth=2; ctx.stroke();
+    }
+    const a = (phaseDeg*Math.PI/180) + time*0.0015;
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo((r-12)*Math.cos(a),(r-12)*Math.sin(a));
+    ctx.strokeStyle = 'rgba(126,255,196,0.9)'; ctx.lineWidth=3; ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawElectrons(time){
+    const driveFactor = 0.6 + 0.4*(drive/100);
+    const ph = phaseDeg*Math.PI/180;
+    ctx.save();
+    electrons.forEach(e=>{
+      // bias toward starboard during breach
+      let biasA = 0;
+      if(breach){
+        const target = 0; // starboard (east)
+        const da = Math.atan2(Math.sin(target-e.a), Math.cos(target-e.a));
+        biasA = 0.0025*breachBoost*da;
+      }
+      const breath = 1 + 0.08*Math.sin(time*0.004 + ph + e.r*0.01);
+      const r = e.r*breath;
+      e.a += (e.speed*driveFactor*(1 + 0.6*Math.sin(time*0.002 + ph)) * e.jitter) + biasA;
+
+      const x = cx + r*Math.cos(e.a);
+      const y = cy + r*Math.sin(e.a);
+
+      // Glow particles
+      ctx.beginPath(); ctx.arc(x,y,4.3,0,Math.PI*2);
+      ctx.fillStyle = 'rgba(134,247,255,0.18)'; ctx.fill();
+      ctx.beginPath(); ctx.arc(x,y,2.2,0,Math.PI*2);
+      ctx.fillStyle = 'rgba(134,247,255,0.95)'; ctx.fill();
+
+      if ((time/16|0)%2===0){
+        ctx.beginPath();
+        ctx.moveTo(x,y);
+        const k = 9;
+        ctx.lineTo(x + (cx-x)/k, y + (cy-y)/k);
+        ctx.strokeStyle = 'rgba(122,211,255,0.25)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    });
+    ctx.restore();
+  }
+
+  // Synthetic metrics + auto-heal countdown
+  let lastTS = 0;
+  function computeMetrics(time){
+    const dt = lastTS ? Math.max(0, time - lastTS) : 16;
+    lastTS = time;
+
+    const base = 120 + 10*Math.sin(time*0.004 + phaseDeg*Math.PI/180)*(drive/100);
+    let near=0, starboardFrac=0;
+    electrons.forEach(e=>{
+      const rNow = e.r*(1 + 0.08*Math.sin(time*0.004 + e.r*0.01));
+      const d = Math.abs(rNow - base);
+      if(d<16) near++;
+      if(Math.cos(e.a)>0) starboardFrac++;
+    });
+    const tight = near/electrons.length;
+    const driveN = drive/100;
+    const warpAssist = Math.max(0, Math.min(1, 0.25*driveN + 0.65*tight + 0.1));
+    const negLike = Math.max(0, Math.min(1, 0.5*tight + 0.4*driveN));
+
+    // Containment metric
+    const starFrac = starboardFrac/electrons.length;
+    const contain = breach ? Math.min(1, 0.5*starFrac + 0.5*breachBoost) : 1;
+
+    // Auto-heal timer handling (counts down when breach active)
+    if(breach){
+      if(healTimer <= 0){
+        healTimer = 5000; // 5 seconds
+        labCountdown.style.display = 'block';
+        pushStatus('Breach detected (starboard) — boosting EM shield', 'tickWarn');
+      }else{
+        healTimer = Math.max(0, healTimer - dt);
+        const secs = Math.ceil(healTimer/1000);
+        labCountdown.textContent = `Auto-heal in ${secs}s`;
+        if(secs===4) pushStatus('Shield ramp ↑ — redirecting electron flow', 'tickWarn');
+        if(secs===2) pushStatus('Pocket stable — preparing heal', 'tickGood');
+        if(healTimer === 0){
+          breach = false; // trigger heal
+          labCountdown.textContent = 'Healed';
+          pushStatus('Breach healed — returning to nominal', 'tickGood');
+          setTimeout(()=>{ labCountdown.style.display='none'; }, 1000);
+        }
+      }
+    } else {
+      healTimer = 0;
+      labCountdown.style.display = 'none';
+    }
+
+    warpVal.textContent = (warpAssist*100).toFixed(1)+'%';
+    negVal.textContent  = (negLike*100).toFixed(1)+'%';
+    warpBar.style.width = (warpAssist*100).toFixed(1)+'%';
+    negBar .style.width = (negLike*100).toFixed(1)+'%';
+
+    containVal.textContent = breach ? (contain>0.6?'Stable':'Rising') : 'Stable';
+    containBar.style.width = (contain*100).toFixed(0)+'%';
+  }
+
+  function frame(ts){
+    if(!running){ requestAnimationFrame(frame); return; }
+    t = ts;
+    ctx.clearRect(0,0,W,H);
+
+    drawSpacetimeGrid(t);
+    drawCoils(t);
+    drawPocket(t);
+    drawShip();
+    drawShield(t);
+    drawElectrons(t);
+    drawCSTClock(t);
+    computeMetrics(t);
+
+    requestAnimationFrame(frame);
+  }
+
+  // Events
+  document.getElementById('btnStart').onclick = ()=>{ running = true; requestAnimationFrame(frame); pushStatus('Simulation started', ''); };
+  document.getElementById('btnPause').onclick = ()=>{ running = false; pushStatus('Simulation paused', ''); };
+  document.getElementById('btnReset').onclick = ()=>{
+    running = false;
+    phaseEl.value = 0; phaseDeg=0; phaseVal.textContent='0°';
+    driveEl.value = 70; drive=70; driveVal.textContent='70%';
+    countEl.value = 200; baseCount=200; countVal.textContent='200';
+    breach = false; breachBoost = 0; healTimer = 0; labCountdown.style.display='none';
+    resetElectrons(baseCount);
+    running = true; requestAnimationFrame(frame);
+    pushStatus('Reset to nominal — CST phase 0°, drive 70%, electrons 200', '');
+  };
+  document.getElementById('btnBreach').onclick = ()=>{
+    breach = true; // starts auto-heal timer inside computeMetrics
+  };
+  document.getElementById('btnHeal').onclick = ()=>{
+    breach = false; healTimer = 0; labCountdown.style.display='none';
+    pushStatus('Manual heal invoked — returning to nominal', 'tickGood');
+  };
+
+  countEl.oninput = (e)=>{ baseCount = parseInt(e.target.value,10); countVal.textContent = baseCount; resetElectrons(baseCount); pushStatus(`Electron count set to ${baseCount}`, ''); };
+  driveEl.oninput = (e)=>{ drive = parseInt(e.target.value,10); driveVal.textContent = drive+'%'; pushStatus(`Coil drive set to ${drive}%`, ''); };
+  phaseEl.oninput = (e)=>{ phaseDeg = parseInt(e.target.value,10); phaseVal.textContent = phaseDeg+'°'; pushStatus(`CST phase set to ${phaseDeg}°`, ''); };
+
+  // Init
+  resetElectrons(baseCount);
+  pushStatus('Idle — systems nominal', 'tickGood');
+  renderTicker();
+  running = true; requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
