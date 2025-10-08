@@ -51,7 +51,7 @@
   .gauge{position:relative;height:10px;background:#0f1a33;border:1px solid #23335a;border-radius:8px;overflow:hidden}
   .gauge>span{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#65ffc7,#6ee7ff);width:0%}
 
-  /* NEW: inline labels that sit on the connector lines */
+  /* Inline labels along top connector lines */
   .linelab{
     position:absolute; pointer-events:none; transform:translate(-50%,-50%);
     font-size:11px; color:var(--muted);
@@ -144,7 +144,7 @@
       <div class="call" id="labCST" style="left:740px;top:28px">CST Sync <span class="wavebar" id="wbCST"></span></div>
       <div class="call" id="labBreach" style="right:20px;top:28px">Breach Control <span class="wavebar" id="wbBreach"></span></div>
 
-      <!-- NEW: inline description labels on the connector lines -->
+      <!-- Inline description labels on the connector lines (top panel) -->
       <div class="linelab" id="LL_EM"><span class="dot emdot"></span>EM Pressure Vector</div>
       <div class="linelab" id="LL_NOISE"><span class="dot noisedot"></span>HF Noise Rings (phase-locked)</div>
       <div class="linelab" id="LL_PLASMA"><span class="dot plasdot"></span>Plasma Window (seal)</div>
@@ -162,13 +162,7 @@
 
 <script>
 /* ==============================================
-   FOBAS + AEWFC Demo
-   - Central ship and EM bubble
-   - Noise rings (blink faster with amp/freq)
-   - Photons/Ions particles
-   - Breach + Plasma Window with vector steering
-   - 5-minute demo timeline
-   - NEW: Inline labels that describe each connector line
+   FOBAS + AEWFC Demo (with ON-CANVAS line/circle labels)
    ============================================== */
 const cv = document.getElementById('scene');
 const ctx = cv.getContext('2d');
@@ -203,8 +197,6 @@ const ui = {
   wbPhot:document.getElementById('wbPhot'),
   wbCST: document.getElementById('wbCST'),
   wbBreach:document.getElementById('wbBreach'),
-
-  // NEW inline line labels
   LL_EM: document.getElementById('LL_EM'),
   LL_NOISE: document.getElementById('LL_NOISE'),
   LL_PLASMA: document.getElementById('LL_PLASMA'),
@@ -248,7 +240,6 @@ let breach = { active:false, nx:0, ny:0, side:"", plasmaLevel:0, leak:0 };
 // Helpers
 function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
 function lerp(a,b,t){ return a+(b-a)*t; }
-
 function harmonicMatch(){
   const warp = parseFloat(ui.warp.value);
   const freq = parseFloat(ui.freq.value);
@@ -256,7 +247,6 @@ function harmonicMatch(){
   const diff = Math.abs(freq-target);
   return clamp(1 - diff/1.4, 0, 1);
 }
-
 function stability(){
   const em  = parseFloat(ui.em.value);
   const amp = parseFloat(ui.amp.value);
@@ -265,21 +255,16 @@ function stability(){
   const s = Math.pow(0.6*em + 0.4*amp, 1.2) * (0.55+0.45*cst) * (0.5+0.5*hm);
   return clamp(s,0,1);
 }
-
 function shieldPower(){
   const s = stability();
   const plasma = parseFloat(ui.plasma.value);
   const warp = parseFloat(ui.warp.value)/10;
   return clamp(0.35*s + 0.35*plasma + 0.3*warp, 0, 1);
 }
-
 function compressionHold(){
-  // ΔP effectiveness increases with stability; reduced by leak when breach active
   const s = stability();
   let eff = s;
-  if(breach.active){
-    eff *= clamp(1 - breach.leak*0.8, 0, 1);
-  }
+  if(breach.active) eff *= clamp(1 - breach.leak*0.8, 0, 1);
   return clamp(eff,0,1);
 }
 
@@ -289,35 +274,28 @@ function updateGauges(){
   const leakVal = breach.active ? (0.2 + (1 - stability())*0.6)*(1 - breach.plasmaLevel*0.8) : 0;
   breach.leak = clamp(leakVal, 0, 1);
 
-  ui.gPower.style.width = P + "%";
-  ui.powerV.textContent = P + "%";
-  ui.gComp.style.width = C + "%";
-  ui.compV.textContent = C + "%";
-  ui.gLeak.style.width = Math.round(breach.leak*100) + "%";
-  ui.leakV.textContent = (breach.leak*2.0).toFixed(2) + " kg/s";
+  ui.gPower.style.width = P + "%";  ui.powerV.textContent = P + "%";
+  ui.gComp.style.width  = C + "%";  ui.compV.textContent  = C + "%";
+  ui.gLeak.style.width  = Math.round(breach.leak*100) + "%";
+  ui.leakV.textContent  = (breach.leak*2.0).toFixed(2) + " kg/s";
 
-  // Status text
   if(!breach.active){
     ui.status.className = "v status " + (C>75?"ok": (C>40?"warn":"bad"));
     ui.status.textContent = (C>75?"Crew-Safe":"Standby") + " — ΔP " + C + "%";
   }else{
-    const txt = (C>70?"Crew-Safe":"Holding") + " — Breach " + breach.side;
     const cls = (C>70?"ok": (C>40?"warn":"bad"));
     ui.status.className = "v status " + cls;
-    ui.status.textContent = txt + " ("+ (100 - Math.round(breach.leak*100)) + "% sealed)";
+    ui.status.textContent = ((C>70?"Crew-Safe":"Holding") + " — Breach " + breach.side + " ("+ (100 - Math.round(breach.leak*100)) + "% sealed)");
   }
 
-  // Speed up overlay wavebars according to each channel
   const speedEM = 0.6 + parseFloat(ui.em.value);
   const speedNoise = 0.6 + parseFloat(ui.amp.value)*parseFloat(ui.freq.value)/3;
   const speedPlasma = 0.6 + parseFloat(ui.plasma.value);
   const speedPhot = 0.6 + parseFloat(ui.flux.value);
   const speedCST = 0.6 + parseFloat(ui.cst.value)/100;
   const speedBreach = 0.6 + (breach.active? (0.4 + breach.plasmaLevel*0.8):0.2);
-
   for(const [el,spd] of [[ui.wbEM,speedEM],[ui.wbNoise,speedNoise],[ui.wbPlasma,speedPlasma],[ui.wbPhot,speedPhot],[ui.wbCST,speedCST],[ui.wbBreach,speedBreach]]){
     el.style.setProperty("--wbspd", spd.toString());
-    // hack: scale animation by transform
     el.style.filter = `saturate(${1+spd*0.6}) brightness(${0.9+spd*0.2})`;
   }
 }
@@ -325,7 +303,6 @@ function updateGauges(){
 function drawBackground(){
   ctx.fillStyle = '#060914';
   ctx.fillRect(0,0,cv.width,cv.height);
-  // subtle parallax stars
   for(let i=0;i<140;i++){
     const x = (i*97 + (t*0.035)) % cv.width;
     const y = (i*53 + (t*0.02)) % cv.height;
@@ -335,41 +312,32 @@ function drawBackground(){
   }
   ctx.globalAlpha = 1;
 }
-
 function drawShip(){
   ctx.save();
   ctx.translate(ship.x, ship.y);
   ctx.beginPath();
   ctx.arc(0,0, ship.r, 0, Math.PI*2);
   const grad = ctx.createRadialGradient(0,0,2,0,0,ship.r);
-  grad.addColorStop(0,'#e8f2ff');
-  grad.addColorStop(1,'#95a9ff');
-  ctx.fillStyle = grad;
-  ctx.fill();
+  grad.addColorStop(0,'#e8f2ff'); grad.addColorStop(1,'#95a9ff');
+  ctx.fillStyle = grad; ctx.fill();
   ctx.restore();
 }
-
 function drawEMBubble(){
   const em = parseFloat(ui.em.value);
   const baseR = 120 + em*140;
   const phase = t*0.05;
-  // Glow layers
   for(let i=0;i<5;i++){
     ctx.beginPath();
     const r = baseR + i*3 + Math.sin(phase + i*0.6)*2;
     ctx.arc(ship.x, ship.y, r, 0, Math.PI*2);
     ctx.strokeStyle = `rgba(126,255,196,${0.12 - i*0.015})`;
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    ctx.lineWidth = 2; ctx.stroke();
   }
-  // Main shell
   ctx.beginPath();
   ctx.arc(ship.x, ship.y, baseR + Math.sin(phase)*6, 0, Math.PI*2);
   ctx.strokeStyle = 'rgba(126,255,196,0.4)';
-  ctx.lineWidth = 3;
-  ctx.stroke();
+  ctx.lineWidth = 3; ctx.stroke();
 
-  // Vector bias if breach active (thicker on that side)
   if(breach.active){
     const bias = 0.7 + stability()*0.9;
     const bx = ship.x + breach.nx*(baseR+6);
@@ -377,27 +345,15 @@ function drawEMBubble(){
     ctx.beginPath();
     ctx.arc(ship.x, ship.y, baseR + 10, 0, Math.PI*2);
     ctx.strokeStyle = 'rgba(126,255,196,0.2)';
-    ctx.lineWidth = 10*bias;
-    ctx.setLineDash([14,10]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    // Direction arrow
-    ctx.beginPath();
-    ctx.moveTo(bx,by);
-    ctx.lineTo(bx + breach.nx*24, by + breach.ny*24);
-    ctx.strokeStyle = 'rgba(126,255,196,0.8)';
-    ctx.lineWidth = 3;
-    ctx.stroke();
+    ctx.lineWidth = 10*bias; ctx.setLineDash([14,10]); ctx.stroke(); ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(bx,by); ctx.lineTo(bx + breach.nx*24, by + breach.ny*24);
+    ctx.strokeStyle = 'rgba(126,255,196,0.8)'; ctx.lineWidth = 3; ctx.stroke();
   }
-
   return baseR;
 }
-
 function drawNoiseRings(baseR){
-  const amp = parseFloat(ui.amp.value);
-  const freq = parseFloat(ui.freq.value);
-  const rings = 7;
-  const blink = 300 - Math.min(260, amp*freq*180); // faster blink with power
+  const amp = parseFloat(ui.amp.value), freq = parseFloat(ui.freq.value);
+  const rings = 7; const blink = 300 - Math.min(260, amp*freq*180);
   const on = ((t % (blink*2)) < blink);
   ctx.globalAlpha = on ? 0.9 : 0.4;
   for(let i=0;i<rings;i++){
@@ -405,88 +361,57 @@ function drawNoiseRings(baseR){
     const r = baseR + spread + Math.sin(t*freq*0.12 + i*0.8)*(10 + amp*24);
     ctx.beginPath();
     ctx.arc(ship.x, ship.y, r, 0, Math.PI*2);
-    ctx.strokeStyle = 'rgba(122,211,255,0.8)';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([8,8]);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    ctx.strokeStyle = 'rgba(122,211,255,0.8)'; ctx.lineWidth = 2;
+    ctx.setLineDash([8,8]); ctx.stroke(); ctx.setLineDash([]);
   }
   ctx.globalAlpha = 1;
 }
-
 function drawPlasmaWindow(){
   if(!breach.active) return;
-  // A glowing diaphragm across the breach normal
   const len = 180 + parseFloat(ui.plasma.value)*220;
   const thick = 6 + breach.plasmaLevel*18;
-  const cx = ship.x + breach.nx* (130);
-  const cy = ship.y + breach.ny* (130);
+  const cx = ship.x + breach.nx*130, cy = ship.y + breach.ny*130;
   const ang = Math.atan2(breach.ny, breach.nx);
-  ctx.save();
-  ctx.translate(cx,cy);
-  ctx.rotate(ang + Math.PI/2);
+  ctx.save(); ctx.translate(cx,cy); ctx.rotate(ang + Math.PI/2);
   const grad = ctx.createLinearGradient(-len/2,0,len/2,0);
   grad.addColorStop(0,'rgba(110,231,255,0.05)');
   grad.addColorStop(0.5,`rgba(124,255,210,${0.25+breach.plasmaLevel*0.35})`);
   grad.addColorStop(1,'rgba(110,231,255,0.05)');
-  ctx.fillStyle = grad;
-  ctx.fillRect(-len/2, -thick/2, len, thick);
-
-  // Ripple showing HF drive
+  ctx.fillStyle = grad; ctx.fillRect(-len/2, -thick/2, len, thick);
   const nWaves = 8;
   ctx.beginPath();
   for(let i=0;i<=nWaves;i++){
     const x = -len/2 + (i/nWaves)*len;
     const y = Math.sin((i/nWaves)*Math.PI*4 + t*0.02*parseFloat(ui.freq.value))* (thick*0.45 + breach.plasmaLevel*4);
-    if(i===0) ctx.moveTo(x,y);
-    else ctx.lineTo(x,y);
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
   }
-  ctx.strokeStyle = 'rgba(124,255,210,0.9)';
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
+  ctx.strokeStyle = 'rgba(124,255,210,0.9)'; ctx.lineWidth = 1.5; ctx.stroke();
   ctx.restore();
 }
-
 function interactParticles(baseR){
   for(const p of particles){
-    // Basic motion
     p.x += p.vx; p.y += p.vy; p.life -= 0.02;
-    // Deflect/absorb near bubble
-    const dx = p.x - ship.x, dy = p.y - ship.y;
-    const d = Math.hypot(dx,dy);
-    const s = stability();
-    const effR = baseR*(0.9 + 0.2*s);
+    const dx = p.x - ship.x, dy = p.y - ship.y, d = Math.hypot(dx,dy);
+    const s = stability(), effR = baseR*(0.9 + 0.2*s);
     if(d < effR){
-      // repel outward + color shift
-      const nx = dx/(d||1), ny = dy/(d||1);
-      const speed = Math.hypot(p.vx,p.vy);
-      const boost = 1.0 + 0.4*s;
-      p.vx = nx*boost*speed; p.vy = ny*boost*speed;
-      p.type = 'ion';
+      const nx = dx/(d||1), ny = dy/(d||1), speed = Math.hypot(p.vx,p.vy), boost = 1.0 + 0.4*s;
+      p.vx = nx*boost*speed; p.vy = ny*boost*speed; p.type = 'ion';
     }
-
-    // Plasma window across breach: absorb if crossing sheet
     if(breach.active){
-      const cx = ship.x + breach.nx* (130);
-      const cy = ship.y + breach.ny* (130);
+      const cx = ship.x + breach.nx*130, cy = ship.y + breach.ny*130;
       const nx = breach.nx, ny = breach.ny;
       const dist = Math.abs((p.x-cx)*nx + (p.y-cy)*ny);
       const along = Math.abs((p.x-cx)*(-ny) + (p.y-cy)*(nx));
       const len = 180 + parseFloat(ui.plasma.value)*220;
       const thick = 6 + breach.plasmaLevel*18;
       if(along < len/2 && dist < thick/2){
-        if(Math.random() < (0.6*breach.plasmaLevel + 0.2*stability())){
-          p.life = 0;
-        }else{
-          const vn = p.vx*nx + p.vy*ny;
-          p.vx -= 2*vn*nx; p.vy -= 2*vn*ny;
-        }
+        if(Math.random() < (0.6*breach.plasmaLevel + 0.2*stability())) p.life = 0;
+        else { const vn = p.vx*nx + p.vy*ny; p.vx -= 2*vn*nx; p.vy -= 2*vn*ny; }
       }
     }
   }
   particles = particles.filter(p=>p.life>0 && p.x>-40 && p.x<cv.width+40 && p.y>-40 && p.y<cv.height+40);
 }
-
 function drawParticles(){
   for(const p of particles){
     ctx.beginPath();
@@ -496,56 +421,108 @@ function drawParticles(){
   }
 }
 
-/* ---------- NEW: position & text for inline line labels ---------- */
-function place(el, x, y){ el.style.left = x + "px"; el.style.top = y + "px"; }
+/* ==== NEW: On-canvas word labels for circle areas & lines ==== */
+function drawTag(x,y,text,align="center"){
+  ctx.save();
+  ctx.font = '12px system-ui, Segoe UI, Roboto, Arial, sans-serif';
+  ctx.textAlign = align; ctx.textBaseline = 'middle';
+  const padX = 6, padY = 4;
+  const w = ctx.measureText(text).width + padX*2, h = 18;
+  let bx = x - (align==="center" ? w/2 : (align==="right" ? w : 0)), by = y - h/2;
+  // background
+  ctx.fillStyle = 'rgba(11,20,42,0.85)';
+  ctx.strokeStyle = '#22345c'; ctx.lineWidth = 1;
+  roundRect(bx,by,w,h,8); ctx.fill(); ctx.stroke();
+  // text
+  ctx.fillStyle = '#a7b4d1';
+  ctx.fillText(text, x, y+0.5);
+  ctx.restore();
+}
+function roundRect(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+function drawSceneLabels(baseR, px, py){
+  // Quadrant / orientation labels around the circle
+  drawTag(ship.x, ship.y - baseR - 22, 'Fore');
+  drawTag(ship.x, ship.y + baseR + 22, 'Aft');
+  drawTag(ship.x - baseR - 22, ship.y, 'Port', 'right');
+  drawTag(ship.x + baseR + 22, ship.y, 'Starboard', 'left');
 
+  // Center & shell labels
+  drawTag(ship.x, ship.y + 32, 'Ship Core / CST Clock');
+  // place along the shell at a slight angle position
+  const theta = Math.PI/6; // 30°
+  drawTag(ship.x + (baseR-8)*Math.cos(theta), ship.y - (baseR-8)*Math.sin(theta), 'EM Bubble Shell');
+
+  // Noise label near top rings
+  drawTag(ship.x, ship.y - (baseR + 78), 'HF Noise Rings');
+
+  // Photon stream target label (right side mid)
+  drawTag(cv.width - 76, cv.height/2, 'Photon / Ion Stream', 'left');
+
+  // Plasma window & vector bias when active
+  if(breach.active){
+    const cx = ship.x + breach.nx*130, cy = ship.y + breach.ny*130;
+    // offset along tangent for readability
+    const tx = cx - breach.ny*36, ty = cy + breach.nx*36;
+    drawTag(tx, ty, 'Plasma Window Seal');
+    // vector bias near arrow head
+    const bx = ship.x + breach.nx*(baseR+24), by = ship.y + breach.ny*(baseR+24);
+    drawTag(bx + breach.nx*22, by + breach.ny*22, 'EM Pressure Bias');
+  } else {
+    // standby plasma label below circle
+    drawTag(ship.x + 10, ship.y + baseR + 48, 'Plasma Channel (Standby)');
+  }
+
+  // Small crosshair at center
+  ctx.save();
+  ctx.strokeStyle = 'rgba(160,190,250,0.35)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(ship.x-8, ship.y); ctx.lineTo(ship.x+8, ship.y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ship.x, ship.y-8); ctx.lineTo(ship.x, ship.y+8); ctx.stroke();
+  ctx.restore();
+}
+/* ============================================================= */
+
+function place(el, x, y){ el.style.left = x + "px"; el.style.top = y + "px"; }
 function updateLineLabels(baseR, px, py){
-  // Source points (start of each connector line near the top labels)
   const EMs = {x:90,y:60},     EMe = {x: ship.x - baseR - 20, y: ship.y};
   const Ns  = {x:270,y:60},    Ne  = {x: ship.x, y: ship.y - (baseR+70)};
   const Ps  = {x:430,y:60},    Pe  = {x: px, y: py};
   const Phs = {x:615,y:60},    Phe = {x: cv.width-60, y: cv.height/2};
   const Cs  = {x:820,y:60},    Ce  = {x: ship.x, y: ship.y};
   const Bs  = {x: cv.width-140, y:60}, Be  = {x: px, y: py};
-
-  // Midpoint helpers
   function mid(a,b){ return {x:(a.x+b.x)/2, y:(a.y+b.y)/2}; }
-
-  // Dynamic wording for plasma/breach depending on state
   ui.LL_PLASMA.innerHTML = `<span class="dot plasdot"></span>${breach.active ? "Plasma Window (seal)" : "Plasma Channel (standby)"}`;
   ui.LL_BREACH.innerHTML = `<span class="dot breachdot"></span>${breach.active ? ("Breach Vector — " + breach.side) : "Breach Control Path"}`;
-
-  // Place labels
-  place(ui.LL_EM,     mid(EMs,EMe).x,     mid(EMs,EMe).y);
-  place(ui.LL_NOISE,  mid(Ns,Ne).x,       mid(Ns,Ne).y);
-  place(ui.LL_PLASMA, mid(Ps,Pe).x,       mid(Ps,Pe).y);
-  place(ui.LL_PHOT,   mid(Phs,Phe).x,     mid(Phs,Phe).y);
-  place(ui.LL_CST,    mid(Cs,Ce).x,       mid(Cs,Ce).y);
-  place(ui.LL_BREACH, mid(Bs,Be).x,       mid(Bs,Be).y);
+  place(ui.LL_EM,     mid(EMs,EMe).x, mid(EMs,EMe).y);
+  place(ui.LL_NOISE,  mid(Ns,Ne).x,   mid(Ns,Ne).y);
+  place(ui.LL_PLASMA, mid(Ps,Pe).x,   mid(Ps,Pe).y);
+  place(ui.LL_PHOT,   mid(Phs,Phe).x, mid(Phs,Phe).y);
+  place(ui.LL_CST,    mid(Cs,Ce).x,   mid(Cs,Ce).y);
+  place(ui.LL_BREACH, mid(Bs,Be).x,   mid(Bs,Be).y);
 }
-/* ----------------------------------------------------------------- */
 
 function step(dt){
   t += dt;
   if(Math.random() < 0.7) spawnParticles();
-
-  // Breach controller: raise plasmaLevel and bias field toward breach
   if(breach.active){
     const target = clamp(0.35 + stability()*0.6, 0, 1);
     breach.plasmaLevel = lerp(breach.plasmaLevel, target, 0.03);
-    // Auto boost EM + Noise slightly
-    const em = parseFloat(ui.em.value);
-    const amp = parseFloat(ui.amp.value);
+    const em = parseFloat(ui.em.value), amp = parseFloat(ui.amp.value);
     ui.em.value = clamp(em + 0.0025, 0, 1);
     ui.amp.value = clamp(amp + 0.0020, 0, 1);
   }else{
     breach.plasmaLevel = lerp(breach.plasmaLevel, 0, 0.03);
   }
 
-  // Demo timeline (5 minutes)
   if(demoMode){
     const elapsed = t - demoStart;
-    const s = clamp(elapsed/DEMO_MS, 0, 1);
     const ramp = clamp(elapsed/60000, 0, 1);
     const osc = 0.02*Math.sin(elapsed*0.0008);
     if(elapsed < 60000){
@@ -561,9 +538,7 @@ function step(dt){
       ui.plasma.value = clamp(parseFloat(ui.plasma.value)+osc,0,1);
     }else if(elapsed < 300000){
       if(!breach.active) triggerBreach("Starboard", 1, 0);
-      if(elapsed > 285000){ // last 15s auto-heal
-        healBreach();
-      }
+      if(elapsed > 285000){ healBreach(); }
     }else{
       demoMode = false;
     }
@@ -576,7 +551,6 @@ function render(){
   const baseR = drawEMBubble();
   drawNoiseRings(baseR);
 
-  // For connectors that depend on breach/standby targets:
   const px = breach.active ? ship.x + breach.nx*130 : ship.x + 10;
   const py = breach.active ? ship.y + breach.ny*130 : ship.y + baseR + 40;
 
@@ -584,33 +558,28 @@ function render(){
   drawParticles();
   updateGauges();
 
-  // On-screen connector lines from labels to scene
+  // Connector lines to top labels
   ctx.save();
-  ctx.strokeStyle = 'rgba(160,190,250,0.5)';
-  ctx.lineWidth = 1;
-  // EM: to bubble
-  ctx.beginPath(); ctx.moveTo(90,60); ctx.lineTo(ship.x- baseR-20, ship.y); ctx.stroke();
-  // Noise: to rings
-  ctx.beginPath(); ctx.moveTo(270,60); ctx.lineTo(ship.x, ship.y - (baseR+70)); ctx.stroke();
-  // Plasma: to breach sheet (or near bubble if idle)
-  ctx.beginPath(); ctx.moveTo(430,60); ctx.lineTo(px, py); ctx.stroke();
-  // Photons: to incoming stream
-  ctx.beginPath(); ctx.moveTo(615,60); ctx.lineTo(cv.width-60, cv.height/2); ctx.stroke();
-  // CST: to ship center
-  ctx.beginPath(); ctx.moveTo(820,60); ctx.lineTo(ship.x, ship.y); ctx.stroke();
-  // Breach: to breach location
-  ctx.beginPath(); ctx.moveTo(cv.width-140,60); ctx.lineTo(px,py); ctx.stroke();
+  ctx.strokeStyle = 'rgba(160,190,250,0.5)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(90,60);  ctx.lineTo(ship.x- baseR-20, ship.y); ctx.stroke();          // EM
+  ctx.beginPath(); ctx.moveTo(270,60); ctx.lineTo(ship.x, ship.y - (baseR+70)); ctx.stroke();       // Noise
+  ctx.beginPath(); ctx.moveTo(430,60); ctx.lineTo(px, py); ctx.stroke();                            // Plasma
+  ctx.beginPath(); ctx.moveTo(615,60); ctx.lineTo(cv.width-60, cv.height/2); ctx.stroke();          // Photons
+  ctx.beginPath(); ctx.moveTo(820,60); ctx.lineTo(ship.x, ship.y); ctx.stroke();                    // CST
+  ctx.beginPath(); ctx.moveTo(cv.width-140,60); ctx.lineTo(px,py); ctx.stroke();                    // Breach
   ctx.restore();
 
-  // NEW: place the inline labels on the midpoints of those lines
+  // NEW: on-canvas labels around the circle & lines
+  drawSceneLabels(baseR, px, py);
+
+  // Place the floating (DOM) inline labels on top connectors
   updateLineLabels(baseR, px, py);
 }
 
 function loop(now){
   if(!loop.last) loop.last = now;
   const dt = now - loop.last; loop.last = now;
-  if(running){ step(dt); render(); }
-  else { render(); }
+  if(running){ step(dt); render(); } else { render(); }
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
@@ -626,7 +595,6 @@ function healBreach(){
   document.getElementById('labBreach').classList.remove('blink');
   ui.status.textContent = 'Patch sealed — Ramp down';
 }
-
 ui.start.addEventListener('click', ()=>{ running=true; });
 ui.stop.addEventListener('click', ()=>{ running=false; });
 ui.reset.addEventListener('click', ()=>{
