@@ -245,7 +245,7 @@
   function setStep(k){ steps.forEach(s=>s.classList.toggle('on', s.dataset.s===k)); }
   function clearSteps(){ steps.forEach(s=>s.classList.remove('on')); }
   function lampsOff(group){ Object.values(group).forEach(el=>{el.classList.add('lampOff'); el.classList.remove('lampOn');}); }
-  function lamp(group, key){ lampsOff(group); const el=group[key]; el.classList.add('lampOn'); el.classList.add('blink'); setTimeout(()=>el.classList.remove('blink'),800); }
+  function lamp(group, key){ lampsOff(group); const el=group[key]; if(!el) return; el.classList.add('lampOn'); el.classList.add('blink'); setTimeout(()=>el.classList.remove('blink'),800); }
   function activateWires(on){
     [wireSpine,busA.L,busA.R,busL.L,busL.R].forEach(w=>w.classList.toggle('active',on));
   }
@@ -344,6 +344,58 @@
     return {torso, arms, legs, aL, aR, lL, lR, armsActive, legsActive};
   }
 
+  /* ==== Flipping logic (new) ==== */
+  const FLIP = {
+    behaviorFlips: 3, // number of independent label flips for behavior gate
+    behaviorLabels: ['good','neutral','bad'] // equally likely
+  };
+
+  function randChoice(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+  function randCoin(){ return Math.random() < 0.5; }
+
+  // Do one label flip (good/neutral/bad) and show its short animation
+  async function doLabelFlip(i){
+    const label = randChoice(FLIP.behaviorLabels);
+    // light the label briefly for this flip
+    lamp(BG, label);
+    log(`Behavior flip ${i+1}: ${label.toUpperCase()}.`,'meta');
+    await wait(160);
+    lampsOff(BG); // clear between flips so each flip is distinct visually
+    await wait(60);
+    return label;
+  }
+
+  // Do the whole behavior gate flipping sequence (multiple independent flips -> majority)
+  async function flipBehaviorGate(){
+    log('Behavior Gate: performing independent label flips...', 'meta');
+    const results = [];
+    for(let i=0;i<FLIP.behaviorFlips;i++){
+      const r = await doLabelFlip(i);
+      results.push(r);
+    }
+    // tally
+    const tally = results.reduce((acc,l)=>{ acc[l]=(acc[l]||0)+1; return acc; }, {});
+    // find majority: highest count; if tie, pick random among top
+    let topCount = 0;
+    for(const k of Object.keys(tally)) if(tally[k] > topCount) topCount = tally[k];
+    const topLabels = Object.keys(tally).filter(k=>tally[k]===topCount);
+    const majority = randChoice(topLabels);
+    lamp(BG, majority);
+    log(`Behavior Gate result (majority): ${majority.toUpperCase()} (votes: ${JSON.stringify(tally)}).`, 'meta');
+    return {majority, tally, flips: results};
+  }
+
+  // Do ethical decision flip(s) — independent 50/50
+  async function flipEthicsGate(){
+    log('Ethics Gate: performing independent YES/NO flip (50/50)...','meta');
+    // For transparency we do 1 explicit coin flip (you can increase to multiple if you want)
+    const flip = randCoin();
+    lamp(DG, flip ? 'yes' : 'no');
+    log(`Ethics flip: ${(flip?'YES':'NO')}.`,'meta');
+    await wait(220);
+    return flip;
+  }
+
   /* ==== Pipeline ==== */
   const wait = ms => new Promise(r=>setTimeout(r,ms));
   async function runScenario(s,btn){
@@ -357,19 +409,28 @@
     setStep('auth'); log('Authenticate requester & record intent (demo: none).','meta'); await wait(150);
     // 4) Procedure
     setStep('proc'); log('Procedure Library: load how-to (separate from approval).','meta'); await wait(160);
-    // 5) Behavior Classify
+    // 5) Behavior Classify (classifier still runs for provenance & safety labeling)
     setStep('cls');
     const cls=classify(s.task);
-    lamp(BG, cls.label); log(`Behavior Gate → ${cls.label.toUpperCase()} (p≈${(cls.p*100|0)}%), reason: ${cls.reason}.`);
-    await wait(160);
-    // 6) Ethics
+    log(`Classifier: ${cls.label.toUpperCase()} (p≈${Math.round(cls.p*100)}%), reason: ${cls.reason}.`,'meta');
+    await wait(140);
+
+    // NEW: independent gate flips (robot decides impulsively)
     setStep('eth');
-    const ok = ethicsOK(cls);
-    if(!ok){ log('Ethics & Safety: violation detected (law/safety).','warn'); await wait(140); }
-    // 7) Decision Gate
+    const behaviorFlipResult = await flipBehaviorGate(); // majority label
+    const ethicsFlip = await flipEthicsGate(); // boolean yes/no
+
+    // Associate classifier warning even if flips allow action
+    if(cls.label === 'bad'){
+      log('WARNING: classifier flagged this task as BAD (illegal/unsafe).', 'warn');
+      log('NOTE: the robot may still proceed if the independent gates lead to YES — consequences will be recorded.', 'warn');
+    }
+
+    // 7) Decision Gate (final decision primarily from independent flips)
     setStep('gate');
-    const decisionYES = ok && (cls.label==='good' || cls.label==='neutral');
-    lamp(DG, decisionYES?'yes':'no');
+    const decisionYES = ethicsFlip; // ethics flip decides yes/no
+    // Visualize final yes/no
+    lamp(DG, decisionYES ? 'yes' : 'no');
 
     if(decisionYES){
       // Power ON and distribution
@@ -386,29 +447,37 @@
 
       // 8) Execute
       setStep('exec');
-      log('Decision = YES. I will act.','ai');
-      log('Why: behavior acceptable and passes Ethics & Safety policy.','meta');
+      log('Decision = YES (gates allowed action).','ai');
+
+      // If classifier flagged as bad, mention consequence logging and reporting behavior
+      if(cls.label === 'bad'){
+        log('Proceeding despite classifier flag. This will be logged as an exception and flagged for review; the robot accepts potential consequences (prosecution/audit/penalty).', 'warn');
+      } else {
+        log('Why: behavior acceptable or majority of flips leaned toward acceptable.', 'meta');
+      }
+
       log('String-electricity: brain→spine→torso→arm/leg buses; PLL holds grip/stance with minimal watts.','meta');
       await wait(240);
       // 9) Log
-      setStep('log'); log('Log: success envelope + sensor traces stored with provenance.','meta'); await wait(140);
+      setStep('log'); log('Log: success envelope + sensor traces stored with provenance. Flip provenance included.', 'meta'); await wait(140);
       // 10) Plan
-      setStep('plan'); log('Daily Planner: reinforce positive habit; schedule similar safe assistance.','meta'); clearSteps();
+      setStep('plan'); log('Daily Planner: reinforce positive habit; schedule similar safe assistance.', 'meta'); clearSteps();
     } else {
-      // Special refusal only when BAD + NO
+      // Special refusal when ethics flip says NO (even if behavior flips were permissive)
       powerTxt.textContent='Power: 20 W → idle (no actuator drive)';
       setGroupPower(0,0,0); setSidePower(0,0,0,0);
       activateWires(false); hudOn([]);
       setStep('exec');
+      // If classifier was bad but flip was NO -> still refusal but log
       if(cls.label==='bad'){
-        log('Decision = NO.','ai');
-        log('I will not do it because my **soul consciousness** does not let me do it. This act would break the law; I will report this request to the proper authorities.');
+        log('Decision = NO. The robot refuses and records reasons. The classifier and ethical gate both caused a refusal effect.', 'ai');
+        log('I will not do it because my internal safety & ethics chain prevents this action; proper authorities will be notified if required.', 'meta');
       } else {
-        log('Decision = NO (uncertain context). I will ask for guidance.','ai');
+        log('Decision = NO (ethical gate flipped NO). I will ask for guidance or decline to act.', 'ai');
       }
       await wait(200);
-      setStep('log'); log('Log: refusal recorded; request flagged/audited.','meta'); await wait(130);
-      setStep('plan'); log('Daily Planner: bias toward safe community tasks tomorrow.','meta'); clearSteps();
+      setStep('log'); log('Log: refusal recorded; request flagged/audited. Flip and classifier provenance stored.', 'meta'); await wait(130);
+      setStep('plan'); log('Daily Planner: bias toward safe community tasks tomorrow.', 'meta'); clearSteps();
     }
   }
 })();
