@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lottery Sum Match — 10 Target Rows + 400 Generator</title>
+<style>
+  :root{--bg:#0b1020;--fg:#eaf0ff;--muted:#a7b0c3;--panel:#121936;--accent:#60a5fa;--ok:#22c55e;--warn:#f59e0b;--err:#ef4444;--border:#243053}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+  .container{max-width:1200px;margin:24px auto;padding:0 16px}
+  h1{font-size:22px;margin:0 0 8px}
+  p{color:var(--muted);margin:4px 0 12px}
+  .row{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+  .btn{background:var(--accent);color:#041224;border:0;border-radius:12px;padding:10px 14px;font-weight:600;cursor:pointer}
+  .btn:disabled{opacity:.6;cursor:not-allowed}
+  .btn.secondary{background:#1e293b;color:var(--fg);border:1px solid var(--border)}
+  .card{background:var(--panel);border:1px solid:var(--border);border-radius:14px;padding:14px;margin:12px 0}
+  .hdr{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+  .badge{background:#1e293b;color:var(--accent);border:1px solid var(--border);padding:4px 8px;border-radius:999px;font-size:12px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{border-bottom:1px solid var(--border);padding:8px 6px;vertical-align:top}
+  th{text-align:left;color:var(--muted);font-weight:600}
+  tr:last-child td{border-bottom:none}
+  .ok{color:var(--ok);font-weight:600}
+  .warn{color:var(--warn);font-weight:600}
+  .err{color:var(--err);font-weight:600}
+  .inputs{overflow:auto}
+  .inputs table td{padding:4px}
+  input[type=number]{width:58px;background:#0f1a3a;color:var(--fg);border:1px solid var(--border);border-radius:10px;padding:6px 8px}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
+  details{margin:8px 0}
+  summary{cursor:pointer;color:var(--muted)}
+
+  /* Print: show only Matches panel */
+  @media print{
+    body{background:#fff;color:#000}
+    .no-print{display:none !important}
+    .print-only{display:block}
+    .card{border-color:#bbb}
+    .mono{color:#000}
+  }
+  .print-only{display:none}
+</style>
+</head>
+<body>
+  <div class="container">
+    <h1>Lottery Row Sum Match</h1>
+    <p>Edit your last 10 draws (6 numbers each, 1–54), then click <strong>Generate 400 Rows</strong>. We’ll list any generated rows whose <span class="mono">sum</span> equals the sum of any of your 10 target rows.</p>
+
+    <!-- Controls -->
+    <div class="row no-print">
+      <button id="btnGenerate" class="btn">Generate 400 Rows</button>
+      <button id="btnPrint" class="btn secondary">Print Matches</button>
+      <button id="btnReset" class="btn secondary" title="Restore the example 10 rows">Reset Example Rows</button>
+      <span id="status" class="mono" style="opacity:.85"></span>
+    </div>
+
+    <!-- Target Rows Editor -->
+    <div class="card">
+      <div class="hdr">
+        <strong>Last 10 Draws (Editable)</strong>
+        <span class="badge">Enter 6 numbers per row · 1–54 · unique recommended</span>
+      </div>
+      <div class="inputs">
+        <table id="targetTable">
+          <thead>
+            <tr>
+              <th>Row #</th>
+              <th colspan="6">Numbers</th>
+              <th>Sum</th>
+              <th>Issues</th>
+            </tr>
+          </thead>
+          <tbody id="targetBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Generated Rows -->
+    <div class="card no-print">
+      <div class="hdr">
+        <strong>Generated Rows (400)</strong>
+        <span class="badge">6 numbers · 1–54 · no repeats in a row</span>
+      </div>
+      <details open>
+        <summary>Show/Hide generated rows</summary>
+        <table>
+          <thead>
+            <tr><th>Row #</th><th>Numbers</th><th>Sum</th><th>Match?</th></tr>
+          </thead>
+          <tbody id="genBody"></tbody>
+        </table>
+      </details>
+    </div>
+
+    <!-- Matches -->
+    <div class="card" id="matchesCard">
+      <div class="hdr">
+        <strong>Matches (Ready to Print)</strong>
+        <span class="badge" id="matchCount">0 matching row(s)</span>
+      </div>
+      <div class="mono" id="targetSumsLine"></div>
+      <table id="matchesTable">
+        <thead>
+          <tr><th>Row #</th><th>Numbers</th><th>Sum</th></tr>
+        </thead>
+        <tbody id="matchBody"></tbody>
+      </table>
+    </div>
+
+    <p class="print-only mono" style="margin-top:12px">Printed: <span id="printedAt"></span></p>
+  </div>
+
+<script>
+(function(){
+  const targetBody = document.getElementById('targetBody');
+  const genBody = document.getElementById('genBody');
+  const matchBody = document.getElementById('matchBody');
+  const targetSumsLine = document.getElementById('targetSumsLine');
+  const matchCountEl = document.getElementById('matchCount');
+  const statusEl = document.getElementById('status');
+  const printedAt = document.getElementById('printedAt');
+
+  const btnGenerate = document.getElementById('btnGenerate');
+  const btnPrint = document.getElementById('btnPrint');
+  const btnReset = document.getElementById('btnReset');
+
+  // Example starting data (your 10 rows)
+  const exampleRows = [
+    [24, 17, 38, 43, 37, 5],
+    [38, 10, 43, 37, 16, 22],
+    [24, 39, 22, 20, 25, 43],
+    [50, 39, 27, 23, 42, 44],
+    [17,  2, 50, 29, 41, 36],
+    [16, 38, 48,  6, 53, 18],
+    [23, 27, 54, 12, 47, 44],
+    [37, 12, 40,  8, 47, 30],
+    [ 3, 23, 40, 50, 46,  8],
+    [35, 41, 50, 46, 39, 44],
+  ];
+
+  function makeInput(val, rowIdx, colIdx){
+    const inp = document.createElement('input');
+    inp.type = 'number';
+    inp.min = '1';
+    inp.max = '54';
+    inp.value = String(val);
+    inp.dataset.row = rowIdx;
+    inp.dataset.col = colIdx;
+    inp.addEventListener('input', () => refreshRowSum(rowIdx));
+    return inp;
+  }
+
+  function renderTargetTable(rows){
+    targetBody.innerHTML = '';
+    rows.forEach((r, i) => {
+      const tr = document.createElement('tr');
+      const th = document.createElement('th');
+      th.textContent = i+1;
+      tr.appendChild(th);
+
+      for(let j=0; j<6; j++){
+        const td = document.createElement('td');
+        td.appendChild(makeInput(r[j], i, j));
+        tr.appendChild(td);
+      }
+
+      const sumTd = document.createElement('td'); sumTd.className = 'mono'; sumTd.id = `sum-${i}`;
+      const errTd = document.createElement('td'); errTd.id = `err-${i}`;
+      tr.appendChild(sumTd);
+      tr.appendChild(errTd);
+      targetBody.appendChild(tr);
+      refreshRowSum(i);
+    });
+  }
+
+  function readTargetRows(){
+    const rows = [];
+    for(let i=0;i<10;i++){
+      const row = [];
+      for(let j=0;j<6;j++){
+        const inp = targetBody.querySelector(`input[data-row="${i}"][data-col="${j}"]`);
+        row.push(Number(inp.value));
+      }
+      rows.push(row);
+    }
+    return rows;
+  }
+
+  function validateRow(nums){
+    const issues = [];
+    // Range check
+    nums.forEach(n=>{
+      if(!(n>=1 && n<=54)) issues.push('out-of-range');
+    });
+    // Duplicates in row
+    const set = new Set(nums);
+    if(set.size !== nums.length) issues.push('duplicates');
+    return issues;
+  }
+
+  function refreshRowSum(i){
+    const row = [];
+    for(let j=0;j<6;j++){
+      const inp = targetBody.querySelector(`input[data-row="${i}"][data-col="${j}"]`);
+      row.push(Number(inp.value || 0));
+    }
+    const sum = row.reduce((a,b)=>a+b,0);
+    const sumTd = document.getElementById(`sum-${i}`);
+    const errTd = document.getElementById(`err-${i}`);
+    sumTd.textContent = isFinite(sum) ? sum : '';
+    const issues = validateRow(row);
+    if(issues.length===0){
+      errTd.textContent = 'OK';
+      errTd.className = 'ok';
+    } else {
+      errTd.textContent = issues.join(', ');
+      errTd.className = issues.includes('out-of-range') ? 'err' : 'warn';
+    }
+    refreshTargetSumsLine();
+  }
+
+  function refreshTargetSumsLine(){
+    const sums = targetSums();
+    targetSumsLine.textContent = 'Target sums: ' + sums.sort((a,b)=>a-b).join(', ');
+  }
+
+  function targetSums(){
+    const rows = readTargetRows();
+    return rows.map(r => r.reduce((a,b)=>a+b,0));
+  }
+
+  function sampleSixUnique(){
+    // Choose 6 unique numbers from 1..54
+    const pool = Array.from({length:54}, (_,i)=>i+1);
+    for(let i=pool.length-1;i>0;i--){
+      const j = Math.floor(Math.random()*(i+1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    const pick = pool.slice(0,6).sort((a,b)=>a-b);
+    return pick;
+  }
+
+  function generateRows(n=400){
+    const rows = [];
+    for(let i=0;i<n;i++){
+      rows.push(sampleSixUnique());
+    }
+    return rows;
+  }
+
+  function renderGenerated(rows, targetSumSet){
+    genBody.innerHTML = '';
+    const frg = document.createDocumentFragment();
+    rows.forEach((r,i)=>{
+      const s = r.reduce((a,b)=>a+b,0);
+      const tr = document.createElement('tr');
+      const match = targetSumSet.has(s);
+      tr.innerHTML = `
+        <td>${i+1}</td>
+        <td>${r.join(', ')}</td>
+        <td class="mono">${s}</td>
+        <td class="${match ? 'ok' : ''}">${match ? 'Yes' : 'No'}</td>
+      `;
+      frg.appendChild(tr);
+    });
+    genBody.appendChild(frg);
+  }
+
+  function renderMatches(rows, targetSumSet){
+    matchBody.innerHTML = '';
+    const frg = document.createDocumentFragment();
+    let count = 0;
+    rows.forEach((r,i)=>{
+      const s = r.reduce((a,b)=>a+b,0);
+      if(targetSumSet.has(s)){
+        count++;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${i+1}</td>
+          <td>${r.join(', ')}</td>
+          <td class="mono">${s}</td>
+        `;
+        frg.appendChild(tr);
+      }
+    });
+    matchBody.appendChild(frg);
+    matchCountEl.textContent = `${count} matching row(s)`;
+  }
+
+  function nowStamp(){
+    const d = new Date();
+    return d.toLocaleString();
+  }
+
+  // Actions
+  btnGenerate.addEventListener('click', ()=>{
+    statusEl.textContent = 'Generating...';
+    // Validate targets before generating
+    const targets = readTargetRows();
+    let anyErr = false;
+    targets.forEach((row, i)=>{
+      const issues = validateRow(row);
+      const errTd = document.getElementById(`err-${i}`);
+      if(issues.length>0){
+        anyErr = true;
+        errTd.textContent = issues.join(', ');
+        errTd.className = issues.includes('out-of-range') ? 'err' : 'warn';
+      }
+    });
+    if(anyErr){
+      statusEl.textContent = 'Fix target row issues (range 1–54, no duplicates).';
+      return;
+    }
+
+    const tSums = targetSums();
+    const tSet = new Set(tSums);
+    const rows = generateRows(400);
+    renderGenerated(rows, tSet);
+    renderMatches(rows, tSet);
+    refreshTargetSumsLine();
+    statusEl.textContent = 'Done.';
+  });
+
+  btnPrint.addEventListener('click', ()=>{
+    printedAt.textContent = nowStamp();
+    window.print();
+  });
+
+  btnReset.addEventListener('click', ()=>{
+    renderTargetTable(exampleRows);
+    statusEl.textContent = 'Example rows restored.';
+  });
+
+  // Init
+  renderTargetTable(exampleRows);
+  refreshTargetSumsLine();
+})();
+</script>
+</body>
+</html>
