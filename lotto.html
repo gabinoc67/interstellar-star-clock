@@ -3,22 +3,22 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Lottery Sum Match — Simple & Reliable</title>
+<title>Lottery — Top/Low Frequency Filter (400 rows)</title>
 <style>
   :root{--bg:#0b1020;--fg:#eaf0ff;--muted:#a7b0c3;--panel:#121936;--accent:#60a5fa;--ok:#22c55e;--warn:#f59e0b;--err:#ef4444;--border:#243053}
   *{box-sizing:border-box}
   html,body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
-  .container{max-width:1100px;margin:24px auto;padding:0 16px}
+  .container{max-width:1200px;margin:24px auto;padding:0 16px}
   h1{font-size:22px;margin:0 0 8px}
   p{color:var(--muted);margin:4px 0 12px}
   .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
   .btn{background:var(--accent);color:#041224;border:0;border-radius:12px;padding:10px 14px;font-weight:700;cursor:pointer}
   .btn.secondary{background:#1e293b;color:var(--fg);border:1px solid var(--border)}
+  .badge{background:#1e293b;color:var(--accent);border:1px solid var(--border);padding:4px 8px;border-radius:999px;font-size:12px}
   .card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:14px;margin:12px 0}
   .hdr{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
-  .badge{background:#1e293b;color:var(--accent);border:1px solid var(--border);padding:4px 8px;border-radius:999px;font-size:12px}
   .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-  textarea{width:100%;min-height:160px;background:#0f1a3a;color:var(--fg);border:1px solid var(--border);border-radius:12px;padding:10px;font-size:14px;line-height:1.5}
+  textarea{width:100%;min-height:220px;background:#0f1a3a;color:var(--fg);border:1px solid var(--border);border-radius:12px;padding:10px;font-size:14px;line-height:1.5}
   table{width:100%;border-collapse:collapse;font-size:14px}
   th,td{border-bottom:1px solid var(--border);padding:8px 6px;vertical-align:top}
   th{text-align:left;color:var(--muted);font-weight:600}
@@ -27,8 +27,8 @@
   .warn{color:var(--warn);font-weight:700}
   .err{color:var(--err);font-weight:700}
   details summary{cursor:pointer;color:var(--muted)}
-
-  /* Print: show only Matches panel */
+  label{cursor:pointer}
+  /* Print: only show filtered table */
   @media print{
     .no-print{display:none !important}
     body{background:#fff;color:#000}
@@ -39,133 +39,173 @@
 </head>
 <body>
   <div class="container">
-    <h1>Lottery Sum Match</h1>
-    <p>Enter your last 10 draws (one row per line, 6 numbers separated by spaces or commas). Click <b>Generate 400 Rows</b>. We’ll list rows whose <span class="mono">sum</span> equals the sum of any of your 10 target rows.</p>
+    <h1>Lottery — Filter on Top-5 High & Top-5 Low Frequency Numbers</h1>
+    <p>Paste your frequency table (Ball, Times Drawn). We’ll find the <b>Top-5 High</b> and <b>Top-5 Low</b> numbers, generate <b>400 rows</b> (6 unique numbers, 1–54), and keep rows that satisfy your rule (e.g., <b>≥3 of the 10 special numbers</b>). Use <b>Print Filtered</b> to print the results.</p>
 
-    <!-- Controls -->
     <div class="row no-print">
       <button id="btnGenerate" class="btn">Generate 400 Rows</button>
-      <button id="btnPrint" class="btn secondary">Print Matches</button>
-      <button id="btnLoadExample" class="btn secondary">Restore Example 10 Rows</button>
+      <button id="btnPrint" class="btn secondary">Print Filtered</button>
+      <button id="btnExample" class="btn secondary">Load Example Frequencies</button>
       <span id="status" class="mono" style="opacity:.85"></span>
     </div>
 
-    <!-- Input: last 10 draws -->
     <div class="card">
       <div class="hdr">
-        <strong>Last 10 Draws (Editable)</strong>
-        <span class="badge">6 numbers · 1–54 · one line per draw</span>
+        <strong>Frequency Table (Editable)</strong>
+        <span class="badge">Format: "ball  count" per line · headers okay</span>
       </div>
-      <textarea id="last10"></textarea>
-      <div id="parsedInfo" class="mono" style="margin-top:8px;color:var(--muted)"></div>
+      <textarea id="freq"></textarea>
+      <div class="row" style="margin-top:8px">
+        <div class="badge" id="top5Badge">Top-5 High: —</div>
+        <div class="badge" id="low5Badge">Top-5 Low: —</div>
+      </div>
+
+      <div class="row" style="margin-top:10px;gap:16px">
+        <label><input type="radio" name="rule" value="combined" checked> Keep rows with <b>≥3</b> from <u>either</u> group (combined 10)</label>
+        <label><input type="radio" name="rule" value="high3"> Keep rows with <b>≥3</b> from <u>High-5</u></label>
+        <label><input type="radio" name="rule" value="low3"> Keep rows with <b>≥3</b> from <u>Low-5</u></label>
+      </div>
+      <div id="parseInfo" class="mono" style="margin-top:6px;color:var(--muted)"></div>
     </div>
 
-    <!-- Generated rows -->
     <div class="card no-print">
       <div class="hdr">
         <strong>Generated Rows (400)</strong>
         <span class="badge">6 numbers · 1–54 · no repeats per row</span>
       </div>
-      <details id="genDetails">
+      <details>
         <summary>Show/Hide generated rows</summary>
         <table>
           <thead>
-            <tr><th>Row #</th><th>Numbers</th><th>Sum</th><th>Match?</th></tr>
+            <tr><th>#</th><th>Numbers</th><th>Hi-5 Count</th><th>Lo-5 Count</th><th>Total Special</th></tr>
           </thead>
           <tbody id="genBody"></tbody>
         </table>
       </details>
     </div>
 
-    <!-- Matches -->
-    <div class="card" id="matchesCard">
+    <div class="card">
       <div class="hdr">
-        <strong>Matches (Ready to Print)</strong>
-        <span class="badge" id="matchCount">0 matching row(s)</span>
+        <strong>Filtered Rows (Ready to Print)</strong>
+        <span class="badge" id="filteredCount">0 row(s)</span>
       </div>
-      <div class="mono" id="targetSumsLine"></div>
-      <table id="matchesTable">
+      <table>
         <thead>
-          <tr><th>Row #</th><th>Numbers</th><th>Sum</th></tr>
+          <tr><th>#</th><th>Numbers</th><th>Hi-5</th><th>Lo-5</th><th>Total Special</th></tr>
         </thead>
-        <tbody id="matchBody"></tbody>
+        <tbody id="filteredBody"></tbody>
       </table>
     </div>
   </div>
 
 <script>
 (function(){
-  const last10El = document.getElementById('last10');
+  const freqEl = document.getElementById('freq');
   const btnGenerate = document.getElementById('btnGenerate');
   const btnPrint = document.getElementById('btnPrint');
-  const btnLoadExample = document.getElementById('btnLoadExample');
+  const btnExample = document.getElementById('btnExample');
   const statusEl = document.getElementById('status');
-  const parsedInfo = document.getElementById('parsedInfo');
+  const parseInfo = document.getElementById('parseInfo');
+  const top5Badge = document.getElementById('top5Badge');
+  const low5Badge = document.getElementById('low5Badge');
   const genBody = document.getElementById('genBody');
-  const matchBody = document.getElementById('matchBody');
-  const matchCountEl = document.getElementById('matchCount');
-  const targetSumsLine = document.getElementById('targetSumsLine');
-
-  const exampleText =
-`24 17 38 43 37 5
-38 10 43 37 16 22
-24 39 22 20 25 43
-50 39 27 23 42 44
-17 2 50 29 41 36
-16 38 48 6 53 18
-23 27 54 12 47 44
-37 12 40 8 47 30
-3 23 40 50 46 8
-35 41 50 46 39 44`;
+  const filteredBody = document.getElementById('filteredBody');
+  const filteredCount = document.getElementById('filteredCount');
 
   function loadExample(){
-    last10El.value = exampleText;
-    parseAndShow();
+    freqEl.value =
+`Ball Number\tNumber of Times Drawn
+1\t235
+2\t237
+3\t234
+4\t274
+5\t256
+6\t251
+7\t259
+8\t283
+9\t255
+10\t253
+11\t220
+12\t260
+13\t243
+14\t260
+15\t271
+16\t253
+17\t267
+18\t258
+19\t276
+20\t238
+21\t270
+22\t252
+23\t238
+24\t252
+25\t250
+26\t276
+27\t261
+28\t243
+29\t256
+30\t227
+31\t280
+32\t231
+33\t224
+34\t254
+35\t265
+36\t246
+37\t257
+38\t275
+39\t255
+40\t240
+41\t246
+42\t252
+43\t247
+44\t260
+45\t211
+46\t225
+47\t235
+48\t222
+49\t272
+50\t221
+51\t235
+52\t263
+53\t229
+54\t253`;
+    parseFreq();
   }
 
-  function parseLines(){
-    const lines = last10El.value.trim().split(/\r?\n/).filter(Boolean);
+  function parseFreq(){
+    const text = freqEl.value.trim();
+    const lines = text.split(/\r?\n/);
     const rows = [];
-    const issues = [];
-    lines.forEach((line, idx) => {
-      const nums = line
-        .trim()
-        .split(/[,\s]+/)
-        .map(x => Number(x))
-        .filter(x => Number.isFinite(x));
-
-      if (nums.length !== 6) {
-        issues.push(`Line ${idx+1}: needs 6 numbers (got ${nums.length}).`);
-      } else {
-        const oob = nums.some(n => n < 1 || n > 54);
-        if (oob) issues.push(`Line ${idx+1}: number out of range 1–54.`);
-        const set = new Set(nums);
-        if (set.size !== 6) issues.push(`Line ${idx+1}: duplicates in row.`);
+    const re = /^\s*(\d{1,2})\s*[,;\t ]+\s*(\d+)\s*$/; // ball, count
+    for (const line of lines){
+      if (/ball/i.test(line) && /times/i.test(line)) continue; // skip header
+      const m = line.match(re);
+      if (m){
+        const ball = Number(m[1]);
+        const cnt  = Number(m[2]);
+        if (ball>=1 && ball<=54) rows.push({ball, cnt});
       }
-      rows.push(nums);
-    });
-    return { lines, rows, issues };
-  }
-
-  function sumsFromRows(rows){
-    return rows.map(r => r.reduce((a,b)=>a+b,0));
-  }
-
-  function parseAndShow(){
-    const { lines, rows, issues } = parseLines();
-
-    if (lines.length !== 10) {
-      parsedInfo.innerHTML = `<span class="warn">Enter exactly 10 lines (have ${lines.length}).</span>`;
-    } else if (issues.length) {
-      parsedInfo.innerHTML = `<span class="err">${issues.join(' ')}</span>`;
-    } else {
-      const sums = sumsFromRows(rows);
-      parsedInfo.innerHTML = `OK — 10 rows parsed. Target sums: <span class="mono">${sums.slice().sort((a,b)=>a-b).join(', ')}</span>`;
     }
+    if (rows.length < 10){
+      parseInfo.innerHTML = `<span class="err">Parsed only ${rows.length} ball rows. Need at least 10 (ideally all 54).</span>`;
+      top5Badge.textContent = 'Top-5 High: —';
+      low5Badge.textContent = 'Top-5 Low: —';
+      return {ok:false};
+    }
+    // sort for top/bottom
+    const byCntAsc  = [...rows].sort((a,b)=> a.cnt===b.cnt ? a.ball-b.ball : a.cnt-b.cnt);
+    const byCntDesc = [...rows].sort((a,b)=> b.cnt===a.cnt ? a.ball-b.ball : b.cnt-a.cnt);
+    const low5  = byCntAsc.slice(0,5).map(x=>x.ball);
+    const high5 = byCntDesc.slice(0,5).map(x=>x.ball);
+
+    top5Badge.textContent = 'Top-5 High: ' + high5.join(', ');
+    low5Badge.textContent = 'Top-5 Low: ' + low5.join(', ');
+    parseInfo.textContent = `Parsed ${rows.length} rows.`;
+
+    return {ok:true, high5:new Set(high5), low5:new Set(low5), rows};
   }
 
   function sampleSixUnique(){
-    // Choose 6 unique numbers from 1..54
     const pool = Array.from({length:54}, (_,i)=>i+1);
     for(let i=pool.length-1;i>0;i--){
       const j=Math.floor(Math.random()*(i+1));
@@ -180,78 +220,85 @@
     return rows;
   }
 
-  function renderGenerated(rows, targetSet){
+  function countHits(row, setHigh, setLow){
+    let hi=0, lo=0;
+    for (const n of row){
+      if (setHigh.has(n)) hi++;
+      if (setLow.has(n)) lo++;
+    }
+    return {hi, lo, total: hi+lo};
+  }
+
+  function getRule(){
+    const val = document.querySelector('input[name="rule"]:checked')?.value || 'combined';
+    return val; // 'combined' | 'high3' | 'low3'
+  }
+
+  function keepRow(counts, rule){
+    if (rule==='combined') return counts.total >= 3;
+    if (rule==='high3')   return counts.hi    >= 3;
+    if (rule==='low3')    return counts.lo    >= 3;
+    return false;
+  }
+
+  function renderGenerated(allRows, setHigh, setLow, rule){
     genBody.innerHTML = '';
     const frag = document.createDocumentFragment();
-    rows.forEach((r,i)=>{
-      const s = r.reduce((a,b)=>a+b,0);
+    allRows.forEach((r,i)=>{
+      const c = countHits(r, setHigh, setLow);
       const tr = document.createElement('tr');
-      const isMatch = targetSet.has(s);
       tr.innerHTML = `
         <td>${i+1}</td>
         <td>${r.join(', ')}</td>
-        <td class="mono">${s}</td>
-        <td class="${isMatch ? 'ok' : ''}">${isMatch ? 'Yes' : 'No'}</td>
+        <td>${c.hi}</td>
+        <td>${c.lo}</td>
+        <td>${c.total}</td>
       `;
       frag.appendChild(tr);
     });
     genBody.appendChild(frag);
   }
 
-  function renderMatches(rows, targetSet){
-    matchBody.innerHTML = '';
-    let count = 0;
+  function renderFiltered(allRows, setHigh, setLow, rule){
+    filteredBody.innerHTML = '';
+    let k=0;
     const frag = document.createDocumentFragment();
-    rows.forEach((r,i)=>{
-      const s = r.reduce((a,b)=>a+b,0);
-      if (targetSet.has(s)){
-        count++;
+    allRows.forEach((r,i)=>{
+      const c = countHits(r, setHigh, setLow);
+      if (keepRow(c, rule)){
+        k++;
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td>${i+1}</td>
           <td>${r.join(', ')}</td>
-          <td class="mono">${s}</td>
+          <td>${c.hi}</td>
+          <td>${c.lo}</td>
+          <td>${c.total}</td>
         `;
         frag.appendChild(tr);
       }
     });
-    matchBody.appendChild(frag);
-    matchCountEl.textContent = `${count} matching row(s)`;
+    filteredBody.appendChild(frag);
+    filteredCount.textContent = `${k} row(s)`;
   }
 
-  function targetSumsLineUpdate(sums){
-    targetSumsLine.textContent = 'Target sums: ' + sums.slice().sort((a,b)=>a-b).join(', ');
-  }
-
-  // Events
-  last10El.addEventListener('input', parseAndShow);
+  // events
+  freqEl.addEventListener('input', parseFreq);
 
   btnGenerate.addEventListener('click', ()=>{
     statusEl.textContent = 'Generating...';
-    const { lines, rows, issues } = parseLines();
+    const parsed = parseFreq();
+    if (!parsed.ok){ statusEl.textContent = 'Fix frequency input.'; return; }
 
-    if (lines.length !== 10){
-      statusEl.textContent = 'Enter exactly 10 lines.';
-      return;
-    }
-    if (issues.length){
-      statusEl.textContent = issues.join(' ');
-      return;
-    }
-
-    const sums = sumsFromRows(rows);
-    const sumSet = new Set(sums);
-    targetSumsLineUpdate(sums);
-
-    const generated = generateRows(400);
-    renderGenerated(generated, sumSet);
-    renderMatches(generated, sumSet);
-
+    const rule = getRule();
+    const rows = generateRows(400);
+    renderGenerated(rows, parsed.high5, parsed.low5, rule);
+    renderFiltered(rows, parsed.high5, parsed.low5, rule);
     statusEl.textContent = 'Done.';
   });
 
   btnPrint.addEventListener('click', ()=> window.print());
-  btnLoadExample.addEventListener('click', loadExample);
+  btnExample.addEventListener('click', loadExample);
 
   // init
   loadExample();
