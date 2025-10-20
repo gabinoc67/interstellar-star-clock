@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lottery Sum Match — Simple & Reliable</title>
+<style>
+  :root{--bg:#0b1020;--fg:#eaf0ff;--muted:#a7b0c3;--panel:#121936;--accent:#60a5fa;--ok:#22c55e;--warn:#f59e0b;--err:#ef4444;--border:#243053}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+  .container{max-width:1100px;margin:24px auto;padding:0 16px}
+  h1{font-size:22px;margin:0 0 8px}
+  p{color:var(--muted);margin:4px 0 12px}
+  .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  .btn{background:var(--accent);color:#041224;border:0;border-radius:12px;padding:10px 14px;font-weight:700;cursor:pointer}
+  .btn.secondary{background:#1e293b;color:var(--fg);border:1px solid var(--border)}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:14px;margin:12px 0}
+  .hdr{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+  .badge{background:#1e293b;color:var(--accent);border:1px solid var(--border);padding:4px 8px;border-radius:999px;font-size:12px}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  textarea{width:100%;min-height:160px;background:#0f1a3a;color:var(--fg);border:1px solid var(--border);border-radius:12px;padding:10px;font-size:14px;line-height:1.5}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{border-bottom:1px solid var(--border);padding:8px 6px;vertical-align:top}
+  th{text-align:left;color:var(--muted);font-weight:600}
+  tr:last-child td{border-bottom:none}
+  .ok{color:var(--ok);font-weight:700}
+  .warn{color:var(--warn);font-weight:700}
+  .err{color:var(--err);font-weight:700}
+  details summary{cursor:pointer;color:var(--muted)}
+
+  /* Print: show only Matches panel */
+  @media print{
+    .no-print{display:none !important}
+    body{background:#fff;color:#000}
+    .card{border-color:#bbb}
+    .mono{color:#000}
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <h1>Lottery Sum Match</h1>
+    <p>Enter your last 10 draws (one row per line, 6 numbers separated by spaces or commas). Click <b>Generate 400 Rows</b>. We’ll list rows whose <span class="mono">sum</span> equals the sum of any of your 10 target rows.</p>
+
+    <!-- Controls -->
+    <div class="row no-print">
+      <button id="btnGenerate" class="btn">Generate 400 Rows</button>
+      <button id="btnPrint" class="btn secondary">Print Matches</button>
+      <button id="btnLoadExample" class="btn secondary">Restore Example 10 Rows</button>
+      <span id="status" class="mono" style="opacity:.85"></span>
+    </div>
+
+    <!-- Input: last 10 draws -->
+    <div class="card">
+      <div class="hdr">
+        <strong>Last 10 Draws (Editable)</strong>
+        <span class="badge">6 numbers · 1–54 · one line per draw</span>
+      </div>
+      <textarea id="last10"></textarea>
+      <div id="parsedInfo" class="mono" style="margin-top:8px;color:var(--muted)"></div>
+    </div>
+
+    <!-- Generated rows -->
+    <div class="card no-print">
+      <div class="hdr">
+        <strong>Generated Rows (400)</strong>
+        <span class="badge">6 numbers · 1–54 · no repeats per row</span>
+      </div>
+      <details id="genDetails">
+        <summary>Show/Hide generated rows</summary>
+        <table>
+          <thead>
+            <tr><th>Row #</th><th>Numbers</th><th>Sum</th><th>Match?</th></tr>
+          </thead>
+          <tbody id="genBody"></tbody>
+        </table>
+      </details>
+    </div>
+
+    <!-- Matches -->
+    <div class="card" id="matchesCard">
+      <div class="hdr">
+        <strong>Matches (Ready to Print)</strong>
+        <span class="badge" id="matchCount">0 matching row(s)</span>
+      </div>
+      <div class="mono" id="targetSumsLine"></div>
+      <table id="matchesTable">
+        <thead>
+          <tr><th>Row #</th><th>Numbers</th><th>Sum</th></tr>
+        </thead>
+        <tbody id="matchBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+<script>
+(function(){
+  const last10El = document.getElementById('last10');
+  const btnGenerate = document.getElementById('btnGenerate');
+  const btnPrint = document.getElementById('btnPrint');
+  const btnLoadExample = document.getElementById('btnLoadExample');
+  const statusEl = document.getElementById('status');
+  const parsedInfo = document.getElementById('parsedInfo');
+  const genBody = document.getElementById('genBody');
+  const matchBody = document.getElementById('matchBody');
+  const matchCountEl = document.getElementById('matchCount');
+  const targetSumsLine = document.getElementById('targetSumsLine');
+
+  const exampleText =
+`24 17 38 43 37 5
+38 10 43 37 16 22
+24 39 22 20 25 43
+50 39 27 23 42 44
+17 2 50 29 41 36
+16 38 48 6 53 18
+23 27 54 12 47 44
+37 12 40 8 47 30
+3 23 40 50 46 8
+35 41 50 46 39 44`;
+
+  function loadExample(){
+    last10El.value = exampleText;
+    parseAndShow();
+  }
+
+  function parseLines(){
+    const lines = last10El.value.trim().split(/\r?\n/).filter(Boolean);
+    const rows = [];
+    const issues = [];
+    lines.forEach((line, idx) => {
+      const nums = line
+        .trim()
+        .split(/[,\s]+/)
+        .map(x => Number(x))
+        .filter(x => Number.isFinite(x));
+
+      if (nums.length !== 6) {
+        issues.push(`Line ${idx+1}: needs 6 numbers (got ${nums.length}).`);
+      } else {
+        const oob = nums.some(n => n < 1 || n > 54);
+        if (oob) issues.push(`Line ${idx+1}: number out of range 1–54.`);
+        const set = new Set(nums);
+        if (set.size !== 6) issues.push(`Line ${idx+1}: duplicates in row.`);
+      }
+      rows.push(nums);
+    });
+    return { lines, rows, issues };
+  }
+
+  function sumsFromRows(rows){
+    return rows.map(r => r.reduce((a,b)=>a+b,0));
+  }
+
+  function parseAndShow(){
+    const { lines, rows, issues } = parseLines();
+
+    if (lines.length !== 10) {
+      parsedInfo.innerHTML = `<span class="warn">Enter exactly 10 lines (have ${lines.length}).</span>`;
+    } else if (issues.length) {
+      parsedInfo.innerHTML = `<span class="err">${issues.join(' ')}</span>`;
+    } else {
+      const sums = sumsFromRows(rows);
+      parsedInfo.innerHTML = `OK — 10 rows parsed. Target sums: <span class="mono">${sums.slice().sort((a,b)=>a-b).join(', ')}</span>`;
+    }
+  }
+
+  function sampleSixUnique(){
+    // Choose 6 unique numbers from 1..54
+    const pool = Array.from({length:54}, (_,i)=>i+1);
+    for(let i=pool.length-1;i>0;i--){
+      const j=Math.floor(Math.random()*(i+1));
+      [pool[i], pool[j]]=[pool[j], pool[i]];
+    }
+    return pool.slice(0,6).sort((a,b)=>a-b);
+  }
+
+  function generateRows(n=400){
+    const rows = [];
+    for (let i=0;i<n;i++) rows.push(sampleSixUnique());
+    return rows;
+  }
+
+  function renderGenerated(rows, targetSet){
+    genBody.innerHTML = '';
+    const frag = document.createDocumentFragment();
+    rows.forEach((r,i)=>{
+      const s = r.reduce((a,b)=>a+b,0);
+      const tr = document.createElement('tr');
+      const isMatch = targetSet.has(s);
+      tr.innerHTML = `
+        <td>${i+1}</td>
+        <td>${r.join(', ')}</td>
+        <td class="mono">${s}</td>
+        <td class="${isMatch ? 'ok' : ''}">${isMatch ? 'Yes' : 'No'}</td>
+      `;
+      frag.appendChild(tr);
+    });
+    genBody.appendChild(frag);
+  }
+
+  function renderMatches(rows, targetSet){
+    matchBody.innerHTML = '';
+    let count = 0;
+    const frag = document.createDocumentFragment();
+    rows.forEach((r,i)=>{
+      const s = r.reduce((a,b)=>a+b,0);
+      if (targetSet.has(s)){
+        count++;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${i+1}</td>
+          <td>${r.join(', ')}</td>
+          <td class="mono">${s}</td>
+        `;
+        frag.appendChild(tr);
+      }
+    });
+    matchBody.appendChild(frag);
+    matchCountEl.textContent = `${count} matching row(s)`;
+  }
+
+  function targetSumsLineUpdate(sums){
+    targetSumsLine.textContent = 'Target sums: ' + sums.slice().sort((a,b)=>a-b).join(', ');
+  }
+
+  // Events
+  last10El.addEventListener('input', parseAndShow);
+
+  btnGenerate.addEventListener('click', ()=>{
+    statusEl.textContent = 'Generating...';
+    const { lines, rows, issues } = parseLines();
+
+    if (lines.length !== 10){
+      statusEl.textContent = 'Enter exactly 10 lines.';
+      return;
+    }
+    if (issues.length){
+      statusEl.textContent = issues.join(' ');
+      return;
+    }
+
+    const sums = sumsFromRows(rows);
+    const sumSet = new Set(sums);
+    targetSumsLineUpdate(sums);
+
+    const generated = generateRows(400);
+    renderGenerated(generated, sumSet);
+    renderMatches(generated, sumSet);
+
+    statusEl.textContent = 'Done.';
+  });
+
+  btnPrint.addEventListener('click', ()=> window.print());
+  btnLoadExample.addEventListener('click', loadExample);
+
+  // init
+  loadExample();
+})();
+</script>
+</body>
+</html>
