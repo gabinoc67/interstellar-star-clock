@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CST Time & Phase — Real-Time Demo</title>
+<style>
+  :root{
+    --bg:#0b1020; --panel:#111831; --ink:#eaf0ff; --muted:#a7b0c3; --accent:#5eead4; --gps:#34d399; --geo:#fbbf24;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
+  .wrap{max-width:920px;margin:auto;padding:20px;display:grid;gap:16px}
+  .card{background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.02));
+        border:1px solid rgba(255,255,255,.10);border-radius:16px;padding:16px}
+  h1{margin:0 0 6px 0;font-size:20px}
+  .muted{color:var(--muted)}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .kvs{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;align-items:center}
+  .tag{display:inline-block;padding:.15rem .5rem;border-radius:999px;border:1px solid rgba(255,255,255,.15);font-size:12px}
+  .tag-geo{border-color:#fbbf2480;color:#fbbf24}
+  .tag-gps{border-color:#34d39980;color:#34d399}
+  .big{font-size:28px;letter-spacing:.5px}
+  .buttons{display:flex;gap:8px;flex-wrap:wrap}
+  button{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);color:var(--ink);
+         padding:10px 12px;border-radius:12px;cursor:pointer;font-weight:600}
+  button:hover{background:rgba(255,255,255,.12)}
+  code{background:rgba(255,255,255,.06);padding:2px 6px;border-radius:6px}
+  .eq{font-size:14px;line-height:1.5}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>CST Time & Phase (Real-Time)</h1>
+      <div class="muted">
+        Demo defines <b>CST ≡ UTC</b> to provide an absolute cosmic baseline. Phases show accumulated offsets
+        since <b>UTC midnight today</b> using standard GR/SR engineering rates:
+        GEO: <b>+45&nbsp;µs/day</b>, GPS (net): <b>+38&nbsp;µs/day</b>, Earth: <b>0</b>.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <div>
+          <div class="muted">CST (demo baseline = UTC)</div>
+          <div id="cstTime" class="big mono">--:--:--.---</div>
+          <div class="muted mono" id="cstIso">—</div>
+          <div style="margin-top:10px" class="buttons">
+            <button id="pause">⏸ Pause</button>
+            <button id="resume">▶ Resume</button>
+            <button id="reset">🔄 Reset to now</button>
+          </div>
+        </div>
+        <div class="kvs">
+          <div>Elapsed since UTC midnight</div><div class="mono" id="sinceMid">—</div>
+          <div>Earth phase (reference)</div><div class="mono" id="phiEarth">+0.000 µs</div>
+          <div>GEO phase <span class="tag tag-geo">+45 µs/day</span></div><div class="mono" id="phiGeo">+0.000 µs</div>
+          <div>GPS phase (net) <span class="tag tag-gps">+38 µs/day</span></div><div class="mono" id="phiGps">+0.000 µs</div>
+          <div>GEO-adjusted time</div><div class="mono" id="timeGeo">—</div>
+          <div>GPS-adjusted time</div><div class="mono" id="timeGps">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="muted">Equations (per day rates → per-second accumulation)</div>
+      <div class="eq mono" style="margin-top:6px">
+        Let <code>Δt</code> be seconds elapsed since UTC midnight.<br/>
+        Phase offsets (seconds):<br/>
+        <code>φ<sub>Earth</sub>(Δt) = 0</code><br/>
+        <code>φ<sub>GEO</sub>(Δt) = (45×10⁻⁶) × (Δt / 86400)</code><br/>
+        <code>φ<sub>GPS</sub>(Δt) = (38×10⁻⁶) × (Δt / 86400)</code><br/><br/>
+        Adjusted times (ISO):<br/>
+        <code>T<sub>GEO</sub> = T<sub>CST</sub> + φ<sub>GEO</sub></code><br/>
+        <code>T<sub>GPS</sub> = T<sub>CST</sub> + φ<sub>GPS</sub></code>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="muted">Notes</div>
+      <ul>
+        <li>This is a pedagogical demo. In operational systems, GPS also broadcasts clock/ephemeris data and
+            uses multi-satellite solutions to solve receiver clock bias and position.</li>
+        <li>To switch CST from UTC to a different cosmic baseline later, replace the <em>baseline</em> clock source
+            (e.g., CMB-tied or galactic-center-referenced) and keep the same phase math.</li>
+      </ul>
+    </div>
+  </div>
+
+<script>
+(function(){
+  // --- Config (rates in microseconds/day)
+  const RATE_GEO_US_PER_DAY = 45;
+  const RATE_GPS_US_PER_DAY = 38;
+  const SECS_PER_DAY = 86400;
+
+  // --- State
+  let paused = false;
+  let baseNow = () => Date.now(); // allows "reset to now" without page reload
+
+  // --- DOM
+  const elCstTime = document.getElementById('cstTime');
+  const elCstIso  = document.getElementById('cstIso');
+  const elSince   = document.getElementById('sinceMid');
+  const elPhiE    = document.getElementById('phiEarth');
+  const elPhiG    = document.getElementById('phiGeo');
+  const elPhiP    = document.getElementById('phiGps');
+  const elTimeG   = document.getElementById('timeGeo');
+  const elTimeP   = document.getElementById('timeGps');
+
+  // Buttons
+  document.getElementById('pause').onclick  = () => { paused = true; };
+  document.getElementById('resume').onclick = () => { paused = false; };
+  document.getElementById('reset').onclick  = () => {
+    const offset = Date.now() - baseNow(); // ensure continuity
+    baseNow = () => Date.now() - offset;
+  };
+
+  function pad(n, w=2){ return n.toString().padStart(w,'0'); }
+
+  function fmtHMSms(d){
+    const hh = pad(d.getUTCHours());
+    const mm = pad(d.getUTCMinutes());
+    const ss = pad(d.getUTCSeconds());
+    const ms = pad(d.getUTCMilliseconds(),3);
+    return `${hh}:${mm}:${ss}.${ms}`;
+  }
+
+  function fmtUs(xSec){
+    const us = xSec*1e6;
+    return (us>=0?'+':'-') + Math.abs(us).toFixed(3) + ' µs';
+  }
+
+  function isoWithOffset(date, offsetSec){
+    // Create a new Date with offsetSec added (may be fractional)
+    const ms = date.getTime() + offsetSec*1000;
+    const d2 = new Date(ms);
+    // ISO string with milliseconds; always Z (UTC)
+    return d2.toISOString().replace('Z','Z');
+  }
+
+  function secondsSinceUtcMidnight(nowMs){
+    const now = new Date(nowMs);
+    const midnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0,0,0,0));
+    return (now - midnight) / 1000;
+  }
+
+  function tick(){
+    if(!paused){
+      const nowMs = baseNow();
+      const now = new Date(nowMs);
+
+      // CST baseline ≡ UTC
+      elCstTime.textContent = fmtHMSms(now);
+      elCstIso.textContent  = now.toISOString();
+
+      // Δt since UTC midnight
+      const dt = secondsSinceUtcMidnight(nowMs);
+      elSince.textContent = dt.toFixed(3) + ' s';
+
+      // Phases in seconds
+      const phiEarth = 0;
+      const phiGeo = (RATE_GEO_US_PER_DAY * 1e-6) * (dt / SECS_PER_DAY);
+      const phiGps = (RATE_GPS_US_PER_DAY * 1e-6) * (dt / SECS_PER_DAY);
+
+      elPhiE.textContent = fmtUs(phiEarth);
+      elPhiG.textContent = fmtUs(phiGeo);
+      elPhiP.textContent = fmtUs(phiGps);
+
+      // Adjusted timestamps
+      elTimeG.textContent = isoWithOffset(now, phiGeo);
+      elTimeP.textContent = isoWithOffset(now, phiGps);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  tick(); // start
+})();
+</script>
+</body>
+</html>
