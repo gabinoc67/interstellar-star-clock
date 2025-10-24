@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Earth → Planets Curvature Wave Simulator (to Pluto)</title>
+<style>
+  :root{
+    --bg:#0b1020; --panel:#121936; --ink:#eaf0ff; --muted:#9fb1d9;
+    --accent:#80e0ff; --ok:#7fffb0; --warn:#ffd68b; --pink:#ff8bf0; --vio:#b28bff;
+    --red:#ff7b7b; --green:#7bffb0; --cyan:#7bdcff; --sun:#ffdf6b; --orbit:#1f2b62;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(180deg,#0b1020 0%,#0e1640 60%,#0b1020);color:var(--ink);font:14px/1.55 system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  header{padding:16px 18px;border-bottom:1px solid #1d2a5c;background:#0b1020cc;backdrop-filter:blur(6px);position:sticky;top:0;z-index:5}
+  h1{margin:0 0 6px;font-size:20px;letter-spacing:.2px}
+  .sub{color:var(--muted)}
+  main{display:grid;grid-template-columns:330px 1fr;gap:14px;padding:14px;max-width:1400px;margin:0 auto}
+  .card{background:var(--panel);border:1px solid #1b2450;border-radius:14px;box-shadow:0 10px 25px #00000055;padding:12px}
+  .group{margin-bottom:12px}
+  .group h3{margin:6px 0 8px;color:#d8e2ff;font-size:13px}
+  label{display:flex;align-items:center;gap:8px;margin:6px 0;color:#cfe0ff}
+  input[type="range"]{width:100%}
+  input[type="number"],select{width:110px;background:#0f173a;border:1px solid #2b3a7a;border-radius:8px;color:var(--ink);padding:6px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  button{cursor:pointer;background:linear-gradient(180deg,#2d3a88,#253070);border:1px solid #3a4bb0;border-radius:10px;color:#f3f6ff;padding:8px 12px}
+  button.secondary{background:#18214f;border-color:#2a3888}
+  button.ghost{background:transparent;border:1px dashed #3650b9}
+  .legend{display:flex;flex-wrap:wrap;gap:8px;padding:8px 10px}
+  .tag{display:inline-flex;align-items:center;gap:6px;border:1px solid #2b3a7a;background:#0f173a;border-radius:999px;padding:5px 10px;font-size:12px}
+  .dot{width:10px;height:10px;border-radius:50%}
+  .canvasWrap{padding:8px}
+  canvas{width:100%;height:640px;background:radial-gradient(1200px 500px at 100% 0%,#0f1b58 0,#0b1020 65%);border:1px solid #1b2450;border-radius:14px}
+  .readout{padding:8px 10px;border-top:1px solid #1b2450;color:#e8f1ff}
+  .small{font-size:12px;color:#a9b4d8}
+  .explain{margin-top:8px;color:#e8f1ff}
+  .explain p{margin:6px 0}
+  .kbd{font-family:ui-monospace,Consolas,Monaco,monospace;background:#0f173a;border:1px solid #273372;border-radius:6px;padding:1px 6px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Curvature Wave Motion — Earth → Planets (out to Pluto)</h1>
+  <div class="sub">Animated “waves” ride the corridor from <b>Earth</b> to each planet. Adjust amplitude, wavelength, speed, and curvature bend; toggle CST phase-lock for synchronized launch.</div>
+</header>
+
+<main>
+  <!-- Controls -->
+  <section class="card">
+    <div class="group">
+      <h3>Wave Parameters</h3>
+      <label>Amplitude (px) <input id="amp" type="range" min="0" max="20" step="0.5" value="8"><span id="ampV">8</span></label>
+      <label>Wavelength (AU) <input id="lambda" type="range" min="0.2" max="6" step="0.1" value="2"><span id="lamV">2.0</span></label>
+      <label>Phase Speed (AU/s) <input id="speed" type="range" min="0.05" max="2" step="0.05" value="0.6"><span id="spdV">0.60</span></label>
+      <label>Curvature Bend (0–1) <input id="curve" type="range" min="0" max="1" step="0.02" value="0.25"><span id="crvV">0.25</span></label>
+      <label>Planet Wave Thickness (px) <input id="thick" type="range" min="1" max="4" step="0.2" value="2"><span id="thkV">2.0</span></label>
+    </div>
+
+    <div class="group">
+      <h3>Solar System Layout</h3>
+      <label>Scale (px per AU) <input id="scale" type="range" min="6" max="14" step="0.5" value="9"><span id="sclV">9</span></label>
+      <label>Time Scale (orbital speed) <input id="timescale" type="range" min="0.2" max="5" step="0.1" value="1.6"><span id="tmV">1.6×</span></label>
+      <div class="row">
+        <label><input id="showOrbits" type="checkbox" checked> Show orbits</label>
+        <label><input id="showNames" type="checkbox" checked> Show names</label>
+      </div>
+    </div>
+
+    <div class="group">
+      <h3>Phase & Filters</h3>
+      <div class="row">
+        <label><input id="phaseLock" type="checkbox" checked> CST Phase-Lock at Earth</label>
+        <label>Show links:
+          <select id="linkMode">
+            <option value="all" selected>Earth → All Planets</option>
+            <option value="inners">Earth → Inner (to Mars)</option>
+            <option value="outers">Earth → Outer (Jupiter→Pluto)</option>
+            <option value="single">Earth → One (choose)</option>
+          </select>
+        </label>
+        <label>Pick planet
+          <select id="singlePick">
+            <option>Mercury</option><option>Venus</option><option selected>Mars</option>
+            <option>Jupiter</option><option>Saturn</option><option>Uranus</option>
+            <option>Neptune</option><option>Pluto</option>
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <div class="group">
+      <h3>Controls</h3>
+      <div class="row">
+        <button id="recalc">Recalculate</button>
+        <button id="toggleAnim" class="secondary">⏸ Pause</button>
+        <button id="reset" class="secondary">Reset</button>
+        <button id="presetOuter" class="ghost">Preset: Outer Focus</button>
+        <button id="presetInner" class="ghost">Preset: Inner Focus</button>
+      </div>
+      <div class="small">Tip: To emulate a “tunnel,” raise <b>curvature bend</b> slightly and enable <b>CST Phase-Lock</b>.</div>
+    </div>
+
+    <div class="group explain">
+      <h3>What you’re seeing</h3>
+      <p><b>One animated wave</b> runs from <b>Earth</b> to <b>each planet</b>. The wave is drawn along a lightly curved Bézier path to hint at a curved spacetime corridor. The oscillation travels with your chosen <span class="kbd">speed</span> and <span class="kbd">wavelength</span>; <span class="kbd">amplitude</span> sets lateral displacement from the path.</p>
+      <p><b>CST Phase-Lock</b> (checkbox) starts every wave with the same phase at the Earth end, so launches are synchronized to a common beat.</p>
+      <p><b>Note:</b> This is an <i>illustrative</i> simulator, not a physics solver. Orbital positions are simple circular ephemerides.</p>
+    </div>
+  </section>
+
+  <!-- Canvas + Legend -->
+  <section class="card">
+    <div class="canvasWrap">
+      <canvas id="sky" width="1100" height="640"></canvas>
+    </div>
+    <div class="legend" id="legend"></div>
+    <div class="readout" id="readout">Ready.</div>
+  </section>
+</main>
+
+<script>
+(function(){
+  // ======= Solar constants & setup =======
+  const canvas = document.getElementById('sky');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const CX = W/2, CY = H/2; // sun center
+
+  // Planet data (mean circular orbits for illustration)
+  // name, semi-major axis (AU), orbital period (days), color
+  const planets = [
+    {name:'Mercury', a:0.387, T:87.969, color:'#d0c0a0'},
+    {name:'Venus',   a:0.723, T:224.701, color:'#ffc07a'},
+    {name:'Earth',   a:1.000, T:365.256, color:'#7bdcff'},
+    {name:'Mars',    a:1.524, T:686.980, color:'#ff8b6e'},
+    {name:'Jupiter', a:5.203, T:4332.59, color:'#ffdfae'},
+    {name:'Saturn',  a:9.537, T:10759.22, color:'#ffe49d'},
+    {name:'Uranus',  a:19.191,T:30685.4, color:'#a7f0ff'},
+    {name:'Neptune', a:30.07, T:60190,   color:'#9fd0ff'},
+    {name:'Pluto',   a:39.48, T:90560,   color:'#cbb6ff'}
+  ];
+  const idxEarth = planets.findIndex(p=>p.name==='Earth');
+
+  // UI elements
+  const $ = id => document.getElementById(id);
+  const ampI=$('amp'), lamI=$('lambda'), spdI=$('speed'), crvI=$('curve'), thkI=$('thick');
+  const sclI=$('scale'), tsI=$('timescale'), showOrbitsI=$('showOrbits'), showNamesI=$('showNames');
+  const phaseLockI=$('phaseLock'), linkModeI=$('linkMode'), singlePickI=$('singlePick');
+  const ampV=$('ampV'), lamV=$('lamV'), spdV=$('spdV'), crvV=$('crvV'), thkV=$('thkV'), sclV=$('sclV'), tmV=$('tmV');
+  const readout=$('readout'), legend=$('legend');
+
+  // State
+  let t = 0;                 // simulation time in seconds (arbitrary)
+  let running = true;        // animation state
+
+  // ======= Helpers =======
+  function AUtoPx(x){ return x * +sclI.value; }
+  function polarToXY(a_AU, theta){
+    const r = AUtoPx(a_AU);
+    return {x:CX + r*Math.cos(theta), y:CY + r*Math.sin(theta)};
+  }
+  function getAngles(time){
+    // time (s) -> angle (rad). Convert periods (days) to seconds assuming 86400 s/day.
+    const day = 86400;
+    const scale = +tsI.value; // time scale multiplier
+    const tDays = (time*scale)/day;
+    return planets.map(p => 2*Math.PI * (tDays / p.T));
+  }
+
+  function makeLegend(){
+    legend.innerHTML = '';
+    const toShow = linksToShow();
+    toShow.forEach(p=>{
+      const tag = document.createElement('span');
+      tag.className = 'tag';
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      dot.style.background = p.color;
+      tag.appendChild(dot);
+      tag.appendChild(document.createTextNode('Earth → '+p.name));
+      legend.appendChild(tag);
+    });
+  }
+
+  function linksToShow(){
+    const all = planets.filter((p,i)=>i!==idxEarth);
+    const mode = linkModeI.value;
+    if(mode==='all') return all;
+    if(mode==='inners') return all.filter(p=>p.a<=1.524);      // to Mars
+    if(mode==='outers') return all.filter(p=>p.a>1.524);       // Jupiter..Pluto
+    // single
+    const find = all.find(p=>p.name===singlePickI.value);
+    return find ? [find] : [all[0]];
+  }
+
+  // Draw orbit circles
+  function drawOrbits(){
+    if(!showOrbitsI.checked) return;
+    ctx.save();
+    ctx.strokeStyle = getCSS('--orbit');
+    ctx.lineWidth = 1;
+    planets.forEach(p=>{
+      ctx.beginPath();
+      ctx.arc(CX, CY, AUtoPx(p.a), 0, Math.PI*2);
+      ctx.stroke();
+    });
+    ctx.restore();
+  }
+
+  // Draw Sun
+  function drawSun(){
+    const r=12;
+    ctx.save();
+    ctx.fillStyle = getCSS('--sun');
+    ctx.shadowColor = getCSS('--sun');
+    ctx.shadowBlur = 14;
+    ctx.beginPath(); ctx.arc(CX,CY,r,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+
+  // Planet dot + label
+  function drawPlanet(x,y,color,name){
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.fill();
+    if(showNamesI.checked){
+      ctx.font = '11px system-ui, sans-serif';
+      ctx.fillStyle = '#e8f1ff';
+      ctx.fillText(name, x+6, y-6);
+    }
+    ctx.restore();
+  }
+
+  // Path geometry: quadratic Bézier (Earth -> planet), with bend controlled by slider
+  function bezierPoint(A, B, bend, s){
+    // Control point C is offset perpendicular to AB by bend factor
+    const mx = (A.x+B.x)/2, my = (A.y+B.y)/2;
+    const dx = B.x - A.x, dy = B.y - A.y;
+    const len = Math.hypot(dx,dy) || 1;
+    const nx = -dy/len, ny = dx/len; // left normal
+    const mag = bend * 0.25 * len;   // curve strength
+    const C = {x: mx + nx*mag, y: my + ny*mag};
+    // Quadratic Bézier formula
+    const x = (1-s)*(1-s)*A.x + 2*(1-s)*s*C.x + s*s*B.x;
+    const y = (1-s)*(1-s)*A.y + 2*(1-s)*s*C.y + s*s*B.y;
+    return {x,y,C};
+  }
+
+  // Tangent (for normal direction) on quadratic Bézier at s
+  function bezierTangent(A,B,bend,s){
+    const mx = (A.x+B.x)/2, my=(A.y+B.y)/2;
+    const dx = B.x - A.x, dy = B.y - A.y;
+    const len = Math.hypot(dx,dy) || 1;
+    const nx = -dy/len, ny = dx/len;
+    const mag = bend * 0.25 * len;
+    const C = {x: mx + nx*mag, y: my + ny*mag};
+    const tx = 2*(1-s)*(C.x - A.x) + 2*s*(B.x - C.x);
+    const ty = 2*(1-s)*(C.y - A.y) + 2*s*(B.y - C.y);
+    const tlen = Math.hypot(tx,ty)||1;
+    return {x:tx/tlen, y:ty/tlen}; // unit tangent
+  }
+
+  // Draw the animated wave along Bézier path Earth->Planet
+  function drawWave(from, to, color, phaseOffset){
+    const amp = +ampI.value;          // px
+    const lamAU = +lamI.value;        // AU
+    const speedAU = +spdI.value;      // AU/s
+    const thick = +thkI.value;
+    const bend = +crvI.value;
+
+    // Path length approx (straight length in AU, good enough)
+    const dxAU = (to.x-from.x)/+sclI.value;
+    const dyAU = (to.y-from.y)/+sclI.value;
+    const L_AU = Math.hypot(dxAU,dyAU);
+
+    // Wave number and angular frequency
+    const k = (2*Math.PI) / (lamAU || 1e-9);
+    const omega = k * speedAU;
+
+    // If phase-lock: ensure φ=0 at Earth (s=0)
+    // We implement by subtracting phase at s=0; practically φ0 := phaseOffset if unlocked, else 0
+    const lock = phaseLockI.checked;
+    const phi0 = lock ? 0 : phaseOffset;
+
+    ctx.save();
+    ctx.lineWidth = thick;
+    ctx.strokeStyle = color;
+    ctx.beginPath();
+
+    const steps = 120;  // visual quality vs perf
+    for(let i=0;i<=steps;i++){
+      const s = i/steps; // 0..1 along path
+      const P  = bezierPoint(from,to,bend,s);
+      const T  = bezierTangent(from,to,bend,s);
+      // normal to path
+      const nx = -T.y, ny = T.x;
+
+      // phase based on distance s * L_AU
+      const phase = k * (s * L_AU) - omega * t + phi0;
+      const off = amp * Math.sin(phase);
+
+      const x = P.x + nx * off;
+      const y = P.y + ny * off;
+
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function buildReadout(angles, pos){
+    const earth = pos[idxEarth];
+    const list = linksToShow()
+      .map(p=>{
+        const i = planets.findIndex(q=>q.name===p.name);
+        const dAU = Math.hypot( (pos[i].x-earth.x)/+sclI.value, (pos[i].y-earth.y)/+sclI.value );
+        return `${p.name}: ${dAU.toFixed(3)} AU`;
+      }).join(' · ');
+    readout.innerHTML = `Scale=${+sclI.value} px/AU · λ=${(+lamI.value).toFixed(2)} AU · v=${(+spdI.value).toFixed(2)} AU/s · bend=${(+crvI.value).toFixed(2)} · ${list}`;
+  }
+
+  function getCSS(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+  // ======= Render loop =======
+  function render(){
+    // Clear
+    ctx.clearRect(0,0,W,H);
+
+    // Orbits
+    drawOrbits();
+
+    // Sun
+    drawSun();
+
+    // Compute planet positions
+    const angs = getAngles(t);
+    const pos = planets.map((p,idx)=>{
+      const A = polarToXY(p.a, angs[idx]);
+      return A;
+    });
+
+    // Draw planets
+    planets.forEach((p,i)=>{
+      drawPlanet(pos[i].x, pos[i].y, p.color, p.name);
+    });
+
+    // Draw Earth -> Planet waves
+    const earth = pos[idxEarth];
+    let offsetSeed = 0;
+    linksToShow().forEach((p)=>{
+      const i = planets.findIndex(q=>q.name===p.name);
+      const target = pos[i];
+      // assign deterministic phase offsets per planet (when not locked)
+      const phi = offsetSeed * Math.PI/5;
+      drawWave(earth, target, p.color, phi);
+      offsetSeed++;
+    });
+
+    buildReadout(angs, pos);
+  }
+
+  // ======= Animation driver =======
+  let raf;
+  function loop(){
+    if(running){ t += 0.016; } // ~60 fps tick; timescale applied in getAngles
+    render();
+    raf = requestAnimationFrame(loop);
+  }
+
+  // ======= UI wiring =======
+  function syncLabels(){
+    ampV.textContent = ampI.value;
+    lamV.textContent = (+lamI.value).toFixed(1);
+    spdV.textContent = (+spdI.value).toFixed(2);
+    crvV.textContent = (+crvI.value).toFixed(2);
+    thkV.textContent = (+thkI.value).toFixed(1);
+    sclV.textContent = (+sclI.value);
+    tmV.textContent  = (+tsI.value).toFixed(1)+'×';
+  }
+  [ampI,lamI,spdI,crvI,thkI,sclI,tsI].forEach(inp=>inp.addEventListener('input',()=>{ syncLabels(); render(); }));
+  [showOrbitsI,showNamesI,phaseLockI,linkModeI,singlePickI].forEach(inp=>inp.addEventListener('change',()=>{ makeLegend(); render(); }));
+
+  $('recalc').addEventListener('click', render);
+  $('toggleAnim').addEventListener('click', (e)=>{ running=!running; e.target.textContent = running?'⏸ Pause':'▶ Play'; });
+  $('reset').addEventListener('click', ()=>{
+    ampI.value=8; lamI.value=2; spdI.value=0.6; crvI.value=0.25; thkI.value=2; sclI.value=9; tsI.value=1.6;
+    showOrbitsI.checked=true; showNamesI.checked=true; phaseLockI.checked=true;
+    linkModeI.value='all'; singlePickI.value='Mars';
+    t=0; syncLabels(); makeLegend(); render();
+  });
+
+  $('presetOuter').addEventListener('click', ()=>{
+    lamI.value=3.5; spdI.value=0.45; crvI.value=0.30; thkI.value=2.6; sclI.value=9; tsI.value=1.0; phaseLockI.checked=true;
+    linkModeI.value='outers'; syncLabels(); makeLegend(); render();
+  });
+  $('presetInner').addEventListener('click', ()=>{
+    lamI.value=1.2; spdI.value=0.9; crvI.value=0.18; thkI.value=1.8; sclI.value=11; tsI.value=2.2; phaseLockI.checked=true;
+    linkModeI.value='inners'; syncLabels(); makeLegend(); render();
+  });
+
+  // Init
+  syncLabels();
+  makeLegend();
+  render();
+  loop();
+})();
+</script>
+</body>
+</html>
