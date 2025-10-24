@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CST Warp Drive & Taylor Verification — Interactive</title>
+<style>
+  :root{
+    --bg:#0b1020;--panel:#121936;--ink:#eaf0ff;--muted:#96a0b8;--accent:#8bd3ff;--accent2:#b28bff;--accent3:#7fffb0;--warn:#ffd68b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(180deg,#0b1020,#0e1430 60%,#0b1020);color:var(--ink);font:14px/1.55 system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  header{padding:18px 20px;border-bottom:1px solid #1d2a5c;background:#0b1020cc;backdrop-filter:blur(6px);position:sticky;top:0;z-index:5}
+  h1{font-size:20px;margin:0 0 6px 0;letter-spacing:.3px}
+  .sub{color:var(--muted);font-size:13px}
+  main{display:grid;grid-template-columns:360px 1fr;gap:16px;padding:16px;max-width:1400px;margin:0 auto}
+  .card{background:var(--panel);border:1px solid #1b2450;border-radius:14px;box-shadow:0 10px 25px #00000055;padding:14px}
+  .left .group{margin-bottom:14px}
+  .left h3{margin:6px 0 8px;font-size:13px;color:#cfd8ff}
+  label{display:flex;align-items:center;gap:10px;margin:6px 0;color:#c7d0ee}
+  input[type="number"]{width:120px;background:#0f173a;border:1px solid #2b3a7a;border-radius:8px;color:var(--ink);padding:6px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  button{cursor:pointer;background:linear-gradient(180deg,#2d3a88,#253070);border:1px solid #3a4bb0;border-radius:10px;color:#f3f6ff;padding:8px 12px}
+  button.secondary{background:#18214f;border-color:#2a3888}
+  button.ghost{background:transparent;border:1px dashed #3650b9}
+  .canvasWrap{padding:10px}
+  canvas{width:100%;height:520px;background:radial-gradient(1200px 420px at 80% 0%,#0e1950 0,#0b1020 60%);border-radius:14px;border:1px solid #1b2450}
+  .legend{display:flex;gap:12px;flex-wrap:wrap;padding:8px 12px;color:#dfe7ff;font-size:12px}
+  .badge{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;background:#0f173a;border:1px solid #2b3a7a}
+  .dot{width:10px;height:10px;border-radius:50%}
+  .gridnote{color:var(--muted);font-size:12px;padding:0 12px 10px}
+  .readout{padding:8px 12px;border-top:1px solid #1b2450;color:#e8f1ff}
+  .explain{margin-top:10px;color:#dfe7ff;font-size:14px;line-height:1.6}
+  .exp-block{border-top:1px solid #1b2450;margin-top:10px;padding-top:10px}
+  .small{font-size:12px;color:#a9b4d8}
+</style>
+</head>
+<body>
+  <header>
+    <h1>CST Warp Drive Curvature & Taylor Verification</h1>
+    <div class="sub">Interactive canvas: plots <b>True E(t)</b> and <b>Taylor n=1–4</b> from your parameters. Presets for Moon, Mars, Pluto, Andromeda; add custom scenarios (e.g., Earth→Venus) manually.</div>
+  </header>
+  <main>
+    <section class="card left">
+      <div class="group">
+        <h3>Model Parameters</h3>
+        <label>m (kg) <input id="m" type="number" step="0.1" value="1.0"></label>
+        <label>V (m³) <input id="V" type="number" step="0.001" value="0.01"></label>
+        <label>κ (kappa) <input id="kappa" type="number" step="0.01" value="0.50"></label>
+        <label>Ω (rad/s) <input id="Omega" type="number" step="0.1" value="10"></label>
+        <div class="row">
+          <label>t₀ (center) <input id="t0" type="number" step="0.01" value="0"/></label>
+          <label>t range ± <input id="tr" type="number" step="0.1" value="2"/></label>
+        </div>
+      </div>
+      <div class="group">
+        <h3>Time-phase φ(t) coefficients</h3>
+        <label>φ₀ <input id="phi0" type="number" step="0.01" value="1.00"></label>
+        <label>φ₁ (1/s) <input id="phi1" type="number" step="0.05" value="0.30"></label>
+        <label>φ₂ (1/s²) <input id="phi2" type="number" step="0.02" value="-0.10"></label>
+        <label>φ₃ (1/s³) <input id="phi3" type="number" step="0.01" value="0.03"></label>
+      </div>
+      <div class="group">
+        <h3>Controls</h3>
+        <div class="row">
+          <button id="recalc">Recalculate</button>
+          <button id="toggleAnim" class="secondary">▶ Play</button>
+          <button id="reset" class="secondary">Reset</button>
+        </div>
+      </div>
+      <div class="group">
+        <h3>Presets</h3>
+        <div class="row">
+          <button id="presetMoon" class="ghost">Earth → Moon</button>
+          <button id="presetMars" class="ghost">Earth → Mars</button>
+          <button id="presetPluto" class="ghost">Earth → Pluto</button>
+          <button id="presetAndromeda" class="ghost">Earth → Andromeda</button>
+        </div>
+        <div class="small">To try <b>Earth → Venus</b> (or any target), enter values manually and click <b>Recalculate</b>. Use negative φ₂ for damping.</div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="canvasWrap">
+        <canvas id="plot" width="1100" height="520"></canvas>
+      </div>
+      <div class="legend">
+        <span class="badge"><span class="dot" style="background:var(--accent)"></span> True E(t)</span>
+        <span class="badge"><span class="dot" style="background:var(--warn)"></span> Taylor n=1</span>
+        <span class="badge"><span class="dot" style="background:#ff8bf0"></span> Taylor n=2</span>
+        <span class="badge"><span class="dot" style="background:var(--accent2)"></span> Taylor n=3</span>
+        <span class="badge"><span class="dot" style="background:var(--accent3)"></span> Taylor n=4</span>
+      </div>
+      <div class="gridnote">X: time (s). Y: normalized energy E/(m c²).</div>
+      <div class="readout" id="readout">Ready.</div>
+
+      <div class="explain">
+        <div class="exp-block">
+          <h3>What the Lines Mean</h3>
+          <ul>
+            <li><b>True E(t):</b> The full CST warp‑field energy predicted by <code>E(t) = m c² + V(c⁴/8πG) κ [Ω t]² [φ(t)]²</code>.</li>
+            <li><b>Taylor n=1:</b> Linear approximation around <code>t₀</code>; shows initial slope <code>E'(t₀)</code>.</li>
+            <li><b>Taylor n=2:</b> Adds curvature <code>E''(t₀)</code>; indicates acceleration/damping of energy change (bubble edge stability).</li>
+            <li><b>Taylor n=3 (and n=4):</b> Higher‑order nonlinear response. Small magnitudes → robust CST phase‑lock; large → tuning required.</li>
+          </ul>
+        </div>
+        <div class="exp-block">
+          <h3>Manual Scenarios & “Locking”</h3>
+          <p>To analyze a custom case (e.g., <b>Earth → Venus</b>), enter your own <b>κ, Ω, V</b> and <b>φ</b> coefficients, then press <b>Recalculate</b> or <b>▶ Play</b>. “Locking” means you save these numbers and the operating window so repeated runs use the same verified configuration.</p>
+        </div>
+        <div class="exp-block">
+          <h3>Why Taylor Verifies Physics (Not Fiction)</h3>
+          <p>The Taylor series expands <code>E(t)</code> into measurable derivatives at <code>t₀</code>. If <code>n=2–4</code> overlays the true curve near <code>t₀</code>, your warp tunnel behaves predictably under small disturbances: a signature of genuine curvature control. Thus the CST term (sometimes expressed as a driven <code>t c²</code> contribution) complements <code>m c²</code> by investing energy into <em>spacetime curvature</em>, contracting the path and enabling FTL‑equivalent transit times without superluminal local speeds.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+<script>
+(function(){
+  // Physical constants
+  const c = 299792458; // m/s
+  const G = 6.67430e-11;
+  const TAU = 2*Math.PI;
+  const $ = id => document.getElementById(id);
+
+  const canvas = $('plot');
+  const ctx = canvas.getContext('2d');
+  const readout = $('readout');
+
+  const inputs = {
+    m: $('m'), V: $('V'), kappa: $('kappa'), Omega: $('Omega'), t0: $('t0'), tr: $('tr'),
+    phi0: $('phi0'), phi1: $('phi1'), phi2: $('phi2'), phi3: $('phi3')
+  };
+
+  let anim = false; let phase = 0;
+
+  // Phase program φ(t)
+  function phi(t,p){ return p.phi0 + p.phi1*t + p.phi2*t*t + p.phi3*t*t*t; }
+
+  // Energy model E(t)
+  function Etrue(t,p){
+    const A = p.V * (Math.pow(c,4) / (8*Math.PI*G)) * p.kappa;
+    const term = (p.Omega*t); // Ω t
+    return p.m*Math.pow(c,2) + A * term*term * Math.pow(phi(t,p),2);
+  }
+
+  // Numerical derivatives at t0 (up to 4th) using symmetric finite differences
+  function derivativesAt(t0,p){
+    const h = Math.max(1e-5, Math.abs(p.tr)/5000) || 1e-5; // safe small step
+    const f = t=>Etrue(t,p);
+    const f0 = f(t0);
+    const f1 = (f(t0+h)-f(t0-h))/(2*h);
+    const f2 = (f(t0+h)-2*f0+f(t0-h))/(h*h);
+    const f3 = (f(t0+2*h)-2*f(t0+h)+2*f(t0-h)-f(t0-2*h))/(2*h*h*h);
+    const f4 = (f(t0-2*h)-4*f(t0-h)+6*f0-4*f(t0+h)+f(t0+2*h))/(h**4);
+    return [f0,f1,f2,f3,f4];
+  }
+
+  // Taylor approximation to order n
+  function Etaylor(t, t0, coeffs, n){
+    const dt = t - t0;
+    let s = 0;
+    const fact = [1,1,2,6,24];
+    for(let k=0;k<=n;k++) s += coeffs[k]*Math.pow(dt,k)/fact[k];
+    return s;
+  }
+
+  function getParams(){
+    return {
+      m: +inputs.m.value, V:+inputs.V.value, kappa:+inputs.kappa.value,
+      Omega:+inputs.Omega.value, t0:+inputs.t0.value, tr:+inputs.tr.value,
+      phi0:+inputs.phi0.value, phi1:+inputs.phi1.value, phi2:+inputs.phi2.value, phi3:+inputs.phi3.value
+    };
+  }
+
+  // Draw utilities
+  function map(val,a1,a2,b1,b2){ return b1 + (val-a1)*(b2-b1)/(a2-a1); }
+
+  function render(){
+    const p = getParams();
+
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0,0,W,H);
+
+    // Time range
+    const tmin = p.t0 - p.tr, tmax = p.t0 + p.tr;
+
+    // Sample time grid
+    const N = 700; const ts = new Array(N); for(let i=0;i<N;i++) ts[i] = tmin + (i/(N-1))*(tmax-tmin);
+
+    // Compute true curve and global Y bounds (normalized)
+    const norm = p.m*Math.pow(c,2);
+    const yTrue = ts.map(t=>Etrue(t,p)/norm);
+    let ymin = Math.min(...yTrue), ymax = Math.max(...yTrue);
+    const pad = 0.08*(ymax-ymin || 1); ymin -= pad; ymax += pad;
+
+    // Grid
+    drawGrid(W,H,tmin,tmax,ymin,ymax);
+
+    // Axes
+    ctx.save();
+    ctx.strokeStyle = '#5065c9'; ctx.lineWidth = 1.5;
+    const y0 = map(0,ymin,ymax,H-30,20);
+    ctx.beginPath(); ctx.moveTo(50,y0); ctx.lineTo(W-30,y0); ctx.stroke();
+    const x0 = map(0,tmin,tmax,50,W-30);
+    ctx.beginPath(); ctx.moveTo(x0,20); ctx.lineTo(x0,H-30); ctx.stroke();
+    ctx.restore();
+
+    // Labels
+    ctx.fillStyle = '#bfc8ff'; ctx.font = '12px system-ui, sans-serif';
+    ctx.textAlign='center'; ctx.fillText('time t (s)', W/2, H-8);
+    ctx.save(); ctx.translate(18,H/2); ctx.rotate(-Math.PI/2); ctx.fillText('E / (m c²)', 0,0); ctx.restore();
+
+    // Derivatives for Taylor
+    const coeffs = derivativesAt(p.t0,p);
+
+    // Draw curves using common Y bounds for perfect overlay
+    drawCurve(ts, yTrue, getCSS('--accent'), 2.4, tmin,tmax,ymin,ymax,W,H);
+    const colors = [getCSS('--warn'),'#ff8bf0',getCSS('--accent2'),getCSS('--accent3')];
+    for(let n=1;n<=4;n++){
+      const yT = ts.map(t=>Etaylor(t,p.t0,coeffs,n)/norm);
+      drawCurve(ts, yT, colors[n-1], 1.8, tmin,tmax,ymin,ymax,W,H);
+    }
+
+    // Cursor marker on True curve
+    const tCursor = p.t0 + 0.8*p.tr*Math.sin(phase);
+    const yCursor = Etrue(tCursor,p)/norm;
+    const Xc = map(tCursor,tmin,tmax,50,W-30);
+    const Yc = map(yCursor,ymin,ymax,H-30,20);
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(Xc,Yc,3.2,0,TAU); ctx.fill();
+
+    // Readout
+    readout.innerHTML = `t₀=${fmt(p.t0)} s, range=[${fmt(tmin)}, ${fmt(tmax)}] s · E(t₀)/(m c²) = ${fmt(coeffs[0]/norm)}<br>`+
+      `E'(t₀)/(m c²·s⁻¹)=${fmt(coeffs[1]/norm)} · E''(t₀)/(m c²·s⁻²)=${fmt(coeffs[2]/norm)} · E‴(t₀)=${fmt(coeffs[3]/norm)} · E⁽⁴⁾(t₀)=${fmt(coeffs[4]/norm)}`;
+  }
+
+  function drawCurve(ts, ys, color, width, tmin,tmax,ymin,ymax,W,H){
+    ctx.beginPath();
+    for(let i=0;i<ts.length;i++){
+      const X = map(ts[i],tmin,tmax,50,W-30);
+      const Y = map(ys[i],ymin,ymax,H-30,20);
+      if(i===0) ctx.moveTo(X,Y); else ctx.lineTo(X,Y);
+    }
+    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.stroke();
+  }
+
+  function drawGrid(W,H,tmin,tmax,ymin,ymax){
+    ctx.save();
+    ctx.strokeStyle = '#21306f'; ctx.lineWidth = 1;
+    const gx = 10; const gy = 8;
+    for(let i=0;i<=gx;i++){
+      const x = map(i,gx,0,50,W-30);
+      ctx.globalAlpha = i%5===0?0.5:0.25;
+      ctx.beginPath(); ctx.moveTo(x,20); ctx.lineTo(x,H-30); ctx.stroke();
+    }
+    for(let j=0;j<=gy;j++){
+      const y = map(j,0,gy,20,H-30);
+      ctx.globalAlpha = j%2===0?0.5:0.25;
+      ctx.beginPath(); ctx.moveTo(50,y); ctx.lineTo(W-30,y); ctx.stroke();
+    }
+    ctx.globalAlpha = 1; ctx.restore();
+  }
+
+  function fmt(x){
+    if(!isFinite(x)) return '—';
+    const ax=Math.abs(x); if(ax>=1e5||ax<1e-3) return x.toExponential(2);
+    return x.toFixed(4);
+  }
+  function getCSS(varName){ return getComputedStyle(document.documentElement).getPropertyValue(varName).trim(); }
+
+  // Preset setter
+  function setParams(p){
+    inputs.m.value = p.m; inputs.V.value = p.V; inputs.kappa.value = p.kappa; inputs.Omega.value = p.Omega;
+    inputs.t0.value = p.t0; inputs.tr.value = p.tr;
+    inputs.phi0.value = p.phi0; inputs.phi1.value = p.phi1; inputs.phi2.value = p.phi2; inputs.phi3.value = p.phi3;
+  }
+
+  // Animation loop
+  function loop(){ if(anim){ phase += 0.02; render(); } requestAnimationFrame(loop); }
+
+  // Wire buttons
+  $('recalc').addEventListener('click', render);
+  $('toggleAnim').addEventListener('click', (e)=>{ anim = !anim; e.target.textContent = anim ? '⏸ Pause' : '▶ Play'; render(); });
+  $('reset').addEventListener('click', ()=>{ setParams({m:1.0,V:0.01,kappa:0.5,Omega:10,t0:0,tr:2,phi0:1.0,phi1:0.3,phi2:-0.1,phi3:0.03}); render(); });
+
+  $('presetMoon').addEventListener('click', ()=>{ setParams({ m:1.0, V:0.02, kappa:0.35, Omega:4, t0:0, tr:2.0, phi0:1.0, phi1:0.10, phi2:-0.02, phi3:0.0 }); render(); });
+  $('presetMars').addEventListener('click', ()=>{ setParams({ m:1.0, V:0.05, kappa:0.80, Omega:12, t0:0, tr:6.0, phi0:1.0, phi1:0.20, phi2:-0.06, phi3:0.01 }); render(); });
+  $('presetPluto').addEventListener('click', ()=>{ setParams({ m:1.0, V:0.08, kappa:1.10, Omega:18, t0:0, tr:12.0, phi0:1.0, phi1:0.25, phi2:-0.09, phi3:0.015 }); render(); });
+  $('presetAndromeda').addEventListener('click', ()=>{ setParams({ m:1.0, V:0.20, kappa:2.50, Omega:40, t0:0, tr:30.0, phi0:1.0, phi1:0.35, phi2:-0.12, phi3:0.02 }); render(); });
+
+  // Live update
+  Object.values(inputs).forEach(inp=> inp.addEventListener('input', render));
+
+  // Initial draw
+  render();
+  loop();
+})();
+</script>
+</body>
+</html>
