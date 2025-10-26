@@ -11,8 +11,8 @@
   .wrap{max-width:980px;margin:0 auto;padding:20px}
   h1{margin:0 0 10px}
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px}
-  .row{display:flex;gap:10px;align-items:center}
-  button{cursor:pointer;font-weight:800;border-radius:12px;border:1px solid var(--line);padding:12px 14px;width:100%}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  button{cursor:pointer;font-weight:800;border-radius:12px;border:1px solid var(--line);padding:12px 14px}
   .primary{background:linear-gradient(180deg,#1e90ff,#1672cc);border-color:#1672cc;color:#fff}
   .ghost{background:transparent;color:var(--ink)}
   pre{white-space:pre-wrap;word-break:break-word;background:#0f1533;border:1px solid var(--line);border-radius:12px;padding:12px;min-height:140px}
@@ -23,13 +23,17 @@
   .ok{color:#24d17e} .warn{color:#ffd166} .bad{color:#ff6b6b}
   .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
   .quote{font-style:italic;color:#cfe2ff}
+  input[type="text"]{flex:1;min-width:260px;background:#0f1533;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:12px}
+  .caps{text-transform:uppercase;letter-spacing:.02em;font-weight:700}
+  .tiny{font-size:.9rem}
+  .tag{display:inline-block;border:1px dashed #2a386f;border-radius:999px;padding:2px 8px;margin:4px 6px 0 0}
+  .note{font-size:.9rem;color:#a9b7e1;margin-top:6px}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Wave Forecast — Next High Peaks (No Recent Draws Needed)</h1>
 
-  <!-- Your wave explanation is embedded here -->
   <div class="panel">
     <div class="hint"><b>Wave behavior in draw frequencies</b></div>
     <p class="quote">
@@ -39,9 +43,19 @@
       <b>Re-heat</b>: the number returns when its internal cycle resets.<br>
       Think of it as a sinusoidal wave for each ball, at different phases and amplitudes. The dataset lets us measure that phase timing.
     </p>
+
+    <!-- NEW: Last draw entry -->
+    <div class="row" style="margin-top:6px">
+      <label for="lastDraw" class="caps tiny">Last draw (6 numbers):</label>
+      <input id="lastDraw" type="text" placeholder="e.g., 3 12 24 36 44 52" />
+      <button id="applyLast" class="primary">Apply Last Draw</button>
+      <button id="resetLast" class="ghost">Reset</button>
+    </div>
+    <div id="lastDrawView" class="note"></div>
+
     <div class="row" style="margin-top:10px">
-      <button id="gen" class="primary">Generate 20 numbers</button>
-      <button id="clear" class="ghost">Clear</button>
+      <button id="gen" class="primary" style="width:200px">Generate 20 numbers</button>
+      <button id="clear" class="ghost" style="width:120px">Clear</button>
     </div>
   </div>
 
@@ -70,7 +84,7 @@
 
 <script>
 (() => {
-  // Your cumulative counts (exactly as provided). Parser accepts "n-m" and "n m".
+  // Your cumulative counts (exactly as provided).
   const COUNTS_TEXT = `
 number count_in_group 26-331, 4-318, 31 318 19 317 27 312 8 310 5 308 21 304 10 302 16 297 22 294 39 294 14 293 38 293 35 292 15 292 7 292 9 290 18 289 33 287 32 285 44 285 41 282 6 280 3 280 28 279 29 278 12 277 40 276 37 275 49 275 13 274 17 273 42 272 34 270 43 269 36 266 24 264 20 264 1 261 2 261 25 258 11 252 23 249 30 247 47 238 46 229 48 229 45 222 50 205 52 193 54 179 51 158 53 157
 `.trim();
@@ -82,6 +96,12 @@ number count_in_group 26-331, 4-318, 31 318 19 317 27 312 8 310 5 308 21 304 10 
   const metaEl = document.getElementById('meta');
   const primaryEl = document.getElementById('primary');
   const outEl = document.getElementById('out');
+
+  // NEW elements
+  const lastDrawInput = document.getElementById('lastDraw');
+  const applyLastBtn = document.getElementById('applyLast');
+  const resetLastBtn = document.getElementById('resetLast');
+  const lastDrawView = document.getElementById('lastDrawView');
 
   // ---------- Parse counts ----------
   function parseCounts(text){
@@ -138,18 +158,21 @@ number count_in_group 26-331, 4-318, 31 318 19 317 27 312 8 310 5 308 21 304 10 
   }
 
   // Convert phase to next-peak probability via logistic on z (lower z -> higher prob)
-  // p = 1 / (1 + exp( a * (z - b) ))
   function nextPeakProb(z){
     const a = 2.2, b = 0.0; // centered at z=0
     return 1 / (1 + Math.exp(a * (z - b)));
   }
 
-  function buildWeights(countMap, zmap){
+  // Build weights; optionally penalize last-draw numbers
+  function buildWeights(countMap, zmap, opts={}){
+    const penaltySet = opts.penaltySet || new Set();
+    const penaltyFactor = typeof opts.penaltyFactor === 'number' ? opts.penaltyFactor : 0.35; // 65% downweight
     const weights = new Map();
     for(const [n] of countMap.entries()){
       const z = zmap.get(n) ?? 0;
-      const p = Math.max(0.0001, nextPeakProb(z));
-      weights.set(n, p);
+      let w = Math.max(0.0001, nextPeakProb(z));
+      if(penaltySet.has(n)) w *= penaltyFactor;
+      weights.set(n, w);
     }
     return weights;
   }
@@ -157,15 +180,15 @@ number count_in_group 26-331, 4-318, 31 318 19 317 27 312 8 310 5 308 21 304 10 
   // Weighted sampling without replacement per row
   function weightedSampleNoReplace(weights, k, exclude=new Set()){
     const local = new Map();
-    let total = 0;
     for(const [n,w] of weights.entries()){
-      if(!exclude.has(n) && w>0){ local.set(n,w); total += w; }
+      if(!exclude.has(n) && w>0){ local.set(n,w); }
     }
     if(local.size < k) return null;
 
     const pick = [];
     while(pick.length < k && local.size){
-      let r = Math.random() * Array.from(local.values()).reduce((a,b)=>a+b,0);
+      const total = Array.from(local.values()).reduce((a,b)=>a+b,0);
+      let r = Math.random() * total;
       let chosen = null;
       for(const [n,w] of local.entries()){
         r -= w; if(r <= 0){ chosen = n; break; }
@@ -204,16 +227,59 @@ number count_in_group 26-331, 4-318, 31 318 19 317 27 312 8 310 5 308 21 304 10 
     risingEl.textContent = list.length ? list.join(' ') : '—';
   }
 
-  // ---------- Main run ----------
+  // ---------- Main state ----------
   const COUNT_MAP = parseCounts(COUNTS_TEXT);
   const {phases, zmap, mu, sigma} = classifyPhases(COUNT_MAP);
-  const WEIGHTS = buildWeights(COUNT_MAP, zmap);
+
+  // State for last draw penalty
+  let lastDrawSet = new Set();
+  let WEIGHTS = buildWeights(COUNT_MAP, zmap);
 
   // Pre-show phase stats and explanation
   renderPhaseSummary(phases);
   renderRisingList(phases, COUNT_MAP);
   metaEl.textContent = `Mean (μ) ≈ ${mu.toFixed(1)}, σ ≈ ${sigma.toFixed(1)}. Phases by z: Rising (z ≤ −0.5), Neutral (|z| < 0.5), Cooling (z ≥ +0.5). Lower z → higher next-peak weight.`;
 
+  // ---------- Last draw parsing & UI ----------
+  function parseLastDraw(str){
+    if(!str) return [];
+    const nums = str.split(/[^0-9]+/).filter(Boolean).map(x=>+x);
+    const filtered = nums.filter(n=>Number.isInteger(n) && n>=1 && n<=54);
+    // Deduplicate and take first 6
+    const uniq = Array.from(new Set(filtered)).slice(0,6);
+    return uniq.length === 6 ? uniq : [];
+  }
+
+  function showLastDraw(list){
+    if(list.length === 6){
+      lastDrawView.innerHTML = `Penalizing (cooling after last draw): ` + list.map(n=>`<span class="tag">${n}</span>`).join(' ');
+    }else{
+      lastDrawView.textContent = 'Enter exactly 6 numbers (1–54), separated by spaces or commas.';
+    }
+  }
+
+  applyLastBtn.addEventListener('click', ()=>{
+    const list = parseLastDraw(lastDrawInput.value);
+    if(list.length === 6){
+      lastDrawSet = new Set(list);
+      WEIGHTS = buildWeights(COUNT_MAP, zmap, {penaltySet:lastDrawSet, penaltyFactor:0.35});
+      showLastDraw(list);
+      runOnce();
+    }else{
+      showLastDraw([]);
+      alert('Please enter exactly 6 valid numbers between 1 and 54.');
+    }
+  });
+
+  resetLastBtn.addEventListener('click', ()=>{
+    lastDrawSet = new Set();
+    lastDrawInput.value = '';
+    showLastDraw([]);
+    WEIGHTS = buildWeights(COUNT_MAP, zmap); // no penalty
+    runOnce();
+  });
+
+  // ---------- Generate ----------
   function runOnce(){
     // Primary pick = top 6 by next-peak probability (weights)
     const top6 = Array.from(WEIGHTS.entries())
@@ -233,6 +299,7 @@ number count_in_group 26-331, 4-318, 31 318 19 317 27 312 8 310 5 308 21 304 10 
   });
 
   // Auto-run on load so you immediately see results
+  showLastDraw([]); // initial hint
   runOnce();
 })();
 </script>
