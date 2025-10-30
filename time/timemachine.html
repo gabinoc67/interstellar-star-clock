@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>CST Time-Machine Simulator — Warp Field & Clocks</title>
+<style>
+  :root{
+    --bg:#0b1020; --ink:#eaf0ff; --mut:#9fb0d0; --panel:#121936; --line:#223062;
+    --glow:#67e3ff; --ok:#7cff9e; --bad:#ff9090;
+    --intensity:0;        /* set dynamically (0..1) */
+    --vibe:1;             /* ring vibration factor */
+    --particle-speed:8s;  /* orbiting particles */
+    --photon-speed:3s;    /* vertical photon streams */
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,Segoe UI,Roboto,Arial}
+  .wrap{max-width:1200px;margin:0 auto;padding:18px}
+  h1{margin:0 0 4px;font-weight:900;letter-spacing:.4px}
+  .pill{display:inline-block;border:1px solid var(--line);padding:4px 10px;border-radius:999px;font-size:12px;color:#bcd}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px}
+  .grid{display:grid;gap:14px}
+  .grid-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .label{font-size:12px;color:var(--mut)}
+  .value{font-weight:800}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .button{cursor:pointer;font-weight:900;border-radius:14px;border:1px solid var(--line);padding:10px 14px;background:#0f1841}
+  .button:active{transform:translateY(1px)}
+  input[type="range"]{width:100%}
+  input,button,select{color:var(--ink)}
+  input[type="datetime-local"], input[type="number"]{width:100%;background:#0d1536;border:1px solid #243468;border-radius:8px;padding:8px}
+  .ok{color:var(--ok)} .bad{color:var(--bad)}
+
+  /* ---------- Warp chamber visuals ---------- */
+  .chamber{position:relative;overflow:hidden;min-height:420px;border-radius:18px}
+  .floor{position:absolute;left:5%;right:5%;bottom:10%;height:10%;border-top:2px solid #2aa8ff55;border-bottom:2px solid #2aa8ff33;
+    background:linear-gradient(180deg,#0f1b47 0%,#0b1020 80%);}
+  .beam{position:absolute;left:50%;top:2%;bottom:12%;transform:translateX(-50%);
+    width:18%;opacity:calc(.25 + .75*var(--intensity));
+    background:radial-gradient(ellipse at center, rgba(160,255,255,.95), rgba(90,210,255,.5) 35%, rgba(20,60,110,.15) 70%, rgba(0,0,0,0) 75%);
+    filter:blur(2px);mix-blend:screen;pointer-events:none}
+  .bubble{position:absolute;inset:8% 18%;border-radius:30px/20px;box-shadow:
+    inset 0 0 calc(20px + 30px*var(--intensity)) rgba(103,227,255,.5),
+    0 0 calc(25px + 35px*var(--intensity)) rgba(103,227,255,.22);}
+  .ring{position:absolute;left:50%;transform:translateX(-50%) scaleX(calc(1 + .03*var(--vibe)));
+    width:76%;height:76px;border:2px solid #2aa8ff44;border-radius:999px;
+    box-shadow:0 0 20px #6ff6ff33 inset, 0 0 24px #2aa8ff55;
+    animation:vibe calc(0.4s/var(--vibe)) linear infinite}
+  .ring.top{top:6%}
+  .ring.bot{bottom:8%}
+  .ring::after{content:"";position:absolute;inset:0;border-radius:inherit;border:1px dashed #aef7ff66;animation:dash 8s linear infinite}
+  @keyframes dash{to{transform:rotate(360deg)}}
+  @keyframes vibe{0%{transform:translateX(-50%) scaleX(1)}
+                  50%{transform:translateX(-50%) scaleX(1.03)}
+                  100%{transform:translateX(-50%) scaleX(1)}}
+
+  .particle{position:absolute;top:50%;left:50%;width:6px;height:6px;border-radius:50%;
+    background:#dfffff;box-shadow:0 0 8px #dfffff, 0 0 14px #66e1ff}
+  .orbit{position:absolute;inset:0;pointer-events:none}
+
+  /* Vertical photon streams */
+  .photons{position:absolute;left:50%;top:2%;bottom:12%;width:36%;transform:translateX(-50%);pointer-events:none}
+  .photon{position:absolute;left:50%;width:3px;height:12px;background:#bfffff;box-shadow:0 0 8px #bfffff,0 0 16px #66e1ff;opacity:.8}
+  .photon.up{animation:rise var(--photon-speed) linear infinite}
+  .photon.down{animation:fall var(--photon-speed) linear infinite}
+  @keyframes rise{from{transform:translate(-50%,100%)} to{transform:translate(-50%,-10%)}}
+  @keyframes fall{from{transform:translate(-50%,-10%)} to{transform:translate(-50%,100%)}}
+
+  /* ---------- Circular clocks ---------- */
+  .clock svg{filter:drop-shadow(0 0 10px #0ff4)}
+  .eq{font-size:14px;line-height:1.65}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>CST Time-Machine Simulator</h1>
+    <div class="pill">Live clocks • Warp bubble • Earth rotation over geologic time • Go/No-Go</div>
+
+    <!-- Controls + Visualizer -->
+    <div class="grid grid-2" style="margin-top:12px">
+      <!-- Controls -->
+      <div class="card">
+        <div class="row"><strong>Input — Destination & Tuning</strong></div>
+        <div class="grid" style="grid-template-columns:180px 1fr">
+          <div class="label">Current (browser)</div>
+          <div class="value" id="nowLabel">—</div>
+
+          <div class="label">Destination (local calendar)</div>
+          <div><input id="destDT" type="datetime-local"></div>
+
+          <div class="label">Geologic Offset (years)</div>
+          <div>
+            <input id="geoYears" type="number" step="1" value="0">
+            <div class="row" style="margin-top:6px">
+              <button class="button" data-bump="-1e9">−1e9</button>
+              <button class="button" data-bump="-1e6">−1e6</button>
+              <button class="button" data-bump="-1e3">−1e3</button>
+              <button class="button" data-bump="1e3">+1e3</button>
+              <button class="button" data-bump="1e6">+1e6</button>
+              <button class="button" data-bump="1e9">+1e9</button>
+            </div>
+            <div class="label">Tip: negative = past (faster Earth), positive = future (slower Earth)</div>
+          </div>
+
+          <div class="label">Earth rotation factor</div>
+          <div>
+            <input id="rotFactor" type="range" min="0.90" max="1.10" step="0.0005" value="1.0000">
+            <div class="label"><span id="rotPercent">100.000%</span> of nominal 24h day (auto-linked to geologic offset)</div>
+          </div>
+
+          <div class="label">Coolant capacity</div>
+          <div>
+            <input id="coolant" type="range" min="0" max="1" step="0.01" value="0.65">
+            <div class="label"><span id="coolantPct">65%</span> capacity</div>
+          </div>
+
+          <div class="label">Harmonic calibration</div>
+          <div>
+            <input id="harmonic" type="range" min="0" max="1" step="0.01" value="0.5">
+            <div class="label">resonance <span id="harmonicVal">0.50</span></div>
+          </div>
+
+          <div class="label">Longitude (°E) for sidereal</div>
+          <div>
+            <input id="longitude" type="range" min="-180" max="180" step="0.5" value="0">
+            <div class="label"><span id="lonVal">0.0</span>°E</div>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:12px">
+          <button class="button" id="engageBtn">Enter Destination</button>
+          <button class="button" id="resetBtn">Reset</button>
+          <div class="label">Δt: <span class="value" id="deltaLabel">0</span></div>
+        </div>
+      </div>
+
+      <!-- Visualizer / Warp chamber -->
+      <div class="card chamber" id="chamber">
+        <div class="row" style="margin-bottom:6px"><strong>Warp-Field Visualizer</strong></div>
+        <div class="label">Brightness ∝ |offset|; rings & particles vibrate faster for billions-year jumps; photons stream up/down.</div>
+
+        <div class="beam"></div>
+        <div class="bubble"></div>
+        <div class="ring top"></div>
+        <div class="ring bot"></div>
+        <div class="floor"></div>
+
+        <!-- orbiting particle layer -->
+        <div class="orbit" id="orbitLayer"></div>
+
+        <!-- vertical photons layer -->
+        <div class="photons" id="photonsLayer"></div>
+      </div>
+    </div>
+
+    <!-- Clocks -->
+    <div class="grid grid-3" style="margin-top:14px">
+      <div class="card clock" id="clockDay"></div>
+      <div class="card clock" id="clockYear"></div>
+      <div class="card clock" id="clockGal"></div>
+    </div>
+
+    <!-- Systems & Go/No-Go -->
+    <div class="grid grid-2" style="margin-top:14px">
+      <div class="card">
+        <div class="row"><strong>Time Systems (from browser clock)</strong></div>
+        <div class="grid" style="grid-template-columns:220px 1fr;margin-top:6px">
+          <div class="label">Local Time</div><div class="value" id="localTime">—</div>
+          <div class="label">UTC</div><div class="value" id="utcTime">—</div>
+          <div class="label">Greenwich Sidereal (approx.)</div><div class="value" id="gstVal">— h</div>
+          <div class="label">Local Sidereal (approx.)</div><div class="value" id="lstVal">— h</div>
+          <div class="label">CST Phase (demo)</div><div class="value" id="cstPhase">—</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row"><strong>Field Power • Thermal • Go/No-Go</strong></div>
+        <table class="w-full" style="width:100%;margin-top:6px">
+          <tbody>
+            <tr><td class="label">Required Power</td><td class="value" id="powerVal">— MW</td></tr>
+            <tr><td class="label">Heat Load</td><td class="value" id="heatVal">— MW</td></tr>
+            <tr><td class="label">Cooling Capacity</td><td class="value" id="coolVal">— MW</td></tr>
+            <tr><td class="label">Heat Margin</td><td class="value" id="marginVal">— MW</td></tr>
+            <tr><td class="label">Rotation Sync</td><td class="value" id="rotVal">—</td></tr>
+            <tr><td class="label">Estimated Day Length</td><td class="value" id="lodVal">— hours</td></tr>
+          </tbody>
+        </table>
+        <div style="margin-top:6px">Status: <span id="status">—</span></div>
+        <div class="label">Rule: P ≤ 5000 MW, Heat ≤ Cooling, |rotFactor − 1| &lt; 0.02</div>
+      </div>
+    </div>
+
+    <!-- Equations -->
+    <div class="card" style="margin-top:14px">
+      <div class="row"><strong>Key Equations / Relationships (visual model)</strong></div>
+      <div class="eq">
+        <div>Δt = t<sub>dest</sub> − t<sub>now</sub>  (uses browser clock)</div>
+        <div>LOD(y) ≈ 24 h + (1.7 ms / 100 yr) × (y / yr)  ⇒ ~ +4.72 h per 10<sup>9</sup> yr (tidal friction)</div>
+        <div>rotFactor = 24 h / LOD(y)</div>
+        <div>ω<sub>⊕</sub> = 2π / (86400 s · rotFactor)</div>
+        <div>φ<sub>day</sub>, φ<sub>year</sub>, φ<sub>gal</sub> are clock phases; CST phase (demo) = 0.618·φ<sub>day</sub> + 0.236·φ<sub>year</sub> + 0.146·φ<sub>gal</sub> (mod 1)</div>
+        <div>Power P = k · |Δt|<sub>hours</sub> · (1 + |rotFactor − 1|·40) / (0.6 + 0.8·harmonic)</div>
+        <div>Heat ≈ 0.42·P ; Cooling ≈ 200·coolant</div>
+      </div>
+    </div>
+
+    <div class="label" style="margin-top:10px">
+      Visual demo for Gabino Casanova’s CST framework. Past (−years) → faster rotation; future (+years) → slower rotation. Any nanosecond off-phase risks drift; synchronize before you jump.
+    </div>
+  </div>
+
+<script>
+(function(){
+  // ------- Helpers -------
+  const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
+  const byId=id=>document.getElementById(id);
+
+  const nowLabel=byId('nowLabel'), localTime=byId('localTime'), utcTime=byId('utcTime');
+  const destDT=byId('destDT'), geoYears=byId('geoYears'), deltaLabel=byId('deltaLabel');
+  const rotRange=byId('rotFactor'), rotPercent=byId('rotPercent'), rotVal=byId('rotVal'), lodVal=byId('lodVal');
+  const coolant=byId('coolant'), coolantPct=byId('coolantPct');
+  const harmonic=byId('harmonic'), harmonicVal=byId('harmonicVal');
+  const longitude=byId('longitude'), lonVal=byId('lonVal');
+  const powerVal=byId('powerVal'), heatVal=byId('heatVal'), coolVal=byId('coolVal'), marginVal=byId('marginVal'), status=byId('status');
+  const engageBtn=byId('engageBtn'), resetBtn=byId('resetBtn');
+  const chamber=byId('chamber'), orbitLayer=byId('orbitLayer'), photonsLayer=byId('photonsLayer');
+  const clockDay=byId('clockDay'), clockYear=byId('clockYear'), clockGal=byId('clockGal');
+  const gstVal=byId('gstVal'), lstVal=byId('lstVal'), cstPhase=byId('cstPhase');
+
+  // default destination = +5 minutes
+  const t0 = new Date(); t0.setMinutes(t0.getMinutes()+5);
+  destDT.value = new Date(t0.getTime() - (new Date().getTimezoneOffset()*60000)).toISOString().slice(0,16);
+
+  // bump buttons
+  document.querySelectorAll('[data-bump]').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const bump = Number(btn.getAttribute('data-bump'));
+      geoYears.value = String(Number(geoYears.value||0)+bump);
+      updateLODfromGeo();
+    })
+  });
+
+  // photons creation
+  function buildPhotons(){
+    photonsLayer.innerHTML='';
+    const n=28;
+    for(let i=0;i<n;i++){
+      const p=document.createElement('div');
+      p.className='photon ' + (i%2===0?'up':'down');
+      p.style.left = (20 + (i%14)*5) + '%';
+      p.style.animationDelay = (-i*0.12)+'s';
+      photonsLayer.appendChild(p);
+    }
+  }
+  buildPhotons();
+
+  // orbiting particles
+  function buildParticles(){
+    orbitLayer.innerHTML='';
+    const N=22;
+    for(let i=0;i<N;i++){
+      const dot=document.createElement('div');
+      dot.className='particle';
+      dot.dataset.angle0 = (i/N)*Math.PI*2;
+      dot.dataset.radius = 42 + (i%11)*7;
+      orbitLayer.appendChild(dot);
+    }
+  }
+  buildParticles();
+
+  // Simple sidereal time approximation
+  function approxGST(date){
+    const d=(date.getTime()-Date.UTC(2000,0,1,12,0,0))/86400000;
+    let gst=(18.697374558 + 24.06570982441908*d) % 24;
+    if(gst<0) gst+=24;
+    return gst;
+  }
+
+  // Length of day vs geologic offset (years). Positive = future (slower).
+  // Trend: +1.7 ms per century => +0.000017 s/yr => +4.7222e-9 h/yr
+  function lodHoursFromOffset(years){
+    return 24 + (years * 4.722222e-9);
+  }
+
+  // Update rotation factor whenever geologic years change (can still be trimmed with the slider afterwards if desired)
+  function updateLODfromGeo(){
+    const y=Number(geoYears.value||0);
+    const lod=lodHoursFromOffset(y);
+    const rotFactor=24 / lod; // relative to 24h baseline
+    rotRange.value = rotFactor.toFixed(4);
+    rotPercent.textContent=(rotFactor*100).toFixed(3)+'%';
+  }
+  updateLODfromGeo();
+
+  coolant.addEventListener('input',()=>coolantPct.textContent = Math.round(coolant.value*100)+'%');
+  harmonic.addEventListener('input',()=>harmonicVal.textContent = Number(harmonic.value).toFixed(2));
+  longitude.addEventListener('input',()=>lonVal.textContent = Number(longitude.value).toFixed(1)+'°E');
+  rotRange.addEventListener('input',()=>rotPercent.textContent=(rotRange.value*100).toFixed(3)+'%');
+  geoYears.addEventListener('change',updateLODfromGeo);
+
+  // clocks svg
+  function renderClock(targetEl, label, fraction, sub){
+    const size=140, r=size/2-12, circ=2*Math.PI*r, dash=circ*fraction;
+    targetEl.innerHTML = `
+      <svg width="${size}" height="${size}">
+        <defs>
+          <radialGradient id="g-${label}" cx="50%" cy="50%" r="60%">
+            <stop offset="0%" stop-color="#9ff" stop-opacity=".9"/>
+            <stop offset="70%" stop-color="#5fe" stop-opacity=".5"/>
+            <stop offset="100%" stop-color="#0af" stop-opacity=".2"/>
+          </radialGradient>
+        </defs>
+        <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="#224a7e" stroke-width="10"></circle>
+        <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="url(#g-${label})" stroke-width="10"
+          stroke-dasharray="${dash} ${circ-dash}" stroke-linecap="round"
+          transform="rotate(-90 ${size/2} ${size/2})"></circle>
+        <text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" fill="#eaf0ff" font-weight="700" font-size="14">${label}</text>
+      </svg>
+      <div class="label" style="text-align:center">${sub||''}</div>`;
+  }
+
+  // animation loop
+  let engaged=false;
+  engageBtn.addEventListener('click',()=>{engaged=!engaged; engageBtn.textContent = engaged? 'Abort' : 'Enter Destination';});
+  resetBtn.addEventListener('click',()=>{
+    engaged=false; engageBtn.textContent='Enter Destination';
+    geoYears.value='0'; updateLODfromGeo();
+    coolant.value='0.65'; coolantPct.textContent='65%';
+    harmonic.value='0.5'; harmonicVal.textContent='0.50';
+    longitude.value='0'; lonVal.textContent='0.0°E';
+    const t = new Date(); t.setMinutes(t.getMinutes()+5);
+    destDT.value = new Date(t.getTime() - (new Date().getTimezoneOffset()*60000)).toISOString().slice(0,16);
+  });
+
+  function fmtDelta(ms){
+    const sign = ms>=0? '+':'−';
+    const abs=Math.abs(ms);
+    const d=Math.floor(abs/86400000);
+    const h=Math.floor((abs%86400000)/3600000);
+    const m=Math.floor((abs%3600000)/60000);
+    const s=Math.floor((abs%60000)/1000);
+    return `${sign}${d}d ${h}h ${m}m ${s}s`;
+  }
+
+  function tick(t){
+    const now=new Date();
+    nowLabel.textContent = now.toLocaleString();
+    localTime.textContent = now.toLocaleString();
+    utcTime.textContent = now.toUTCString();
+
+    // Sidereal
+    const gst=approxGST(now);
+    const lst=(gst + Number(longitude.value)/15 + 24)%24;
+    gstVal.textContent = gst.toFixed(3)+' h';
+    lstVal.textContent = lst.toFixed(3)+' h';
+
+    // Destination delta (calendar path) — from datetime-local if valid
+    let deltaMs = 0;
+    if(destDT.value){
+      const local = new Date(destDT.value);
+      const asUTC = new Date(local.getTime() + (now.getTimezoneOffset()*60000)); // keep local semantics
+      deltaMs = asUTC.getTime() - now.getTime();
+    }
+    deltaLabel.textContent = fmtDelta(deltaMs);
+
+    // Geologic offset & Earth day length
+    const years = Number(geoYears.value||0);
+    const lod = lodHoursFromOffset(years); // hours
+    const rotFactor = Number(rotRange.value);
+    rotVal.textContent = (rotFactor*100).toFixed(3)+'% of nominal';
+    lodVal.textContent = lod.toFixed(3)+' h';
+
+    // Clock phases (use simulated rotation period for the day clock)
+    const dayPeriodMs = (86400000 / rotFactor);
+    const dayFrac = ((now.getTime()%dayPeriodMs)+dayPeriodMs)%dayPeriodMs / dayPeriodMs;
+    const yearMs = 365.25*86400000;
+    const startOfYear = new Date(now.getFullYear(),0,1).getTime();
+    const yearFrac = ((now.getTime()-startOfYear)/yearMs)%1;
+    const galMsVisual = 60000; // 60s visual cycle
+    const galFrac = ((now.getTime()%galMsVisual)/galMsVisual);
+
+    renderClock(clockDay,'Earth Rotation',dayFrac, (dayFrac*24).toFixed(2)+' h / 24 h');
+    renderClock(clockYear,'Earth Orbit',yearFrac,(yearFrac*365.25).toFixed(2)+' d / 365.25 d');
+    renderClock(clockGal,'Galactic Orbit (visual)',galFrac,'phase '+(galFrac*360).toFixed(1)+'°');
+
+    // Demo CST phase
+    const cst = (0.618*dayFrac + 0.236*yearFrac + 0.146*galFrac) % 1;
+    cstPhase.textContent = cst.toFixed(5);
+
+    // Power / heat (illustrative)
+    const kP = 0.35;
+    const deltaHours = Math.abs(deltaMs)/3600000 + Math.abs(years)*8760; // calendar delta + geologic offset magnitude
+    const rotPenalty = 1 + Math.abs(rotFactor - 1)*40;
+    const harmonicBonus = 0.6 + 0.8*Number(harmonic.value);
+    const powerMW = deltaHours * kP * rotPenalty / harmonicBonus;
+    const heat = powerMW * 0.42;
+    const cooling = 200*Number(coolant.value);
+    const margin = cooling - heat;
+
+    powerVal.textContent = powerMW.toFixed(2)+' MW';
+    heatVal.textContent = heat.toFixed(2)+' MW';
+    coolVal.textContent = cooling.toFixed(1)+' MW';
+    marginVal.textContent = margin.toFixed(2)+' MW';
+    marginVal.className = 'value ' + (margin>=0?'ok':'bad');
+
+    // Go / No-Go
+    const syncTight = Math.abs(rotFactor-1)<0.02;
+    const go = (powerMW<=5000) && (margin>=0) && syncTight;
+    status.innerHTML = go? '<span class="ok"><strong>GO</strong></span>' : '<span class="bad"><strong>NO-GO</strong></span>';
+
+    // Visual intensity from |years| (billions get max), also small contribution from calendar delta
+    const intensityYears = Math.log10(1+Math.abs(years))/9; // log scale: 1e9 → ~1
+    const intensityCalendar = clamp(Math.log10(1+Math.abs(deltaMs)/3600000)/6,0,0.4); // softer effect
+    const intensity = clamp(intensityYears + intensityCalendar, 0, 1);
+    document.documentElement.style.setProperty('--intensity', intensity.toFixed(3));
+
+    // Ring vibration & particle / photon speeds scale
+    const vibe = 1 + 6*intensity + (engaged? 2:0);
+    document.documentElement.style.setProperty('--vibe', vibe.toFixed(3));
+
+    const particleSeconds = clamp(7 - 5*intensity - (engaged? 2.5:0), 1.2, 7);
+    document.documentElement.style.setProperty('--particle-speed', particleSeconds+'s');
+
+    const photonSeconds = clamp(3.5 - 3*intensity - (engaged? 1.5:0), 0.6, 3.5);
+    document.documentElement.style.setProperty('--photon-speed', photonSeconds+'s');
+
+    // Animate orbiting particles
+    const dots = orbitLayer.children;
+    const tsec = performance.now()/1000;
+    for(let i=0;i<dots.length;i++){
+      const el = dots[i];
+      const a0 = Number(el.dataset.angle0);
+      const r = Number(el.dataset.radius);
+      const dir = i%2===0?1:-1;
+      const ang = a0 + dir * (tsec/particleSeconds) * Math.PI*2;
+      const x = Math.cos(ang)*(r+190);
+      const y = Math.sin(ang)*(r/2)*0.7;
+      el.style.transform = `translate(${x}px, ${y}px)`;
+    }
+
+    // Sidereal labels already set; update ring/beam opacities via CSS vars
+
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
