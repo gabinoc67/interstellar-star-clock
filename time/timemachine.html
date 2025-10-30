@@ -3,593 +3,182 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>CST Time-Machine Simulator — Warp Field & Clocks</title>
+<title>CST Time-Machine Simulator — 4-Clock Warp Field</title>
 <style>
-  :root{
-    --bg:#0b1020; --ink:#eaf0ff; --mut:#9fb0d0; --panel:#121936; --line:#223062;
-    --glow:#67e3ff; --ok:#7cff9e; --bad:#ff9090;
-    --intensity:0;        /* 0..1 from |Δt| (idle) or jump animation */
-    --vibe:1;             /* ring vibration factor */
-    --particle-speed:8s;  /* orbiting particles */
-    --photon-speed:3s;    /* vertical photon streams */
+  :root {
+    --bg:#0b1020; --ink:#eaf0ff; --mut:#9fb0d0;
+    --panel:#121936; --line:#223062; --glow:#67e3ff;
+    --intensity:0; --beam-color:rgba(160,255,255,.9);
   }
   *{box-sizing:border-box}
   html,body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,Segoe UI,Roboto,Arial}
-  .wrap{max-width:1200px;margin:0 auto;padding:18px}
-  h1{margin:0 0 4px;font-weight:900;letter-spacing:.4px}
+  .wrap{max-width:1200px;margin:0 auto;padding:20px}
+  h1{margin:0 0 6px;font-weight:900;letter-spacing:.4px}
   .pill{display:inline-block;border:1px solid var(--line);padding:4px 10px;border-radius:999px;font-size:12px;color:#bcd}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px}
   .grid{display:grid;gap:14px}
   .grid-2{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   .label{font-size:12px;color:var(--mut)}
   .value{font-weight:800}
-  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-  .button{cursor:pointer;font-weight:900;border-radius:14px;border:1px solid var(--line);padding:10px 14px;background:#0f1841}
+  .button{cursor:pointer;font-weight:900;border-radius:14px;border:1px solid var(--line);
+          padding:10px 16px;background:#0f1841;color:var(--ink)}
   .button:active{transform:translateY(1px)}
-  input[type="range"]{width:100%}
-  input,button,select{color:var(--ink)}
-  input[type="datetime-local"]{width:100%;background:#0d1536;border:1px solid #243468;border-radius:8px;padding:8px}
-  .ok{color:var(--ok)} .bad{color:var(--bad)}
-  .hint{font-size:12px;color:#b7c7e6}
-  .fixlist{margin-top:8px;padding-left:18px}
-  .fixlist li{margin:4px 0}
+  input[type="datetime-local"]{width:100%;background:#0d1536;border:1px solid #243468;
+    border-radius:8px;padding:8px;color:#eaf0ff}
+  .clockbox{font-family:monospace;font-size:18px;background:#0d1536;border-radius:10px;padding:10px;
+            border:1px solid #2a3a6e;text-align:center}
+  .clock-title{font-size:12px;color:#9fb0d0;margin-bottom:3px}
+  .ok{color:#7cff9e}
+  .bad{color:#ff9090}
 
-  /* ---------- Warp chamber visuals ---------- */
-  .chamber{position:relative;overflow:hidden;min-height:420px;border-radius:18px}
-  .floor{position:absolute;left:5%;right:5%;bottom:10%;height:10%;border-top:2px solid #2aa8ff55;border-bottom:2px solid #2aa8ff33;
-    background:linear-gradient(180deg,#0f1b47 0%,#0b1020 80%);}
-  .beam{position:absolute;left:50%;top:2%;bottom:12%;transform:translateX(-50%);
-    width:18%;opacity:calc(.20 + .80*var(--intensity));
-    background:radial-gradient(ellipse at center, rgba(160,255,255,.95), rgba(90,210,255,.5) 35%, rgba(20,60,110,.15) 70%, rgba(0,0,0,0) 75%);
-    filter:blur(2px);mix-blend:screen;pointer-events:none}
-  .bubble{position:absolute;inset:8% 18%;border-radius:30px/20px;box-shadow:
-    inset 0 0 calc(20px + 30px*var(--intensity)) rgba(103,227,255,.5),
-    0 0 calc(25px + 35px*var(--intensity)) rgba(103,227,255,.22);}
-  .ring{position:absolute;left:50%;transform:translateX(-50%) scaleX(calc(1 + .03*var(--vibe)));
-    width:76%;height:76px;border:2px solid #2aa8ff44;border-radius:999px;
-    box-shadow:0 0 20px #6ff6ff33 inset, 0 0 24px #2aa8ff55;
-    animation:vibe calc(0.4s/var(--vibe)) linear infinite}
-  .ring.top{top:6%}
-  .ring.bot{bottom:8%}
-  .ring::after{content:"";position:absolute;inset:0;border-radius:inherit;border:1px dashed #aef7ff66;animation:dash 8s linear infinite}
-  @keyframes dash{to{transform:rotate(360deg)}}
-  @keyframes vibe{0%{transform:translateX(-50%) scaleX(1)}
-                  50%{transform:translateX(-50%) scaleX(1.03)}
-                  100%{transform:translateX(-50%) scaleX(1)}}
-
-  .particle{position:absolute;top:50%;left:50%;width:6px;height:6px;border-radius:50%;
-    background:#dfffff;box-shadow:0 0 8px #dfffff, 0 0 14px #66e1ff}
-  .orbit{position:absolute;inset:0;pointer-events:none}
-
-  /* Vertical photon streams */
-  .photons{position:absolute;left:50%;top:2%;bottom:12%;width:36%;transform:translateX(-50%);pointer-events:none}
-  .photon{position:absolute;left:50%;width:3px;height:12px;background:#bfffff;box-shadow:0 0 8px #bfffff,0 0 16px #66e1ff;opacity:.8}
-  .photon.up{animation:rise var(--photon-speed) linear infinite}
-  .photon.down{animation:fall var(--photon-speed) linear infinite}
-  @keyframes rise{from{transform:translate(-50%,100%)} to{transform:translate(-50%,-10%)}}
-  @keyframes fall{from{transform:translate(-50%,-10%)} to{transform:translate(-50%,100%)}}
-
-  /* ---------- Circular clocks ---------- */
-  .clock svg{filter:drop-shadow(0 0 10px #0ff4)}
-  .eq{font-size:14px;line-height:1.65}
-
-  /* Jump flash overlay */
-  .flash{
-    position:absolute;inset:0;pointer-events:none;opacity:0;
-    background:radial-gradient(circle at 50% 40%, rgba(200,255,255,1), rgba(200,255,255,.6) 20%, rgba(150,230,255,.25) 40%, rgba(100,200,255,.08) 60%, rgba(0,0,0,0) 70%);
-    transition:opacity .15s linear;
-  }
-  .flash.on{opacity:1}
+  /* Warp chamber */
+  .chamber{position:relative;overflow:hidden;min-height:300px;border-radius:18px;margin-top:20px}
+  .beam{position:absolute;inset:0;margin:auto;width:50%;height:80%;
+         background:radial-gradient(ellipse at center,var(--beam-color),transparent 70%);
+         opacity:calc(.4 + .6*var(--intensity));filter:blur(6px);transition:background .5s}
+  .floor{position:absolute;bottom:0;left:0;right:0;height:20%;background:linear-gradient(#1b2a5a,#0b1020)}
+  .label-bottom{text-align:center;color:var(--mut);font-size:12px;margin-top:4px}
 </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>CST Time-Machine Simulator</h1>
-    <div class="pill">Type your destination → get live GO/NO-GO fixes → press <b>Travel</b> for the jump</div>
+<div class="wrap">
+  <h1>CST Time-Machine Simulator — 4-Clock Warp Field</h1>
+  <div class="pill">Live UTC • Local • Destination • Δt Counter</div>
 
-    <!-- Controls + Visualizer -->
-    <div class="grid grid-2" style="margin-top:12px">
-      <!-- Controls -->
-      <div class="card">
-        <div class="row"><strong>Input — Destination & Tuning</strong></div>
-        <div class="grid" style="grid-template-columns:220px 1fr">
-          <div class="label">Current (browser)</div>
-          <div class="value" id="nowLabel">—</div>
-
-          <div class="label">Destination (local calendar)</div>
-          <div><input id="destDT" type="datetime-local" placeholder="Set date & time to start"></div>
-
-          <div class="label">Coolant capacity</div>
-          <div>
-            <input id="coolant" type="range" min="0" max="1" step="0.01" value="0.77">
-            <div class="label"><span id="coolantPct">77%</span> capacity</div>
-          </div>
-
-          <div class="label">Harmonic calibration</div>
-          <div>
-            <input id="harmonic" type="range" min="0" max="1" step="0.01" value="0.58">
-            <div class="label">resonance <span id="harmonicVal">0.58</span></div>
-          </div>
-
-          <div class="label">Longitude (°E) for sidereal</div>
-          <div>
-            <input id="longitude" type="range" min="-180" max="180" step="0.5" value="111.5">
-            <div class="label"><span id="lonVal">111.5</span>°E</div>
-          </div>
-        </div>
-
-        <div class="row" style="margin-top:12px;gap:8px">
-          <div class="label">Δt: <span class="value" id="deltaLabel">—</span></div>
-          <button class="button" id="travelBtn" title="Execute jump">Travel to Destination</button>
-          <button class="button" id="resetBtn" title="Clear destination & restore defaults">Reset</button>
-        </div>
-        <div class="hint">Machine remains <b>stable</b> while tuning. Press <b>Travel</b> to execute the jump. If NO-GO, fixes will tell you exactly what to adjust.</div>
+  <div class="grid grid-2" style="margin-top:14px">
+    <div class="card">
+      <div class="row"><strong>Set Destination</strong></div>
+      <div style="margin-top:8px">
+        <label class="label">Destination (Local calendar)</label>
+        <input id="destDT" type="datetime-local">
       </div>
-
-      <!-- Visualizer / Warp chamber -->
-      <div class="card chamber" id="chamber">
-        <div class="row" style="margin-bottom:6px"><strong>Warp-Field Visualizer</strong></div>
-        <div class="label">Core brightness spikes on the jump; fades on arrival. Rings/particles/photon streams scale with |Δt|.</div>
-
-        <div class="beam" id="beam"></div>
-        <div class="bubble"></div>
-        <div class="ring top"></div>
-        <div class="ring bot"></div>
-        <div class="floor"></div>
-
-        <!-- orbiting particle layer -->
-        <div class="orbit" id="orbitLayer"></div>
-
-        <!-- vertical photons layer -->
-        <div class="photons" id="photonsLayer"></div>
-
-        <!-- flash overlay for jump -->
-        <div class="flash" id="flash"></div>
+      <div class="row" style="margin-top:12px">
+        <button class="button" id="travelBtn">Travel to Destination</button>
+        <button class="button" id="resetBtn">Reset</button>
       </div>
+      <div class="label" id="status">Status: STABLE</div>
     </div>
 
-    <!-- Four clocks -->
-    <div class="grid grid-2" style="margin-top:14px">
-      <div class="card">
-        <div class="row"><strong>Clocks & Phases</strong></div>
-        <div class="grid" style="grid-template-columns:220px 1fr;margin-top:6px">
-          <div class="label">UTC Now</div><div class="value" id="utcNow">—</div>
-          <div class="label">Local Now</div><div class="value" id="localNow">—</div>
-          <div class="label">Destination (Local)</div><div class="value" id="destLocalDisp">—</div>
-          <div class="label">Destination (UTC)</div><div class="value" id="destUTCDisp">—</div>
-          <div class="label">Greenwich Sidereal (approx.)</div><div class="value" id="gstVal">— h</div>
-          <div class="label">Local Sidereal (approx.)</div><div class="value" id="lstVal">— h</div>
-          <div class="label">CST Phase (demo)</div><div class="value" id="cstPhase">—</div>
+    <div class="card">
+      <div class="grid grid-2">
+        <div class="clockbox">
+          <div class="clock-title">UTC Cosmic Clock</div>
+          <div id="utcClock">--:--:--</div>
+        </div>
+        <div class="clockbox">
+          <div class="clock-title">Current Local Time</div>
+          <div id="localClock">--:--:--</div>
+        </div>
+        <div class="clockbox">
+          <div class="clock-title">Destination Time</div>
+          <div id="destClock">--:--:--</div>
+        </div>
+        <div class="clockbox">
+          <div class="clock-title">Δt (Difference)</div>
+          <div id="diffClock">--:--:--</div>
         </div>
       </div>
-
-      <div class="card">
-        <div class="row"><strong>Field Power • Thermal • Go/No-Go</strong></div>
-        <table style="width:100%;margin-top:6px">
-          <tbody>
-            <tr><td class="label">Required Power</td><td class="value" id="powerVal">— MW</td></tr>
-            <tr><td class="label">Heat Load</td><td class="value" id="heatVal">— MW</td></tr>
-            <tr><td class="label">Cooling Capacity</td><td class="value" id="coolVal">— MW</td></tr>
-            <tr><td class="label">Heat Margin</td><td class="value" id="marginVal">— MW</td></tr>
-            <tr><td class="label">Rotation Sync</td><td class="value" id="rotVal">—</td></tr>
-            <tr><td class="label">Estimated Day Length</td><td class="value" id="lodVal">— hours</td></tr>
-          </tbody>
-        </table>
-        <div style="margin-top:6px">Status: <span id="status">IDLE (set destination)</span></div>
-        <div class="label">Rule: P ≤ 5000 MW, Heat ≤ Cooling, |rotFactor − 1| &lt; 0.02</div>
-        <div id="fixes" class="label" style="margin-top:8px"></div>
-      </div>
-    </div>
-
-    <!-- Phased clocks (day/year/galactic) -->
-    <div class="grid grid-3" style="margin-top:14px">
-      <div class="card clock" id="clockDay"></div>
-      <div class="card clock" id="clockYear"></div>
-      <div class="card clock" id="clockGal"></div>
-    </div>
-
-    <!-- Equations -->
-    <div class="card" style="margin-top:14px">
-      <div class="row"><strong>Key Equations / Relationships (visual model)</strong></div>
-      <div class="eq">
-        <div>Δt = t<sub>dest</sub> − t<sub>now</sub>  (uses browser clock)</div>
-        <div>LOD(Δt) ≈ 24 h + (1.7 ms / 100 yr) × (Δt / yr)  ⇒ ~ +4.72 h per 10<sup>9</sup> yr</div>
-        <div>rotFactor(Δt) = 24 h / LOD(Δt)</div>
-        <div>ω<sub>⊕</sub>(Δt) = 2π / (86400 s · rotFactor)</div>
-        <div>CST phase (demo) = 0.618·φ<sub>day</sub> + 0.236·φ<sub>year</sub> + 0.146·φ<sub>gal</sub> (mod 1)</div>
-        <div>Power P = k · |Δt|<sub>hours</sub> · (1 + |rotFactor − 1|·40) / (0.6 + 0.8·harmonic)</div>
-        <div>Heat ≈ 0.42·P ; Cooling ≈ 200·coolant</div>
-      </div>
-      <div class="hint">Past (Δt &lt; 0) → faster rotation (rotFactor &gt; 1). Future (Δt &gt; 0) → slower rotation (rotFactor &lt; 1).</div>
     </div>
   </div>
 
+  <div class="card chamber">
+    <div class="beam" id="beam"></div>
+    <div class="floor"></div>
+    <div class="label-bottom">Beam glows red while traveling and fades to white on arrival.</div>
+  </div>
+</div>
+
 <script>
 (function(){
-  // ------- Helpers -------
-  const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
-  const byId=id=>document.getElementById(id);
+  const utcClock = document.getElementById("utcClock");
+  const localClock = document.getElementById("localClock");
+  const destClock = document.getElementById("destClock");
+  const diffClock = document.getElementById("diffClock");
+  const beam = document.getElementById("beam");
+  const travelBtn = document.getElementById("travelBtn");
+  const resetBtn = document.getElementById("resetBtn");
+  const destDT = document.getElementById("destDT");
+  const status = document.getElementById("status");
 
-  const nowLabel=byId('nowLabel'), utcNow=byId('utcNow'), localNow=byId('localNow');
-  const destDT=byId('destDT'), deltaLabel=byId('deltaLabel');
-  const destLocalDisp=byId('destLocalDisp'), destUTCDisp=byId('destUTCDisp');
-  const coolant=byId('coolant'), coolantPct=byId('coolantPct');
-  const harmonic=byId('harmonic'), harmonicVal=byId('harmonicVal');
-  const longitude=byId('longitude'), lonVal=byId('lonVal');
-  const powerVal=byId('powerVal'), heatVal=byId('heatVal'), coolVal=byId('coolVal'), marginVal=byId('marginVal'), status=byId('status');
-  const chamber=byId('chamber'), orbitLayer=byId('orbitLayer'), photonsLayer=byId('photonsLayer');
-  const clockDay=byId('clockDay'), clockYear=byId('clockYear'), clockGal=byId('clockGal');
-  const gstVal=byId('gstVal'), lstVal=byId('lstVal'), cstPhase=byId('cstPhase');
-  const rotVal=byId('rotVal'), lodVal=byId('lodVal'), fixes=byId('fixes');
-  const flash=byId('flash'), beam=byId('beam');
-  const travelBtn=byId('travelBtn'), resetBtn=byId('resetBtn');
+  let destination = null;
+  let traveling = false;
+  let travelStart = 0, travelDuration = 8000; // 8s smooth transition
+  let initialDiff = 0;
 
-  // photons creation
-  function buildPhotons(){
-    photonsLayer.innerHTML='';
-    const n=28;
-    for(let i=0;i<n;i++){
-      const p=document.createElement('div');
-      p.className='photon ' + (i%2===0?'up':'down');
-      p.style.left = (20 + (i%14)*5) + '%';
-      p.style.animationDelay = (-i*0.12)+'s';
-      photonsLayer.appendChild(p);
-    }
-  }
-  buildPhotons();
+  travelBtn.addEventListener("click",()=>{
+    if(!destDT.value){ alert("Please select a destination date and time."); return; }
+    destination = new Date(destDT.value);
+    initialDiff = destination - new Date();
+    if(isNaN(destination)){ alert("Invalid date."); return; }
+    traveling = true;
+    travelStart = performance.now();
+    beam.style.setProperty("--beam-color","rgba(255,80,80,0.9)");
+    document.documentElement.style.setProperty("--intensity","1");
+    status.innerHTML = "<span class='bad'>TRAVELING...</span>";
+  });
 
-  // orbiting particles
-  function buildParticles(){
-    orbitLayer.innerHTML='';
-    const N=22;
-    for(let i=0;i<N;i++){
-      const dot=document.createElement('div');
-      dot.className='particle';
-      dot.dataset.angle0 = (i/N)*Math.PI*2;
-      dot.dataset.radius = 42 + (i%11)*7;
-      orbitLayer.appendChild(dot);
-    }
-  }
-  buildParticles();
+  resetBtn.addEventListener("click",()=>{
+    destination=null;
+    traveling=false;
+    document.documentElement.style.setProperty("--intensity","0");
+    beam.style.setProperty("--beam-color","rgba(160,255,255,.9)");
+    status.innerHTML = "Status: STABLE";
+    diffClock.textContent="--:--:--";
+  });
 
-  // Simple sidereal time approximation
-  function approxGST(date){
-    const d=(date.getTime()-Date.UTC(2000,0,1,12,0,0))/86400000;
-    let gst=(18.697374558 + 24.06570982441908*d) % 24;
-    if(gst<0) gst+=24;
-    return gst;
+  function fmt(t){
+    return t.toString().padStart(2,"0");
   }
 
-  // Length of day vs Δt (years). Positive = future (slower).
-  // Trend: +1.7 ms per century => +0.000017 s/yr => +4.7222e-9 h/yr
-  function lodHoursFromDeltaYears(years){
-    return 24 + (years * 4.722222e-9);
+  function formatClock(date){
+    return fmt(date.getHours())+":"+fmt(date.getMinutes())+":"+fmt(date.getSeconds());
   }
 
-  coolant.addEventListener('input',()=>coolantPct.textContent = Math.round(coolant.value*100)+'%');
-  harmonic.addEventListener('input',()=>harmonicVal.textContent = Number(harmonic.value).toFixed(2));
-  longitude.addEventListener('input',()=>lonVal.textContent = Number(longitude.value).toFixed(1));
-
-  // clocks svg
-  function renderClock(targetEl, label, fraction, sub){
-    const size=140, r=size/2-12, circ=2*Math.PI*r, dash=circ*fraction;
-    targetEl.innerHTML = `
-      <svg width="${size}" height="${size}">
-        <defs>
-          <radialGradient id="g-${label}" cx="50%" cy="50%" r="60%">
-            <stop offset="0%" stop-color="#9ff" stop-opacity=".9"/>
-            <stop offset="70%" stop-color="#5fe" stop-opacity=".5"/>
-            <stop offset="100%" stop-color="#0af" stop-opacity=".2"/>
-          </radialGradient>
-        </defs>
-        <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="#224a7e" stroke-width="10"></circle>
-        <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="url(#g-${label})" stroke-width="10"
-          stroke-dasharray="${dash} ${circ-dash}" stroke-linecap="round"
-          transform="rotate(-90 ${size/2} ${size/2})"></circle>
-        <text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" fill="#eaf0ff" font-weight="700" font-size="14">${label}</text>
-      </svg>
-      <div class="label" style="text-align:center">${sub||''}</div>`;
-  }
-
-  function fmtDelta(ms){
-    if(ms===null) return '—';
-    const sign = ms>=0? '+':'−';
+  function formatDiff(ms){
+    const sign = ms>=0?"+":"−";
     const abs=Math.abs(ms);
     const d=Math.floor(abs/86400000);
     const h=Math.floor((abs%86400000)/3600000);
     const m=Math.floor((abs%3600000)/60000);
     const s=Math.floor((abs%60000)/1000);
-    return `${sign}${d}d ${h}h ${m}m ${s}s`;
-  }
-
-  function buildFixList(items){
-    fixes.innerHTML = items.length
-      ? '<div><strong>Why NO-GO / How to fix</strong></div><ul class="fixlist">'+items.map(x=>`<li>${x}</li>`).join('')+'</ul>'
-      : '';
-  }
-
-  let jumping=false;     // jump animation in progress
-  let arrived=false;     // after successful jump
-
-  travelBtn.addEventListener('click',()=>{
-    if(!destDT.value){ pulse(status, 'Set a destination first.'); return; }
-
-    const evalState = computeState();
-    if(!evalState) return;
-    const {go} = evalState;
-
-    if(!go){
-      // Visual "deny" pulse
-      pulse(status, 'Cannot travel: resolve the NO-GO items first.');
-      flash.classList.add('on');
-      flash.style.background='radial-gradient(circle at 50% 40%, rgba(255,120,120,1), rgba(255,120,120,.4) 25%, rgba(150,30,30,.12) 50%, rgba(0,0,0,0) 70%)';
-      setTimeout(()=>flash.classList.remove('on'), 200);
-      return;
-    }
-
-    // Execute jump animation
-    jumping=true; arrived=false;
-    const start=performance.now();
-    const jumpMs=2200; // total jump time
-    const origIntensity=getComputedStyle(document.documentElement).getPropertyValue('--intensity');
-
-    function anim(t){
-      const e=(t-start)/jumpMs;
-      if(e<0) { requestAnimationFrame(anim); return; }
-      const x=clamp(e,0,1);
-      // ease-in-out
-      const ease = x<0.5 ? 2*x*x : -1+(4-2*x)*x;
-      // spike intensity
-      const spike = 0.3 + 0.7*ease;
-      document.documentElement.style.setProperty('--intensity', spike.toFixed(3));
-      // brighten beam and flash at peak
-      if(x>0.05) flash.classList.add('on');
-      if(x>=1){
-        flash.classList.remove('on');
-        jumping=false; arrived=true;
-        // Arrival: set destination == now (Δt → ~0)
-        const now = new Date();
-        destDT.value = new Date(now.getTime() - (now.getTimezoneOffset()*60000)).toISOString().slice(0,16);
-        // gentle fade down
-        document.documentElement.style.setProperty('--intensity', '0.15');
-        pulse(status,'ARRIVED');
-        return;
-      }
-      requestAnimationFrame(anim);
-    }
-    requestAnimationFrame(anim);
-  });
-
-  resetBtn.addEventListener('click',()=>{
-    destDT.value='';
-    coolant.value=0.77; coolantPct.textContent='77%';
-    harmonic.value=0.58; harmonicVal.textContent='0.58';
-    longitude.value=111.5; lonVal.textContent='111.5';
-    arrived=false; jumping=false;
-    buildFixList([]);
-    status.textContent='IDLE (set destination)';
-  });
-
-  function pulse(el, txt){
-    el.innerHTML = `<span style="display:inline-block;animation:pop .25s ease">${txt}</span>`;
-  }
-
-  // quick pop animation
-  const style = document.createElement('style');
-  style.textContent = `@keyframes pop{0%{transform:scale(.96)}60%{transform:scale(1.04)}100%{transform:scale(1)}}`;
-  document.head.appendChild(style);
-
-  function computeState(){
-    const now=new Date();
-
-    // Destination delta (idle until user sets a value)
-    if(!destDT.value){
-      return null;
-    }
-    const local = new Date(destDT.value);
-    if(isNaN(local.getTime())){
-      deltaLabel.textContent='—';
-      return null;
-    }
-    const asUTC = new Date(local.getTime() + (now.getTimezoneOffset()*60000)); // preserve local semantics
-    const deltaMs = asUTC.getTime() - now.getTime();
-
-    // Rotation from Δt (years)
-    const deltaHoursAbs = Math.abs(deltaMs)/3600000;
-    const deltaYears = (deltaMs/86400000)/365.25;
-    const lod = lodHoursFromDeltaYears(deltaYears); // hours
-    const rotFactor = 24 / lod;
-
-    // Power / heat (illustrative)
-    const kP = 0.35;
-    const rotPenalty = 1 + Math.abs(rotFactor - 1)*40;
-    const harmonicBonus = 0.6 + 0.8*Number(harmonic.value);
-    const powerMW = deltaHoursAbs * kP * rotPenalty / harmonicBonus;
-    const heat = powerMW * 0.42;
-    const cooling = 200*Number(coolant.value);
-    const margin = cooling - heat;
-
-    // Go / No-Go
-    const syncTight = Math.abs(rotFactor-1) < 0.02;
-    const go = (powerMW<=5000) && (margin>=0) && syncTight;
-
-    return {now, local, asUTC, deltaMs, deltaHoursAbs, lod, rotFactor, powerMW, heat, cooling, margin, syncTight, go};
+    return `${sign}${d}d ${fmt(h)}:${fmt(m)}:${fmt(s)}`;
   }
 
   function tick(){
-    const now=new Date();
-    nowLabel.textContent = now.toLocaleString();
-    utcNow.textContent = now.toUTCString();
-    localNow.textContent = now.toLocaleString();
+    const now = new Date();
+    utcClock.textContent = now.toUTCString().split(" ")[4];
+    localClock.textContent = formatClock(now);
 
-    // Sidereal
-    const gst=approxGST(now);
-    const lst=(gst + Number(longitude.value)/15 + 24)%24;
-    gstVal.textContent = gst.toFixed(3)+' h';
-    lstVal.textContent = lst.toFixed(3)+' h';
+    if(destination){
+      destClock.textContent = formatClock(destination);
+      let diff = destination - now;
 
-    // Display destination both local and UTC while typing
-    if(destDT.value){
-      const local = new Date(destDT.value);
-      if(!isNaN(local.getTime())){
-        const asUTC = new Date(local.getTime() + (now.getTimezoneOffset()*60000));
-        destLocalDisp.textContent = local.toLocaleString();
-        destUTCDisp.textContent = asUTC.toUTCString();
-      }else{
-        destLocalDisp.textContent='—';
-        destUTCDisp.textContent='—';
+      // If traveling, interpolate difference to 0 over travelDuration
+      if(traveling){
+        const elapsed = performance.now() - travelStart;
+        const p = Math.min(elapsed/travelDuration,1);
+        diff = initialDiff * (1 - p);  // moves toward zero
+        // Beam glows red to white
+        const r = Math.floor(255*(1-p) + 160*p);
+        const g = Math.floor(80 + 175*p);
+        const b = Math.floor(80 + 175*p);
+        beam.style.setProperty("--beam-color",`rgba(${r},${g},${b},0.9)`);
+        document.documentElement.style.setProperty("--intensity",(1-p).toFixed(2));
+        if(p>=1){
+          traveling=false;
+          beam.style.setProperty("--beam-color","rgba(200,255,255,.9)");
+          document.documentElement.style.setProperty("--intensity","0");
+          status.innerHTML = "<span class='ok'>ARRIVED — STABLE</span>";
+        }
       }
-    }else{
-      destLocalDisp.textContent='—';
-      destUTCDisp.textContent='—';
-    }
-
-    const state = computeState();
-
-    // If no destination, keep visuals low intensity, placeholders, and status IDLE
-    if(!state){
-      setIdleVisuals(now);
-      requestAnimationFrame(tick);
-      return;
-    }
-
-    const {local, asUTC, deltaMs, deltaHoursAbs, lod, rotFactor, powerMW, heat, cooling, margin, syncTight, go} = state;
-
-    // Δt label
-    deltaLabel.textContent = fmtDelta(deltaMs);
-
-    // Estimated rotation / LOD readouts
-    rotVal.textContent = (rotFactor*100).toFixed(3)+'% of nominal';
-    lodVal.textContent = lod.toFixed(3)+' h';
-
-    // Phased clocks
-    renderPhasedClocks(now, rotFactor);
-
-    // Demo CST phase
-    updateCSTPhase(now, rotFactor);
-
-    // Power & thermal
-    powerVal.textContent = powerMW.toFixed(2)+' MW';
-    heatVal.textContent = heat.toFixed(2)+' MW';
-    coolVal.textContent = cooling.toFixed(1)+' MW';
-    marginVal.textContent = margin.toFixed(2)+' MW';
-    marginVal.className = 'value ' + (margin>=0?'ok':'bad');
-
-    // Status (stable while tuning; ARRIVED persists after jump)
-    if(arrived){
-      status.innerHTML = '<span class="ok"><strong>ARRIVED</strong></span>';
-    }else{
-      status.innerHTML = go? '<span class="ok"><strong>READY — GO</strong></span>' : '<span class="bad"><strong>NO-GO (adjust)</strong></span>';
-    }
-
-    // Fix suggestions
-    const fix = [];
-    if(powerMW>5000){
-      fix.push(`Required Power too high (${powerMW.toFixed(1)} MW &gt; 5000 MW).
-        Fix: reduce |Δt| (pick a nearer destination), or increase harmonic calibration to lower power.`);
-    }
-    if(margin<0){
-      const need = (heat - cooling).toFixed(1);
-      const neededCoolant = clamp((heat/200), 0, 1);
-      fix.push(`Heat exceeds cooling (shortfall ${need} MW).
-        Fix: raise coolant to ≥ ${(neededCoolant*100).toFixed(0)}%, increase harmonic (which lowers P→Heat), or reduce |Δt|.`);
-    }
-    if(!syncTight){
-      fix.push(`Rotation sync out of bounds (|rotFactor−1| ≥ 0.02).
-        Fix: choose a destination closer to the present so tidal LOD shift is smaller, or run deeper CST synchronization.`);
-    }
-    buildFixList(fix);
-
-    // Visual intensity from |Δt| if not jumping; if jumping, animation controls intensity
-    if(!jumping){
-      const intensityCalendar = clamp(Math.log10(1+deltaHoursAbs)/6,0,1);
-      document.documentElement.style.setProperty('--intensity', intensityCalendar.toFixed(3));
-      const vibe = 1 + 6*intensityCalendar;
-      document.documentElement.style.setProperty('--vibe', vibe.toFixed(3));
-      const particleSeconds = clamp(7 - 5*intensityCalendar, 1.2, 7);
-      document.documentElement.style.setProperty('--particle-speed', particleSeconds+'s');
-      const photonSeconds = clamp(3.5 - 3*intensityCalendar, 0.6, 3.5);
-      document.documentElement.style.setProperty('--photon-speed', photonSeconds+'s');
-      animateParticles(particleSeconds);
+      diffClock.textContent = formatDiff(diff);
     } else {
-      // During jump, make particles/photon streams very fast
-      document.documentElement.style.setProperty('--vibe', '8');
-      document.documentElement.style.setProperty('--particle-speed', '1.2s');
-      document.documentElement.style.setProperty('--photon-speed', '0.6s');
-      animateParticles(1.2);
-      flash.classList.add('on');
+      destClock.textContent="--:--:--";
     }
 
     requestAnimationFrame(tick);
   }
-
-  function setIdleVisuals(now){
-    // visuals
-    document.documentElement.style.setProperty('--intensity','0');
-    const cooling = 200*Number(coolant.value);
-    powerVal.textContent='— MW';
-    heatVal.textContent='— MW';
-    coolVal.textContent=cooling.toFixed(1)+' MW';
-    marginVal.textContent='— MW';
-    marginVal.className='value';
-    rotVal.textContent='—';
-    lodVal.textContent='— hours';
-    // status
-    if(!arrived){ status.textContent='IDLE (set destination)'; }
-    buildFixList([]);
-    // show idle clocks
-    const dayFrac=(now.getHours()*3600+now.getMinutes()*60+now.getSeconds())/86400;
-    const yearFrac=( (now - new Date(now.getFullYear(),0,1)) / (365.25*86400000) )%1;
-    const galFrac=((now.getTime()%60000)/60000);
-    renderClock(clockDay,'Earth Rotation',dayFrac,(dayFrac*24).toFixed(2)+' h / 24 h');
-    renderClock(clockYear,'Earth Orbit',yearFrac,(yearFrac*365.25).toFixed(2)+' d / 365.25 d');
-    renderClock(clockGal,'Galactic Orbit (visual)',galFrac,'phase '+(galFrac*360).toFixed(1)+'°');
-    updateCSTPhase(now, 1.0);
-    // particles slow
-    animateParticles(8);
-  }
-
-  function renderPhasedClocks(now, rotFactor){
-    const dayPeriodMs = (86400000 / rotFactor);
-    const dayFrac = ((now.getTime()%dayPeriodMs)+dayPeriodMs)%dayPeriodMs / dayPeriodMs;
-    const yearMs = 365.25*86400000;
-    const startOfYear = new Date(now.getFullYear(),0,1).getTime();
-    const yearFrac = ((now.getTime()-startOfYear)/yearMs)%1;
-    const galMsVisual = 60000; // 60s visual cycle
-    const galFrac = ((now.getTime()%galMsVisual)/galMsVisual);
-    renderClock(clockDay,'Earth Rotation',dayFrac, (dayFrac*24).toFixed(2)+' h / 24 h');
-    renderClock(clockYear,'Earth Orbit',yearFrac,(yearFrac*365.25).toFixed(2)+' d / 365.25 d');
-    renderClock(clockGal,'Galactic Orbit (visual)',galFrac,'phase '+(galFrac*360).toFixed(1)+'°');
-  }
-
-  function updateCSTPhase(now, rotFactor){
-    const dayPeriodMs = 86400000/rotFactor;
-    const dayFrac = ((now.getTime()%dayPeriodMs)+dayPeriodMs)%dayPeriodMs / dayPeriodMs;
-    const yearMs = 365.25*86400000;
-    const startOfYear = new Date(now.getFullYear(),0,1).getTime();
-    const yearFrac = ((now.getTime()-startOfYear)/yearMs)%1;
-    const galMsVisual = 60000;
-    const galFrac = ((now.getTime()%galMsVisual)/galMsVisual);
-    const cst = (0.618*dayFrac + 0.236*yearFrac + 0.146*galFrac) % 1;
-    cstPhase.textContent = cst.toFixed(5);
-  }
-
-  function animateParticles(particleSeconds){
-    const dots = orbitLayer.children;
-    const tsec = performance.now()/1000;
-    for(let i=0;i<dots.length;i++){
-      const el = dots[i];
-      const a0 = Number(el.dataset.angle0);
-      const r = Number(el.dataset.radius);
-      const dir = i%2===0?1:-1;
-      const ang = a0 + dir * (tsec/particleSeconds) * Math.PI*2;
-      const x = Math.cos(ang)*(r+190);
-      const y = Math.sin(ang)*(r/2)*0.7;
-      el.style.transform = `translate(${x}px, ${y}px)`;
-    }
-  }
-
   requestAnimationFrame(tick);
 })();
 </script>
