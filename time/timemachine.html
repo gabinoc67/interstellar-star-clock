@@ -8,7 +8,7 @@
   :root{
     --bg:#0b1020; --ink:#eaf0ff; --mut:#9fb0d0; --panel:#121936; --line:#223062;
     --glow:#67e3ff; --ok:#7cff9e; --bad:#ff9090;
-    --intensity:0;        /* set dynamically (0..1) */
+    --intensity:0;        /* 0..1 from |Δt| */
     --vibe:1;             /* ring vibration factor */
     --particle-speed:8s;  /* orbiting particles */
     --photon-speed:3s;    /* vertical photon streams */
@@ -26,7 +26,6 @@
   .value{font-weight:800}
   .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   .button{cursor:pointer;font-weight:900;border-radius:14px;border:1px solid var(--line);padding:10px 14px;background:#0f1841}
-  .button:active{transform:translateY(1px)}
   input[type="range"]{width:100%}
   input,button,select{color:var(--ink)}
   input[type="datetime-local"], input[type="number"]{width:100%;background:#0d1536;border:1px solid #243468;border-radius:8px;padding:8px}
@@ -70,44 +69,27 @@
   /* ---------- Circular clocks ---------- */
   .clock svg{filter:drop-shadow(0 0 10px #0ff4)}
   .eq{font-size:14px;line-height:1.65}
+  .fixlist{margin-top:8px;padding-left:18px}
+  .fixlist li{margin:4px 0}
+  .hint{font-size:12px;color:#b7c7e6}
 </style>
 </head>
 <body>
   <div class="wrap">
     <h1>CST Time-Machine Simulator</h1>
-    <div class="pill">Live clocks • Warp bubble • Earth rotation over geologic time • Go/No-Go</div>
+    <div class="pill">Live clocks • Warp bubble • Auto LOD from Δt • Smart Go/No-Go with fixes</div>
 
     <!-- Controls + Visualizer -->
     <div class="grid grid-2" style="margin-top:12px">
       <!-- Controls -->
       <div class="card">
         <div class="row"><strong>Input — Destination & Tuning</strong></div>
-        <div class="grid" style="grid-template-columns:180px 1fr">
+        <div class="grid" style="grid-template-columns:220px 1fr">
           <div class="label">Current (browser)</div>
           <div class="value" id="nowLabel">—</div>
 
           <div class="label">Destination (local calendar)</div>
-          <div><input id="destDT" type="datetime-local"></div>
-
-          <div class="label">Geologic Offset (years)</div>
-          <div>
-            <input id="geoYears" type="number" step="1" value="0">
-            <div class="row" style="margin-top:6px">
-              <button class="button" data-bump="-1e9">−1e9</button>
-              <button class="button" data-bump="-1e6">−1e6</button>
-              <button class="button" data-bump="-1e3">−1e3</button>
-              <button class="button" data-bump="1e3">+1e3</button>
-              <button class="button" data-bump="1e6">+1e6</button>
-              <button class="button" data-bump="1e9">+1e9</button>
-            </div>
-            <div class="label">Tip: negative = past (faster Earth), positive = future (slower Earth)</div>
-          </div>
-
-          <div class="label">Earth rotation factor</div>
-          <div>
-            <input id="rotFactor" type="range" min="0.90" max="1.10" step="0.0005" value="1.0000">
-            <div class="label"><span id="rotPercent">100.000%</span> of nominal 24h day (auto-linked to geologic offset)</div>
-          </div>
+          <div><input id="destDT" type="datetime-local" placeholder="Set date & time to start"></div>
 
           <div class="label">Coolant capacity</div>
           <div>
@@ -129,16 +111,15 @@
         </div>
 
         <div class="row" style="margin-top:12px">
-          <button class="button" id="engageBtn">Enter Destination</button>
-          <button class="button" id="resetBtn">Reset</button>
-          <div class="label">Δt: <span class="value" id="deltaLabel">0</span></div>
+          <div class="label">Δt: <span class="value" id="deltaLabel">—</span></div>
         </div>
+        <div class="hint">Simulator is idle until you set a Destination. Then it runs continuously.</div>
       </div>
 
       <!-- Visualizer / Warp chamber -->
       <div class="card chamber" id="chamber">
         <div class="row" style="margin-bottom:6px"><strong>Warp-Field Visualizer</strong></div>
-        <div class="label">Brightness ∝ |offset|; rings & particles vibrate faster for billions-year jumps; photons stream up/down.</div>
+        <div class="label">Brightness ∝ |Δt|; rings & particles vibrate faster for larger jumps; photons stream up/down.</div>
 
         <div class="beam"></div>
         <div class="bubble"></div>
@@ -186,8 +167,9 @@
             <tr><td class="label">Estimated Day Length</td><td class="value" id="lodVal">— hours</td></tr>
           </tbody>
         </table>
-        <div style="margin-top:6px">Status: <span id="status">—</span></div>
+        <div style="margin-top:6px">Status: <span id="status">IDLE (set destination)</span></div>
         <div class="label">Rule: P ≤ 5000 MW, Heat ≤ Cooling, |rotFactor − 1| &lt; 0.02</div>
+        <div id="fixes" class="label" style="margin-top:8px"></div>
       </div>
     </div>
 
@@ -196,17 +178,18 @@
       <div class="row"><strong>Key Equations / Relationships (visual model)</strong></div>
       <div class="eq">
         <div>Δt = t<sub>dest</sub> − t<sub>now</sub>  (uses browser clock)</div>
-        <div>LOD(y) ≈ 24 h + (1.7 ms / 100 yr) × (y / yr)  ⇒ ~ +4.72 h per 10<sup>9</sup> yr (tidal friction)</div>
-        <div>rotFactor = 24 h / LOD(y)</div>
-        <div>ω<sub>⊕</sub> = 2π / (86400 s · rotFactor)</div>
+        <div>LOD(Δt) ≈ 24 h + (1.7 ms / 100 yr) × (Δt / yr)  ⇒ +4.72 h per 10<sup>9</sup> yr (tidal friction)</div>
+        <div>rotFactor(Δt) = 24 h / LOD(Δt)</div>
+        <div>ω<sub>⊕</sub>(Δt) = 2π / (86400 s · rotFactor)</div>
         <div>φ<sub>day</sub>, φ<sub>year</sub>, φ<sub>gal</sub> are clock phases; CST phase (demo) = 0.618·φ<sub>day</sub> + 0.236·φ<sub>year</sub> + 0.146·φ<sub>gal</sub> (mod 1)</div>
         <div>Power P = k · |Δt|<sub>hours</sub> · (1 + |rotFactor − 1|·40) / (0.6 + 0.8·harmonic)</div>
         <div>Heat ≈ 0.42·P ; Cooling ≈ 200·coolant</div>
       </div>
+      <div class="hint">Past (Δt &lt; 0) → faster rotation (rotFactor &gt; 1). Future (Δt &gt; 0) → slower rotation (rotFactor &lt; 1).</div>
     </div>
 
     <div class="label" style="margin-top:10px">
-      Visual demo for Gabino Casanova’s CST framework. Past (−years) → faster rotation; future (+years) → slower rotation. Any nanosecond off-phase risks drift; synchronize before you jump.
+      Visual demo for Gabino Casanova’s CST framework. Any nanosecond off-phase risks drift; synchronize before you jump.
     </div>
   </div>
 
@@ -217,29 +200,15 @@
   const byId=id=>document.getElementById(id);
 
   const nowLabel=byId('nowLabel'), localTime=byId('localTime'), utcTime=byId('utcTime');
-  const destDT=byId('destDT'), geoYears=byId('geoYears'), deltaLabel=byId('deltaLabel');
-  const rotRange=byId('rotFactor'), rotPercent=byId('rotPercent'), rotVal=byId('rotVal'), lodVal=byId('lodVal');
+  const destDT=byId('destDT'), deltaLabel=byId('deltaLabel');
   const coolant=byId('coolant'), coolantPct=byId('coolantPct');
   const harmonic=byId('harmonic'), harmonicVal=byId('harmonicVal');
   const longitude=byId('longitude'), lonVal=byId('lonVal');
   const powerVal=byId('powerVal'), heatVal=byId('heatVal'), coolVal=byId('coolVal'), marginVal=byId('marginVal'), status=byId('status');
-  const engageBtn=byId('engageBtn'), resetBtn=byId('resetBtn');
   const chamber=byId('chamber'), orbitLayer=byId('orbitLayer'), photonsLayer=byId('photonsLayer');
   const clockDay=byId('clockDay'), clockYear=byId('clockYear'), clockGal=byId('clockGal');
   const gstVal=byId('gstVal'), lstVal=byId('lstVal'), cstPhase=byId('cstPhase');
-
-  // default destination = +5 minutes
-  const t0 = new Date(); t0.setMinutes(t0.getMinutes()+5);
-  destDT.value = new Date(t0.getTime() - (new Date().getTimezoneOffset()*60000)).toISOString().slice(0,16);
-
-  // bump buttons
-  document.querySelectorAll('[data-bump]').forEach(btn=>{
-    btn.addEventListener('click',()=>{
-      const bump = Number(btn.getAttribute('data-bump'));
-      geoYears.value = String(Number(geoYears.value||0)+bump);
-      updateLODfromGeo();
-    })
-  });
+  const rotVal=byId('rotVal'), lodVal=byId('lodVal'), fixes=byId('fixes');
 
   // photons creation
   function buildPhotons(){
@@ -277,27 +246,15 @@
     return gst;
   }
 
-  // Length of day vs geologic offset (years). Positive = future (slower).
+  // Length of day vs Δt (years). Positive = future (slower).
   // Trend: +1.7 ms per century => +0.000017 s/yr => +4.7222e-9 h/yr
-  function lodHoursFromOffset(years){
+  function lodHoursFromDeltaYears(years){
     return 24 + (years * 4.722222e-9);
   }
-
-  // Update rotation factor whenever geologic years change (can still be trimmed with the slider afterwards if desired)
-  function updateLODfromGeo(){
-    const y=Number(geoYears.value||0);
-    const lod=lodHoursFromOffset(y);
-    const rotFactor=24 / lod; // relative to 24h baseline
-    rotRange.value = rotFactor.toFixed(4);
-    rotPercent.textContent=(rotFactor*100).toFixed(3)+'%';
-  }
-  updateLODfromGeo();
 
   coolant.addEventListener('input',()=>coolantPct.textContent = Math.round(coolant.value*100)+'%');
   harmonic.addEventListener('input',()=>harmonicVal.textContent = Number(harmonic.value).toFixed(2));
   longitude.addEventListener('input',()=>lonVal.textContent = Number(longitude.value).toFixed(1)+'°E');
-  rotRange.addEventListener('input',()=>rotPercent.textContent=(rotRange.value*100).toFixed(3)+'%');
-  geoYears.addEventListener('change',updateLODfromGeo);
 
   // clocks svg
   function renderClock(targetEl, label, fraction, sub){
@@ -320,20 +277,8 @@
       <div class="label" style="text-align:center">${sub||''}</div>`;
   }
 
-  // animation loop
-  let engaged=false;
-  engageBtn.addEventListener('click',()=>{engaged=!engaged; engageBtn.textContent = engaged? 'Abort' : 'Enter Destination';});
-  resetBtn.addEventListener('click',()=>{
-    engaged=false; engageBtn.textContent='Enter Destination';
-    geoYears.value='0'; updateLODfromGeo();
-    coolant.value='0.65'; coolantPct.textContent='65%';
-    harmonic.value='0.5'; harmonicVal.textContent='0.50';
-    longitude.value='0'; lonVal.textContent='0.0°E';
-    const t = new Date(); t.setMinutes(t.getMinutes()+5);
-    destDT.value = new Date(t.getTime() - (new Date().getTimezoneOffset()*60000)).toISOString().slice(0,16);
-  });
-
   function fmtDelta(ms){
+    if(ms===null) return '—';
     const sign = ms>=0? '+':'−';
     const abs=Math.abs(ms);
     const d=Math.floor(abs/86400000);
@@ -343,7 +288,12 @@
     return `${sign}${d}d ${h}h ${m}m ${s}s`;
   }
 
-  function tick(t){
+  function buildFixList(items){
+    if(!items.length){ fixes.innerHTML=''; return; }
+    fixes.innerHTML = '<div><strong>Why NO-GO / How to fix</strong></div><ul class="fixlist">'+items.map(x=>`<li>${x}</li>`).join('')+'</ul>';
+  }
+
+  function tick(){
     const now=new Date();
     nowLabel.textContent = now.toLocaleString();
     localTime.textContent = now.toLocaleString();
@@ -355,19 +305,39 @@
     gstVal.textContent = gst.toFixed(3)+' h';
     lstVal.textContent = lst.toFixed(3)+' h';
 
-    // Destination delta (calendar path) — from datetime-local if valid
-    let deltaMs = 0;
+    // Destination delta (idle until user sets a value)
+    let deltaMs = null;
     if(destDT.value){
       const local = new Date(destDT.value);
-      const asUTC = new Date(local.getTime() + (now.getTimezoneOffset()*60000)); // keep local semantics
+      const asUTC = new Date(local.getTime() + (now.getTimezoneOffset()*60000)); // preserve local semantics
       deltaMs = asUTC.getTime() - now.getTime();
     }
-    deltaLabel.textContent = fmtDelta(deltaMs);
+    deltaLabel.textContent = fmtDelta(deltaMs===null?null:deltaMs);
 
-    // Geologic offset & Earth day length
-    const years = Number(geoYears.value||0);
-    const lod = lodHoursFromOffset(years); // hours
-    const rotFactor = Number(rotRange.value);
+    // If no destination, keep visuals low intensity, clocks/power placeholders, and status IDLE
+    if(deltaMs===null){
+      document.documentElement.style.setProperty('--intensity','0');
+      powerVal.textContent='— MW';
+      heatVal.textContent='— MW';
+      coolVal.textContent=(200*Number(coolant.value)).toFixed(1)+' MW';
+      marginVal.textContent='— MW';
+      marginVal.className='value';
+      rotVal.textContent='—';
+      lodVal.textContent='— hours';
+      status.textContent='IDLE (set destination)';
+      buildFixList([]);
+      renderIdleClocks(now);
+      animateParticles(8); // slow
+      requestAnimationFrame(tick);
+      return;
+    }
+
+    // Rotation from Δt (years)
+    const deltaHoursAbs = Math.abs(deltaMs)/3600000;
+    const deltaYears = (deltaMs/86400000)/365.25;
+    const lod = lodHoursFromDeltaYears(deltaYears); // hours
+    const rotFactor = 24 / lod;
+
     rotVal.textContent = (rotFactor*100).toFixed(3)+'% of nominal';
     lodVal.textContent = lod.toFixed(3)+' h';
 
@@ -390,10 +360,9 @@
 
     // Power / heat (illustrative)
     const kP = 0.35;
-    const deltaHours = Math.abs(deltaMs)/3600000 + Math.abs(years)*8760; // calendar delta + geologic offset magnitude
     const rotPenalty = 1 + Math.abs(rotFactor - 1)*40;
     const harmonicBonus = 0.6 + 0.8*Number(harmonic.value);
-    const powerMW = deltaHours * kP * rotPenalty / harmonicBonus;
+    const powerMW = deltaHoursAbs * kP * rotPenalty / harmonicBonus;
     const heat = powerMW * 0.42;
     const cooling = 200*Number(coolant.value);
     const margin = cooling - heat;
@@ -409,23 +378,51 @@
     const go = (powerMW<=5000) && (margin>=0) && syncTight;
     status.innerHTML = go? '<span class="ok"><strong>GO</strong></span>' : '<span class="bad"><strong>NO-GO</strong></span>';
 
-    // Visual intensity from |years| (billions get max), also small contribution from calendar delta
-    const intensityYears = Math.log10(1+Math.abs(years))/9; // log scale: 1e9 → ~1
-    const intensityCalendar = clamp(Math.log10(1+Math.abs(deltaMs)/3600000)/6,0,0.4); // softer effect
-    const intensity = clamp(intensityYears + intensityCalendar, 0, 1);
+    // Fix suggestions
+    const fix = [];
+    if(powerMW>5000){
+      fix.push(`Required Power too high (${powerMW.toFixed(1)} MW &gt; 5000 MW). Fix: reduce |Δt| (pick a nearer destination), or increase harmonic calibration to raise the denominator.`);
+    }
+    if(margin<0){
+      fix.push(`Heat exceeds cooling (margin ${margin.toFixed(2)} MW). Fix: increase coolant capacity, increase harmonic (which lowers P→Heat), or reduce |Δt|.`);
+    }
+    if(!syncTight){
+      fix.push(`Rotation sync out of bounds (|rotFactor−1| ≥ 0.02). Fix: choose a destination closer to present so tidal LOD shift is smaller, or run a deeper CST synchronization phase.`);
+    }
+    buildFixList(fix);
+
+    // Visual intensity from |Δt|
+    const intensityCalendar = clamp(Math.log10(1+deltaHoursAbs)/6,0,1); // map hours→0..1 softly
+    const intensity = clamp(intensityCalendar, 0, 1);
     document.documentElement.style.setProperty('--intensity', intensity.toFixed(3));
 
     // Ring vibration & particle / photon speeds scale
-    const vibe = 1 + 6*intensity + (engaged? 2:0);
+    const vibe = 1 + 6*intensity;
     document.documentElement.style.setProperty('--vibe', vibe.toFixed(3));
 
-    const particleSeconds = clamp(7 - 5*intensity - (engaged? 2.5:0), 1.2, 7);
+    const particleSeconds = clamp(7 - 5*intensity, 1.2, 7);
     document.documentElement.style.setProperty('--particle-speed', particleSeconds+'s');
 
-    const photonSeconds = clamp(3.5 - 3*intensity - (engaged? 1.5:0), 0.6, 3.5);
+    const photonSeconds = clamp(3.5 - 3*intensity, 0.6, 3.5);
     document.documentElement.style.setProperty('--photon-speed', photonSeconds+'s');
 
     // Animate orbiting particles
+    animateParticles(particleSeconds);
+
+    requestAnimationFrame(tick);
+  }
+
+  function renderIdleClocks(now){
+    const dayFrac=(now.getHours()*3600+now.getMinutes()*60+now.getSeconds())/86400;
+    const yearFrac=( (now - new Date(now.getFullYear(),0,1)) / (365.25*86400000) )%1;
+    const galFrac=((now.getTime()%60000)/60000);
+    renderClock(clockDay,'Earth Rotation',dayFrac,(dayFrac*24).toFixed(2)+' h / 24 h');
+    renderClock(clockYear,'Earth Orbit',yearFrac,(yearFrac*365.25).toFixed(2)+' d / 365.25 d');
+    renderClock(clockGal,'Galactic Orbit (visual)',galFrac,'phase '+(galFrac*360).toFixed(1)+'°');
+    cstPhase.textContent = (0.618*dayFrac + 0.236*yearFrac + 0.146*galFrac).toFixed(5);
+  }
+
+  function animateParticles(particleSeconds){
     const dots = orbitLayer.children;
     const tsec = performance.now()/1000;
     for(let i=0;i<dots.length;i++){
@@ -438,11 +435,8 @@
       const y = Math.sin(ang)*(r/2)*0.7;
       el.style.transform = `translate(${x}px, ${y}px)`;
     }
-
-    // Sidereal labels already set; update ring/beam opacities via CSS vars
-
-    requestAnimationFrame(tick);
   }
+
   requestAnimationFrame(tick);
 })();
 </script>
