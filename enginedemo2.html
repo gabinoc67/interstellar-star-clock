@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Warp Engine — Engine 2 (Realism Upgrade)</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#0b1020;color:#eaf0ff;font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
+  a{color:#9bb4ff}
+  .wrap{max-width:1800px;margin:0 auto;padding:16px}
+  .grid{display:grid;grid-template-columns:380px 1fr;gap:16px;align-items:start}
+  .panel{background:#12183a;border:1px solid #22305c;border-radius:16px;padding:14px;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+  h1{margin:.2rem 0 .4rem;font-size:26px}
+  h2{margin:.4rem 0 .3rem;font-size:16px;color:#b8c4ff}
+  label{display:block;margin:.4rem 0 .25rem;color:#b8c4ff}
+  input[type=range]{width:100%}
+  .row{display:flex;gap:8px;flex-wrap:wrap}
+  .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:8px}
+  .stat{background:#0e1536;border:1px solid #22305c;border-radius:12px;padding:8px}
+  .big{font-size:22px;font-weight:600}
+  button{background:#1a245a;color:#eaf0ff;border:1px solid #22305c;border-radius:10px;padding:8px 10px;cursor:pointer}
+  button:hover{filter:brightness(1.1)}
+  .legend{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:8px}
+  .legend div{display:flex;align-items:center;gap:8px;color:#b8c4ff}
+  .dot{width:12px;height:12px;border-radius:50%}
+  .note{color:#b8c4ff;font-size:12px;margin-top:8px}
+  .tests{margin-top:10px;font-size:12px;color:#b8c4ff}
+  .telemetry{margin-top:10px;border-top:1px solid #22305c;padding-top:10px}
+  .trow{display:grid;grid-template-columns:170px 1fr 88px;gap:8px;align-items:center;margin:6px 0}
+  .tname{color:#b8c4ff;font-size:13px}
+  .tval{font-variant-numeric:tabular-nums;font-size:13px;text-align:right}
+  .gauge{height:8px;background:#0e1536;border:1px solid #22305c;border-radius:16px;overflow:hidden}
+  .gauge>span{display:block;height:100%;width:0%;background:linear-gradient(90deg,#6bd1ff,#9bb4ff)}
+  .subgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .clockbox{background:#0e1536;border:1px solid #22305c;border-radius:10px;padding:8px;font-size:12px}
+  .datatable{width:100%;border-collapse:separate;border-spacing:0;overflow:hidden;border-radius:12px;border:1px solid #22305c;background:#0e1536}
+  .datatable caption{caption-side:top;text-align:left;padding:8px 10px;color:#b8c4ff;font-weight:600}
+  .datatable th,.datatable td{padding:10px 12px;border-bottom:1px solid #1b2852;font-size:13px;vertical-align:top}
+  .datatable th{color:#cfe2ff;text-align:left;background:#101c47;font-weight:600;position:sticky;top:0}
+  .datatable tr:last-child td{border-bottom:0}
+  .datatable tbody tr:hover{background:#0f1a3d}
+  .two-col{display:grid;grid-template-columns:1.1fr .9fr;gap:16px}
+  @media (max-width: 1200px){ .grid{grid-template-columns:1fr} .two-col{grid-template-columns:1fr} }
+  .badge{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid #2a3a78;font-size:11px;color:#a9b6ff;background:#0d1540}
+
+  /* Big canvas */
+  canvas#view{width:100%;height:900px;background:radial-gradient(1600px 900px at 50% 50%, #0f1740 0%, #0b1020 60%)}
+
+  /* Small UI polish */
+  .toggle{display:flex;align-items:center;gap:8px;margin-top:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Warp Engine — Engine 2 (Realism Upgrade)</h1>
+  <p class="note">Safe virtual demo. Enhanced visuals: photon conversion bursts, coil glow, energy compression, water shimmer, plasma arcs, soft bloom. No exotic matter assumed.</p>
+
+  <div class="grid">
+    <div class="panel">
+      <h2>Controls</h2>
+      <label for="warp">Warp Factor (1 to 10)</label>
+      <input id="warp" type="range" min="1" max="10" step="1" value="3"/>
+      <div class="row">
+        <button id="play">Play</button>
+        <button id="pause">Pause</button>
+        <button id="reset">Reset</button>
+        <label class="toggle" style="margin-left:auto"><input id="labels" type="checkbox" checked/> Show labels</label>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <label class="toggle"><input id="realism" type="checkbox" checked/> Realism Mode (glow + motion blur)</label>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><div class="big" id="speed">x3.0</div><div class="muted">Animation speed</div></div>
+        <div class="stat"><div class="big" id="field">1.6 x D</div><div class="muted">Field radius vs engine</div></div>
+        <div class="stat"><div class="big" id="temp">Warm</div><div class="muted">Heat/Cool balance</div></div>
+        <div class="stat"><div class="big" id="time">1.00 x</div><div class="muted">Clock rate (visual)</div></div>
+      </div>
+
+      <div class="legend">
+        <div><span class="dot" style="background:#9bb4ff"></span> Photon/ion stream</div>
+        <div><span class="dot" style="background:#33e1b5"></span> Magnetic field lines</div>
+        <div><span class="dot" style="background:#ffcc66"></span> Heat tracers</div>
+        <div><span class="dot" style="background:#6bd1ff"></span> Coolant (water) shimmer</div>
+        <div><span class="dot" style="background:#b26bff"></span> Entanglement particles</div>
+        <div><span class="dot" style="background:#ffdca8"></span> Plasma light cone</div>
+        <div><span class="dot" style="background:#8aff9b"></span> Detection lasers</div>
+      </div>
+      <div id="tests" class="tests">Self-tests running…</div>
+
+      <div class="telemetry">
+        <h2>Real-time Telemetry</h2>
+        <div class="trow"><div class="tname">Animation Speed</div><div class="gauge"><span id="g_speed"></span></div><div id="v_speed" class="tval">x1.0</div></div>
+        <div class="trow"><div class="tname">Field Radius (×D)</div><div class="gauge"><span id="g_field"></span></div><div id="v_field" class="tval">1.20</div></div>
+        <div class="trow"><div class="tname">Field Shield (%)</div><div class="gauge"><span id="g_fshield"></span></div><div id="v_fshield" class="tval">0%</div></div>
+        <div class="trow"><div class="tname">Field Stretch (rx/ry)</div><div class="gauge"><span id="g_fstretch"></span></div><div id="v_fstretch" class="tval">0/0</div></div>
+        <div class="trow"><div class="tname">Clock Rate (warp)</div><div class="gauge"><span id="g_clock"></span></div><div id="v_clock" class="tval">1.00×</div></div>
+        <div class="trow"><div class="tname">Photon/Ion Rate</div><div class="gauge"><span id="g_phot"></span></div><div id="v_phot" class="tval">0/s</div></div>
+        <div class="trow"><div class="tname">Mag Field Strength</div><div class="gauge"><span id="g_mag"></span></div><div id="v_mag" class="tval">0.0</div></div>
+        <div class="trow"><div class="tname">Core Temp (°C)</div><div class="gauge"><span id="g_tcore"></span></div><div id="v_tcore" class="tval">0°C</div></div>
+        <div class="trow"><div class="tname">Coolant Temp (°C)</div><div class="gauge"><span id="g_tcool"></span></div><div id="v_tcool" class="tval">0°C</div></div>
+        <div class="trow"><div class="tname">Entangle Particles</div><div class="gauge"><span id="g_ent"></span></div><div id="v_ent" class="tval">0 M/s</div></div>
+        <div class="trow"><div class="tname">Plasma Cone Len</div><div class="gauge"><span id="g_plen"></span></div><div id="v_plen" class="tval">0 u</div></div>
+        <div class="trow"><div class="tname">Plasma Cone Rad</div><div class="gauge"><span id="g_prad"></span></div><div id="v_prad" class="tval">0 u</div></div>
+        <div class="trow"><div class="tname">Plasma Wave Intensity</div><div class="gauge"><span id="g_pwave"></span></div><div id="v_pwave" class="tval">0.0</div></div>
+
+        <div class="subgrid">
+          <div class="clockbox"><div><strong>Outside Time (UTC)</strong></div><div id="clk_utc">--:--:--</div></div>
+          <div class="clockbox"><div><strong>Engine Sync (CST)</strong></div><div id="clk_cst">--:--:--</div></div>
+          <div class="clockbox" style="grid-column:1 / span 2"><div><strong>Warp-Adjusted Time</strong> (scaled by clock rate)</div><div id="clk_warp">--:--:--</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <canvas id="view" width="1600" height="900"></canvas>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>How this engine operates (visual demo)</h2>
+    <ol>
+      <li><strong>Coils & Field Shapers:</strong> rotating, pulsed glow with geometry stretch as warp increases.</li>
+      <li><strong>Energy Compression:</strong> particles densify towards nozzle; brightness follows compression.</li>
+      <li><strong>Photon Conversion Effect:</strong> bursts spawn at field nodes and transit as hot packets.</li>
+      <li><strong>Cooling Shimmer:</strong> blue tracers with refractive twinkle along water pipes.</li>
+      <li><strong>Plasma Arc Flicker:</strong> stochastic arcs inside core; probability scales with warp.</li>
+    </ol>
+    <p class="note"><span class="badge">Visual Only</span> No claims of energy production. This is an illustrative, educational animation linked to your controls.</p>
+  </div>
+</div>
+
+<script>
+/* ===== Utility & State ===== */
+const TAU = Math.PI*2;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function drawText(ctx,s,x,y,align){ctx.fillStyle='#eaf0ff';ctx.textAlign=align||'left';ctx.textBaseline='middle';ctx.font='12px system-ui,Segoe UI,Roboto,Arial';ctx.fillText(s,x,y);}
+function fmt(n,dec){return n.toFixed(dec||0);}
+function fmtLarge(n){var a=Math.abs(n);if(a>=1e12)return(n/1e12).toFixed(2)+' T';if(a>=1e9)return(n/1e9).toFixed(2)+' G';if(a>=1e6)return(n/1e6).toFixed(2)+' M';if(a>=1e3)return(n/1e3).toFixed(1)+' K';return n.toFixed(0);}
+
+function computeSpeedMult(w){return lerp(1,6,(w-1)/9);}
+function computeFieldRadius(w){return lerp(1.2,2.6,(w-1)/9);}
+function computeClockRate(w){return 1/lerp(1,1.6,(w-1)/9);}
+function computeHeatLevel(w){return lerp(0.35,1.0,(w-1)/9);}
+function computeCoolLevel(w){return 1 - computeHeatLevel(w)*0.5;}
+function computePlasmaLength(w){return Math.round(lerp(90,260,(w-1)/9));}
+function computePlasmaRadius(w){return Math.round(lerp(10,36,(w-1)/9));}
+function computeEntangleRate(w){return lerp(0.6,3.2,(w-1)/9);}
+function computeFieldAspectX(w){return lerp(1.0,1.9,(w-1)/9);}
+function computeFieldAspectY(w){return lerp(0.9,0.6,(w-1)/9);}
+function computeStability(w){var s=1-(w-1)/12;return s<0.55?0.55:s;}
+function computeCoreTempC(w){return Math.round(200+computeHeatLevel(w)*1000+computeSpeedMult(w)*40);}
+function computeCoolantTempC(w){return Math.round(25+computeCoolLevel(w)*300);}
+
+/* Layout from your Engine 2 */
+const layout={
+  centerY:450,startX:110,length:900,bodyR:120,fanX:85,
+  stages:[
+    {len:160,r:120,name:'Intake / Pre-Compression'},
+    {len:120,r:112,name:'Compression A'},
+    {len:100,r:104,name:'Compression B'},
+    {len:80,r:96,name:'Compression C'},
+    {len:70,r:88,name:'Warp Coils / Field Shapers'},
+    {len:70,r:80,name:'Reactors (Electro-Plasma)'},
+    {len:60,r:72,name:'Photon/Plasma Mixer'},
+    {len:50,r:64,name:'Nozzle Coupler'}
+  ],
+  nozzle:{len:160,r0:60,r1:14,name:'Exhaust Nozzle'},
+  coils:[{xOff:-18,name:'Field Coil L'},{xOff:36,name:'Field Coil R'}]
+};
+let x=layout.startX;layout.stages=layout.stages.map(s=>{const o={x0:x,x1:x+s.len,len:s.len,r:s.r,name:s.name};x+=s.len;return o;});layout.nozzle.x0=x;layout.nozzle.x1=x+layout.nozzle.len;
+
+const canvas=document.getElementById('view');const ctx=canvas.getContext('2d');
+/* Offscreen layers for bloom/motion-glow */
+const glowCanvas=document.createElement('canvas');glowCanvas.width=canvas.width;glowCanvas.height=canvas.height;const gctx=glowCanvas.getContext('2d');
+const blurCanvas=document.createElement('canvas');blurCanvas.width=canvas.width;blurCanvas.height=canvas.height;const bctx=blurCanvas.getContext('2d');
+
+let running=true,t0=performance.now(),fanAngle=0,fps=60,warpClock=Date.now();
+let particles=[],heat=[],cool=[],entangle=[],pipes=[],bursts=[],arcs=[];
+let warpEl=document.getElementById('warp'),labelsEl=document.getElementById('labels'),realismEl=document.getElementById('realism');
+
+/* HUD refs */
+const speedEl=document.getElementById('speed'),fieldEl=document.getElementById('field'),tempEl=document.getElementById('temp'),timeEl=document.getElementById('time');
+const v_speed=document.getElementById('v_speed'),g_speed=document.getElementById('g_speed');
+const v_field=document.getElementById('v_field'),g_field=document.getElementById('g_field');
+const v_fshield=document.getElementById('v_fshield'),g_fshield=document.getElementById('g_fshield');
+const v_fstretch=document.getElementById('v_fstretch'),g_fstretch=document.getElementById('g_fstretch');
+const v_clock=document.getElementById('v_clock'),g_clock=document.getElementById('g_clock');
+const v_phot=document.getElementById('v_phot'),g_phot=document.getElementById('g_phot');
+const v_mag=document.getElementById('v_mag'),g_mag=document.getElementById('g_mag');
+const v_tcore=document.getElementById('v_tcore'),g_tcore=document.getElementById('g_tcore');
+const v_tcool=document.getElementById('v_tcool'),g_tcool=document.getElementById('g_tcool');
+const v_ent=document.getElementById('v_ent'),g_ent=document.getElementById('g_ent');
+const v_plen=document.getElementById('v_plen'),g_plen=document.getElementById('g_plen');
+const v_prad=document.getElementById('v_prad'),g_prad=document.getElementById('g_prad');
+const v_pwave=document.getElementById('v_pwave'),g_pwave=document.getElementById('g_pwave');
+const clkUTC=document.getElementById('clk_utc'),clkCST=document.getElementById('clk_cst'),clkWarp=document.getElementById('clk_warp');
+
+function warpFactor(){return parseInt(warpEl.value,10);}
+function speedMult(){return computeSpeedMult(warpFactor());}
+function fieldRadius(){return computeFieldRadius(warpFactor());}
+function clockRate(){return computeClockRate(warpFactor());}
+function heatLevel(){return computeHeatLevel(warpFactor());}
+function coolLevel(){return computeCoolLevel(warpFactor());}
+
+function updateHUD(){speedEl.textContent='x'+speedMult().toFixed(1);fieldEl.textContent=fieldRadius().toFixed(1)+' x D';tempEl.textContent=heatLevel()>0.7?'Hot':(heatLevel()>0.5?'Warm':'Cool');timeEl.textContent=clockRate().toFixed(2)+' x';}
+updateHUD();warpEl.addEventListener('input',updateHUD);
+document.getElementById('pause').onclick=()=>running=false;
+document.getElementById('play').onclick=()=>{if(!running){running=true;t0=performance.now();loop();}};
+document.getElementById('reset').onclick=()=>{particles.length=0;heat.length=0;cool.length=0;entangle.length=0;pipes.length=0;bursts.length=0;arcs.length=0;fanAngle=0;};
+function setGauge(span,frac){span.style.width=(clamp(frac,0,1)*100).toFixed(0)+'%';}
+
+/* Pipes init */
+function initPipes(){pipes=[];for(let i=0;i<layout.stages.length-1;i++){const s=layout.stages[i];const nx=s.x1;pipes.push({x0:nx-6,y0:layout.centerY+28,x1:nx+6,y1:layout.centerY+28,phase:Math.random()*TAU});}}
+initPipes();
+
+/* ==== Drawing primitives (engine body) ==== */
+function drawCylinder(x0,x1,rTop,rBot){
+  const grd=ctx.createLinearGradient(0,layout.centerY-rTop,0,layout.centerY+rBot);
+  grd.addColorStop(0,'#2a334d');grd.addColorStop(0.5,'#9fb1ff22');grd.addColorStop(1,'#0e132b');
+  ctx.fillStyle=grd;ctx.beginPath();ctx.moveTo(x0,layout.centerY-rTop);ctx.lineTo(x1,layout.centerY-rTop);
+  ctx.lineTo(x1,layout.centerY+rBot);ctx.lineTo(x0,layout.centerY+rBot);ctx.closePath();ctx.fill();
+  ctx.strokeStyle='#22305c';ctx.lineWidth=1;ctx.stroke();
+  ctx.strokeStyle='#cfe2ff33';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x1,layout.centerY-rTop);ctx.lineTo(x1,layout.centerY+rBot);ctx.stroke();
+}
+function drawNozzle(nz){
+  const {x0,x1}=nz,r0=nz.r0,r1=nz.r1;
+  const grd=ctx.createLinearGradient(x0,layout.centerY,x1,layout.centerY);
+  grd.addColorStop(0,'#2a334d');grd.addColorStop(1,'#9bb4ff');
+  ctx.fillStyle=grd;ctx.beginPath();ctx.moveTo(x0,layout.centerY-r0);ctx.lineTo(x1,layout.centerY-r1);
+  ctx.lineTo(x1,layout.centerY+r1);ctx.lineTo(x0,layout.centerY+r0);ctx.closePath();ctx.fill();
+  ctx.strokeStyle='#22305c';ctx.lineWidth=1;ctx.stroke();
+}
+function drawCoil(xOff,phase){
+  const x=layout.startX+xOff;
+  const glow = 0.55+0.45*Math.sin(phase);
+  ctx.save();ctx.globalAlpha=0.8;
+  ctx.strokeStyle=`rgba(166,184,255,${0.6+0.4*glow})`;ctx.lineWidth=8;ctx.beginPath();ctx.moveTo(x,layout.centerY-48);ctx.lineTo(x,layout.centerY+48);ctx.stroke();
+  ctx.lineWidth=3;ctx.strokeStyle=`rgba(94,168,255,${0.5+0.5*glow})`;
+  for(let i=-3;i<=3;i++){ctx.beginPath();ctx.arc(x,layout.centerY+i*12,22+Math.abs(i)*2,0,TAU);ctx.stroke();}
+  ctx.restore();
+
+  // Add to glow layer for bloom
+  gctx.save();gctx.globalCompositeOperation='lighter';gctx.strokeStyle=`rgba(130,160,255,${0.25+0.25*glow})`;gctx.lineWidth=10;
+  gctx.beginPath();gctx.moveTo(x,layout.centerY-48);gctx.lineTo(x,layout.centerY+48);gctx.stroke();gctx.restore();
+}
+function drawFan(angle){
+  const cx=layout.fanX,cy=layout.centerY;
+  ctx.fillStyle='#a4b2d8';ctx.beginPath();ctx.arc(cx,cy,30,0,TAU);ctx.fill();
+  for(let i=0;i<6;i++){const a=angle+i*TAU/6,r1=14,r2=52;ctx.fillStyle='#c7d4ff';
+    ctx.beginPath();ctx.moveTo(cx+Math.cos(a)*r1,cy+Math.sin(a)*r1);
+    ctx.lineTo(cx+Math.cos(a+0.18)*r2,cy+Math.sin(a+0.18)*r2);
+    ctx.lineTo(cx+Math.cos(a+0.36)*r1,cy+Math.sin(a+0.36)*r1);ctx.closePath();ctx.fill();
+  }
+}
+function drawField(){
+  const D=layout.bodyR*2,base=fieldRadius()*D*0.35,ax=computeFieldAspectX(warpFactor()),ay=computeFieldAspectY(warpFactor());
+  ctx.strokeStyle='#33e1b588';ctx.lineWidth=2;
+  const cx=layout.startX+layout.length*0.65;
+  for(let i=0;i<6;i++){const rx=base*ax+i*22,ry=base*ay+i*10;ctx.beginPath();ctx.ellipse(cx,layout.centerY,rx,ry,0,0,TAU);ctx.stroke();
+    // subtle glow on field lines
+    gctx.save();gctx.globalCompositeOperation='lighter';gctx.strokeStyle='rgba(51,225,181,0.08)';gctx.lineWidth=3;
+    gctx.beginPath();gctx.ellipse(cx,layout.centerY,rx,ry,0,0,TAU);gctx.stroke();gctx.restore();
+  }
+}
+function drawCoreGlow(){
+  const g=ctx.createLinearGradient(layout.startX,layout.centerY,layout.nozzle.x1,layout.centerY);
+  g.addColorStop(0,'#a9bbff00');g.addColorStop(0.4,'#9bb4ff22');g.addColorStop(0.8,'#eaf0ff44');
+  ctx.fillStyle=g;ctx.fillRect(layout.startX,layout.centerY-12,layout.nozzle.x1-layout.startX,24);
+}
+
+/* ==== New realism effects ==== */
+// Photon conversion bursts spawning at field nodes
+function spawnBurst(){
+  const cx=layout.startX+layout.length*0.65;
+  const base=fieldRadius()*layout.bodyR*0.7;
+  const ang = Math.random()*TAU;
+  const rx = base*computeFieldAspectX(warpFactor());
+  const ry = base*computeFieldAspectY(warpFactor());
+  const x = cx + Math.cos(ang)*rx;
+  const y = layout.centerY + Math.sin(ang)*ry;
+  const dir = Math.sign(Math.cos(ang)) || 1;
+  bursts.push({x,y,vx: (2+Math.random()*1.5)*dir*speedMult(), vy: (Math.random()*0.6-0.3)*speedMult(), life:0, max:800+Math.random()*800, hot:1});
+}
+
+// Plasma arcs inside core
+function spawnArc(){
+  const x0 = lerp(layout.stages[4].x0, layout.stages[6].x1, Math.random());
+  const y0 = layout.centerY + (Math.random()*2-1)*20;
+  const len = 40 + Math.random()*80;
+  const theta = (Math.random()*0.6-0.3);
+  arcs.push({x:x0,y:y0,len,theta,life:0,max:120+Math.random()*120});
+}
+
+function drawBursts(dt){
+  const nzX = layout.nozzle.x1;
+  for(let i=0;i<bursts.length;i++){
+    const b=bursts[i]; b.life+=dt; b.x+=b.vx; b.y+=b.vy*0.6;
+    const alpha = 0.8*Math.exp(-b.life/ b.max);
+    const r = 2 + 4*alpha;
+    // hot core
+    ctx.fillStyle=`rgba(255,235,180,${alpha})`;
+    ctx.beginPath();ctx.arc(b.x,b.y,r,0,TAU);ctx.fill();
+    // glow to glow layer
+    gctx.save();gctx.globalCompositeOperation='lighter';
+    gctx.fillStyle=`rgba(255,216,140,${alpha*0.6})`;
+    gctx.beginPath();gctx.arc(b.x,b.y,r*2.2,0,TAU);gctx.fill();gctx.restore();
+
+    // compression brightening near nozzle
+    if(b.x > nzX-120){ b.vx *= 1.02; b.hot += 0.02; }
+  }
+  bursts = bursts.filter(b=>b.life<b.max && b.x<layout.nozzle.x1+560);
+}
+
+function drawArcs(dt){
+  for(let i=0;i<arcs.length;i++){
+    const a=arcs[i]; a.life+=dt;
+    const t = a.life/a.max;
+    const segs = 6;
+    ctx.save();
+    ctx.globalCompositeOperation='lighter';
+    ctx.strokeStyle=`rgba(255,210,160,${(1-t)*0.85})`;
+    ctx.lineWidth=1.6;
+    ctx.beginPath();
+    for(let k=0;k<=segs;k++){
+      const f = k/segs;
+      const jitter = (Math.random()*2-1)*2*(1-t);
+      const xx = a.x + Math.cos(a.theta)*(a.len*f) + jitter;
+      const yy = a.y + Math.sin(a.theta)*(a.len*f) + Math.sin((a.life*0.02+f*6))*3*(1-t);
+      if(k===0) ctx.moveTo(xx,yy); else ctx.lineTo(xx,yy);
+      // glow layer
+      gctx.save();gctx.globalCompositeOperation='lighter';
+      gctx.strokeStyle=`rgba(255,170,120,${(1-t)*0.14})`;gctx.lineWidth=3.5;gctx.beginPath();
+      if(k>0){gctx.moveTo(xx,yy);gctx.lineTo(xx+0.1,yy+0.1);}gctx.stroke();gctx.restore();
+    }
+    ctx.stroke();ctx.restore();
+  }
+  arcs = arcs.filter(a=>a.life<a.max);
+}
+
+function drawCoolingShimmer(){
+  for(const p of pipes){
+    // pipe line
+    ctx.strokeStyle='#6bd1ff';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(p.x0,p.y0);ctx.lineTo(p.x1,p.y1);ctx.stroke();
+    // tracers
+    const n=4+ (realismEl.checked?2:0);
+    for(let k=0;k<n;k++){
+      const t=((k/n)+(performance.now()*0.0006))%1;
+      const xx=p.x0+(p.x1-p.x0)*t, yy=p.y0+(p.y1-p.y0)*t;
+      ctx.fillStyle='#9bb4ff';ctx.beginPath();ctx.arc(xx,yy,2,0,TAU);ctx.fill();
+      // twinkle shimmer on glow layer
+      gctx.save();gctx.globalCompositeOperation='lighter';
+      gctx.fillStyle='rgba(130,180,255,0.25)';
+      gctx.beginPath();gctx.arc(xx,yy,3.2,0,TAU);gctx.fill();gctx.restore();
+    }
+  }
+}
+
+/* ===== Left legends & labels (kept concise) ===== */
+function drawTimeLegendLeft(){const x=40,y=120,lines=['UTC','CST (engine sync)','Interstellar Time','Universal Time','UTA'];for(let i=0;i<lines.length;i++) drawText(ctx,lines[i],x,y+i*20,'left');}
+function drawCSTClock(){const x=layout.stages[3].x0+12,y=layout.centerY-22;ctx.fillStyle='#0e1536';ctx.strokeStyle='#22305c';ctx.lineWidth=1;ctx.fillRect(x,y,150,32);ctx.strokeRect(x,y,150,32);drawText(ctx,'Atomic Clock (CST)',x+6,y+16,'left');}
+function drawStatusLabel(){const x=layout.nozzle.x0-40,y=layout.centerY-layout.bodyR-58,w=warpFactor(),stab=computeStability(w);drawText(ctx,`Warp ${w} | Stability ${stab.toFixed(2)}`,x,y,'left');}
+
+function labelFromTo(text,ax,ay,tx,ty){ctx.strokeStyle='#9bb4ff66';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(tx,ty);ctx.stroke();drawText(ctx,text,tx+4,ty,'left');}
+function drawLabels(){
+  const topY=layout.centerY-layout.bodyR-42,botY=layout.centerY+layout.bodyR+44;
+  const s0=layout.stages[0],s1=layout.stages[1],s2=layout.stages[2],s3=layout.stages[3],s4=layout.stages[4],s5=layout.stages[5],s6=layout.stages[6];
+  labelFromTo('Vacuum Intake',s0.x0+12,layout.centerY-s0.r,s0.x0-120,topY-6);
+  labelFromTo('Magnetic Fan (modulator)',layout.fanX,layout.centerY-34,s0.x0-120,topY+12);
+  labelFromTo('Compression A/B/C',s2.x1-10,layout.centerY-s2.r,s2.x0-30,topY+54);
+  labelFromTo('Reactors (Electro-plasma)',s5.x0+10,layout.centerY-s5.r,s5.x0+80,topY+94);
+  labelFromTo('Photon/Plasma Mixer',s6.x0+10,layout.centerY-s6.r,s6.x0+140,topY+114);
+  labelFromTo('Entanglement Feedback',s5.x0+24,layout.centerY+16,s5.x0-40,botY);
+  labelFromTo('Atomic Clocks (CST)',s3.x0+20,layout.centerY,s3.x0-80,botY+24);
+  labelFromTo('Thermal Mgmt (Water)',s5.x1-8,layout.centerY+s5.r,s5.x1+160,botY+192);
+  // research components
+  labelFromTo('ZPF Oscillator Rings',s4.x0+12,layout.centerY-s4.r+10,s4.x0-130,topY+136);
+  labelFromTo('Casimir Microarrays',s3.x1-6,layout.centerY-s3.r+6,s3.x1+28,topY+156);
+  labelFromTo('CTC Guard (CST Damp)',s3.x0+8,layout.centerY+8,s3.x0-160,botY+234);
+}
+
+/* ===== Telemetry ===== */
+function setGaugeW(span,value,vmin,vmax){setGauge(span,(value-vmin)/(vmax-vmin));}
+function updateTelemetry(dt){
+  const now=Date.now();
+  clkUTC.textContent=new Date(now).toLocaleTimeString('en-US',{hour12:false,timeZone:'UTC'});
+  clkCST.textContent=new Date(now).toLocaleTimeString('en-US',{hour12:false,timeZone:'America/Chicago'});
+  const w=warpFactor(),sm=speedMult(),fr=fieldRadius(),cr=clockRate();
+  const D=layout.bodyR*2,base=fr*D*0.35,ax=computeFieldAspectX(w),ay=computeFieldAspectY(w),rx=base*ax+2*22,ry=base*ay+2*10;
+  const coreC=computeCoreTempC(w),coolC=computeCoolantTempC(w);
+  const shieldFrac=(fr-1.2)/(2.6-1.2);
+
+  v_speed.textContent='x'+sm.toFixed(1); setGauge(g_speed,(sm-1)/(6-1));
+  v_field.textContent=fr.toFixed(2);     setGauge(g_field,shieldFrac);
+  v_fshield.textContent=Math.round(shieldFrac*100)+'%'; setGauge(g_fshield,shieldFrac);
+  v_fstretch.textContent=fmt(rx,0)+' / '+fmt(ry,0); setGauge(g_fstretch,clamp(rx/(base*1.9+44),0,1));
+  v_clock.textContent=cr.toFixed(2)+'×'; setGauge(g_clock,1-cr);
+
+  // heuristic rates for visuals
+  const p_phot=0.7*sm, p_ent=0.25*computeEntangleRate(w), pWave=(0.2*sm);
+  v_phot.textContent=fmtLarge(p_phot*fps)+' /s'; setGauge(g_phot,Math.min((p_phot*fps)/3000,1));
+  const mag = fr*sm;
+  v_mag.textContent=mag.toFixed(2); setGauge(g_mag,Math.min(mag/6.0,1));
+  v_tcore.textContent=coreC+' °C'; setGauge(g_tcore,Math.min(coreC/1500,1));
+  v_tcool.textContent=coolC+' °C'; setGauge(g_tcool,Math.min(coolC/400,1));
+  const entPerSec=p_ent*fps; v_ent.textContent=(entPerSec>=1e6)?(entPerSec/1e6).toFixed(2)+' M/s':Math.round(entPerSec)+' /s'; setGauge(g_ent,Math.min(entPerSec/3.2e6,1));
+  const plen=computePlasmaLength(w),prad=computePlasmaRadius(w); v_plen.textContent=plen+' u'; setGauge(g_plen,(plen-90)/(260-90));
+  v_prad.textContent=prad+' u'; setGauge(g_prad,(prad-10)/(36-10));
+  v_pwave.textContent=pWave.toFixed(2); setGauge(g_pwave,Math.min(pWave/1.2,1));
+
+  warpClock += (dt * cr);
+  clkWarp.textContent=new Date(warpClock).toLocaleTimeString('en-US',{hour12:false});
+}
+
+/* ===== Rendering ===== */
+function render(dt){
+  // fake motion blur / persistence with realism
+  if(realismEl.checked){
+    ctx.fillStyle='rgba(11,16,32,0.28)'; // semi-clear for trails
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+  }else{
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+  }
+
+  // reset glow layer each frame
+  gctx.clearRect(0,0,glowCanvas.width,glowCanvas.height);
+
+  drawField();
+  for(const s of layout.stages) drawCylinder(s.x0,s.x1,s.r,s.r);
+  drawNozzle(layout.nozzle);
+  drawCoreGlow();
+
+  // coils with rotating phase
+  const coilPhase=performance.now()*0.004*speedMult();
+  for(const c of layout.coils) drawCoil(c.xOff, coilPhase + (c.xOff>0?Math.PI*0.2:0));
+
+  // fan
+  drawFan(fanAngle);
+
+  // base streams (reuse from earlier but quicker)
+  const pmult=speedMult();
+  if(Math.random()<0.7*pmult) particles.push({x:layout.startX+10,y:layout.centerY+(Math.random()*2-1)*layout.bodyR*0.6,v:0.6+Math.random()*0.7,life:0});
+  for(const pt of particles){pt.x+=(1.9*pmult+pt.v)*1.2;pt.y+=Math.sin((pt.x+pt.y)*0.01)*0.22*pmult;pt.life+=dt;}
+  particles=particles.filter(pt=>pt.x<layout.nozzle.x1+560);
+  ctx.fillStyle='#9bb4ff';ctx.globalAlpha=0.8;
+  for(const pt of particles){ctx.fillRect(pt.x,pt.y,3,2);gctx.fillStyle='rgba(140,180,255,0.12)';gctx.beginPath();gctx.arc(pt.x,pt.y,3,0,TAU);gctx.fill();}
+  ctx.globalAlpha=1;
+
+  // heat / cool tracers
+  if(Math.random()<0.25*pmult*heatLevel()) heat.push({x:lerp(layout.stages[4].x0,layout.nozzle.x1,Math.random()),y:layout.centerY+(Math.random()*2-1)*layout.bodyR*0.4,life:0});
+  if(Math.random()<0.25*pmult*coolLevel()) cool.push({x:lerp(layout.stages[0].x0,layout.stages[2].x1,Math.random()),y:layout.centerY+(Math.random()*2-1)*layout.bodyR*0.7,life:0});
+  for(const h of heat){h.life+=dt;h.x+=1.0*pmult;}
+  for(const c of cool){c.life+=dt;c.x+=0.7*pmult;}
+  heat=heat.filter(it=>it.x<layout.nozzle.x1); cool=cool.filter(it=>it.x<layout.stages[3].x1);
+  for(const h of heat){ctx.fillStyle='#ffcc66';ctx.beginPath();ctx.arc(h.x,h.y,2+Math.sin(h.life*0.02)*1.5,0,TAU);ctx.fill();}
+  for(const c of cool){ctx.fillStyle='#6bd1ff';ctx.beginPath();ctx.arc(c.x,c.y,2+Math.cos(c.life*0.02)*1.2,0,TAU);ctx.fill();}
+
+  // NEW: Photon conversion bursts + arcs
+  const w=warpFactor();
+  const spawnRate = realismEl.checked ? 0.024 : 0.012;
+  if(Math.random() < spawnRate*pmult) spawnBurst();
+  const arcProbBase = realismEl.checked ? 0.008 : 0.003;
+  if(Math.random() < arcProbBase*pmult*(0.6+(w-1)/9)) spawnArc();
+
+  drawBursts(dt);
+  drawArcs(dt);
+
+  // Cooling shimmer & pipe twinkle
+  drawCoolingShimmer();
+
+  // Lasers (sighting)
+  drawLasers();
+  function drawLasers(){
+    ctx.strokeStyle='#8aff9b';ctx.lineWidth=1;
+    const cxF=layout.startX-20,cxR=layout.nozzle.x1+20,cy=layout.centerY;
+    ctx.beginPath();
+    ctx.moveTo(cxF,cy-44);ctx.lineTo(cxF-34,cy-44);
+    ctx.moveTo(cxF,cy+44);ctx.lineTo(cxF-34,cy+44);
+    ctx.moveTo(cxR,cy-34);ctx.lineTo(cxR+34,cy-34);
+    ctx.moveTo(cxR,cy+34);ctx.lineTo(cxR+34,cy+34);ctx.stroke();
+    const ccx=layout.startX+layout.length*0.65, ccy=layout.centerY;
+    ctx.beginPath();ctx.moveTo(ccx-16,ccy);ctx.lineTo(ccx+16,ccy);
+    ctx.moveTo(ccx,ccy-16);ctx.lineTo(ccx,ccy+16);ctx.stroke();
+  }
+
+  // Left legends & status
+  drawTimeLegendLeft(); drawCSTClock(); drawStatusLabel();
+  if(labelsEl.checked) drawLabels();
+
+  // === Post: Bloom / vignette ===
+  // Simple separable blur on glowCanvas into blurCanvas for cheap bloom
+  bctx.clearRect(0,0,blurCanvas.width,blurCanvas.height);
+  // Horizontal blur
+  bctx.globalAlpha=1; for(let o=-6;o<=6;o+=2){bctx.drawImage(glowCanvas,o,0);}
+  // Vertical blur onto glowCanvas again
+  gctx.clearRect(0,0,glowCanvas.width,glowCanvas.height);
+  for(let o=-6;o<=6;o+=2){gctx.drawImage(blurCanvas,0,o);}
+
+  // Composite bloom onto main
+  ctx.save();ctx.globalCompositeOperation='lighter';ctx.globalAlpha= realismEl.checked?0.55:0.35;
+  ctx.drawImage(glowCanvas,0,0);ctx.restore();
+
+  // Vignette
+  const vg=ctx.createRadialGradient(canvas.width/2,canvas.height/2,Math.min(canvas.width,canvas.height)*0.35,
+                                    canvas.width/2,canvas.height/2,Math.min(canvas.width,canvas.height)*0.75);
+  vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(0,0,0,0.25)');
+  ctx.fillStyle=vg; ctx.fillRect(0,0,canvas.width,canvas.height);
+}
+
+function loop(){
+  if(!running) return;
+  const now=performance.now(); const dt=now-t0; t0=now;
+  fanAngle += 0.005*dt*speedMult();
+  render(dt);
+  updateTelemetry(dt);
+  requestAnimationFrame(loop);
+}
+loop();
+
+/* ===== Self-tests ===== */
+(function runTests(){
+  const out=[],ok=(name,cond)=>out.push((cond?'PASS ':'FAIL ')+name);
+  ok('speed increases',computeSpeedMult(10)>computeSpeedMult(1));
+  ok('field grows',computeFieldRadius(10)>computeFieldRadius(1));
+  ok('plasma length grows',computePlasmaLength(10)>computePlasmaLength(1));
+  ok('plasma radius grows',computePlasmaRadius(10)>computePlasmaRadius(1));
+  ok('entangle rate grows',computeEntangleRate(10)>computeEntangleRate(1));
+  ok('field stretches wider',computeFieldAspectX(10)>computeFieldAspectX(1));
+  const el=document.getElementById('tests'); if(el) el.textContent='Self-tests: '+out.join(' | ');
+})();
+</script>
+</body>
+</html>
