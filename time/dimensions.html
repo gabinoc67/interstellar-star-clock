@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>CST String-Dimension Jump Simulator — v5.1 (Snap-to-Nearest Hour)</title>
-<meta name="description" content="Ball starts at current CST time snapped to the nearest hour on current dimension. Enter hour & dimension to jump; animation with sparks and stability ring." />
+<title>CST String-Dimension Jump Simulator — v5.4 (Columns + Bridges)</title>
+<meta name="description" content="Live CST ball snaps to nearest hour. Jump anim shows bright lightning columns (between dimensions) and bridges (across time and dimensions), brightness scales with jump distance." />
 <style>
   :root{
     --bg:#0b1020;--panel:#111735;--ink:#eaf0ff;--muted:#a9b3d6;--accent:#8fb4ff;
-    --grid:#20306b;--ring:#ff324f;--halo:#e9f4ff;--cursor:#7fb1ff;
-    --border:#1a2550;--amber:#ffd15a;--ok:#35e6a2;
+    --grid:#20306b;--ring:#ff324f;--cursor:#7fb1ff;--border:#1a2550;
+    --ok:#35e6a2;--warn:#ffd15a;
   }
   *{box-sizing:border-box}
   html,body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
@@ -23,8 +23,8 @@
   .card .bd{padding:14px}
   .pill{font-size:.75rem;color:var(--muted);background:#0e1430;border:1px solid var(--border);padding:4px 8px;border-radius:999px}
   label{display:block;font-size:.85rem;color:var(--muted);margin:10px 0 6px}
-  input[type="number"],input[type="range"],select{width:100%}
-  input,select,button{background:#0c1330;color:var(--ink);border:1px solid var(--border);border-radius:10px;padding:8px}
+  input[type="number"],input[type="range"]{width:100%}
+  input,button{background:#0c1330;color:var(--ink);border:1px solid var(--border);border-radius:10px;padding:8px}
   button{cursor:pointer}
   button.primary{background:linear-gradient(180deg,#2446b3,#1b2f7d);border-color:#1a2f7a}
   button.ghost{background:transparent}
@@ -49,17 +49,16 @@
   canvas#viz{position:absolute;inset:0}
   .badge{display:inline-block;padding:3px 8px;border:1px solid var(--border);border-radius:999px;font-size:.75rem;color:var(--muted)}
   .good{color:var(--ok)}
-  .bad{color:var(--amber)}
-  .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace}
+  .bad{color:var(--warn)}
+  .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>CST String-Dimension Jump Simulator — v5.1</h1>
+  <h1>CST String-Dimension Jump Simulator — v5.4</h1>
   <div class="sub">
-    On load, the ball sits at the <strong>nearest whole CST hour</strong> on the <strong>current dimension</strong> (snap-to-hour).
-    Enter a target <em>hour</em> and <em>dimension</em>, then press <strong>Jump</strong> to animate and lock there.
-    Static sparks & brightness scale with jump distance; a thin red ring shows a <em>stable paradox</em> at destination.
+    On load, the ball snaps to the <strong>nearest whole CST hour</strong> on the current dimension (default Dim&nbsp;1, CST offset = <strong>-6h</strong>).
+    During a jump, you’ll see <strong>Columns</strong> (vertical chains between dimensions) and <strong>Bridges</strong> (diagonal arcs across time & dimensions). Brightness scales with jump distance.
   </div>
 
   <div class="grid">
@@ -74,7 +73,8 @@
           </div>
           <div>
             <label>CST Offset (hrs vs UTC)</label>
-            <input type="number" id="cstOffset" step="0.25" value="0" />
+            <input type="number" id="cstOffset" step="0.25" value="-6" />
+            <div class="note">Use -5 during Daylight Saving (CDT).</div>
           </div>
         </div>
         <div class="row">
@@ -93,8 +93,8 @@
             <input type="range" id="paradoxThresh" min="0" max="1" step="0.01" value="0.60" />
           </div>
           <div>
-            <label>Sparks Intensity Gain</label>
-            <input type="range" id="sparkGain" min="0.5" max="2.5" step="0.1" value="1.2" />
+            <label>Lightning Gain</label>
+            <input type="range" id="lightningGain" min="0.5" max="3.0" step="0.1" value="1.8" />
           </div>
         </div>
         <div class="row" style="align-items:end">
@@ -102,7 +102,7 @@
           <button id="btnUnlock" class="ghost">Unlock (Return to Live)</button>
         </div>
         <div class="note" style="margin-top:8px">
-          <strong>Live (default):</strong> ball snaps to nearest CST hour on Current Dimension. <strong>Locked:</strong> stays at Target Dimension @ Jump Hour until <em>Unlock</em>.
+          <strong>Live:</strong> ball snaps to nearest CST hour on current dimension. <strong>Locked:</strong> stays at Target Dimension @ Jump Hour until <em>Unlock</em>.
         </div>
       </div>
     </section>
@@ -114,7 +114,7 @@
         <div class="legend">
           <span><span class="dot stable"></span> Ball rim (red) = present/locked point</span>
           <span><span class="dot" style="background:var(--cursor)"></span> Dashed line = selected Jump Hour</span>
-          <span class="note">Sparks = static discharge while tunneling</span>
+          <span class="note">Lightning Columns = between dimensions • Lightning Bridges = across time & dimensions</span>
         </div>
         <div class="wall" id="wall">
           <canvas id="viz"></canvas>
@@ -149,13 +149,10 @@
       <div class="bd">
         <p class="note" style="line-height:1.6">
           <strong>Paradox field:</strong> <span class="mono">S(i,t) = ½·[1 + cos(ωᵢ·t + φᵢ + 0.6·h_dest)]</span>,
-          with <span class="mono">ωᵢ = 0.4 + 0.06·i</span> and random phase <span class="mono">φᵢ</span> per dimension.
-          Stable if <span class="mono">S ≥ S_th</span> (slider).<br>
-          <strong>Snap-to-hour (live):</strong>
-          <span class="mono">h_snap = (round(h_CST) mod 24)</span> — the present ball sits at the closest whole hour (e.g., near 01:00).<br>
-          <strong>Visual mapping:</strong> Jump distance <span class="mono">Δd=|d_t-d_c|</span> sets intensity
-          <span class="mono">I=clamp(Δd/11,0.08,1)</span> for halo, blink, and spark emission.<br>
-          <em>Credit:</em> Paradox–dimension interplay inspired by Prof. Jaroslav Kletetschka; this CST toy model expands that framing.
+          with <span class="mono">ωᵢ = 0.4 + 0.06·i</span>. Stable if <span class="mono">S ≥ S_th</span>.<br>
+          <strong>Snap-to-hour (live):</strong> <span class="mono">h_snap = (round(h_CST) mod 24)</span> (e.g., CST 01:10 ≈ 01:00).<br>
+          <strong>Lightning brightness:</strong> <span class="mono">I = clamp(|d_t - d_c|/11, 0.08, 1) × Gain</span>.<br>
+          <em>Credit:</em> Paradox–dimension linkage inspired by Prof. Jaroslav Kletetschka; CST toy model expands that framing.
         </p>
       </div>
     </section>
@@ -174,7 +171,7 @@
   const destHour  = document.getElementById('destHour');
   const cstOffset = document.getElementById('cstOffset');
   const paradoxThresh = document.getElementById('paradoxThresh');
-  const sparkGain = document.getElementById('sparkGain');
+  const lightningGain = document.getElementById('lightningGain');
 
   const utcClock  = document.getElementById('utcClock');
   const cstClock  = document.getElementById('cstClock');
@@ -234,7 +231,7 @@
     const d = getCSTDate();
     return d.getHours() + d.getMinutes()/60 + d.getSeconds()/3600;
   }
-  function getCSTNearestHour(){ // snap to nearest whole hour 0..23
+  function getCSTNearestHour(){ // 0..23
     const h = getCSTHourFloat();
     return (Math.round(h) + 24) % 24;
   }
@@ -261,49 +258,105 @@
   let lockHour = 0;
   let anim = null;
 
-  // Sparks
-  const sparks = [];
-  function spawnSparks(x, y, intensity){
-    const k = Math.floor(14 * intensity * +sparkGain.value);
-    for(let n=0;n<k;n++){
-      const a = Math.random()*Math.PI*2;
-      const v = 0.6 + 2.5*intensity*Math.random();
-      const life = 200 + 450*intensity*Math.random();
-      sparks.push({
-        x, y,
-        vx: Math.cos(a)*v,
-        vy: Math.sin(a)*v,
-        life, age:0,
-        size: 0.7 + 1.8*Math.random()*intensity,
-        q: Math.random() < 0.5 ? 1 : -1
-      });
+  // === Lightning system ===
+  const bolts = []; // active lightning paths (columns + bridges)
+
+  function randRange(a,b){ return a + Math.random()*(b-a); }
+  function lerp(a,b,t){ return a + (b-a)*t; }
+  function clampInt(v,a,b){ v=Math.round(v); return Math.max(a,Math.min(b,v)); }
+  function clampFloat(v,a,b){ return Math.max(a,Math.min(b,v)); }
+
+  // Columns: vertical chains between adjacent dimensions at a given hour band (x in [xMin,xMax])
+  function spawnLightningColumns(xMin, xMax, dMin, dMax, intensity){
+    const gain = +lightningGain.value;
+    const columns = Math.max(1, Math.round((1 + 2*intensity) * gain));
+    for(let c=0;c<columns;c++){
+      const x = lerp(xMin, xMax, Math.random());
+      const pts = [];
+      for(let d=dMin; d<dMax; d++){
+        const yA = lineY(d);
+        const yB = lineY(d+1);
+        const segs = 3 + Math.floor(Math.random()*3);
+        for(let s=0;s<segs;s++){
+          const t = s/(segs-1);
+          const y = lerp(yA, yB, t) + randRange(-4,4);
+          const xj = x + randRange(-6,6) + Math.sin((d+s)*0.9)*2;
+          pts.push({x:xj, y});
+        }
+      }
+      bolts.push(makeBolt(pts, intensity, gain, 140, 260));
     }
-    if(sparks.length>1200) sparks.splice(0, sparks.length-1200);
   }
-  function stepSparks(dt){
-    for(let i=sparks.length-1;i>=0;i--){
-      const p = sparks[i];
-      p.age += dt;
-      if(p.age>=p.life){ sparks.splice(i,1); continue; }
-      p.vx *= 0.996; p.vy = p.vy*0.996 + 0.005;
-      p.x += p.vx*dt; p.y += p.vy*dt;
+
+  // Bridges: diagonal arcs that run from origin hour toward current hour while stepping through dimensions
+  function spawnLightningBridge(x0, x1, dMin, dMax, intensity){
+    const gain = +lightningGain.value;
+    const pts = [];
+    const steps = Math.max(2, (dMax - dMin + 1) * 2);
+    for(let k=0;k<steps;k++){
+      const u = k/(steps-1);
+      const dimF = lerp(dMin, dMax, u);
+      const y = lineY(dimF);
+      // time progression from x0 -> x1 with jagged jitter
+      const x = lerp(x0, x1, u) + randRange(-10,10) + Math.sin((u*20)+(dMin+dMax))*3;
+      pts.push({x, y});
     }
+    bolts.push(makeBolt(pts, intensity, gain, 180, 360));
   }
-  function drawSparks(){
-    for(const p of sparks){
-      const alpha = 1 - p.age/p.life;
+
+  function makeBolt(pts, intensity, gain, lifeMin, lifeRange){
+    return {
+      pts,
+      birth: performance.now(),
+      life: lifeMin + Math.random()*lifeRange,
+      width: 1.6 + 2.8*intensity*gain,
+      glow: 10 + 24*intensity*gain,
+      hueShift: Math.random()<0.5?0:1
+    };
+  }
+
+  function drawBolts(now){
+    for(let i=bolts.length-1;i>=0;i--){
+      const b = bolts[i];
+      const age = now - b.birth;
+      if(age > b.life){ bolts.splice(i,1); continue; }
+      const a = 1 - age / b.life;
+      const flicker = 0.75 + 0.25*Math.sin(now*0.06 + i);
+      const alpha = Math.max(0, Math.min(1, a * flicker));
+
+      // outer glow stroke
+      ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      ctx.globalAlpha = 0.35*alpha + 0.25*Math.sin((p.age*0.02 + p.q)*8)*alpha;
-      ctx.strokeStyle = p.q>0 ? '#eaf2ff' : '#9fd2ff';
-      ctx.lineWidth = Math.max(0.6, p.size*(alpha));
+      ctx.lineJoin = 'round';
+      ctx.lineCap  = 'round';
+      ctx.shadowColor = 'rgba(160,200,255,0.9)';
+      ctx.shadowBlur = b.glow;
+      ctx.strokeStyle = b.hueShift ? 'rgba(210,235,255,0.70)' : 'rgba(150,195,255,0.75)';
+      ctx.lineWidth = b.width*1.8;
+      ctx.globalAlpha = 0.35*alpha;
       ctx.beginPath();
-      const jx = p.x + Math.sin(p.age*0.06 + p.q)*2.0;
-      const jy = p.y + Math.cos(p.age*0.07 + p.q)*2.0;
-      ctx.moveTo(p.x, p.y);
-      ctx.lineTo(jx, jy);
+      for(let k=0;k<b.pts.length;k++){
+        const p = b.pts[k];
+        if(k===0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+      }
       ctx.stroke();
-      ctx.globalAlpha = 1;
-      ctx.globalCompositeOperation = 'source-over';
+      ctx.restore();
+
+      // inner core stroke
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.lineJoin = 'round';
+      ctx.lineCap  = 'round';
+      ctx.strokeStyle = '#eaf2ff';
+      ctx.lineWidth = b.width*0.9;
+      ctx.globalAlpha = 0.9*alpha;
+      ctx.beginPath();
+      for(let k=0;k<b.pts.length;k++){
+        const p = b.pts[k];
+        if(k===0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+      }
+      ctx.stroke();
+      ctx.restore();
     }
   }
 
@@ -350,12 +403,12 @@
     const haloR = R*(2.8 + 1.8*intensity);
     const g = ctx.createRadialGradient(0,0,0,0,0,haloR);
     const innerAlpha = 0.75 + 0.25*intensity;
-    const outerAlpha = 0.05 + 0.20*intensity;
+    const outerAlpha = 0.05 + 0.22*intensity;
     g.addColorStop(0,`rgba(233,244,255,${innerAlpha*blink})`);
     g.addColorStop(1,`rgba(159,210,255,${outerAlpha*blink})`);
     ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,haloR,0,Math.PI*2); ctx.fill();
 
-    ctx.fillStyle = `rgba(233,244,255,${0.95*blink})`;
+    ctx.fillStyle = `rgba(233,244,255,${0.98*blink})`;
     ctx.beginPath(); ctx.arc(0,0,R,0,Math.PI*2); ctx.fill();
 
     ctx.lineWidth=3; ctx.strokeStyle = '#ff324f';
@@ -385,22 +438,33 @@
     const x0 = hourX(liveSnapHr), y0 = lineY(cd);
     const x1 = hourX(dh),         y1 = lineY(td);
 
-    const dSteps = Math.abs(td - cd);                 // 0..11
+    const dSteps = Math.abs(td - cd);
     const intensity = Math.max(0.08, Math.min(1, dSteps/11));
-    const DUR = 1200 + 180*dSteps;
+    const DUR = 1200 + 220*dSteps;
 
     anim = {
       t0: performance.now(),
       DUR, x0, y0, x1, y1, td, dh,
       intensity,
-      lastFrame: performance.now()
+      lastFrame: performance.now(),
+      startDim: cd,
+      endDim: td,
+      minX: Math.min(x0,x1),
+      maxX: Math.max(x0,x1),
+      dir: Math.sign(x1 - x0) || 1
     };
     locked = false;
-    sparks.length = 0;
+    bolts.length = 0;
   }
+
+  function isStable(dim, hour){
+    const s = S(dim, hour, performance.now());
+    return s >= +paradoxThresh.value;
+  }
+
   function stepAnimation(now){
     if(!anim) return false;
-    const {t0,DUR,x0,y0,x1,y1,td,dh,intensity} = anim;
+    const {t0,DUR,x0,y0,x1,y1,td,dh,intensity,startDim,endDim,dir,minX,maxX} = anim;
     const dt = now - anim.lastFrame; anim.lastFrame = now;
 
     const p = Math.max(0, Math.min(1, (now - t0)/DUR));
@@ -409,12 +473,44 @@
     const x = (1-p)*(1-p)*x0 + 2*(1-p)*p*cx + p*p*x1;
     const y = (1-p)*(1-p)*y0 + 2*(1-p)*p*cy + p*p*y1;
 
+    // background
     drawWallpaper(); drawStrings(); drawPlannedHour();
 
-    spawnSparks(x, y, intensity*(0.6 + 0.8*Math.sin(now/90)*(1-p)));
-    stepSparks(dt);
-    drawSparks();
+    // --- Spawn Lightning covering both dimensions & time ---
+    // Columns in the covered hour band so far
+    const coverX0 = dir>0 ? minX : x;
+    const coverX1 = dir>0 ? x    : maxX;
 
+    // probabilistic spawns based on dt, intensity & gain
+    const gain = +lightningGain.value;
+    const colChance = (0.0025 + 0.004*intensity) * dt * gain;   // columns
+    const brgChance = (0.0015 + 0.003*intensity) * dt * gain;   // bridges
+
+    if(Math.random() < colChance){
+      const dMin = Math.min(startDim, endDim);
+      const dMax = Math.max(startDim, endDim);
+      const xA = lerp(coverX0, coverX1, Math.random()*0.95);
+      spawnLightningColumns(xA-4, xA+4, dMin, dMax, intensity);
+    }
+    if(Math.random() < brgChance){
+      const dMin = Math.min(startDim, endDim);
+      const dMax = Math.max(startDim, endDim);
+      // bridge from origin hour edge toward current x with slight randomness
+      const xb0 = dir>0 ? minX : maxX;
+      const xb1 = x + randRange(-6,6);
+      // Sometimes break the bridge into two halves for richer effect
+      if(Math.random()<0.4){
+        const mid = lerp(xb0, xb1, 0.5);
+        spawnLightningBridge(xb0, mid, dMin, dMax, intensity);
+        spawnLightningBridge(mid, xb1, dMin, dMax, intensity);
+      }else{
+        spawnLightningBridge(xb0, xb1, dMin, dMax, intensity);
+      }
+    }
+
+    drawBolts(now);
+
+    // ball + effects
     drawBall(x, y, intensity, true);
 
     const stable = isStable(td, dh);
@@ -422,15 +518,12 @@
     paradoxState.textContent = stable ? 'Stable' : 'Unstable';
     paradoxState.className = 'badge ' + (stable ? 'good' : 'bad');
 
+    if(bolts.length>260) bolts.splice(0, bolts.length-260);
+
     if(p>=1){
       locked = true; lockDim = td; lockHour = dh; anim = null;
     }
     return true;
-  }
-
-  function isStable(dim, hour){
-    const s = S(dim, hour, performance.now());
-    return s >= +paradoxThresh.value;
   }
 
   // === Main loop ===
@@ -449,7 +542,7 @@
         paradoxState.textContent = st ? 'Stable' : 'Unstable';
         paradoxState.className = 'badge ' + (st ? 'good' : 'bad');
       }else{
-        // LIVE: snap to nearest whole hour
+        // LIVE: snap to nearest whole CST hour on current dimension
         const snapHr = getCSTNearestHour();
         const x = hourX(snapHr);
         const y = lineY(clampInt(+curDim.value,1,12));
@@ -474,23 +567,21 @@
     todayStr.textContent = cst.toDateString();
   }
 
-  // === Utils & Events ===
-  function clampInt(v,a,b){ v=Math.round(v); return Math.max(a,Math.min(b,v)); }
-  function clampFloat(v,a,b){ return Math.max(a,Math.min(b,v)); }
-
+  // === Events ===
   btnJump.addEventListener('click', ()=>{
     if(locked && +targetDim.value===lockDim && +destHour.value===lockHour) return;
     startJump();
   });
-  btnUnlock.addEventListener('click', ()=>{ locked = false; anim = null; sparks.length = 0; });
+  btnUnlock.addEventListener('click', ()=>{ locked = false; anim = null; bolts.length = 0; });
 
-  [curDim,targetDim,destHour,cstOffset,paradoxThresh,sparkGain].forEach(el=>{
+  [curDim,targetDim,destHour,cstOffset,paradoxThresh,lightningGain].forEach(el=>{
     el.addEventListener('input', ()=>{ /* reactive via loop */ });
   });
 
   function init(){
     resize();
-    locked = false; // live on load (snap-to-hour)
+    locked = false;           // live on load
+    curDim.value = 1;         // default start dimension
     requestAnimationFrame(loop);
   }
   window.addEventListener('load', init);
