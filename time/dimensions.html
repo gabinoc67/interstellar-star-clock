@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>CST String-Dimension Jump Simulator — v3 (Lock-on Jump)</title>
-<meta name="description" content="Present-time ball follows CST on current dimension until Jump is commanded; then locks at selected time and dimension." />
+<title>CST String-Dimension Jump Simulator — v5 (Live-on-Load)</title>
+<meta name="description" content="Ball starts at current CST time on current dimension. Enter hour & dimension to jump; animation with sparks and stability ring." />
 <style>
   :root{
     --bg:#0b1020;--panel:#111735;--ink:#eaf0ff;--muted:#a9b3d6;--accent:#8fb4ff;
     --grid:#20306b;--ring:#ff324f;--halo:#e9f4ff;--cursor:#7fb1ff;
-    --border:#1a2550;--good:#35e6a2;--amber:#ffd15a;
+    --border:#1a2550;--amber:#ffd15a;--ok:#35e6a2;
   }
   *{box-sizing:border-box}
   html,body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
@@ -23,14 +23,15 @@
   .card .bd{padding:14px}
   .pill{font-size:.75rem;color:var(--muted);background:#0e1430;border:1px solid var(--border);padding:4px 8px;border-radius:999px}
   label{display:block;font-size:.85rem;color:var(--muted);margin:10px 0 6px}
-  input[type="number"],input[type="time"],select{width:100%}
+  input[type="number"],input[type="time"],input[type="range"],select{width:100%}
   input,select,button{background:#0c1330;color:var(--ink);border:1px solid var(--border);border-radius:10px;padding:8px}
   button{cursor:pointer}
   button.primary{background:linear-gradient(180deg,#2446b3,#1b2f7d);border-color:#1a2f7a}
   button.ghost{background:transparent}
   .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
   /* WALL */
-  .wall{height:540px;position:relative;border-top:1px solid var(--border);border-bottom:1px solid var(--border);
+  .wall{height:560px;position:relative;border-top:1px solid var(--border);border-bottom:1px solid var(--border);
     background:
       repeating-linear-gradient(to right, rgba(255,255,255,.05) 0 1px, transparent 1px 40px),
       linear-gradient(180deg, rgba(159,210,255,.04), rgba(159,210,255,.02));
@@ -46,12 +47,16 @@
   .note{color:var(--muted);font-size:.8rem}
   .reading{font-variant-numeric:tabular-nums;font-weight:600}
   canvas#viz{position:absolute;inset:0}
+  .badge{display:inline-block;padding:3px 8px;border:1px solid var(--border);border-radius:999px;font-size:.75rem;color:var(--muted)}
+  .good{color:var(--ok)}
+  .bad{color:var(--amber)}
+  .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>CST String-Dimension Jump Simulator — v3</h1>
-  <div class="sub">Ball with <strong>red rim</strong> rides the <strong>current CST time</strong> on the <strong>current dimension</strong>. Enter a <em>target hour</em> and <em>target dimension</em>, click <strong>Jump</strong>, and the ball will animate and <strong>lock</strong> there.</div>
+  <h1>CST String-Dimension Jump Simulator — v5</h1>
+  <div class="sub">On page load the ball <strong>automatically sits at the current CST time</strong> on the <strong>current dimension</strong>. Type a target <em>hour</em> and <em>dimension</em>, then press <strong>Jump</strong> to animate and lock at that coordinate. Static sparks & brightness scale with jump distance; a thin red ring shows a <em>stable paradox</em> at destination.</div>
 
   <div class="grid">
     <!-- LEFT: Controls -->
@@ -78,12 +83,22 @@
             <input type="number" id="destHour" min="0" max="24" step="0.1" value="23" />
           </div>
         </div>
+        <div class="row">
+          <div>
+            <label>Paradox Stability Threshold <span class="note">(S ≥ threshold = stable)</span></label>
+            <input type="range" id="paradoxThresh" min="0" max="1" step="0.01" value="0.60" />
+          </div>
+          <div>
+            <label>Sparks Intensity Gain</label>
+            <input type="range" id="sparkGain" min="0.5" max="2.5" step="0.1" value="1.2" />
+          </div>
+        </div>
         <div class="row" style="align-items:end">
           <button id="btnJump" class="primary">Jump & Lock</button>
           <button id="btnUnlock" class="ghost">Unlock (Return to Live)</button>
         </div>
         <div class="note" style="margin-top:8px">
-          Live mode: ball follows CST hour on <strong>Current Dimension</strong>. Locked mode: ball stays at <strong>Target Dimension @ Jump Hour</strong> until you press <em>Unlock</em>.
+          <strong>Live mode (default on load):</strong> ball follows CST on Current Dimension. <strong>Locked:</strong> stays at Target Dimension @ Jump Hour until you press <em>Unlock</em>.
         </div>
       </div>
     </section>
@@ -93,13 +108,14 @@
       <div class="hd"><div>String-Wall (24h)</div><span class="pill">CST Live</span></div>
       <div class="bd">
         <div class="legend">
-          <span><span class="dot stable"></span> Ball rim (red) = present or locked point</span>
+          <span><span class="dot stable"></span> Ball rim (red) = present/locked point</span>
           <span><span class="dot" style="background:var(--cursor)"></span> Dashed line = selected Jump Hour</span>
-          <span class="note">Ticks every 1h • Dimensions 1–12 labeled on left</span>
+          <span class="note">Sparks = static discharge while tunneling</span>
         </div>
         <div class="wall" id="wall">
           <canvas id="viz"></canvas>
         </div>
+
         <div class="row">
           <div>
             <label>UTC</label>
@@ -110,7 +126,35 @@
             <div class="reading" id="cstClock">—</div>
           </div>
         </div>
-        <div class="note" style="margin-top:8px">Today (CST frame): <span id="todayStr">—</span></div>
+        <div class="row" style="margin-top:6px">
+          <div>
+            <label>Today (CST frame)</label>
+            <div class="reading" id="todayStr">—</div>
+          </div>
+          <div>
+            <label>Paradox @ Target</label>
+            <div class="reading"><span id="paradoxState" class="badge">—</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- EXPLANATION -->
+    <section class="card">
+      <div class="hd"><div>Explanation • Equations</div><span class="pill">Model Notes</span></div>
+      <div class="bd">
+        <p class="note" style="line-height:1.6">
+          <strong>1) Paradox Stability Field:</strong>
+          <span class="mono">S(i,t) = ½·[1 + cos(ωᵢ·t + φᵢ + 0.6·h_dest)]</span>, with <span class="mono">ωᵢ = 0.4 + 0.06·i</span> and random phase <span class="mono">φᵢ</span> per dimension. Stable if <span class="mono">S ≥ S_th</span> (slider).<br>
+          <strong>2) Mis-Sync (CST vs Jump Hour):</strong>
+          <span class="mono">ε = min(|CST − h_dest|, 24 − |CST − h_dest|)/24</span> (wrap to 0..12h).<br>
+          <strong>3) Equilibrium Intuition:</strong>
+          <span class="mono">E = clamp(1 − (ε + (1 − S(i*,t))), 0, 1)</span>, where <span class="mono">i*</span> is target dimension.<br>
+          <strong>4) Power Proxy:</strong>
+          <span class="mono">P ∝ T(i*) · Δd² · (ε + 0.1)/(0.4 + S(i*,t))</span>, with string tension <span class="mono">T(i)=T₀(1+0.05·i)</span> and <span class="mono">Δd=|d_target−d_current|</span>.<br>
+          <strong>5) Visual Mapping:</strong> jump distance controls intensity <span class="mono">I=clamp(Δd/11,0.08,1)</span> → halo brightness, blink depth, and spark emission. A thin red ring is drawn at the destination while/when <span class="mono">S ≥ S_th</span>.<br><br>
+          <em>Credit:</em> Conceptual inspiration linking <strong>paradox loops</strong> and <strong>dimension crossing</strong> is attributed to <strong>Prof. Jaroslav Kletetschka</strong>. This is a CST-synchronization toy model expanding that framing.
+        </p>
       </div>
     </section>
   </div>
@@ -118,7 +162,7 @@
 
 <script>
 (function(){
-  // DOM refs
+  // === DOM refs ===
   const wall = document.getElementById('wall');
   const canvas = document.getElementById('viz');
   const ctx = canvas.getContext('2d');
@@ -127,15 +171,18 @@
   const targetDim = document.getElementById('targetDim');
   const destHour  = document.getElementById('destHour');
   const cstOffset = document.getElementById('cstOffset');
+  const paradoxThresh = document.getElementById('paradoxThresh');
+  const sparkGain = document.getElementById('sparkGain');
 
   const utcClock  = document.getElementById('utcClock');
   const cstClock  = document.getElementById('cstClock');
   const todayStr  = document.getElementById('todayStr');
+  const paradoxState = document.getElementById('paradoxState');
 
   const btnJump   = document.getElementById('btnJump');
   const btnUnlock = document.getElementById('btnUnlock');
 
-  // Layout helpers
+  // === Layout ===
   function resize(){
     const rect = wall.getBoundingClientRect();
     canvas.width  = Math.floor(rect.width);
@@ -144,11 +191,8 @@
   }
   window.addEventListener('resize', resize);
 
-  // Grid build (axes + hour ticks)
   function buildGrid(){
-    // clear old DOM ticks/labels
     [...wall.querySelectorAll('.hourTick,.hourLbl,.axis')].forEach(n=>n.remove());
-    // dimension axes
     for(let i=1;i<=12;i++){
       const y = lineY(i);
       const axis = document.createElement('div');
@@ -158,7 +202,6 @@
       axis.appendChild(lbl);
       wall.appendChild(axis);
     }
-    // hour ticks/labels
     for(let h=0;h<=24;h++){
       const x = hourX(h);
       const tick = document.createElement('div');
@@ -179,7 +222,7 @@
     return Math.round(pad + (h/24)*usable);
   }
 
-  // Time helpers
+  // === Time helpers ===
   function getCSTDate(){
     const now = new Date();
     const utcMs = now.getTime() + now.getTimezoneOffset()*60000;
@@ -196,13 +239,69 @@
     return `${hh}:${mm}:${ss}`;
   }
 
-  // State: live vs locked
-  let locked = false;
+  // === Model: stability S(i,t) ===
+  const phaseSeed = Array.from({length:12},()=>Math.random()*Math.PI*2);
+  function S(i, hour, tms){
+    const w = 0.4 + 0.06*i;
+    const phi = phaseSeed[i-1];
+    const t = tms/1000;
+    const arg = w*t + 0.6*hour + phi;
+    return 0.5*(1 + Math.cos(arg));
+  }
+
+  // === State (ensure live on load) ===
+  let locked = false;       // important: start unlocked so ball follows current time
   let lockDim = 1;
   let lockHour = 0;
   let anim = null;
 
-  // Draw background wallpaper
+  // Sparks during jump
+  const sparks = [];
+  function spawnSparks(x, y, intensity){
+    const k = Math.floor(14 * intensity * +sparkGain.value);
+    for(let n=0;n<k;n++){
+      const a = Math.random()*Math.PI*2;
+      const v = 0.6 + 2.5*intensity*Math.random();
+      const life = 200 + 450*intensity*Math.random();
+      sparks.push({
+        x, y,
+        vx: Math.cos(a)*v,
+        vy: Math.sin(a)*v,
+        life, age:0,
+        size: 0.7 + 1.8*Math.random()*intensity,
+        q: Math.random() < 0.5 ? 1 : -1
+      });
+    }
+    if(sparks.length>1200) sparks.splice(0, sparks.length-1200);
+  }
+  function stepSparks(dt){
+    for(let i=sparks.length-1;i>=0;i--){
+      const p = sparks[i];
+      p.age += dt;
+      if(p.age>=p.life){ sparks.splice(i,1); continue; }
+      p.vx *= 0.996; p.vy = p.vy*0.996 + 0.005;
+      p.x += p.vx*dt; p.y += p.vy*dt;
+    }
+  }
+  function drawSparks(){
+    for(const p of sparks){
+      const alpha = 1 - p.age/p.life;
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.35*alpha + 0.25*Math.sin((p.age*0.02 + p.q)*8)*alpha;
+      ctx.strokeStyle = p.q>0 ? '#eaf2ff' : '#9fd2ff';
+      ctx.lineWidth = Math.max(0.6, p.size*(alpha));
+      ctx.beginPath();
+      const jx = p.x + Math.sin(p.age*0.06 + p.q)*2.0;
+      const jy = p.y + Math.cos(p.age*0.07 + p.q)*2.0;
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(jx, jy);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+    }
+  }
+
+  // === Visuals ===
   function drawWallpaper(){
     const W = canvas.width, H = canvas.height; ctx.clearRect(0,0,W,H);
     const t = performance.now()/1000;
@@ -215,38 +314,11 @@
       ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); ctx.globalAlpha = 1;
     }
   }
-
-  // Draw planned hour cursor (dashed)
-  function drawPlannedHour(){
-    const xPlan = hourX(+destHour.value);
-    ctx.save();
-    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--cursor') || '#7fb1ff';
-    ctx.setLineDash([6,6]);
-    ctx.lineWidth=1.5;
-    ctx.beginPath(); ctx.moveTo(xPlan,0); ctx.lineTo(xPlan,canvas.height); ctx.stroke();
-    ctx.restore();
-  }
-
-  // Draw present/locked ball
-  function drawBall(x, y, pulsing=true){
-    ctx.save(); ctx.translate(x,y);
-    const R = 12 + (pulsing ? 2*Math.sin(performance.now()/160) : 0);
-    const g = ctx.createRadialGradient(0,0,0,0,0,R*3);
-    g.addColorStop(0,'rgba(233,244,255,0.95)');
-    g.addColorStop(1,'rgba(159,210,255,0.06)');
-    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,R*3,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle= '#e9f4ff'; ctx.beginPath(); ctx.arc(0,0,R,0,Math.PI*2); ctx.fill();
-    ctx.lineWidth=3; ctx.strokeStyle = '#ff324f'; // red rim
-    ctx.beginPath(); ctx.arc(0,0,R+2,0,Math.PI*2); ctx.stroke();
-    ctx.restore();
-  }
-
-  // Draw dimension strings (subtle wobble)
   function drawStrings(){
     const now = performance.now();
     for(let i=1;i<=12;i++){
       const y = lineY(i);
-      ctx.strokeStyle = 'rgba(255,50,79,0.55)'; // soft red
+      ctx.strokeStyle = 'rgba(255,50,79,0.50)';
       ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(hourX(0), y);
       for(let h=1; h<=24; h++){
@@ -255,48 +327,107 @@
       ctx.stroke();
     }
   }
+  function drawPlannedHour(){
+    const xPlan = hourX(+destHour.value);
+    ctx.save();
+    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--cursor') || '#7fb1ff';
+    ctx.setLineDash([6,6]); ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(xPlan,0); ctx.lineTo(xPlan,canvas.height); ctx.stroke();
+    ctx.restore();
+  }
+  function drawBall(x, y, intensity=0.1, blinking=false){
+    const t = performance.now();
+    const blink = blinking ? (0.55 + 0.45*Math.abs(Math.sin(t*0.006*(0.7+1.6*intensity)))) : 1.0;
 
-  // Animation for jump
+    ctx.save(); ctx.translate(x,y);
+    const R = 12 + 2*Math.sin(t/160)*blink;
+    const haloR = R*(2.8 + 1.8*intensity);
+    const g = ctx.createRadialGradient(0,0,0,0,0,haloR);
+    const innerAlpha = 0.75 + 0.25*intensity;
+    const outerAlpha = 0.05 + 0.20*intensity;
+    g.addColorStop(0,`rgba(233,244,255,${innerAlpha*blink})`);
+    g.addColorStop(1,`rgba(159,210,255,${outerAlpha*blink})`);
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,haloR,0,Math.PI*2); ctx.fill();
+
+    ctx.fillStyle = `rgba(233,244,255,${0.95*blink})`;
+    ctx.beginPath(); ctx.arc(0,0,R,0,Math.PI*2); ctx.fill();
+
+    ctx.lineWidth=3; ctx.strokeStyle = '#ff324f';
+    ctx.beginPath(); ctx.arc(0,0,R+2,0,Math.PI*2); ctx.stroke();
+    ctx.restore();
+  }
+  function drawParadoxRing(dim, hour, isStable){
+    if(!isStable) return;
+    const x = hourX(hour);
+    const y = lineY(dim);
+    ctx.save();
+    ctx.strokeStyle = '#ff324f';
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.9;
+    const pulse = 2 + 2*Math.sin(performance.now()/700);
+    ctx.beginPath(); ctx.arc(x, y, 24 + pulse, 0, Math.PI*2); ctx.stroke();
+    ctx.restore();
+  }
+
+  // === Animation ===
   function startJump(){
-    const cd = +curDim.value;
-    const td = +targetDim.value;
-    const dh = +destHour.value;
+    const cd = clampInt(+curDim.value,1,12);
+    const td = clampInt(+targetDim.value,1,12);
+    const dh = clampFloat(+destHour.value,0,24);
 
-    if(td<1 || td>12) return;
-    if(dh<0 || dh>24) return;
-
-    // if user picked current dimension & exact current hour, just lock in place
     const liveHr = getCSTHour();
     const x0 = hourX(liveHr), y0 = lineY(cd);
     const x1 = hourX(dh),     y1 = lineY(td);
 
-    const DUR = 1200 + 200*Math.abs(td - cd);
-    const t0  = performance.now();
-    anim = {t0, DUR, x0, y0, x1, y1, td, dh};
+    const dSteps = Math.abs(td - cd);                 // 0..11
+    const intensity = Math.max(0.08, Math.min(1, dSteps/11));
+    const DUR = 1200 + 180*dSteps;
 
-    // during animation we are not "locked" yet
-    locked = false;
+    anim = {
+      t0: performance.now(),
+      DUR, x0, y0, x1, y1, td, dh,
+      intensity,
+      lastFrame: performance.now()
+    };
+    locked = false;             // ensure we leave live mode only after animation ends
+    sparks.length = 0;
   }
-
   function stepAnimation(now){
     if(!anim) return false;
-    const {t0,DUR,x0,y0,x1,y1,td,dh} = anim;
+    const {t0,DUR,x0,y0,x1,y1,td,dh,intensity} = anim;
+    const dt = now - anim.lastFrame; anim.lastFrame = now;
+
     const p = Math.max(0, Math.min(1, (now - t0)/DUR));
-    // quadratic bezier control (arch)
     const cx = x0 + (x1-x0)*0.5;
     const cy = Math.min(y0,y1) - 60 - 40*Math.sin(now/300);
     const x = (1-p)*(1-p)*x0 + 2*(1-p)*p*cx + p*p*x1;
     const y = (1-p)*(1-p)*y0 + 2*(1-p)*p*cy + p*p*y1;
 
-    drawWallpaper(); drawStrings(); drawPlannedHour(); drawBall(x,y);
+    drawWallpaper(); drawStrings(); drawPlannedHour();
+
+    spawnSparks(x, y, intensity*(0.6 + 0.8*Math.sin(now/90)*(1-p)));
+    stepSparks(dt);
+    drawSparks();
+
+    drawBall(x, y, intensity, true);
+
+    const stable = isStable(td, dh);
+    drawParadoxRing(td, dh, stable);
+    paradoxState.textContent = stable ? 'Stable' : 'Unstable';
+    paradoxState.className = 'badge ' + (stable ? 'good' : 'bad');
+
     if(p>=1){
-      // lock at destination
       locked = true; lockDim = td; lockHour = dh; anim = null;
     }
     return true;
   }
 
-  // Main loop
+  function isStable(dim, hour){
+    const s = S(dim, hour, performance.now());
+    return s >= +paradoxThresh.value;
+  }
+
+  // === Main loop ===
   function loop(){
     const now = performance.now();
     if(anim){
@@ -304,23 +435,30 @@
     }else{
       drawWallpaper(); drawStrings(); drawPlannedHour();
       if(locked){
-        // locked at selected time & dimension (no movement with time)
         const x = hourX(lockHour);
         const y = lineY(lockDim);
-        drawBall(x,y,false);
+        drawParadoxRing(lockDim, lockHour, isStable(lockDim, lockHour));
+        drawBall(x,y,0.25,false);
+        const st = isStable(lockDim, lockHour);
+        paradoxState.textContent = st ? 'Stable' : 'Unstable';
+        paradoxState.className = 'badge ' + (st ? 'good' : 'bad');
       }else{
-        // live: follow current CST hour on current dimension
+        // LIVE ON LOAD: follow current CST time on current dimension
         const liveHr = getCSTHour();
         const x = hourX(liveHr);
-        const y = lineY(+curDim.value);
-        drawBall(x,y,true);
+        const y = lineY(clampInt(+curDim.value,1,12));
+        drawBall(x,y,0.12,false);
+
+        const st = isStable(clampInt(+targetDim.value,1,12), clampFloat(+destHour.value,0,24));
+        paradoxState.textContent = st ? 'Stable' : 'Unstable';
+        paradoxState.className = 'badge ' + (st ? 'good' : 'bad');
       }
     }
     tickClocks();
     requestAnimationFrame(loop);
   }
 
-  // Clocks
+  // === Clocks ===
   function tickClocks(){
     const now = new Date();
     const utc = new Date(now.getTime() + now.getTimezoneOffset()*60000);
@@ -330,21 +468,26 @@
     todayStr.textContent = cst.toDateString();
   }
 
-  // Events
+  // === Utils & Events ===
+  function clampInt(v,a,b){ v=Math.round(v); return Math.max(a,Math.min(b,v)); }
+  function clampFloat(v,a,b){ return Math.max(a,Math.min(b,v)); }
+
   btnJump.addEventListener('click', ()=>{
-    // prevent jumping to the same dimension & hour as already locked—just keep locked
     if(locked && +targetDim.value===lockDim && +destHour.value===lockHour) return;
     startJump();
   });
-  btnUnlock.addEventListener('click', ()=>{
-    locked = false; anim = null;
-  });
+  btnUnlock.addEventListener('click', ()=>{ locked = false; anim = null; sparks.length = 0; });
 
-  [curDim,targetDim,destHour,cstOffset].forEach(el=>{
+  [curDim,targetDim,destHour,cstOffset,paradoxThresh,sparkGain].forEach(el=>{
     el.addEventListener('input', ()=>{ /* reactive via loop */ });
   });
 
-  function init(){ resize(); requestAnimationFrame(loop); }
+  function init(){
+    resize();
+    // Ensure LIVE mode at first paint (locked=false by default)
+    locked = false;
+    requestAnimationFrame(loop);
+  }
   window.addEventListener('load', init);
 })();
 </script>
