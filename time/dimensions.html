@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>CST String-Dimension Jump Simulator — v2</title>
-<meta name="description" content="CST live-present string-wall with stable-only crossing at a user-selected hour. Multiple target dimensions supported." />
+<title>CST String-Dimension Jump Simulator — v3 (Lock-on Jump)</title>
+<meta name="description" content="Present-time ball follows CST on current dimension until Jump is commanded; then locks at selected time and dimension." />
 <style>
   :root{
     --bg:#0b1020;--panel:#111735;--ink:#eaf0ff;--muted:#a9b3d6;--accent:#8fb4ff;
-    --good:#35e6a2;--warn:#ffd15a;--bad:#ff6b88;--grid:#20306b;--ring:#ff324f;
-    --glow:#9fd2ff;--ok:#3de6a0;--border:#1a2550;--amber:#ffd15a;
+    --grid:#20306b;--ring:#ff324f;--halo:#e9f4ff;--cursor:#7fb1ff;
+    --border:#1a2550;--good:#35e6a2;--amber:#ffd15a;
   }
   *{box-sizing:border-box}
   html,body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
@@ -23,163 +23,94 @@
   .card .bd{padding:14px}
   .pill{font-size:.75rem;color:var(--muted);background:#0e1430;border:1px solid var(--border);padding:4px 8px;border-radius:999px}
   label{display:block;font-size:.85rem;color:var(--muted);margin:10px 0 6px}
-  input[type="range"],select,input[type="time"],input[type="number"],input[type="text"]{width:100%}
+  input[type="number"],input[type="time"],select{width:100%}
   input,select,button{background:#0c1330;color:var(--ink);border:1px solid var(--border);border-radius:10px;padding:8px}
   button{cursor:pointer}
   button.primary{background:linear-gradient(180deg,#2446b3,#1b2f7d);border-color:#1a2f7a}
-  button:disabled{opacity:.5;cursor:not-allowed}
+  button.ghost{background:transparent}
   .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-  .meter{height:12px;background:#0b1434;border:1px solid var(--border);border-radius:999px;position:relative;overflow:hidden}
-  .meter>.fill{position:absolute;inset:0;transform-origin:left center;transform:scaleX(0);background:linear-gradient(90deg,var(--bad),var(--amber),var(--ok));filter:saturate(1.2)}
-  .reading{font-variant-numeric:tabular-nums;font-weight:600}
-  /* Wallpaper */
-  .wall{height:520px;position:relative;border-top:1px solid var(--border);border-bottom:1px solid var(--border);background:
-    repeating-linear-gradient( to right, rgba(255,255,255,.05) 0 1px, transparent 1px 40px),
-    linear-gradient(180deg, rgba(159,210,255,.04), rgba(159,210,255,.02) );
-    overflow:hidden;border-radius:14px;margin:8px 12px
-  }
+  /* WALL */
+  .wall{height:540px;position:relative;border-top:1px solid var(--border);border-bottom:1px solid var(--border);
+    background:
+      repeating-linear-gradient(to right, rgba(255,255,255,.05) 0 1px, transparent 1px 40px),
+      linear-gradient(180deg, rgba(159,210,255,.04), rgba(159,210,255,.02));
+    overflow:hidden;border-radius:14px;margin:8px 12px}
   .axis{position:absolute;left:0;right:0;height:1px;background:var(--grid);opacity:.7}
   .axis .lbl{position:absolute;left:8px;top:-10px;font-size:.7rem;color:var(--muted)}
-  .hourTick{position:absolute;top:0;bottom:0;width:2px;background:#21316b;opacity:.4}
+  .hourTick{position:absolute;top:0;bottom:0;width:2px;background:#21316b;opacity:.35}
   .hourLbl{position:absolute;top:6px;font-size:.65rem;color:var(--muted);transform:translateX(-50%)}
-  .cursor{position:absolute;top:0;bottom:0;width:2px;background:#7fb1ff;box-shadow:0 0 18px #7fb1ff}
-  canvas#viz{position:absolute;inset:0}
   .legend{display:flex;gap:10px;flex-wrap:wrap;margin:8px 12px}
   .legend span{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;color:var(--muted)}
   .dot{width:10px;height:10px;border-radius:50%}
   .stable{background:var(--ring)}
-  .unstable{background:var(--amber)}
   .note{color:var(--muted);font-size:.8rem}
-  .kbd{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; background:#0c1330;border:1px solid var(--border);border-radius:6px;padding:2px 6px}
+  .reading{font-variant-numeric:tabular-nums;font-weight:600}
+  canvas#viz{position:absolute;inset:0}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>CST String-Dimension Jump Simulator — v2 (Stable-Only)</h1>
-  <div class="sub">Live <strong>present-time</strong> ball with red rim, 24-hour string-wall, and <strong>stable-only</strong> crossings at the <strong>specific hour</strong> you choose. Multiple target dimensions supported (e.g., 3,4,5,12). Shows <em>today’s date</em> only and stays current.</div>
+  <h1>CST String-Dimension Jump Simulator — v3</h1>
+  <div class="sub">Ball with <strong>red rim</strong> rides the <strong>current CST time</strong> on the <strong>current dimension</strong>. Enter a <em>target hour</em> and <em>target dimension</em>, click <strong>Jump</strong>, and the ball will animate and <strong>lock</strong> there.</div>
 
   <div class="grid">
     <!-- LEFT: Controls -->
-    <section class="card" id="controls">
-      <div class="hd"><div>Mission Planner</div><span class="pill">Panels • Inputs</span></div>
+    <section class="card">
+      <div class="hd"><div>Mission Planner</div><span class="pill">Inputs</span></div>
       <div class="bd">
         <div class="row">
           <div>
             <label>Current Dimension</label>
-            <input type="number" id="curDim" min="1" max="12" value="3" />
+            <input type="number" id="curDim" min="1" max="12" value="1" />
           </div>
           <div>
-            <label>Δ Dimensions (step size)</label>
-            <input type="number" id="deltaDim" min="1" max="11" value="1" />
-          </div>
-        </div>
-        <div>
-          <label>Target Dimensions (comma-separated, e.g., 3,4,5,12)</label>
-          <input type="text" id="targetDims" value="4" />
-        </div>
-        <div class="row">
-          <div>
-            <label>Jump Hour (0–24)</label>
-            <input type="number" id="destHour" min="0" max="24" step="0.1" value="12" />
-          </div>
-          <div>
-            <label>Window (minutes) <span class="note">must match CST time</span></label>
-            <input type="number" id="timeWindowMin" min="0.1" step="0.1" value="2" />
-          </div>
-        </div>
-        <div class="row">
-          <div>
-            <label>CST Offset (hrs) <span class="note">relative to UTC</span></label>
+            <label>CST Offset (hrs vs UTC)</label>
             <input type="number" id="cstOffset" step="0.25" value="0" />
           </div>
-          <div>
-            <label>Base String Tension</label>
-            <input type="range" id="baseTension" min="50" max="500" value="180" />
-          </div>
         </div>
         <div class="row">
           <div>
-            <label>Paradox Threshold <span class="note">stable ≥ threshold</span></label>
-            <input type="range" id="paradoxThresh" min="0" max="1" step="0.01" value="0.60" />
+            <label>Target Dimension (1–12)</label>
+            <input type="number" id="targetDim" min="1" max="12" value="5" />
           </div>
           <div>
-            <label>Sync Weight (ε)</label>
-            <input type="range" id="syncWeight" min="0.05" max="1.0" step="0.05" value="0.30" />
+            <label>Jump Hour (0–24)</label>
+            <input type="number" id="destHour" min="0" max="24" step="0.1" value="23" />
           </div>
         </div>
         <div class="row" style="align-items:end">
-          <button id="btnJump" class="primary">Jump at Selected Time</button>
+          <button id="btnJump" class="primary">Jump & Lock</button>
+          <button id="btnUnlock" class="ghost">Unlock (Return to Live)</button>
         </div>
-        <div class="note" style="margin-top:8px">Jump is only enabled when: (a) current CST time is within the selected window of the Jump Hour, and (b) all target dimensions are <strong>stable</strong> at that hour.</div>
+        <div class="note" style="margin-top:8px">
+          Live mode: ball follows CST hour on <strong>Current Dimension</strong>. Locked mode: ball stays at <strong>Target Dimension @ Jump Hour</strong> until you press <em>Unlock</em>.
+        </div>
       </div>
     </section>
 
     <!-- RIGHT: Visualization -->
     <section class="card">
-      <div class="hd"><div>String-Wall (24h)</div><span class="pill">Live • CST</span></div>
+      <div class="hd"><div>String-Wall (24h)</div><span class="pill">CST Live</span></div>
       <div class="bd">
         <div class="legend">
-          <span><span class="dot stable"></span> red rim = paradox <strong>stable</strong> (good to cross)</span>
-          <span><span class="dot unstable"></span> amber line = paradox <strong>unstable</strong></span>
-          <span><span class="kbd">|</span> 24-hour axis ticks every 1h • Present-time ball rides the current CST hour</span>
+          <span><span class="dot stable"></span> Ball rim (red) = present or locked point</span>
+          <span><span class="dot" style="background:var(--cursor)"></span> Dashed line = selected Jump Hour</span>
+          <span class="note">Ticks every 1h • Dimensions 1–12 labeled on left</span>
         </div>
         <div class="wall" id="wall">
           <canvas id="viz"></canvas>
         </div>
         <div class="row">
           <div>
-            <label>Equilibrium (live)</label>
-            <div class="meter"><div class="fill" id="eqFill"></div></div>
-            <div class="reading" id="eqVal">—</div>
-          </div>
-          <div>
-            <label>Power (arb. units, live)</label>
-            <div class="meter"><div class="fill" id="pFill"></div></div>
-            <div class="reading" id="pVal">—</div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- CLOCKS -->
-    <section class="card">
-      <div class="hd"><div>Clock Panel</div><span class="pill">UTC • Local • CST</span></div>
-      <div class="bd" id="clocks">
-        <div class="row">
-          <div>
             <label>UTC</label>
             <div class="reading" id="utcClock">—</div>
           </div>
           <div>
-            <label>Local (Browser)</label>
-            <div class="reading" id="locClock">—</div>
-          </div>
-        </div>
-        <div class="row">
-          <div>
-            <label>CST (Cosmic Standard Time)</label>
+            <label>CST</label>
             <div class="reading" id="cstClock">—</div>
           </div>
-          <div>
-            <label>Δ Sync to Jump (min)</label>
-            <div class="reading" id="syncErr">—</div>
-          </div>
         </div>
-        <div class="note" style="margin-top:8px">Today: <span id="todayStr">—</span></div>
-      </div>
-    </section>
-
-    <!-- MODEL NOTES -->
-    <section class="card">
-      <div class="hd"><div>Model • Equations</div><span class="pill">Concept basis</span></div>
-      <div class="bd">
-        <div class="note" style="line-height:1.5">
-          <strong>String tension per dimension:</strong> T(i) = T₀·(1 + 0.05·i).<br>
-          <strong>Paradox stability field:</strong> S(i,t) = 0.5·[1 + cos(ωᵢ·t + φᵢ)], ωᵢ = 0.4 + 0.06·i.<br>
-          <strong>CST mis-sync:</strong> ε = W·|CST_hour − Jump_hour|/24 (wrapped).<br>
-          <strong>Equilibrium index:</strong> E = clamp(1 − (ε + (1−S̄)), 0, 1), with S̄ averaged across targets.<br>
-          <strong>Jump energy (Power proxy):</strong> P = κ · T(i*) · (Δdim)² · (ε + 0.1) / (0.4 + S̄), using worst-case target i*.
-        </div>
+        <div class="note" style="margin-top:8px">Today (CST frame): <span id="todayStr">—</span></div>
       </div>
     </section>
   </div>
@@ -191,39 +122,33 @@
   const wall = document.getElementById('wall');
   const canvas = document.getElementById('viz');
   const ctx = canvas.getContext('2d');
-  const eqFill = document.getElementById('eqFill');
-  const pFill  = document.getElementById('pFill');
-  const eqVal  = document.getElementById('eqVal');
-  const pVal   = document.getElementById('pVal');
-  const utcClock = document.getElementById('utcClock');
-  const locClock = document.getElementById('locClock');
-  const cstClock = document.getElementById('cstClock');
-  const syncErr  = document.getElementById('syncErr');
-  const todayStr = document.getElementById('todayStr');
 
-  const curDim = document.getElementById('curDim');
-  const deltaDim = document.getElementById('deltaDim');
-  const targetDims = document.getElementById('targetDims');
-  const destHour = document.getElementById('destHour');
-  const timeWindowMin = document.getElementById('timeWindowMin');
+  const curDim    = document.getElementById('curDim');
+  const targetDim = document.getElementById('targetDim');
+  const destHour  = document.getElementById('destHour');
   const cstOffset = document.getElementById('cstOffset');
-  const baseTension = document.getElementById('baseTension');
-  const paradoxThresh = document.getElementById('paradoxThresh');
-  const syncWeight = document.getElementById('syncWeight');
-  const btnJump = document.getElementById('btnJump');
 
-  // Layout
+  const utcClock  = document.getElementById('utcClock');
+  const cstClock  = document.getElementById('cstClock');
+  const todayStr  = document.getElementById('todayStr');
+
+  const btnJump   = document.getElementById('btnJump');
+  const btnUnlock = document.getElementById('btnUnlock');
+
+  // Layout helpers
   function resize(){
     const rect = wall.getBoundingClientRect();
-    canvas.width = Math.floor(rect.width);
+    canvas.width  = Math.floor(rect.width);
     canvas.height = Math.floor(rect.height);
-    drawWallpaper();
+    buildGrid();
   }
   window.addEventListener('resize', resize);
 
-  // Hour ticks and dimension axes
+  // Grid build (axes + hour ticks)
   function buildGrid(){
+    // clear old DOM ticks/labels
     [...wall.querySelectorAll('.hourTick,.hourLbl,.axis')].forEach(n=>n.remove());
+    // dimension axes
     for(let i=1;i<=12;i++){
       const y = lineY(i);
       const axis = document.createElement('div');
@@ -233,7 +158,7 @@
       axis.appendChild(lbl);
       wall.appendChild(axis);
     }
-    const W = wall.getBoundingClientRect().width;
+    // hour ticks/labels
     for(let h=0;h<=24;h++){
       const x = hourX(h);
       const tick = document.createElement('div');
@@ -245,74 +170,39 @@
     }
   }
 
-  function lineY(i){ const H = canvas.height; const pad=26; const usable = H - pad*2; const step = usable/11; return Math.round(pad + (i-1)*step); }
-  function hourX(h){ const W = canvas.width; const pad=20; const usable=W-pad*2; return Math.round(pad + (h/24)*usable); }
-
-  // Physics model
-  let phaseSeed = Array.from({length:12},(_,i)=>Math.random()*Math.PI*2);
-  function S(i, hour, t){
-    const w = 0.4 + 0.06*i; const phi = phaseSeed[i-1]; const arg = w*(t/1000/10) + 0.6*hour + phi; return 0.5*(1 + Math.cos(arg));
+  function lineY(i){
+    const H = canvas.height; const pad=26; const usable = H - pad*2; const step = usable/11;
+    return Math.round(pad + (i-1)*step);
   }
-  function Tension(i){ const T0 = +baseTension.value; return T0*(1+0.05*i); }
-  function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+  function hourX(h){
+    const W = canvas.width; const pad=20; const usable=W-pad*2;
+    return Math.round(pad + (h/24)*usable);
+  }
 
-  function getCSTHour(){
+  // Time helpers
+  function getCSTDate(){
     const now = new Date();
-    const utcHr = now.getUTCHours() + now.getUTCMinutes()/60 + now.getUTCSeconds()/3600;
-    let cstHr = utcHr + (+cstOffset.value); cstHr = ((cstHr%24)+24)%24; return cstHr;
+    const utcMs = now.getTime() + now.getTimezoneOffset()*60000;
+    return new Date(utcMs + (+cstOffset.value)*3600000);
+  }
+  function getCSTHour(){
+    const d = getCSTDate();
+    return d.getHours() + d.getMinutes()/60 + d.getSeconds()/3600;
+  }
+  function fmtTime(d){
+    const hh = String(d.getHours()).padStart(2,'0');
+    const mm = String(d.getMinutes()).padStart(2,'0');
+    const ss = String(d.getSeconds()).padStart(2,'0');
+    return `${hh}:${mm}:${ss}`;
   }
 
-  function parseTargets(){
-    return targetDims.value.split(/\s*,\s*/).map(s=>parseInt(s,10)).filter(n=>Number.isFinite(n)&&n>=1&&n<=12);
-  }
+  // State: live vs locked
+  let locked = false;
+  let lockDim = 1;
+  let lockHour = 0;
+  let anim = null;
 
-  function liveCompute(){
-    const hour = +destHour.value;
-    const Wt = +syncWeight.value;
-    const targets = parseTargets();
-    const cstHr = getCSTHour();
-    let eps = Math.abs(cstHr - hour); if(eps>12) eps = 24-eps; // wrap
-    eps = Wt * (eps/24);
-
-    const t = performance.now();
-    let Ssum=0, Sworst=1; let iWorst=targets[0]||1;
-    for(const i of (targets.length?targets:[+curDim.value])){
-      const s = S(i, hour, t); Ssum += s; if(s<Sworst){Sworst=s; iWorst=i;}
-    }
-    const Savg = (targets.length?Ssum/targets.length:Sworst);
-    const E = clamp(1 - (eps + (1 - Savg)), 0, 1);
-
-    const k = 12; const dDim = +deltaDim.value; const P = k * Tension(iWorst) * (dDim*dDim) * (eps + 0.1) / (0.4 + Savg);
-    const Pn = clamp(P/2000,0,1);
-
-    eqFill.style.transform = `scaleX(${E})`;
-    pFill.style.transform  = `scaleX(${Pn})`;
-    eqVal.textContent = `${(E*100).toFixed(1)}%`;
-    pVal.textContent  = P.toFixed(1);
-
-    // enable jump only if time matches AND all targets stable
-    const minutesErr = Math.abs((cstHr - hour))*60; const windowMin = +timeWindowMin.value; const timeOK = minutesErr <= windowMin;
-    const th = +paradoxThresh.value;
-    let allStable = true; for(const i of (targets.length?targets:[+curDim.value])){ if(S(i,hour,t) < th) { allStable=false; break; } }
-    btnJump.disabled = !(timeOK && allStable);
-    btnJump.title = btnJump.disabled ? 'Wait for CST time window and stability ≥ threshold on all targets' : 'Ready: Stable & in time window';
-  }
-
-  // Present-time ball position (moves continuously on current dimension)
-  function presentBall(){
-    const i = +curDim.value; const y = lineY(i); const x = hourX(getCSTHour());
-    // rim is red (present-time)
-    ctx.save(); ctx.translate(x,y);
-    const R = 12 + 2*Math.sin(performance.now()/160);
-    const g = ctx.createRadialGradient(0,0,0,0,0,R*3);
-    g.addColorStop(0,'rgba(217,236,255,0.95)'); g.addColorStop(1,'rgba(159,210,255,0.06)');
-    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,R*3,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle='#d9ecff'; ctx.beginPath(); ctx.arc(0,0,R,0,Math.PI*2); ctx.fill();
-    ctx.lineWidth=3; ctx.strokeStyle='#ff324f'; ctx.beginPath(); ctx.arc(0,0,R+2,0,Math.PI*2); ctx.stroke();
-    ctx.restore();
-  }
-
-  // Draw loop
+  // Draw background wallpaper
   function drawWallpaper(){
     const W = canvas.width, H = canvas.height; ctx.clearRect(0,0,W,H);
     const t = performance.now()/1000;
@@ -321,86 +211,140 @@
       const y = (Math.cos(n*9.3 + t*0.6)*0.5+0.5) * (H-40) + 20;
       const r = 0.6 + 0.6*Math.sin(t*1.5 + n);
       ctx.globalAlpha = 0.08 + 0.08*Math.sin(t*2 + n);
-      ctx.fillStyle = '#d9ecff'; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); ctx.globalAlpha = 1;
+      ctx.fillStyle = '#d9ecff';
+      ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); ctx.globalAlpha = 1;
     }
-    // dimension strings colored by stability at the chosen jump hour
-    const th = +paradoxThresh.value; const hour = +destHour.value; const now = performance.now();
+  }
+
+  // Draw planned hour cursor (dashed)
+  function drawPlannedHour(){
+    const xPlan = hourX(+destHour.value);
+    ctx.save();
+    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--cursor') || '#7fb1ff';
+    ctx.setLineDash([6,6]);
+    ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(xPlan,0); ctx.lineTo(xPlan,canvas.height); ctx.stroke();
+    ctx.restore();
+  }
+
+  // Draw present/locked ball
+  function drawBall(x, y, pulsing=true){
+    ctx.save(); ctx.translate(x,y);
+    const R = 12 + (pulsing ? 2*Math.sin(performance.now()/160) : 0);
+    const g = ctx.createRadialGradient(0,0,0,0,0,R*3);
+    g.addColorStop(0,'rgba(233,244,255,0.95)');
+    g.addColorStop(1,'rgba(159,210,255,0.06)');
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,R*3,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle= '#e9f4ff'; ctx.beginPath(); ctx.arc(0,0,R,0,Math.PI*2); ctx.fill();
+    ctx.lineWidth=3; ctx.strokeStyle = '#ff324f'; // red rim
+    ctx.beginPath(); ctx.arc(0,0,R+2,0,Math.PI*2); ctx.stroke();
+    ctx.restore();
+  }
+
+  // Draw dimension strings (subtle wobble)
+  function drawStrings(){
+    const now = performance.now();
     for(let i=1;i<=12;i++){
-      const y = lineY(i); const s = S(i,hour,now);
-      const col = s>=th ? 'rgba(255,50,79,0.9)' : 'rgba(255,209,90,0.9)';
-      ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(hourX(0), y);
-      for(let h=1;h<=24;h++) ctx.lineTo(hourX(h), y + Math.sin((h+now/1000)*0.2 + i)*0.6);
+      const y = lineY(i);
+      ctx.strokeStyle = 'rgba(255,50,79,0.55)'; // soft red
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(hourX(0), y);
+      for(let h=1; h<=24; h++){
+        ctx.lineTo(hourX(h), y + Math.sin((h+now/1000)*0.2 + i)*0.6);
+      }
       ctx.stroke();
     }
-    // planned hour cursor
-    const xPlan = hourX(+destHour.value); ctx.strokeStyle = '#7fb1ff'; ctx.setLineDash([6,6]); ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(xPlan,0); ctx.lineTo(xPlan,H); ctx.stroke(); ctx.setLineDash([]);
-
-    // present-time ball
-    presentBall();
   }
 
-  // Jump animation: sequentially through selected target dimensions at planned hour
-  let anim=null; let targetsQueue=[]; let startDim=1;
+  // Animation for jump
   function startJump(){
-    const targets = parseTargets(); if(!targets.length) return;
-    startDim = +curDim.value; targetsQueue = [...targets];
-    animateNext();
+    const cd = +curDim.value;
+    const td = +targetDim.value;
+    const dh = +destHour.value;
+
+    if(td<1 || td>12) return;
+    if(dh<0 || dh>24) return;
+
+    // if user picked current dimension & exact current hour, just lock in place
+    const liveHr = getCSTHour();
+    const x0 = hourX(liveHr), y0 = lineY(cd);
+    const x1 = hourX(dh),     y1 = lineY(td);
+
+    const DUR = 1200 + 200*Math.abs(td - cd);
+    const t0  = performance.now();
+    anim = {t0, DUR, x0, y0, x1, y1, td, dh};
+
+    // during animation we are not "locked" yet
+    locked = false;
   }
-  function animateNext(){
-    if(!targetsQueue.length){ return; }
-    const dest = targetsQueue.shift(); const hour = +destHour.value; const y0 = lineY(startDim); const y1 = lineY(dest); const x1 = hourX(hour);
-    const dSteps = Math.abs(dest - startDim); const DUR = 1400 + 200*dSteps;
-    anim = { t0: performance.now(), DUR, y0, y1, x1, dest };
-    requestAnimationFrame(step);
-  }
-  function step(now){
-    if(!anim) return; const {t0,DUR,y0,y1,x1,dest} = anim; const p = clamp((now-t0)/DUR,0,1);
-    drawWallpaper();
-    const x0 = hourX(getCSTHour()); // start from present-time x
-    const cx = x0 + (x1-x0)*0.5, cy = Math.min(y0,y1) - 60 - 40*Math.sin(now/300);
+
+  function stepAnimation(now){
+    if(!anim) return false;
+    const {t0,DUR,x0,y0,x1,y1,td,dh} = anim;
+    const p = Math.max(0, Math.min(1, (now - t0)/DUR));
+    // quadratic bezier control (arch)
+    const cx = x0 + (x1-x0)*0.5;
+    const cy = Math.min(y0,y1) - 60 - 40*Math.sin(now/300);
     const x = (1-p)*(1-p)*x0 + 2*(1-p)*p*cx + p*p*x1;
     const y = (1-p)*(1-p)*y0 + 2*(1-p)*p*cy + p*p*y1;
 
-    // draw moving ball (rim red during transit)
-    ctx.save(); ctx.translate(x,y);
-    const R = 12 + 2*Math.sin(now/160);
-    const g = ctx.createRadialGradient(0,0,0,0,0,R*3);
-    g.addColorStop(0,'rgba(217,236,255,0.95)'); g.addColorStop(1,'rgba(159,210,255,0.06)');
-    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,R*3,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle='#d9ecff'; ctx.beginPath(); ctx.arc(0,0,R,0,Math.PI*2); ctx.fill();
-    ctx.lineWidth=3; ctx.strokeStyle='#ff324f'; ctx.beginPath(); ctx.arc(0,0,R+2,0,Math.PI*2); ctx.stroke(); ctx.restore();
-
-    if(p<1){ requestAnimationFrame(step); } else { anim=null; startDim = dest; if(targetsQueue.length){ animateNext(); } }
+    drawWallpaper(); drawStrings(); drawPlannedHour(); drawBall(x,y);
+    if(p>=1){
+      // lock at destination
+      locked = true; lockDim = td; lockHour = dh; anim = null;
+    }
+    return true;
   }
 
-  // Interactions
-  btnJump.addEventListener('click', startJump);
-  [curDim, deltaDim, targetDims, destHour, timeWindowMin, cstOffset, baseTension, paradoxThresh, syncWeight].forEach(el=>{
-    el.addEventListener('input', ()=>{ /* live compute handled in tick */ });
-  });
+  // Main loop
+  function loop(){
+    const now = performance.now();
+    if(anim){
+      stepAnimation(now);
+    }else{
+      drawWallpaper(); drawStrings(); drawPlannedHour();
+      if(locked){
+        // locked at selected time & dimension (no movement with time)
+        const x = hourX(lockHour);
+        const y = lineY(lockDim);
+        drawBall(x,y,false);
+      }else{
+        // live: follow current CST hour on current dimension
+        const liveHr = getCSTHour();
+        const x = hourX(liveHr);
+        const y = lineY(+curDim.value);
+        drawBall(x,y,true);
+      }
+    }
+    tickClocks();
+    requestAnimationFrame(loop);
+  }
 
   // Clocks
-  function formatTime(d){
-    const hh = String(d.getHours()).padStart(2,'0');
-    const mm = String(d.getMinutes()).padStart(2,'0');
-    const ss = String(d.getSeconds()).padStart(2,'0');
-    return `${hh}:${mm}:${ss}`;
-  }
   function tickClocks(){
     const now = new Date();
-    locClock.textContent = formatTime(now);
-    const utc = new Date(now.getTime() + now.getTimezoneOffset()*60000); utcClock.textContent = formatTime(utc);
-    const cstDate = new Date(utc.getTime() + (+cstOffset.value)*3600000); cstClock.textContent = formatTime(cstDate);
-    todayStr.textContent = cstDate.toDateString();
-    // Δ sync to jump in minutes (wrapped)
-    const cstHr = getCSTHour(); let dh = Math.abs(cstHr - (+destHour.value)); if(dh>12) dh=24-dh; syncErr.textContent = (dh*60).toFixed(1);
+    const utc = new Date(now.getTime() + now.getTimezoneOffset()*60000);
+    const cst = getCSTDate();
+    utcClock.textContent = fmtTime(utc);
+    cstClock.textContent = fmtTime(cst);
+    todayStr.textContent = cst.toDateString();
   }
 
-  function loop(){
-    liveCompute(); drawWallpaper(); tickClocks(); requestAnimationFrame(loop);
-  }
+  // Events
+  btnJump.addEventListener('click', ()=>{
+    // prevent jumping to the same dimension & hour as already locked—just keep locked
+    if(locked && +targetDim.value===lockDim && +destHour.value===lockHour) return;
+    startJump();
+  });
+  btnUnlock.addEventListener('click', ()=>{
+    locked = false; anim = null;
+  });
 
-  function init(){ resize(); buildGrid(); loop(); }
+  [curDim,targetDim,destHour,cstOffset].forEach(el=>{
+    el.addEventListener('input', ()=>{ /* reactive via loop */ });
+  });
+
+  function init(){ resize(); requestAnimationFrame(loop); }
   window.addEventListener('load', init);
 })();
 </script>
