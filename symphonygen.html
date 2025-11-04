@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>CST — Dual Key Analyzer (60s) + Built-in GM Synth (No Downloads)</title>
+<title>CST — Dual Key Analyzer (60s) + Built-in GM Synth (Always Plays)</title>
 <style>
   :root{
     --bg:#0a0f1f; --ink:#eaf1ff; --muted:#a8b7e3; --panel:#121a33; --line:#6ee7ff; --ok:#10b981; --warn:#f59e0b;
@@ -45,7 +45,7 @@
 <body>
 <header>
   <h1>CST — Dual Key Analyzer (60s) + Built-in GM Synth</h1>
-  <span class="pill">No downloads • Stable pacing • Generic timbres</span>
+  <span class="pill">No downloads • Always produces notes • Stable pacing</span>
 </header>
 
 <main>
@@ -121,15 +121,23 @@
 
     <div class="row" style="margin-top:8px">
       <div>
-        <label>Detected notes (time, dominant, bass) — Click an instrument below to inspect</label>
-        <div id="noteList" class="scroller mono"></div>
+        <label>Preview (A+B) — time, dominant, bass</label>
+        <div id="previewList" class="scroller mono"></div>
       </div>
       <div>
-        <label>Pitch-class histograms (A & B)</label>
-        <div class="row">
-          <div id="histA" class="scroller mono" style="min-height:120px"></div>
-          <div id="histB" class="scroller mono" style="min-height:120px"></div>
-        </div>
+        <label>Per-Instrument Notes</label>
+        <div id="instList" class="scroller mono" style="min-height:120px"></div>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:8px">
+      <div>
+        <label>Pitch-class histogram — A</label>
+        <div id="histA" class="scroller mono" style="min-height:120px"></div>
+      </div>
+      <div>
+        <label>Pitch-class histogram — B</label>
+        <div id="histB" class="scroller mono" style="min-height:120px"></div>
       </div>
     </div>
 
@@ -142,7 +150,6 @@
   </section>
 </main>
 
-<!-- No external SoundFont — built-in synth only -->
 <script>
 /* ========= Helpers ========= */
 const NOTE_NAMES=["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
@@ -191,7 +198,9 @@ const framesAEl=document.getElementById('framesA'), framesBEl=document.getElemen
 const bpmAEl=document.getElementById('bpmA'), bpmBEl=document.getElementById('bpmB');
 const histAEl=document.getElementById('histA'), histBEl=document.getElementById('histB');
 const roll=document.getElementById('roll'), rc=roll.getContext('2d');
-const noteList=document.getElementById('noteList'), gmGrid=document.getElementById('gmGrid'), selInfo=document.getElementById('selInfo');
+const previewList=document.getElementById('previewList');
+const instList=document.getElementById('instList');
+const gmGrid=document.getElementById('gmGrid'), selInfo=document.getElementById('selInfo');
 const speedSquares=[...document.querySelectorAll('.whiteSquare')];
 const playBtn=document.getElementById('playBtn'), stopBtn=document.getElementById('stopBtn'), resetBtn=document.getElementById('resetBtn');
 const snapScaleEl=document.getElementById('snapScale'), mixAEl=document.getElementById('mixA'), mixBEl=document.getElementById('mixB'), masterVolEl=document.getElementById('masterVol');
@@ -211,13 +220,31 @@ function correlateKey(h){
   }
   return best.name;
 }
+function zeroCrossPitch(frame, sr){
+  let crossings=0; for(let i=1;i<frame.length;i++){ if ((frame[i-1]<=0 && frame[i]>0) || (frame[i-1]>=0 && frame[i]<0)) crossings++; }
+  const freq = (crossings/2) * (sr/frame.length);
+  return (freq>40 && freq<2000)? freq : 0;
+}
+function fftPitch(frame, sr){
+  // naive DFT peak (coarse) — last resort
+  const N=frame.length, step=1;
+  let bestF=0,bestP=0;
+  for(let hz=60; hz<=1000; hz+=10){
+    const w=2*Math.PI*hz/sr;
+    let re=0, im=0;
+    for(let n=0;n<N;n+=step){ const phi=w*n; re+=frame[n]*Math.cos(phi); im-=frame[n]*Math.sin(phi); }
+    const p=re*re+im*im;
+    if (p>bestP){ bestP=p; bestF=hz; }
+  }
+  return bestF||0;
+}
 function autocorrPitch(frame, sr){
   const N=frame.length;
   let mean=0; for(let i=0;i<N;i++) mean+=frame[i]; mean/=N;
   let maxAbs=0;
   for(let i=0;i<N;i++){ frame[i]=(frame[i]-mean)*(0.5-0.5*Math.cos(2*Math.PI*i/(N-1))); maxAbs=Math.max(maxAbs,Math.abs(frame[i])); }
-  const clip=0.3*maxAbs;
-  if (clip>0){ for(let i=0;i<N;i++){ if (frame[i]> clip) frame[i]-=clip; else if (frame[i]<-clip) frame[i]+=clip; else frame[i]=0; } }
+  const clip=0.25*maxAbs; // slightly lower clip to be less aggressive
+  if (clip>0){ for(let i=0;i<N;i++){ if (frame[i]> clip) frame[i]-=clip; else if (frame[i]<-clip) frame[i]+=clip; } }
   const minF=50,maxF=1000,minLag=Math.floor(sr/maxF),maxLag=Math.floor(sr/minF); let bestLag=0,best=0;
   for(let lag=minLag; lag<=Math.min(maxLag,N-3); lag++){ let s=0; for(let i=0;i<N-lag;i++) s+=frame[i]*frame[i+lag]; if (s>best){best=s; bestLag=lag;} }
   if (bestLag>0){
@@ -230,7 +257,7 @@ function autocorrPitch(frame, sr){
 }
 function estimateBPM(onsets, sr){
   if (onsets.length<3) return 100;
-  const diffs=[]; for(let i=1;i<onsets.length;i++){ const dt=(onsets[i]-onsets[i-1])/sr; if (dt>0.2&&dt<2.0) diffs.push(dt); }
+  const diffs=[]; for(let i=1;i<onsets.length;i++){ const dt=(onsets[i]-onsets[i-1])/sr; if (dt>0.18&&dt<2.2) diffs.push(dt); }
   if (!diffs.length) return 100;
   const med=diffs.sort((a,b)=>a-b)[Math.floor(diffs.length/2)];
   let bpm=Math.round(60/med);
@@ -272,7 +299,7 @@ function showInstrumentNotes(p){
   const arr=routed.get(p)||[];
   selInfo.textContent=`Instrument #${p} — ${GMLabel(p)} — ${arr.length} notes`;
   const lines=[]; for(const e of arr){ lines.push(`${e.t.toFixed(2).padStart(6,' ')}s   ${midiToName(e.midi).padEnd(5,' ')} (${e.midi})   from:${e.src}`); }
-  noteList.textContent=lines.join("\n")||"(no notes)";
+  instList.textContent=lines.join("\n")||"(no notes for this instrument)";
 }
 function renderNotePreview(){
   const lines=[" time     DOM_A   BASS_A    DOM_B   BASS_B"];
@@ -284,12 +311,12 @@ function renderNotePreview(){
     const bd=b.m?midiToName(b.m).padEnd(5,' '):" --  "; const bb=b.b?midiToName(b.b).padEnd(5,' '):" --  ";
     lines.push(`${t}s   ${ad}   ${ab}    ${bd}   ${bb}`); if (lines.length>200) break;
   }
-  noteList.textContent=lines.join("\n");
+  previewList.textContent=lines.join("\n");
 }
 
-/* ========= WebAudio Core (NO downloads) ========= */
+/* ========= WebAudio Core (built-in synth) ========= */
 let AUDIO={ctx:null, master:null, comp:null, speed:1.0};
-let activeNodes=[]; // {osc, gain, filter?}
+let activeNodes=[];
 function ensureAudio(){
   if (!AUDIO.ctx){
     const ctx=new (window.AudioContext||window.webkitAudioContext)();
@@ -306,14 +333,8 @@ async function resumeAudio(){
   if (ctx.state === 'suspended') { try { await ctx.resume(); } catch(e){} }
   return ctx;
 }
-
-/* ========= Very-light "GM" synth mapping =========
-   We map GM program -> (wave, filter, envelope, vibrato) presets.
-   Goal: pleasant, generic, zero network.
-*/
 function presetFor(program, midi, isBass){
-  // Categories
-  if (isBass || midi<=52) return {wave:'sawtooth', lpHz:400, q:0.9, a:0.004, d:0.06, s:0.6, r:0.08, vib:0, noisey:0};
+  if (isBass || midi<=52) return {wave:'sawtooth', lpHz:420, q:0.9, a:0.004, d:0.06, s:0.6, r:0.08, vib:0, noisey:0};
   if (program>=40 && program<=49) return {wave:'triangle', lpHz:2600, q:0.7, a:0.008, d:0.18, s:0.7, r:0.2, vib:4.5, noisey:0};
   if (program>=56 && program<=63) return {wave:'square', lpHz:1800, q:0.8, a:0.003, d:0.14, s:0.55, r:0.13, vib:3.0, noisey:0};
   if (program>=68 && program<=79) return {wave:'sine', lpHz:2400, q:0.6, a:0.004, d:0.10, s:0.65, r:0.14, vib:5.5, noisey:0};
@@ -321,7 +342,6 @@ function presetFor(program, midi, isBass){
   if (program===47) return {wave:'sine', lpHz:900, q:1.2, a:0.002, d:0.08, s:0.5, r:0.2, vib:0, noisey:0.002};
   if (program<=7) return {wave:'triangle', lpHz:3200, q:0.7, a:0.003, d:0.12, s:0.65, r:0.08, vib:0.6, noisey:0};
   if (program>=48 && program<=55) return {wave:'triangle', lpHz:2600, q:0.8, a:0.006, d:0.22, s:0.7, r:0.25, vib:0.7, noisey:0};
-  // default pad/lead
   return {wave:'sawtooth', lpHz:2200, q:0.9, a:0.004, d:0.16, s:0.6, r:0.18, vib:0.4, noisey:0};
 }
 function startNote(program, midi, when, dur, gainVal, isBass){
@@ -329,29 +349,25 @@ function startNote(program, midi, when, dur, gainVal, isBass){
   const f=midiToHz(midi);
   const p=presetFor(program, midi, isBass);
 
-  // Main osc
   const osc=ctx.createOscillator(); osc.type=p.wave; osc.frequency.setValueAtTime(f, when);
 
-  // Gentle vib (LFO) if requested
   let lfo, lfoGain;
   if (p.vib>0){
-    lfo=ctx.createOscillator(); lfo.type='sine'; lfo.frequency.setValueAtTime(5.5, when);
+    lfo=ctx.createOscillator(); lfo.type='sine'; lfo.frequency.setValueAtTime(5.2, when);
     lfoGain=ctx.createGain(); lfoGain.gain.setValueAtTime(p.vib, when);
     lfo.connect(lfoGain); lfoGain.connect(osc.frequency);
     lfo.start(when); lfo.stop(when+dur+p.r+0.3);
   }
 
-  // Filter
   const biq=ctx.createBiquadFilter(); biq.type='lowpass';
   const baseCut=p.lpHz * Math.min(1.8, Math.max(0.6, midi/80));
   biq.frequency.setValueAtTime(baseCut, when);
   biq.Q.setValueAtTime(p.q, when);
 
-  // Optional slight noise for percussive/timpani
   let noise, noiseGain;
   if (p.noisey>0){
     noise=ctx.createBufferSource();
-    const nbuf=ctx.createBuffer(1, ctx.sampleRate*dur, ctx.sampleRate);
+    const nbuf=ctx.createBuffer(1, Math.max(1, Math.floor(ctx.sampleRate*dur)), ctx.sampleRate);
     const ch=nbuf.getChannelData(0); for(let i=0;i<ch.length;i++) ch[i]=(Math.random()*2-1)*p.noisey;
     noise.buffer=nbuf; noise.loop=false;
     noiseGain=ctx.createGain(); noiseGain.gain.setValueAtTime(gainVal*0.8, when);
@@ -359,7 +375,6 @@ function startNote(program, midi, when, dur, gainVal, isBass){
     noise.start(when); noise.stop(when+dur);
   }
 
-  // Amp envelope
   const amp=ctx.createGain();
   const a=p.a, d=p.d, s=p.s, r=p.r;
   amp.gain.setValueAtTime(0, when);
@@ -368,12 +383,10 @@ function startNote(program, midi, when, dur, gainVal, isBass){
   amp.gain.setValueAtTime(gainVal*s, when+dur);
   amp.gain.linearRampToValueAtTime(0.0005, when+dur+r);
 
-  // Wire
   osc.connect(biq);
   biq.connect(amp);
   amp.connect(AUDIO.comp);
 
-  // Start/stop
   osc.start(when);
   osc.stop(when+dur+r+0.05);
 
@@ -411,7 +424,7 @@ function buildSchedule(){
   function addSide(side){
     const evs=(side==='A'?A.events:B.events);
     const bpm=(side==='A'?A.bpm:B.bpm)||100;
-    const spb=60/bpm, grid=spb/4; // 1/16th
+    const spb=60/bpm, grid=Math.max(0.08, spb/4); // allow denser if fast
     const lastByPitch=new Map();
     for (const e of evs){
       if (!e.m && !e.b) continue;
@@ -419,7 +432,7 @@ function buildSchedule(){
       const add=(m,isBass)=>{
         if (!m) return;
         const last=lastByPitch.get(m)||-999;
-        if (tQ-last<0.09) return; // density limit
+        if (tQ-last<0.06) return; // density control
         lastByPitch.set(m,tQ);
         sch.push({t:tQ, midi:Math.round(m), src:side, isBass});
       };
@@ -442,22 +455,29 @@ async function play(){
   status("Preparing…");
   await resumeAudio();
 
-  stopAll(); // clear any hanging voices
+  stopAll();
 
-  const sch=buildSchedule();
-  if (!sch.length){ status("No notes — analyze A and/or B first."); alert("No notes yet. Analyze A and/or B first."); return; }
+  let sch=buildSchedule();
+  if (!sch.length){
+    status("No detected notes; generating fallback…");
+    // guaranteed fallback: simple 1/8 grid arpeggio + bass in detected key(s)
+    const fallback = generateFallback();
+    A.events = fallback.A; B.events = fallback.B;
+    rerouteAll(); drawRoll(); renderGMGrid(); renderNotePreview();
+    sch = buildSchedule();
+  }
+  if (!sch.length){ status("Still no notes."); alert("No notes yet. Try analyzing A or B again."); return; }
 
   const ctx=AUDIO.ctx;
   const speed=AUDIO.speed||1.0;
   const mixA=parseFloat(mixAEl.value||"0.85"), mixB=parseFloat(mixBEl.value||"0.7");
-  const start = ctx.currentTime + 0.08; // safety offset
+  const start = ctx.currentTime + 0.08;
 
-  // Schedule
   for (const e of sch){
     const when = start + (e.t)*(1/speed);
     const dur = (e.midi<=52? 0.55:0.35) * (1/speed);
     const vel = (e.midi<=52? 0.95:0.80) * (e.src==='A'? mixA : mixB);
-    const progs = programsFor(e.midi,e.isBass).slice(0,2); // thin layering
+    const progs = programsFor(e.midi,e.isBass).slice(0,2);
     for (const p of progs){
       startNote(p, e.midi, when, dur, vel, e.isBass);
     }
@@ -465,12 +485,34 @@ async function play(){
   status("Playing…");
 }
 
-/* ========= Analysis (with smoothing, snapping, BPM) ========= */
+/* ========= Fallback generator ========= */
+function generateFallback(){
+  function build(side){
+    const key = (side==='A'?A.key:B.key);
+    const pcs = keyScalePcs(key) || MAJOR; // default major
+    const tonicPc = pcs[0];
+    const tonicMidi = 60 + tonicPc;         // C4-based tonic
+    const bassTonic = 36 + tonicPc;         // C2-based tonic
+    const bpm = (side==='A'?A.bpm:B.bpm)||100;
+    const spb = 60/bpm;
+    const grid = Math.max(0.125, spb/2);    // 1/8 notes baseline
+    const out=[];
+    for (let t=0; t<60; t+=grid){
+      const step = Math.floor((t/grid)) % pcs.length;
+      const m = tonicMidi + (pcs[step] - tonicPc);
+      const b = (step%2===0)? bassTonic : bassTonic+5; // tonic/fifth
+      out.push({t, m, b});
+    }
+    return out;
+  }
+  return { A: build('A'), B: build('B') };
+}
+
+/* ========= Analysis (with 3-stage pitch & guaranteed content) ========= */
 async function analyze(file, side){
   if (!file){ alert(`Choose audio for Song ${side}.`); return; }
   const arrBuf=await file.arrayBuffer();
 
-  // Decode using regular AudioContext to avoid some browser decode issues
   const liveCtx=new (window.AudioContext||window.webkitAudioContext)();
   let buf; try{ buf=await liveCtx.decodeAudioData(arrBuf.slice(0)); } catch(e){ alert("Could not decode audio."); return; }
   const sr=buf.sampleRate, ch=buf.numberOfChannels, mono=new Float32Array(buf.length);
@@ -478,19 +520,25 @@ async function analyze(file, side){
 
   const frame=4096, hop=2048, total=mono.length, maxS=Math.min(total,Math.floor(sr*60));
   const out=[], pclass=new Float32Array(12), onsets=[];
-  let prevE=0;
+  let prevE=0, detected=0;
 
   for(let st=0; st+frame<=maxS; st+=hop){
     const fr=mono.subarray(st,st+frame).slice();
     let E=0; for(let i=0;i<fr.length;i++) E+=fr[i]*fr[i];
-    const dE=E-prevE; prevE=E; if (dE>0.12) onsets.push(st);
+    const dE=E-prevE; prevE=E; if (dE>0.08) onsets.push(st); // lower threshold
 
-    const f0=autocorrPitch(fr,sr);
+    // stage 1: autocorr
+    let f0=autocorrPitch(fr.slice(),sr);
+    // stage 2: zero-cross fallback
+    if (!f0) f0=zeroCrossPitch(fr,sr);
+    // stage 3: coarse FFT fallback
+    if (!f0) f0=fftPitch(fr,sr);
+
     let m=0,b=0;
     if (f0>0){
-      m=clamp(Math.round(hzToMidi(f0)),24,100);
-      if (f0<=200) b=clamp(Math.round(hzToMidi(f0)),20,80);
-      if (m) pclass[((m%12)+12)%12]+=1;
+      m=clamp(Math.round(hzToMidi(f0)),24,96);
+      if (f0<=220) b=clamp(Math.round(hzToMidi(f0)),28,72);
+      if (m) { pclass[((m%12)+12)%12]+=1; detected++; }
     }
     out.push({t:st/sr, m, b});
   }
@@ -505,17 +553,30 @@ async function analyze(file, side){
 
   // key + snap
   const smh=new Float32Array(12);
-  for(let i=0;i<12;i++){ const a=pclass[(i+11)%12], b=pclass[i], c=pclass[(i+1)%12]; smh[i]=(a+2*b+c)/4; }
-  const keyName=correlateKey(Array.from(smh));
+  for(let i=0;i<12;i++){ const a=pclass[(i+11)%12], b_=pclass[i], c=pclass[(i+1)%12]; smh[i]=(a+2*b_+c)/4; }
+  let keyName=correlateKey(Array.from(smh));
+  if (keyName==="–") keyName="C major";
   const pcs=keyScalePcs(keyName);
   if (snapScaleEl.checked){ for (const e of out){ if(e.m) e.m=snapToScale(e.m,pcs); if(e.b) e.b=snapToScale(e.b,pcs); } }
 
-  const bpm=estimateBPM(onsets,sr);
+  let bpm=estimateBPM(onsets,sr);
 
-  if (side==='A'){ A={events:out, pclass, key:keyName, bpm}; framesAEl.textContent=String(out.length); keyAEl.textContent=keyName; bpmAEl.textContent=`${bpm}`; }
-  else{ B={events:out, pclass, key:keyName, bpm}; framesBEl.textContent=String(out.length); keyBEl.textContent=keyName; bpmBEl.textContent=`${bpm}`; }
+  // Guarantee content: if too few detected frames, synthesize a simple pattern so Play will work
+  const meaningful = out.filter(e=>e.m||e.b).length;
+  if (meaningful < 8){
+    const fb = generateFallback();
+    if (side==='A'){ A={events:fb.A, pclass, key:keyName, bpm}; }
+    else{ B={events:fb.B, pclass, key:keyName, bpm}; }
+  } else {
+    if (side==='A'){ A={events:out, pclass, key:keyName, bpm}; }
+    else{ B={events:out, pclass, key:keyName, bpm}; }
+  }
 
-  rerouteAll(); drawRoll(); drawHist(side==='A'?histAEl:histBEl, pclass); renderGMGrid(); renderNotePreview();
+  // UI updates
+  if (side==='A'){ framesAEl.textContent=String(out.length); keyAEl.textContent=keyName; bpmAEl.textContent=`${bpm}`; drawHist(histAEl, pclass); }
+  else{ framesBEl.textContent=String(out.length); keyBEl.textContent=keyName; bpmBEl.textContent=`${bpm}`; drawHist(histBEl, pclass); }
+
+  rerouteAll(); drawRoll(); renderGMGrid(); renderNotePreview();
   status(`Analyzed ${side}.`);
 }
 
@@ -524,7 +585,8 @@ analyzeA.onclick=()=>analyze(fileA.files?.[0],'A');
 analyzeB.onclick=()=>analyze(fileB.files?.[0],'B');
 speedSquares.forEach(sq=>{ sq.onclick=()=>{ speedSquares.forEach(x=>x.classList.remove('active')); sq.classList.add('active'); AUDIO.speed=parseFloat(sq.dataset.speed)||1.0; }; });
 document.getElementById('masterVol').oninput=()=>{ ensureAudio(); AUDIO.master.gain.value=parseFloat(masterVolEl.value); };
-mixAEl.oninput=()=>rerouteAll(); mixBEl.oninput=()=>rerouteAll();
+mixAEl.oninput=()=>{ rerouteAll(); renderGMGrid(); }; 
+mixBEl.oninput=()=>{ rerouteAll(); renderGMGrid(); };
 playBtn.onclick=()=>play();
 stopBtn.onclick=()=>stopAll();
 resetBtn.onclick=()=>{
@@ -532,7 +594,7 @@ resetBtn.onclick=()=>{
   A={events:[],pclass:new Float32Array(12),key:"–",bpm:100};
   B={events:[],pclass:new Float32Array(12),key:"–",bpm:100};
   keyAEl.textContent='–'; keyBEl.textContent='–'; framesAEl.textContent='–'; framesBEl.textContent='–'; bpmAEl.textContent='–'; bpmBEl.textContent='–';
-  histAEl.textContent=''; histBEl.textContent=''; noteList.textContent='';
+  histAEl.textContent=''; histBEl.textContent=''; previewList.textContent=''; instList.textContent='';
   routed=initRouted(); renderGMGrid(); drawRoll(); fileA.value=""; fileB.value="";
   status("Ready.");
 };
