@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>CST — Dual Key Analyzer (60s) + General MIDI Playback</title>
+<title>CST — Dual Key Analyzer (60s) + General MIDI Playback (Fixed Play)</title>
 <style>
   :root{
     --bg:#0a0f1f; --ink:#eaf1ff; --muted:#a8b7e3; --panel:#121a33; --line:#6ee7ff; --ok:#10b981; --warn:#f59e0b;
@@ -39,12 +39,13 @@
   .gmItem .cnt{font-size:12px;color:#9ee6c9}
   .panelTitle{display:flex;align-items:center;justify-content:space-between}
   .btnRow{display:flex;gap:10px;flex-wrap:wrap}
+  #status{font-size:12px;color:#9ad1ff;margin-top:8px}
 </style>
 </head>
 <body>
 <header>
   <h1>CST — Dual Key Analyzer (60s) + GM SoundFont Playback</h1>
-  <span class="pill">Real GM timbres • Better tuning • Stable pacing</span>
+  <span class="pill">Real GM timbres • Stable pacing</span>
 </header>
 
 <main>
@@ -100,7 +101,7 @@
         <input id="masterVol" type="range" min="0" max="1" step="0.01" value="0.75"/>
       </div>
       <div style="margin-top:8px">
-        <label style="font-size:12px;color:#a8b7e3"><input id="snapScale" type="checkbox" checked/> Snap detected notes to detected key (major/minor)</label>
+        <label style="font-size:12px;color:#a8b7e3"><input id="snapScale" type="checkbox" checked/> Snap detected notes to detected key</label>
       </div>
     </div>
 
@@ -110,6 +111,7 @@
       <button id="stopBtn" class="danger">Stop</button>
       <button id="resetBtn">Reset</button>
     </div>
+    <div id="status">Ready.</div>
   </section>
 
   <!-- RIGHT: Visuals & Instruments -->
@@ -155,15 +157,14 @@ function median(vals){ const s=[...vals].sort((a,b)=>a-b); const n=s.length; ret
 function keyPc(name){ return NOTE_NAMES.indexOf(name.split(" ")[0]); }
 function keyScalePcs(keyName){ const tonic=keyPc(keyName); if (tonic<0) return null; const isMinor=keyName.toLowerCase().includes("minor"); const base=isMinor?MINOR:MAJOR; return base.map(pc=>(pc+tonic+120)%12); }
 function snapToScale(midi, pcs){
-  if (!pcs) return midi;
+  if (!pcs) return Math.round(midi);
   const pc=((Math.round(midi)%12)+12)%12;
   if (pcs.includes(pc)) return Math.round(midi);
   for (const d of [1,-1,2,-2]){ const cand=((pc+d)+12)%12; if (pcs.includes(cand)) return Math.round(midi)+d; }
   return Math.round(midi);
 }
 
-/* ========= GM program names for soundfont-player =========
-   We map a subset directly; others fall back to acoustic_grand_piano. */
+/* ========= GM program names for soundfont-player ========= */
 const GM_NAMES={
   0:'acoustic_grand_piano',1:'bright_acoustic_piano',2:'electric_grand_piano',4:'electric_piano_1',5:'electric_piano_2',
   40:'violin',41:'viola',42:'cello',43:'contrabass',46:'orchestral_harp',47:'timpani',
@@ -187,6 +188,7 @@ const noteList=document.getElementById('noteList'), gmGrid=document.getElementBy
 const speedSquares=[...document.querySelectorAll('.whiteSquare')];
 const playBtn=document.getElementById('playBtn'), stopBtn=document.getElementById('stopBtn'), resetBtn=document.getElementById('resetBtn');
 const snapScaleEl=document.getElementById('snapScale'), mixAEl=document.getElementById('mixA'), mixBEl=document.getElementById('mixB'), masterVolEl=document.getElementById('masterVol');
+const statusEl=document.getElementById('status');
 
 /* ========= Analyzer core ========= */
 const KS_MAJOR=[6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88];
@@ -259,7 +261,7 @@ function renderGMGrid(){
   }
   showInstrumentNotes(selectedProg);
 }
-function GMLabel(p){ // compact label
+function GMLabel(p){
   const names=[
 "0 Acoustic Grand Piano","1 Bright Acoustic Piano","2 Electric Grand Piano","3 Honky-tonk Piano","4 Rhodes Piano","5 Chorused Piano","6 Harpsichord","7 Clavinet",
 "8 Celesta","9 Glockenspiel","10 Music Box","11 Vibraphone","12 Marimba","13 Xylophone","14 Tubular Bells","15 Dulcimer",
@@ -312,13 +314,16 @@ function ensureAudio(){
   AUDIO.master.gain.value=parseFloat(masterVolEl.value||"0.75");
   return AUDIO.ctx;
 }
+async function resumeAudio(){
+  const ctx=ensureAudio();
+  if (ctx.state === 'suspended') { try { await ctx.resume(); } catch(e){} }
+  return ctx;
+}
 async function getGM(program){
   const name=gmName(program);
   if (gmCache.has(program)) return gmCache.get(program);
   const ctx=ensureAudio();
-  // MusyngKite soundfont is high-quality GM: instrument names match ones above
   const inst=await Soundfont.instrument(ctx, name, { soundfont: 'MusyngKite', gain: 0.9 });
-  // Route through compressor/master
   inst.connect(AUDIO.comp);
   gmCache.set(program, inst);
   return inst;
@@ -359,7 +364,6 @@ function buildSchedule(){
     }
   }
   addSide('A'); addSide('B');
-  // assign programs by range/family at play time (to reduce duplication here)
   return sch.filter(x=>x.t>=0&&x.t<60).sort((a,b)=>a.t-b.t);
 }
 
@@ -370,40 +374,43 @@ function programsFor(midi,isBass){
   return [40,73,56,72,0,48];
 }
 async function play(){
-  stopAll(); ensureAudio();
-  const sch=buildSchedule();
-  if (!sch.length){ alert("No notes yet. Analyze A and/or B first."); return; }
+  status("Preparing…");
+  await resumeAudio();
 
-  // Preload needed instruments (speeds up during playback)
+  stopAll(); // clear any hanging voices
+  const sch=buildSchedule();
+  if (!sch.length){ status("No notes — analyze A and/or B first."); alert("No notes yet. Analyze A and/or B first."); return; }
+
+  // Preload instruments first (so scheduling uses a steady start time)
+  status("Loading instruments…");
   const needed=new Set();
   for (const e of sch){ for (const p of programsFor(e.midi,e.isBass)) needed.add(p); }
   await Promise.all([...needed].map(p=>getGM(p)));
 
-  const start=AUDIO.ctx.currentTime;
+  const ctx=AUDIO.ctx;
   const speed=AUDIO.speed||1.0;
   const mixA=parseFloat(mixAEl.value||"0.85"), mixB=parseFloat(mixBEl.value||"0.7");
 
+  const start = ctx.currentTime + 0.06; // small safety offset
   for (const e of sch){
-    const when = (e.t) * (1/speed);
+    const when = start + (e.t)*(1/speed);
     const dur = (e.midi<=52? 0.55:0.35) * (1/speed);
     const vel = (e.midi<=52? 0.95:0.80) * (e.src==='A'? mixA : mixB);
-    const progs = programsFor(e.midi,e.isBass);
-
-    // To avoid ultra-thick doubling, pick up to 2 programs per event
-    const pick = progs.slice(0,2);
-    for (const p of pick){
+    const progs = programsFor(e.midi,e.isBass).slice(0,2); // max 2 layers
+    for (const p of progs){
       const inst = await getGM(p);
-      // play returns a source with a stop() we can store
-      const src = inst.play(e.midi, start + when, {duration: dur, gain: vel});
+      const src = inst.play(e.midi, when, {duration: dur, gain: vel});
       activeVoices.push(src);
     }
   }
+  status("Playing…");
 }
 function stopAll(){
-  // stop scheduled voices
   for (const v of activeVoices){ try{ v.stop(); }catch(_){ } }
   activeVoices.length=0;
+  status("Stopped.");
 }
+function status(msg){ statusEl.textContent = msg; }
 
 /* ========= Analysis (with smoothing, snapping, BPM) ========= */
 async function analyze(file, side){
@@ -430,9 +437,10 @@ async function analyze(file, side){
     }
     out.push({t:st/sr, m, b});
   }
-  // median smoothing (window 5)
-  function smooth(list,key){ const win=5, half=2; const arr=list.map(e=>e[key]||0), sm=[];
-    for(let i=0;i<arr.length;i++){ const winVals=[]; for(let k=Math.max(0,i-half); k<=Math.min(arr.length-1,i+half); k++) if(arr[k]) winVals.push(arr[k]); sm[i]=winVals.length?Math.round(median(winVals)):0; }
+  // median smoothing
+  function smooth(list,key){ const half=2; const arr=list.map(e=>e[key]||0), sm=[];
+    for(let i=0;i<arr.length;i++){ const wnd=[]; for(let k=Math.max(0,i-half); k<=Math.min(arr.length-1,i+half); k++) if(arr[k]) wnd.push(arr[k]);
+      sm[i]=wnd.length?Math.round(median(wnd)):0; }
     for(let i=0;i<list.length;i++) list[i][key]=sm[i];
   }
   smooth(out,'m'); smooth(out,'b');
@@ -450,6 +458,7 @@ async function analyze(file, side){
   else{ B={events:out, pclass, key:keyName, bpm}; framesBEl.textContent=String(out.length); keyBEl.textContent=keyName; bpmBEl.textContent=`${bpm}`; }
 
   rerouteAll(); drawRoll(); drawHist(side==='A'?histAEl:histBEl, pclass); renderGMGrid(); renderNotePreview();
+  status(`Analyzed ${side}.`);
 }
 
 /* ========= Wire up ========= */
@@ -467,6 +476,7 @@ resetBtn.onclick=()=>{
   keyAEl.textContent='–'; keyBEl.textContent='–'; framesAEl.textContent='–'; framesBEl.textContent='–'; bpmAEl.textContent='–'; bpmBEl.textContent='–';
   histAEl.textContent=''; histBEl.textContent=''; noteList.textContent='';
   routed=initRouted(); renderGMGrid(); drawRoll(); fileA.value=""; fileB.value="";
+  status("Ready.");
 };
 
 /* ========= Init ========= */
