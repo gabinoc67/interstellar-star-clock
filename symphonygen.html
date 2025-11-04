@@ -1,3 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>CST LIVE Symphony — 1-Minute Orchestral Follower</title>
+<meta name="description" content="Upload a song, analyze its first minute, and render a symphonic version with alternating orchestral instruments synced to tempo and rhythm."/>
+<style>
+  :root{
+    --bg:#081022; --panel:#0f1636; --ink:#e9f1ff; --muted:#9fb2e4; --grid:#1a2658; --btn:#15235a;
+    --good:#153560; --warn:#5b3d00; --ok:#153560; --border:#274a9a;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
+  .wrap{max-width:1200px;margin:0 auto;padding:18px}
+  h1{margin:0 0 6px;font-size:1.35rem}
+  p.sub{margin:0 0 12px;color:var(--muted)}
+  .card{background:var(--panel);border:1px solid var(--grid);border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.25);overflow:hidden;margin-bottom:12px}
+  .pad{padding:14px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  button{background:var(--btn);color:var(--ink);border:1px solid var(--border);border-radius:12px;padding:10px 14px;cursor:pointer}
+  button:disabled{opacity:.55;cursor:not-allowed}
+  button:hover:not(:disabled){filter:brightness(1.08)}
+  .status{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px}
+  .status>div{background:#0b1333;border:1px solid var(--grid);border-radius:10px;padding:10px;min-height:54px}
+  .tiny{font-size:.85rem;color:var(--muted)}
+  .cols{display:grid;grid-template-columns:1.2fr .8fr;gap:12px}
+  .secTitle{font-weight:600;margin:6px 0 8px}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center}
+  .kv label{color:var(--muted)}
+  input[type="range"]{width:100%}
+  #msg{display:none;margin-left:8px;padding:6px 10px;border-radius:10px;border:1px solid var(--border)}
+  .panelTitle{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+  .pill{font-size:.8rem;color:#cfe1ff}
+  canvas{width:100%;height:260px;display:block;background:linear-gradient(180deg,#0b1536,#0b1230)}
+  .instGrid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .instRow{display:flex;align-items:center;gap:8px;padding:6px 8px;background:#0b1333;border:1px solid var(--grid);border-radius:10px}
+  .instRow label{flex:1}
+  .tag{font-size:.75rem;color:#cde;border:1px solid #2a3f8f;border-radius:8px;padding:1px 8px}
+  .soft{color:var(--muted);font-size:.9rem}
+  .mono{font-family:ui-monospace,SFMono-Regular,Consolas,Menlo,monospace}
+  .listbox{min-height:80px;background:#0b1333;border:1px solid var(--grid);border-radius:10px;padding:8px}
+  .help{background:#0b1333;border:1px solid var(--grid);border-radius:10px;padding:10px}
+  .note{font-size:.85rem;color:#c9d6ff}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>CST LIVE Symphony — 1-Minute Orchestral Follower</h1>
+  <p class="sub">Upload a song → <b>Analyze</b> (first 60s only) → wait for <b>LIVE — PLAY</b> to light → enjoy an alternating orchestral rendering. LIVE won’t stop until you press <b>Stop</b>.</p>
+
+  <section class="card">
+    <div class="pad">
+      <div class="row">
+        <input id="file" type="file" accept="audio/*"/>
+        <button id="analyze">Analyze</button>
+        <button id="live" disabled>LIVE — PLAY</button>
+        <button id="stop">Stop</button>
+        <button id="reset">Reset</button>
+        <button id="export">⬇ WAV</button>
+        <span id="msg"></span>
+      </div>
+
+      <div class="status">
+        <div><b>BPM</b><div id="bpm" class="tiny">–</div></div>
+        <div><b>Length</b><div id="len" class="tiny">–</div></div>
+        <div><b>Cadence</b><div id="cadOut" class="tiny">Random</div></div>
+        <div><b>Will Play</b><div id="willPlay" class="tiny listbox"></div></div>
+      </div>
+    </div>
+    <canvas id="timeline" title="Timeline of instruments & notes"></canvas>
+  </section>
+
+  <section class="card">
+    <div class="pad cols">
+      <div>
+        <div class="panelTitle">
+          <div class="secTitle">Orchestration (Select/Deselect)</div>
+          <div class="row">
+            <button id="allOn">All On</button>
+            <button id="allOff">All Off</button>
+            <button id="saveSel">Save Selection</button>
+          </div>
+        </div>
+        <div id="instList" class="instGrid"></div>
+      </div>
+
+      <div>
+        <div class="secTitle">Form, Cadence & Feel</div>
+        <div class="kv">
+          <label for="cadence">Cadence</label>
+          <select id="cadence">
+            <option value="random">Random (safe)</option>
+            <option value="I-IV-V-I">I–IV–V–I</option>
+            <option value="I-vi-IV-V">I–vi–IV–V</option>
+            <option value="ii-V-I">ii–V–I</option>
+            <option value="I-V-vi-IV">I–V–vi–IV</option>
+            <option value="custom">Custom…</option>
+          </select>
+
+          <label for="cadenceCustom">Custom (I, IV, V or degrees 0..11)</label>
+          <input id="cadenceCustom" class="mono" placeholder="I, IV, V, I" disabled/>
+
+          <label for="swing">Swing (1=straight)</label>
+          <div><input id="swing" type="range" min="1.00" max="1.50" step="0.01" value="1.10"/><div class="tiny">= <span id="swingVal">1.10</span></div></div>
+
+          <label for="dotTri">Dotted/Tri tilt</label>
+          <div><input id="dotTri" type="range" min="-0.4" max="0.6" step="0.05" value="0.30"/><div class="tiny">= <span id="dotTriVal">0.30</span></div></div>
+
+          <label>Voices per beat</label>
+          <div>
+            <input id="vmin" type="range" min="1" max="6" step="1" value="1"/> <span class="tiny" id="vminVal">1</span>
+            <br/>
+            <input id="vmax" type="range" min="2" max="8" step="1" value="4"/> <span class="tiny" id="vmaxVal">4</span>
+            <div class="tiny">range: <span id="vb">1–4</span></div>
+          </div>
+
+          <label for="bassDepth">Bass depth</label>
+          <div><input id="bassDepth" type="range" min="0.8" max="1.8" step="0.05" value="1.15"/><div class="tiny">= <span id="bassDepthVal">1.15</span></div></div>
+        </div>
+
+        <div class="help" style="margin-top:10px">
+          <b>How to use cadence & custom roots/degrees</b>
+          <ul class="note">
+            <li><b>Pattern cadence</b> = repeating chord plan (e.g., I–IV–V–I). It shapes the harmony your instruments follow.</li>
+            <li><b>Custom</b>: type <span class="mono">I, IV, V, I</span> or degree numbers <span class="mono">0, 5, 7, 0</span> (C=0, D=2, …, B=11). Commas or spaces OK.</li>
+            <li>Change cadence anytime; it applies when you press <b>LIVE — PLAY</b>. No need to Stop first (but you can).</li>
+          </ul>
+          <b>What “equations” are used?</b>
+          <ul class="note">
+            <li><b>Tempo & rhythm</b>: autocorrelation beat-finding + peak picking.</li>
+            <li><b>Timing modes</b>: φ-phase (CST drift), mild Fourier swing, prime-index thinning (less clutter).</li>
+            <li><b>Voice gating</b>: dynamic voices per beat using your Vmin–Vmax sliders.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
 <script>
 /* ========= Helpers & UX ========= */
 const $ = (id)=>document.getElementById(id);
@@ -85,9 +224,9 @@ const ORCH = [
 const ORCH_MASTER = ORCH.map(i=>i.name);
 function labelOf(inst){ return inst?.label || (inst?.name||'').replace(/_/g,' ').replace(/\b\w/g,m=>m.toUpperCase()); }
 
-/* ========= Instrument Selection (UI + Persistence on demand) ========= */
+/* ========= Instrument Selection (UI + Persistence) ========= */
 let INST_SELECTION = {}; // name -> bool
-const LS_KEY='cst_orch_selection_v2';
+const LS_KEY='cst_orch_selection_v3';
 function loadSelection(){ try{ const s=localStorage.getItem(LS_KEY); if(s){ INST_SELECTION=JSON.parse(s); } }catch(e){} }
 function saveSelection(){ localStorage.setItem(LS_KEY, JSON.stringify(INST_SELECTION)); setMsg('Instrument selection saved.'); }
 function buildInstList(){
@@ -105,7 +244,7 @@ function buildInstList(){
 }
 function selectAll(v=true){ ORCH_MASTER.forEach(n=>INST_SELECTION[n]=v); buildInstList(); if(!v) setMsg('All instruments disabled. Enable a few to play.','warn'); else setMsg('All instruments enabled.'); }
 
-/* Random 20 instruments on each Analyze/Reset (even for same song) */
+/* Random 20 instruments on Analyze/Reset */
 function randomize20(){
   ORCH_MASTER.forEach(n=>INST_SELECTION[n]=false);
   const pool=[...ORCH_MASTER];
@@ -172,7 +311,6 @@ function monoMixFirstMinute(buf){
   for(let i=0;i<maxSamp;i++) out[i]=0.5*(ch0[i]+ch1[i]);
   return out;
 }
-/* Chunked RMS envelope to keep UI responsive */
 async function energyEnvelopeAsync(x, win=2048, hop=1024, onProgress=null){
   const out=[]; let i=0; const N=x.length; const chunk=256*hop;
   while(i+win<=N){
@@ -182,7 +320,7 @@ async function energyEnvelopeAsync(x, win=2048, hop=1024, onProgress=null){
       out.push(Math.sqrt(s/win));
     }
     if(onProgress) onProgress(out.length/(N/hop));
-    await new Promise(r=>setTimeout(r,0)); // yield
+    await new Promise(r=>setTimeout(r,0)); // yield to UI
   }
   return {env:out, hop};
 }
@@ -203,11 +341,11 @@ function peakPickBeats(env, sr, hop, bpm, hard=60){
     const r=Math.round(0.25*spb); let bestI=center,bestV=-1;
     for(let k=center-r; k<=center+r; k++){ if(k<0||k>=env.length) continue; const v=env[k]; if(v>bestV){bestV=v; bestI=k;} }
     const t=bestI/fps; if(t>hard) break;
-    beats.push(bestI); n++;
+    beats.push(bestI);
+    n++;
   }
   return beats.map(i=>i/fps);
 }
-
 /* ========= Harmony / Cadence ========= */
 function chordFromDegree(deg){
   const map={'I':0,'ii':2,'iii':4,'IV':5,'V':7,'vi':9,'VII':11};
@@ -223,23 +361,15 @@ function cadenceList(name, custom){
   if(name==='custom'){ if(!custom) return ['I','IV','V','I']; return custom.split(/[,\s]+/).filter(Boolean); }
   return ['I','IV','V','I'];
 }
-/* Random cadence preset (soft choice) */
 const CADENCE_PRESETS=['I-IV-V-I','I-vi-IV-V','ii-V-I','I-V-vi-IV'];
 function pickRandomCadence(){ return CADENCE_PRESETS[Math.floor(Math.random()*CADENCE_PRESETS.length)]; }
 
-/* ========= Equations Mode (subtle shaping) =========
-   One or two picked each run:
-   - phi: CST phase uses φ (~0.618) fraction of beat
-   - fourier: add mild sinus swing
-   - prime: skip accents on prime indices for airy feel
-*/
+/* ========= “Equations” timing modes ========= */
 function pickEquationModes(){
   const opts=['phi','fourier','prime'];
   const shuffled=[...opts].sort(()=>Math.random()-0.5);
   return shuffled.slice(0, 1 + Math.floor(Math.random()*2)); // 1 or 2
 }
-
-/* ========= Score Generator ========= */
 function eqPhaseCST(modes, beatPeriod){
   let phase = 0;
   const now = new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})
@@ -249,6 +379,8 @@ function eqPhaseCST(modes, beatPeriod){
   phase += (sec%10)/100; // tiny live CST drift
   return (phase%1)*beatPeriod;
 }
+
+/* ========= Score Generator ========= */
 function generateScore(params){
   const { bpm, totalSecs, energyArr, cadenceNames, swingBase, dotTri, vmin, vmax, bassDepth, modes } = params;
   const beatPeriod = 60/bpm, beatsPerBar=4;
@@ -257,7 +389,6 @@ function generateScore(params){
   const totalBars = Math.max(1, Math.floor(totalBeats/beatsPerBar));
   const barChords = Array.from({length: totalBars}, (_,b)=> chordFromDegree(cadenceNames[b % cadenceNames.length]));
 
-  // pickers
   const allowedNames = ORCH.filter(i=>INST_SELECTION[i.name]).map(i=>i.name);
   if(!allowedNames.length) return {events:[],bpm,totalSecs};
   function pickByRole(role){
@@ -266,10 +397,9 @@ function generateScore(params){
     return c[Math.floor(Math.random()*c.length)];
   }
 
-  // registers
   const REG = { lead:72, bed:60, bass:36, spark:79 };
   const events=[]; const last={lead:null,bass:null,bed:null,spark:null};
-  const cadenceGain = 0.75; // softer cadence chords overall
+  const cadenceGain = 0.75; // soften cadence
 
   for(let b=0;b<totalBeats;b++){
     const bar = Math.floor(b/beatsPerBar);
@@ -281,7 +411,6 @@ function generateScore(params){
     const E = energyArr.length ? energyArr[Math.min(energyArr.length-1, b)] : 0.5;
     let V = clamp(Math.round(vmin + (vmax - vmin)*E), 1, 8);
 
-    // “prime” mode: thin texture on prime indices (2,3,5,7,11…)
     if(modes.includes('prime')){
       const isPrime = (n)=>{ if(n<2) return false; for(let k=2;k*k<=n;k++) if(n%k===0) return false; return true; };
       if(isPrime(b)) V = Math.max(1, V-1);
@@ -294,7 +423,6 @@ function generateScore(params){
     if(V>=4) want.push(Math.random()<0.6?'spark':'counter');
     if(V>=5) want.push('counter');
 
-    // variable swing (fourier mode adds a mild sinus variation)
     let swing = swingBase;
     if(modes.includes('fourier')){
       swing = clamp(1.0 + 0.25*Math.sin(2*Math.PI*(b/16)), 1.0, 1.5);
@@ -306,7 +434,6 @@ function generateScore(params){
       const prev=last.lead;
       const chordTones=[root,third,fifth,(root+2)%12,(root+9)%12];
       const target = (prev==null ? REG.lead+root : prev);
-      // choose nearest chord tone
       let best=REG.lead+root, bestDist=1e9;
       for(const ct of chordTones){ for(let k=-2;k<=2;k++){ const m=REG.lead + (ct+12*k); const d=Math.abs(m-target); if(d<bestDist){bestDist=d; best=m;} } }
       const e8 = beatPeriod/2;
@@ -318,7 +445,7 @@ function generateScore(params){
       last.lead=best;
     }
 
-    // Bass (always gentle)
+    // Bass
     if(want.includes('bass')){
       const inst = pickByRole('bass') || {name:'double_bass', type:'bass'};
       const prev=last.bass;
@@ -330,7 +457,7 @@ function generateScore(params){
       last.bass=m;
     }
 
-    // Cadence bed chords (softer with cadenceGain)
+    // Bed chords
     if(want.includes('bed')){
       const inst = pickByRole('bed') || {name:'cello', type:'bowed'};
       const base = REG.bed + root;
@@ -357,7 +484,7 @@ function generateScore(params){
       }
     }
 
-    // Light perc scaffold (very low so cadence isn’t loud)
+    // Gentle perc
     if(INST_SELECTION['timpani'] || INST_SELECTION['snare'] || INST_SELECTION['bass_drum']){
       if(inBar===0 && INST_SELECTION['bass_drum']) PATCH.k(tBeat, 0.35+0.25*E);
       if(inBar===2 && INST_SELECTION['snare']) PATCH.s(tBeat+0.02, 0.25+0.15*E);
@@ -368,7 +495,7 @@ function generateScore(params){
   return {events, bpm, seconds: totalSecs};
 }
 
-/* ========= Playback ========= */
+/* ========= Playback & Export ========= */
 function playScore(score){
   if(playing) return; // LIVE never toggles stop
   const start=ACTX.currentTime+0.2; playing=true; scheduled.length=0;
@@ -385,7 +512,6 @@ function playScore(score){
   });
 }
 
-/* ========= Offline Render (WAV) ========= */
 async function renderWav(score){
   await unlockAudio();
   const sr=44100, len=score.seconds+2;
@@ -398,14 +524,14 @@ async function renderWav(score){
   function add(inst,type,m,when,dur,vel){
     if(type==='bowed' || type==='reed'){ const o=osc('sawtooth',hz(m)),f=ctx.createBiquadFilter(); f.type='lowpass'; f.frequency.value=2200; const g=ctx.createGain(); ev(g,when,0.04,0.45,0.8,Math.max(0.05,dur-0.4),0.3,vel*0.55); o.connect(f); f.connect(g); g.connect(B[inst].g); o.start(when); o.stop(when+dur+0.6); }
     else if(type==='brass'){ const o=osc('sawtooth',hz(m)),f=ctx.createBiquadFilter(); f.type='lowpass'; f.frequency.value=1800; const g=ctx.createGain(); ev(g,when,0.02,0.25,0.6,Math.max(0.05,dur-0.3),0.25,vel*0.55); o.connect(f); f.connect(g); g.connect(B[inst].g); o.start(when); o.stop(when+dur+0.4); }
-    else if(type==='pluck'){ const o=osc('triangle',hz(m)); const g=ctx.createGain(); ev(g,when,0.002,0.22,0.35,0.01,0.4,vel*0.6); o.connect(g); g.connect(B[inst].g); o.start(when); o.stop(when+dur+0.5); }
-    else if(type==='bell'){ const o=osc('sine',hz(m)); const g=ctx.createGain(); ev(g,when,0.002,0.6,0.3,0.02,1.2,vel*0.6); o.connect(g); g.connect(B[inst].g); o.start(when); o.stop(when+dur+1.1); }
-    else if(type==='organ'){ const o1=osc('sine',hz(m)),o2=osc('sine',hz(m)*2); const g=ctx.createGain(); ev(g,when,0.05,0.5,0.85,Math.max(0.05,dur-0.45),0.35,vel*0.55); o1.connect(g); o2.connect(g); g.connect(B[inst].g); o1.start(when); o2.start(when); o1.stop(when+dur+0.6); o2.stop(when+dur+0.6); }
-    else if(type==='bass'){ const o=osc('triangle',hz(m)); const g=ctx.createGain(); ev(g,when,0.01,0.3,0.5,Math.max(0.05,dur-0.25),0.25,vel*0.65*(+$('bassDepth').value)); o.connect(g); g.connect(B[inst].g); o.start(when); o.stop(when+dur+0.35); }
+    else if(type==='pluck'){ const o=osc('triangle',hz(m)); const g=ctx.createGain(); ev(g,when,0.002,0.22,0.35,0.01,0.4,vel*0.6); o.connect(g); g.connect(B[inst].g); o.start(when); o.stop(when+0.5); }
+    else if(type==='bell'){ const o=osc('sine',hz(m)); const g=ctx.createGain(); ev(g,when,0.002,0.6,0.3,0.02,1.2,vel*0.6); o.connect(g); g.connect(B[inst].g); o.start(when); o.stop(when+1.1); }
+    else if(type==='organ'){ const o1=osc('sine',hz(m)),o2=osc('sine',hz(m)*2); const g=ctx.createGain(); ev(g,when,0.05,0.5,0.85,Math.max(0.05,dur-0.45),0.35,vel*0.55); o1.connect(g); o2.connect(g); g.connect(B[inst].g); o1.start(when); o2.start(when); o1.stop(when+0.6); o2.stop(when+0.6); }
+    else if(type==='bass'){ const o=osc('triangle',hz(m)); const g=ctx.createGain(); ev(g,when,0.01,0.3,0.5,Math.max(0.05,dur-0.25),0.25,vel*0.65*(+$('bassDepth').value)); o.connect(g); g.connect(B[inst].g); o.start(when); o.stop(when+0.35); }
   }
   score.events.forEach(e=> add(e.inst,e.type,e.midi, e.time+0.05, e.dur, e.vel));
   const buf=await ctx.startRendering();
-  // WAV
+  // WAV packing
   function interleave(L,R){ const out=new Float32Array(L.length+R.length); for(let i=0,j=0;i<L.length;i++,j+=2){ out[j]=L[i]; out[j+1]=R[i]; } return out; }
   function f32To16(view,off,data){ for(let i=0;i<data.length;i++,off+=2){ let s=Math.max(-1,Math.min(1,data[i])); s=s<0?s*0x8000:s*0x7FFF; view.setInt16(off,s,true);} }
   function w(view,off,str){ for(let i=0;i<str.length;i++) view.setUint8(off+i,str.charCodeAt(i)); }
@@ -438,7 +564,6 @@ if($('cadence')) $('cadence').addEventListener('change',()=>{
 });
 if($('cadenceCustom')) $('cadenceCustom').addEventListener('input',()=>{ if($('cadence').value==='custom'){ if($('cadOut')) $('cadOut').textContent='Custom'; setMsg('Custom cadence updated — press LIVE to apply.'); } });
 
-/* Buttons */
 if($('allOn')) $('allOn').addEventListener('click',()=>{ selectAll(true); });
 if($('allOff')) $('allOff').addEventListener('click',()=>{ selectAll(false); });
 if($('saveSel')) $('saveSel').addEventListener('click', saveSelection);
@@ -451,19 +576,18 @@ if($('analyze')) $('analyze').addEventListener('click', async ()=>{
 
   try{
     await unlockAudio(); initBuses();
-    // Randomize a fresh 20-instrument set every Analyze (as requested)
-    randomize20();
+    randomize20(); // fresh 20 instruments
 
     const buf = await decodeFileToBuffer(f); SOURCEBUF=buf;
     const mono = monoMixFirstMinute(buf);
     const sr = buf.sampleRate;
 
-    // Progress UI (no freeze)
     const {env,hop} = await energyEnvelopeAsync(mono,2048,1024,(p)=>{ setMsg(`Analyzing… ${Math.round(p*100)}%`); });
     const bpm = autocorrTempo(env,sr,hop);
     const beats = peakPickBeats(env,sr,hop,bpm,MAX_ANALYZE_SECONDS);
     const seconds = Math.min(MAX_ANALYZE_SECONDS, buf.duration);
-    const beatEnergy = beats.map(t=>{ const fps=sr/hop; const idx=Math.max(0,Math.min(env.length-1, Math.round(t*fps))); return env[idx]; });
+    const fps=sr/hop;
+    const beatEnergy = beats.map(t=>{ const idx=Math.max(0,Math.min(env.length-1, Math.round(t*fps))); return env[idx]; });
     const maxE = beatEnergy.reduce((a,b)=>Math.max(a,b),0.0001);
     const E = beatEnergy.map(x=> clamp(x/maxE,0,1));
     ANALYSIS={bpm:Math.round(bpm),seconds,beats,energy:E};
@@ -481,7 +605,6 @@ if($('live')) $('live').addEventListener('click', async ()=>{
   if(!ANALYSIS.bpm){ setMsg('Analyze first, then LIVE.','warn'); return; }
   if(playing){ setMsg('Already playing. Press Stop to silence; or change settings and press LIVE to regenerate.'); return; }
 
-  // Random cadence preset on LIVE if user hasn't changed it since reset
   let cadName=$('cadence')?.value||'I-IV-V-I';
   if(!cadName || cadName==='random') cadName = pickRandomCadence();
   if(cadName!=='custom' && $('cadence')) $('cadence').value=cadName;
@@ -489,7 +612,6 @@ if($('live')) $('live').addEventListener('click', async ()=>{
   const cadenceSeq=cadenceList(cadName, cadCustom);
   if($('cadOut')) $('cadOut').textContent=(cadName==='custom'?(cadCustom||'Custom'):cadName).replace(/-/g,'–');
 
-  // Modes (equations)
   const modes = pickEquationModes();
 
   const params = {
@@ -508,8 +630,7 @@ if($('live')) $('live').addEventListener('click', async ()=>{
   if(!SCORE || !SCORE.events.length){ setMsg('No playable events (maybe no instruments selected).','warn'); return; }
   drawTimeline(SCORE);
 
-  // Update "Will Play"
-  const list=$('willPlay'); if(list){ list.innerHTML=''; const used=Array.from(new Set(SCORE.events.map(e=>e.inst))); used.forEach(n=>{ const d=document.createElement('div'); d.textContent=labelOf(ORCH.find(i=>i.name===n)||{name:n}); list.appendChild(d); }); }
+  const list=$('willPlay'); if(list){ list.innerHTML=''; const used=Array.from(new Set(SCORE.events.map(e=>e.inst))); used.forEach(n=>{ const d=document.createElement('div'); d.textContent=(n||'').replace(/_/g,' ').replace(/\b\w/g,m=>m.toUpperCase()); list.appendChild(d); }); }
 
   playScore(SCORE);
   clearMsg();
@@ -523,16 +644,13 @@ if($('reset')) $('reset').addEventListener('click', ()=>{
   if($('bpm')) $('bpm').textContent='–';
   if($('len')) $('len').textContent='–';
   if($('live')) { $('live').setAttribute('disabled','disabled'); $('live').textContent='LIVE — PLAY'; }
-  // Random 20 instruments again on Reset
   randomize20();
-  // Random cadence preset default (visual)
   if($('cadence')) $('cadence').value = pickRandomCadence();
   if($('cadenceCustom')) $('cadenceCustom').value='';
   clearMsg();
   if(CTX && TLM){ const dpr=window.devicePixelRatio||1; TLM.width=TLM.clientWidth*dpr; TLM.height=TLM.clientHeight*dpr; CTX.clearRect(0,0,TLM.width,TLM.height); }
 });
 
-/* Export */
 if($('export')) $('export').addEventListener('click', async ()=>{
   if(!SCORE){ setMsg('Nothing to export. Press LIVE first.','warn'); return; }
   const blob=await renderWav(SCORE); const url=URL.createObjectURL(blob); const a=document.createElement('a');
@@ -541,12 +659,28 @@ if($('export')) $('export').addEventListener('click', async ()=>{
 
 /* ========= Init ========= */
 window.addEventListener('pointerdown', unlockAudio, {once:true});
-ensureAudio(); initBuses(); loadSelection(); buildInstList(); updateVals();
-// Disable LIVE until analysis completes
-if($('live')) $('live').setAttribute('disabled','disabled');
-// Friendly watchdog: if browser suspends audio, resume on visibility
+ensureAudio(); initBuses(); loadSelection(); buildInstList();
+(function firstVals(){ 
+  if($('live')) $('live').setAttribute('disabled','disabled');
+  if($('cadence')) $('cadence').value='random';
+  if($('cadenceCustom')) $('cadenceCustom').disabled=true;
+  if($('swing')) $('swing').value='1.10';
+  if($('dotTri')) $('dotTri').value='0.30';
+  if($('vmin')) $('vmin').value='1';
+  if($('vmax')) $('vmax').value='4';
+  if($('bassDepth')) $('bassDepth').value='1.15';
+})();
+function updateValsSafe(){ try{ 
+  if($('swingVal')) $('swingVal').textContent=(+$('swing').value).toFixed(2);
+  if($('dotTriVal')) $('dotTriVal').textContent=(+$('dotTri').value).toFixed(2);
+  if($('vminVal')) $('vminVal').textContent=$('vmin').value;
+  if($('vmaxVal')) $('vmaxVal').textContent=$('vmax').value;
+  if($('vb')) $('vb').textContent=`${$('vmin').value}–${$('vmax').value}`;
+  if($('bassDepthVal')) $('bassDepthVal').textContent=(+$('bassDepth').value).toFixed(2);
+} catch(e){} }
+updateValsSafe();
+// Resume audio context when tab becomes visible again
 document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') unlockAudio(); });
-
 </script>
 </body>
 </html>
