@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>CST LIVE Symphony — 1-Minute Orchestral Follower (Emotion + Equations)</title>
-<meta name="description" content="Upload a song, analyze its first minute, then render a symphonic version with alternating orchestral instruments, selectable emotions, composer equations, and CST-phase timing."/>
+<title>CST LIVE Symphony — 1-Minute Orchestral Follower (Emotion + Movements + Equations)</title>
+<meta name="description" content="Upload a song, analyze its first minute, then render a symphonic version with alternating orchestral instruments, selectable emotions, composer equations, movements, and CST-phase timing."/>
 <style>
   :root{
     --bg:#081022; --panel:#0f1636; --ink:#e9f1ff; --muted:#9fb2e4; --grid:#1a2658; --btn:#15235a;
-    --good:#153560; --warn:#5b3d00; --ok:#153560; --border:#274a9a; --live:#10b981;
+    --ok:#153560; --warn:#5b3d00; --border:#274a9a; --live:#10b981; --line:#6ee7ff;
   }
   *{box-sizing:border-box}
   html,body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
@@ -23,7 +23,7 @@
   button:hover:not(:disabled){filter:brightness(1.08)}
   #live.live-on{background:var(--live);border-color:#0a8f68;color:#062a20;box-shadow:0 0 0 3px rgba(16,185,129,.25), 0 0 18px rgba(16,185,129,.35)}
   #live.live-on::after{content:" ●"; font-weight:900}
-  .status{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:10px}
+  .status{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:10px}
   .status>div{background:#0b1333;border:1px solid var(--grid);border-radius:10px;padding:10px;min-height:54px}
   .tiny{font-size:.85rem;color:var(--muted)}
   .cols{display:grid;grid-template-columns:1.15fr .85fr;gap:12px}
@@ -33,23 +33,21 @@
   input[type="range"]{width:100%}
   #msg{display:none;margin-left:8px;padding:6px 10px;border-radius:10px;border:1px solid var(--border)}
   .panelTitle{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
-  .pill{font-size:.8rem;color:#cfe1ff}
-  canvas{width:100%;height:260px;display:block;background:linear-gradient(180deg,#0b1536,#0b1230)}
   .instGrid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
   .instRow{display:flex;align-items:center;gap:8px;padding:6px 8px;background:#0b1333;border:1px solid var(--grid);border-radius:10px}
   .instRow label{flex:1}
   .tag{font-size:.75rem;color:#cde;border:1px solid #2a3f8f;border-radius:8px;padding:1px 8px}
-  .soft{color:var(--muted);font-size:.9rem}
-  .mono{font-family:ui-monospace,SFMono-Regular,Consolas,Menlo,monospace}
-  .listbox{min-height:80px;background:#0b1333;border:1px solid var(--grid);border-radius:10px;padding:8px}
   .help{background:#0b1333;border:1px solid var(--grid);border-radius:10px;padding:10px}
   .note{font-size:.85rem;color:#c9d6ff}
-  .group{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  /* Top 1-minute line */
+  .lineWrap{margin-bottom:10px}
+  #playline{width:100%;height:8px;display:block;background:#0b1333;border:1px solid var(--grid);border-radius:999px}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>CST LIVE Symphony — 1-Minute Orchestral Follower</h1>
+  <div class="lineWrap"><canvas id="playline" title="0 → 60 seconds progress"></canvas></div>
   <p class="sub">Upload a song → <b>Analyze</b> (first 60s) → when <b>LIVE — PLAY</b> lights, click it. LIVE won’t stop until you press <b>Stop</b>. Change settings anytime and press LIVE again to regenerate.</p>
 
   <section class="card">
@@ -61,6 +59,7 @@
         <button id="stop">Stop</button>
         <button id="reset">Reset</button>
         <button id="export">⬇ WAV</button>
+        <button id="saveSel">💾 Save Selection</button>
         <span id="msg"></span>
       </div>
 
@@ -69,10 +68,11 @@
         <div><b>Length</b><div id="len" class="tiny">–</div></div>
         <div><b>Cadence</b><div id="cadOut" class="tiny">Random</div></div>
         <div><b>Emotion</b><div id="emoOut" class="tiny">Auto</div></div>
-        <div><b>Will Play</b><div id="willPlay" class="tiny listbox"></div></div>
+        <div><b>Equation</b><div id="eqOut" class="tiny">Beethoven</div></div>
+        <div><b>Will Play</b><div id="willPlay" class="tiny" style="min-height:54px"></div></div>
       </div>
     </div>
-    <canvas id="timeline" title="Timeline of instruments & notes"></canvas>
+    <canvas id="timeline" title="Timeline of instruments & notes" style="width:100%;height:240px;display:block;background:linear-gradient(180deg,#0b1536,#0b1230)"></canvas>
   </section>
 
   <section class="card">
@@ -83,109 +83,165 @@
           <div class="row">
             <button id="allOn">All On</button>
             <button id="allOff">All Off</button>
-            <button id="saveSel">Save Selection</button>
           </div>
         </div>
         <div id="instList" class="instGrid"></div>
       </div>
 
       <div>
-        <div class="secTitle">Form, Emotion & Equations</div>
+        <div class="secTitle">Form, Emotion, Movements & Equations</div>
 
-        <div class="group">
-          <div class="kv">
-            <label for="cadence">Cadence</label>
-            <select id="cadence">
-              <option value="random">Random (safe)</option>
-              <option value="I-IV-V-I">I–IV–V–I</option>
-              <option value="I-vi-IV-V">I–vi–IV–V</option>
-              <option value="ii-V-I">ii–V–I</option>
-              <option value="I-V-vi-IV">I–V–vi–IV</option>
-              <option value="custom">Custom…</option>
-            </select>
+        <div class="kv">
+          <!-- Cadences -->
+          <label for="cadence">Cadence</label>
+          <select id="cadence">
+            <option value="random">Random (safe)</option>
+            <option value="I-IV-V-I">I–IV–V–I</option>
+            <option value="I-vi-IV-V">I–vi–IV–V</option>
+            <option value="ii-V-I">ii–V–I</option>
+            <option value="I-V-vi-IV">I–V–vi–IV</option>
+            <option value="authentic">Authentic (V–I)</option>
+            <option value="plagal">Plagal (IV–I)</option>
+            <option value="half">Half (→ V)</option>
+            <option value="phrygian_half">Phrygian Half (iv6–V)</option>
+            <option value="deceptive">Deceptive (V–vi)</option>
+            <option value="custom">Custom…</option>
+          </select>
 
-            <label for="cadenceCustom">Custom (I, IV, V or degrees 0..11)</label>
-            <input id="cadenceCustom" class="mono" placeholder="I, IV, V, I" disabled/>
+          <label for="cadenceCustom">Custom (I, IV, V or degrees 0..11)</label>
+          <input id="cadenceCustom" class="mono" placeholder="I, IV, V, I" disabled/>
 
-            <label for="pace">Pace</label>
-            <select id="pace">
-              <option value="calm">Calm</option>
-              <option value="medium" selected>Medium</option>
-              <option value="urgent">Urgent</option>
-            </select>
+          <!-- Pace + Movements -->
+          <label for="pace">Pace</label>
+          <select id="pace">
+            <option value="calm">Calm</option>
+            <option value="medium" selected>Medium</option>
+            <option value="urgent">Urgent</option>
+          </select>
 
-            <label for="swing">Swing (1=straight)</label>
-            <div><input id="swing" type="range" min="1.00" max="1.50" step="0.01" value="1.10"/><div class="tiny">= <span id="swingVal">1.10</span></div></div>
+          <label for="movement">Symphony Movement</label>
+          <select id="movement">
+            <option value="I">I — Allegro (sonata-like)</option>
+            <option value="II">II — Andante/Adagio</option>
+            <option value="III">III — Minuet/Scherzo</option>
+            <option value="IV" selected>IV — Finale (fast)</option>
+          </select>
 
-            <label for="dotTri">Dotted/Tri tilt</label>
-            <div><input id="dotTri" type="range" min="-0.4" max="0.6" step="0.05" value="0.30"/><div class="tiny">= <span id="dotTriVal">0.30</span></div></div>
+          <!-- Tempo factors -->
+          <label for="tempoFactor">Tempo Factors</label>
+          <select id="tempoFactor">
+            <option value="intent" selected>Composer’s intent</option>
+            <option value="structure">Movement structure</option>
+            <option value="performance">Performance choices</option>
+            <option value="exceptions">Exceptions to the rule</option>
+          </select>
 
-            <label>Voices per beat</label>
-            <div>
-              <input id="vmin" type="range" min="1" max="6" step="1" value="1"/> <span class="tiny" id="vminVal">1</span>
-              <br/>
-              <input id="vmax" type="range" min="2" max="8" step="1" value="4"/> <span class="tiny" id="vmaxVal">4</span>
-              <div class="tiny">range: <span id="vb">1–4</span></div>
-            </div>
+          <!-- Emotion -->
+          <label for="emotion">Emotion</label>
+          <select id="emotion">
+            <option value="auto" selected>Auto (from audio)</option>
+            <option value="happy">Happy</option>
+            <option value="sad">Sad</option>
+            <option value="angry">Angry</option>
+            <option value="spooky">Spooky</option>
+            <option value="calm">Calm</option>
+          </select>
 
-            <label for="bassDepth">Bass depth</label>
-            <div><input id="bassDepth" type="range" min="0.8" max="1.8" step="0.05" value="1.15"/><div class="tiny">= <span id="bassDepthVal">1.15</span></div></div>
+          <label for="emoInt">Emotion intensity</label>
+          <div><input id="emoInt" type="range" min="0" max="1" step="0.05" value="0.6"/><div class="tiny">= <span id="emoIntVal">0.60</span></div></div>
+
+          <!-- Composer equations -->
+          <label for="equation">Composer “equation”</label>
+          <select id="equation">
+            <option value="mozart">Mozart — periodic motifs</option>
+            <option value="bach">Bach — counterpoint density</option>
+            <option value="beethoven" selected>Beethoven — strong accents</option>
+            <option value="debussy">Debussy — planing/whole-tone</option>
+            <option value="jazz">Jazz — altered ii–V–I</option>
+            <option value="chopin">Chopin — lyric arpeggiation</option>
+            <option value="stravinsky">Stravinsky — rhythmic cells</option>
+            <option value="ravel">Ravel — coloristic voicings</option>
+            <option value="wagner">Wagner — leitmotif doubling</option>
+            <option value="tchaikovsky">Tchaikovsky — broad melody arcs</option>
+            <option value="glass">Philip Glass — minimalist ostinati</option>
+          </select>
+
+          <!-- Music equations approach -->
+          <label for="eqApproach">Music-equations approach</label>
+          <select id="eqApproach">
+            <option value="finite">Finite counts (structured)</option>
+            <option value="focus" selected>Focus on elements (balanced)</option>
+            <option value="infinite">Infinite possibilities (exploratory)</option>
+          </select>
+
+          <!-- Timing shape -->
+          <label for="swing">Swing (1=straight)</label>
+          <div><input id="swing" type="range" min="1.00" max="1.50" step="0.01" value="1.10"/><div class="tiny">= <span id="swingVal">1.10</span></div></div>
+
+          <label for="dotTri">Dotted/Tri tilt</label>
+          <div><input id="dotTri" type="range" min="-0.4" max="0.6" step="0.05" value="0.30"/><div class="tiny">= <span id="dotTriVal">0.30</span></div></div>
+
+          <!-- Density and tone -->
+          <label>Voices per beat</label>
+          <div>
+            <input id="vmin" type="range" min="1" max="6" step="1" value="1"/> <span class="tiny" id="vminVal">1</span>
+            <br/>
+            <input id="vmax" type="range" min="2" max="8" step="1" value="4"/> <span class="tiny" id="vmaxVal">4</span>
+            <div class="tiny">range: <span id="vb">1–4</span></div>
           </div>
 
-          <div class="kv">
-            <label for="emotion">Emotion</label>
-            <select id="emotion">
-              <option value="auto" selected>Auto (from audio)</option>
-              <option value="happy">Happy</option>
-              <option value="sad">Sad</option>
-              <option value="angry">Angry</option>
-              <option value="spooky">Spooky</option>
-              <option value="calm">Calm</option>
-            </select>
+          <label for="bassDepth">Bass depth</label>
+          <div><input id="bassDepth" type="range" min="0.8" max="1.8" step="0.05" value="1.15"/><div class="tiny">= <span id="bassDepthVal">1.15</span></div></div>
 
-            <label for="emoInt">Emotion intensity</label>
-            <div><input id="emoInt" type="range" min="0" max="1" step="0.05" value="0.6"/><div class="tiny">= <span id="emoIntVal">0.60</span></div></div>
+          <label for="toneBias">Tone bias (high ↔ low)</label>
+          <div><input id="toneBias" type="range" min="-1" max="1" step="0.1" value="0"/><div class="tiny">= <span id="toneBiasVal">0.0</span></div></div>
 
-            <label for="equation">Composer “equation”</label>
-            <select id="equation">
-              <option value="mozart">Mozart (periodic motifs)</option>
-              <option value="bach">Bach (counterpoint)</option>
-              <option value="beethoven" selected>Beethoven (dynamic accents)</option>
-              <option value="debussy">Debussy (planing/whole-tone)</option>
-              <option value="jazz">Jazz (altered ii–V–I)</option>
-            </select>
-
-            <label for="toneBias">Tone bias (high ↔ low)</label>
-            <div><input id="toneBias" type="range" min="-1" max="1" step="0.1" value="0"/><div class="tiny">= <span id="toneBiasVal">0.0</span></div></div>
-
-            <label for="percAmt">Percussion amount</label>
-            <div><input id="percAmt" type="range" min="0" max="1" step="0.05" value="0.4"/><div class="tiny">= <span id="percAmtVal">0.40</span></div></div>
-          </div>
+          <label for="percAmt">Percussion amount</label>
+          <div><input id="percAmt" type="range" min="0" max="1" step="0.05" value="0.4"/><div class="tiny">= <span id="percAmtVal">0.40</span></div></div>
         </div>
 
         <div class="help" style="margin-top:10px">
-          <b>How cadence, emotion & equations interact</b>
+          <b>Notes</b>
           <ul class="note">
-            <li><b>Cadence</b> gives the harmonic path (e.g., I–IV–V–I). You can type your own under <i>Custom</i>.</li>
-            <li><b>Emotion</b> remaps roles & registers (e.g., Happy = flutes/trumpets/chimes; Sad = cello/oboe/piano; Spooky = bass clarinets/tam-tam).</li>
-            <li><b>Composer equation</b> tweaks note-picking: Mozart adds neighbor tones & periodic motifs; Bach increases counterpoint density; Beethoven adds strong-beat accents; Debussy slides/planing; Jazz spices ii–V–I with altered steps.</li>
-            <li>Change any setting and press <b>LIVE — PLAY</b> again. LIVE keeps playing until you press <b>Stop</b>.</li>
+            <li><b>Cadence</b> includes Authentic, Plagal, Half (incl. Phrygian), Deceptive, plus presets & Custom.</li>
+            <li><b>Movement</b> & <b>Tempo Factors</b> nudge tempo/articulation (II slows, IV pushes, etc.).</li>
+            <li><b>Composer “equations”</b> add style hooks; <b>Approach</b> sets structured ↔ exploratory feel.</li>
+            <li>Press <b>Analyze</b> → <b>LIVE — PLAY</b>. Use <b>💾 Save Selection</b> to store all your choices.</li>
           </ul>
         </div>
       </div>
     </div>
   </section>
 </div>
-
 <script>
-/* ========= Helpers & UX ========= */
+/* ========= Tiny DOM helpers ========= */
 const $ = (id)=>document.getElementById(id);
 function clamp(v,a,b){ return Math.max(a, Math.min(b,v)); }
 function setMsg(t,kind='ok'){ const el=$('msg'); if(!el) return; el.style.display='inline-block'; el.textContent=t; el.style.background = kind==='warn' ? '#5b3d00' : '#153560'; el.style.borderColor = kind==='warn' ? '#ffb84d' : '#274a9a'; }
 function clearMsg(){ const el=$('msg'); if(!el) return; el.style.display='none'; }
 function setLiveOn(on){ const b=$('live'); if(!b) return; if(on){ b.classList.add('live-on'); } else { b.classList.remove('live-on'); } }
 
-/* ========= Canvas ========= */
+/* ========= Top 60s progress line ========= */
+const LINE = $('playline'); const LCTX = LINE.getContext('2d');
+let rafId=null, playStart=0, playLen=60, lineActive=false;
+function drawLine(p){
+  const dpr=window.devicePixelRatio||1, W=LINE.clientWidth*dpr, H=LINE.clientHeight*dpr;
+  LINE.width=W; LINE.height=H; LCTX.clearRect(0,0,W,H);
+  LCTX.fillStyle='#0b1333'; LCTX.fillRect(0,0,W,H);
+  LCTX.fillStyle='var(--line)'; LCTX.fillRect(0,0,Math.max(0,Math.min(W, W*p)),H);
+}
+function startLine(seconds){ playLen=Math.max(1, Math.min(60, seconds||60)); playStart=performance.now(); lineActive=true; loopLine(); }
+function stopLine(){ lineActive=false; if(rafId) cancelAnimationFrame(rafId); drawLine(0); }
+function loopLine(){
+  if(!lineActive) return;
+  const t=(performance.now()-playStart)/1000;
+  const p=t/playLen;
+  drawLine(p);
+  if(t>=playLen){ lineActive=false; return; }
+  rafId=requestAnimationFrame(loopLine);
+}
+
+/* ========= Canvas timeline ========= */
 const TLM = document.getElementById('timeline'); 
 const CTX = TLM ? TLM.getContext('2d') : null;
 function drawTimeline(score){
@@ -206,14 +262,14 @@ function drawTimeline(score){
   });
 }
 
-/* ========= Audio Engine ========= */
+/* ========= Audio ========= */
 let ACTX=null, master=null, BUS={}, scheduled=[], playing=false;
 function ensureAudio(){ if(ACTX) return; ACTX = new (window.AudioContext||window.webkitAudioContext)(); master = ACTX.createGain(); master.gain.value=0.9; master.connect(ACTX.destination); }
 async function unlockAudio(){ ensureAudio(); try{ await ACTX.resume(); }catch(e){} }
 function makeBus(level,pan=0){ const g=ACTX.createGain(); g.gain.value=level; const p=ACTX.createStereoPanner?ACTX.createStereoPanner():null; if(p){ p.pan.value=pan; g.connect(p); p.connect(master); } else { g.connect(master); } return {g}; }
-function stopAll(){ if(!playing) return; playing=false; setLiveOn(false); const now=ACTX?ACTX.currentTime:0; scheduled.forEach(n=>{ try{ if(n.g){ n.g.gain.cancelScheduledValues(now); n.g.gain.linearRampToValueAtTime(0, now+0.05); } (n.o||[]).forEach(o=>{ try{o.stop(now+0.06);}catch(e){} }); }catch(e){} }); scheduled.length=0; }
+function stopAll(){ if(!playing) return; playing=false; setLiveOn(false); stopLine(); const now=ACTX?ACTX.currentTime:0; scheduled.forEach(n=>{ try{ if(n.g){ n.g.gain.cancelScheduledValues(now); n.g.gain.linearRampToValueAtTime(0, now+0.05); } (n.o||[]).forEach(o=>{ try{o.stop(now+0.06);}catch(e){} }); }catch(e){} }); scheduled.length=0; }
 
-/* ========= Orchestra Registry ========= */
+/* ========= Orchestra ========= */
 const ORCH = [
   // Strings
   {name:'violin', type:'bowed', role:'lead'},
@@ -224,11 +280,11 @@ const ORCH = [
 
   // Woodwinds
   {name:'flute', type:'reed', role:'lead'},
+  {name:'alto_flute', label:'Alto Flute', type:'reed', role:'bed'},
   {name:'piccolo', type:'reed', role:'sparkle'},
   {name:'oboe', type:'reed', role:'lead'},
   {name:'english_horn', label:'English Horn', type:'reed', role:'counter'},
   {name:'clarinet', type:'reed', role:'counter'},
-  {name:'eb_clarinet', label:'E♭ Clarinet', type:'reed', role:'sparkle'},
   {name:'bass_clarinet', label:'Bass Clarinet', type:'reed', role:'bed'},
   {name:'bassoon', type:'reed', role:'bed'},
   {name:'contrabassoon', type:'reed', role:'bass'},
@@ -253,6 +309,7 @@ const ORCH = [
   {name:'xylophone', type:'pluck', role:'sparkle'},
   {name:'glockenspiel', type:'bell', role:'sparkle'},
   {name:'chimes', type:'bell', role:'sparkle'},
+  {name:'vibraphone', type:'bell', role:'sparkle'},
   {name:'marimba', type:'pluck', role:'sparkle'},
 
   // Keyboards / Other
@@ -265,11 +322,35 @@ const ORCH = [
 const ORCH_MASTER = ORCH.map(i=>i.name);
 function labelOf(inst){ return inst?.label || (inst?.name||'').replace(/_/g,' ').replace(/\b\w/g,m=>m.toUpperCase()); }
 
-/* ========= Instrument Selection (UI + Persistence) ========= */
+/* ========= Selection & persistence (save ALL) ========= */
 let INST_SELECTION = {}; // name -> bool
-const LS_KEY='cst_orch_selection_v4';
-function loadSelection(){ try{ const s=localStorage.getItem(LS_KEY); if(s){ INST_SELECTION=JSON.parse(s); } }catch(e){} }
-function saveSelection(){ localStorage.setItem(LS_KEY, JSON.stringify(INST_SELECTION)); setMsg('Instrument selection saved.'); }
+const LS_KEY='cst_orch_selection_v5_all';
+function saveAllSelections(){
+  const data={
+    inst:INST_SELECTION,
+    cadence:$('cadence').value, cadenceCustom:$('cadenceCustom').value,
+    pace:$('pace').value, movement:$('movement').value, tempoFactor:$('tempoFactor').value,
+    emotion:$('emotion').value, emoInt:$('emoInt').value,
+    equation:$('equation').value, eqApproach:$('eqApproach').value,
+    swing:$('swing').value, dotTri:$('dotTri').value,
+    vmin:$('vmin').value, vmax:$('vmax').value,
+    bassDepth:$('bassDepth').value, toneBias:$('toneBias').value, percAmt:$('percAmt').value
+  };
+  localStorage.setItem(LS_KEY, JSON.stringify(data));
+  setMsg('All selections saved (instruments + settings).');
+}
+function loadAllSelections(){
+  try{
+    const raw=localStorage.getItem(LS_KEY); if(!raw) return;
+    const d=JSON.parse(raw)||{};
+    INST_SELECTION=d.inst||INST_SELECTION;
+    const ids=['cadence','cadenceCustom','pace','movement','tempoFactor','emotion','emoInt','equation','eqApproach','swing','dotTri','vmin','vmax','bassDepth','toneBias','percAmt'];
+    ids.forEach(id=>{ if($(id) && d[id]!=null){ $(id).value = d[id]; } });
+    if($('cadence').value==='custom'){ $('cadenceCustom').disabled=false; }
+  }catch(e){}
+}
+
+/* UI builders */
 function buildInstList(){
   const box = $('instList'); if(!box) return; box.innerHTML='';
   ORCH.forEach(inst=>{
@@ -290,12 +371,11 @@ function randomize20(){
   ORCH_MASTER.forEach(n=>INST_SELECTION[n]=false);
   const pool=[...ORCH_MASTER];
   for(let i=pool.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [pool[i],pool[j]]=[pool[j],pool[i]]; }
-  const pick = pool.slice(0, Math.min(20, pool.length));
-  pick.forEach(n=>INST_SELECTION[n]=true);
+  pool.slice(0, Math.min(20, pool.length)).forEach(n=>INST_SELECTION[n]=true);
   buildInstList();
 }
 
-/* ========= WebAudio Patches ========= */
+/* ========= WebAudio patches ========= */
 function midiToHz(m){ return 440*Math.pow(2,(m-69)/12); }
 function envGain(g,t0,a,d,sus,hold,rel,amp){
   const t1=t0+a, t2=t1+d, t3=t2+hold, t4=t3+rel;
@@ -332,19 +412,14 @@ const PATCH = {
   bass:(bus,m,when,dur,vel,depth=1)=>{ const o=ACTX.createOscillator(); o.type='triangle'; o.frequency.value=midiToHz(m);
     const g=ACTX.createGain(); const end=envGain(g,when,0.01,0.3,0.5,Math.max(0.05,dur-0.25),0.25,vel*0.65*depth);
     o.connect(g); g.connect(BUS[bus].g); o.start(when); o.stop(end); scheduled.push({o:[o],g,end}); },
-  // Perc (kick/snare/hat-style)
+  // Perc
   k:(t,v)=>{ const o=ACTX.createOscillator(); o.type='sine'; o.frequency.setValueAtTime(130,t); o.frequency.exponentialRampToValueAtTime(40,t+0.12); const g=ACTX.createGain(); g.gain.setValueAtTime(v*0.6,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.18); o.connect(g); g.connect(BUS.perc.g); o.start(t); o.stop(t+0.2); },
   s:(t,v)=>{ const s=ACTX.createBufferSource(); const b=ACTX.createBuffer(1,ACTX.sampleRate*0.2,ACTX.sampleRate); const d=b.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1; s.buffer=b; const f=ACTX.createBiquadFilter(); f.type='highpass'; f.frequency.value=1800; const g=ACTX.createGain(); g.gain.setValueAtTime(v*0.35,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.2); s.connect(f); f.connect(g); g.connect(BUS.perc.g); s.start(t); s.stop(t+0.2); },
   h:(t,v)=>{ const s=ACTX.createBufferSource(); const b=ACTX.createBuffer(1,ACTX.sampleRate*0.08,ACTX.sampleRate); const d=b.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1; s.buffer=b; const f=ACTX.createBiquadFilter(); f.type='highpass'; f.frequency.value=5000; const g=ACTX.createGain(); g.gain.setValueAtTime(v*0.18,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.08); s.connect(f); f.connect(g); g.connect(BUS.perc.g); s.start(t); s.stop(t+0.08); }
 };
-function initBuses(){
-  // Create per-instrument buses
-  ORCH_MASTER.forEach((k,i)=>{ BUS[k]=BUS[k]||makeBus(k==='perc'?0.7:0.7,(i%2?0.08:-0.08)); });
-  // Ensure a dedicated perc bus exists (bugfix)
-  if(!BUS.perc) BUS.perc = makeBus(0.7, 0);
-}
+function initBuses(){ ORCH_MASTER.forEach((k,i)=>{ BUS[k]=BUS[k]||makeBus(k==='perc'?0.7:0.7,(i%2?0.08:-0.08)); }); if(!BUS.perc) BUS.perc = makeBus(0.7, 0); }
 
-/* ========= Analysis (chunked to avoid freezing) ========= */
+/* ========= Analysis ========= */
 const MAX_ANALYZE_SECONDS=60;
 let SOURCEBUF=null;
 async function decodeFileToBuffer(file){ await unlockAudio(); const ab=await file.arrayBuffer(); return await ACTX.decodeAudioData(ab); }
@@ -366,7 +441,7 @@ async function energyEnvelopeAsync(x, win=2048, hop=1024, onProgress=null){
       out.push(Math.sqrt(s/win));
     }
     if(onProgress) onProgress(out.length/(N/hop));
-    await new Promise(r=>setTimeout(r,0)); // yield to UI
+    await new Promise(r=>setTimeout(r,0));
   }
   return {env:out, hop};
 }
@@ -393,21 +468,18 @@ function peakPickBeats(env, sr, hop, bpm, hard=60){
   return beats.map(i=>i/fps);
 }
 
-/* ========= Basic spectral features for AUTO emotion ========= */
-function spectralFeatures(x, sr, hop){
-  // Very light-weight approximations using the envelope series:
-  // loudness variance & short-time dynamic range -> arousal
-  const N=x.length; if(N===0) return {arousal:0.5, brightness:0.5};
-  const mean = x.reduce((a,b)=>a+b,0)/N;
-  const varc = x.reduce((a,b)=>a+(b-mean)*(b-mean),0)/N;
-  const arousal = clamp(Math.sqrt(varc)*1.8, 0, 1); // rough
-  // brightness proxy: ratio of fast change
-  let diff=0; for(let i=1;i<N;i++) diff += Math.abs(x[i]-x[i-1]);
+/* ========= Light features for AUTO emotion ========= */
+function spectralFeatures(envSeries){
+  const N=envSeries.length; if(N===0) return {arousal:0.5, brightness:0.5};
+  const mean = envSeries.reduce((a,b)=>a+b,0)/N;
+  const varc = envSeries.reduce((a,b)=>a+(b-mean)*(b-mean),0)/N;
+  const arousal = clamp(Math.sqrt(varc)*1.8, 0, 1);
+  let diff=0; for(let i=1;i<N;i++) diff += Math.abs(envSeries[i]-envSeries[i-1]);
   const brightness = clamp(diff/(N*0.02), 0, 1);
   return {arousal, brightness};
 }
 
-/* ========= Harmony / Cadence ========= */
+/* ========= Cadences ========= */
 function chordFromDegree(deg){
   const map={'I':0,'ii':2,'iii':4,'IV':5,'V':7,'vi':9,'VII':11};
   let root = map[deg];
@@ -419,31 +491,33 @@ function cadenceList(name, custom){
   if(name==='I-vi-IV-V') return ['I','vi','IV','V'];
   if(name==='ii-V-I') return ['ii','V','I','I'];
   if(name==='I-V-vi-IV') return ['I','V','vi','IV'];
+  if(name==='authentic') return ['V','I','V','I'];
+  if(name==='plagal') return ['IV','I','IV','I'];
+  if(name==='half') return ['I','IV','ii','V'];
+  if(name==='phrygian_half') return ['ii','V','ii','V']; // proxy iv6→V feel
+  if(name==='deceptive') return ['V','vi','IV','V'];
   if(name==='custom'){ if(!custom) return ['I','IV','V','I']; return custom.split(/[,\s]+/).filter(Boolean); }
   return ['I','IV','V','I'];
 }
-const CADENCE_PRESETS=['I-IV-V-I','I-vi-IV-V','ii-V-I','I-V-vi-IV'];
-function pickRandomCadence(){ return CADENCE_PRESETS[Math.floor(Math.random()*CADENCE_PRESETS.length)]; }
 
 /* ========= Timing modes ========= */
 function pickEquationModes(){
   const opts=['phi','fourier','prime'];
   const shuffled=[...opts].sort(()=>Math.random()-0.5);
-  return shuffled.slice(0, 1 + Math.floor(Math.random()*2)); // 1 or 2
+  return shuffled.slice(0, 1 + Math.floor(Math.random()*2));
 }
 function eqPhaseCST(modes, beatPeriod){
   let phase = 0;
   const now = new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})
               .formatToParts(new Date()).reduce((a,p)=>{a[p.type]=p.value; return a;},{});
   const sec = parseInt(now.second||'0',10);
-  if(modes.includes('phi')) phase += 0.618; // φ
-  phase += (sec%10)/100; // tiny live CST drift
+  if(modes.includes('phi')) phase += 0.618;
+  phase += (sec%10)/100;
   return (phase%1)*beatPeriod;
 }
 
-/* ========= Emotion & Composer profiles ========= */
+/* ========= Emotion profiles ========= */
 function emotionProfile(kind, intensity, autoFeat){
-  // Returns weights & tweaks that influence orchestration
   const base = {
     leadGain:1, bedGain:1, bassGain:1, sparkGain:1, percGain:0.4,
     leadSet:['violin','flute','trumpet'],
@@ -466,15 +540,15 @@ function emotionProfile(kind, intensity, autoFeat){
   const t = clamp(intensity,0,1);
   if(k==='happy'){
     out.leadSet=['flute','violin','trumpet','clarinet'];
-    out.sparkSet=['glockenspiel','celesta','chimes','harp','piccolo'];
+    out.sparkSet=['glockenspiel','celesta','chimes','harp','piccolo','vibraphone'];
     out.leadGain=1+0.2*t; out.sparkGain=1+0.35*t; out.bassGain=1; out.bedGain=1;
-    out.percGain=0.35+0.3*t; out.highBias=0.3*t; out.staccato=false; out.accentStrong=true;
+    out.percGain=0.35+0.3*t; out.highBias=0.3*t; out.accentStrong=true;
   }else if(k==='sad'){
     out.leadSet=['oboe','viola','cello','english_horn'];
     out.bedSet=['piano','cello','horn','clarinet'];
     out.sparkSet=['harp','celesta']; out.bassSet=['double_bass','contrabassoon'];
-    out.leadGain=1; out.bedGain=1+0.15*t; out.bassGain=1+0.1*t; out.sparkGain=1-0.2*t;
-    out.percGain=0.15; out.lowBias=0.25*t; out.staccato=false; out.accentStrong=false;
+    out.bedGain=1+0.15*t; out.bassGain=1+0.1*t; out.sparkGain=1-0.2*t;
+    out.percGain=0.15; out.lowBias=0.25*t;
   }else if(k==='angry'){
     out.leadSet=['trumpet','trombone','horn','saxophone'];
     out.bedSet=['trombone','horn','organ']; out.bassSet=['tuba','bass_trombone','double_bass'];
@@ -482,62 +556,65 @@ function emotionProfile(kind, intensity, autoFeat){
     out.leadGain=1+0.35*t; out.bedGain=1+0.2*t; out.bassGain=1+0.25*t; out.sparkGain=1+0.2*t;
     out.percGain=0.5+0.4*t; out.lowBias=0.2*t; out.staccato=true; out.accentStrong=true;
   }else if(k==='spooky'){
-    out.leadSet=['bass_clarinet','bassoon','viola'];
+    out.leadSet=['bass_clarinet','bassoon','viola','alto_flute'];
     out.bedSet=['cello','piano','horn']; out.bassSet=['contrabassoon','double_bass'];
-    out.sparkSet=['tam_tam','triangle','marimba'];
-    out.leadGain=1; out.bedGain=1; out.bassGain=1+0.2*t; out.sparkGain=1+0.1*t;
-    out.percGain=0.25+0.25*t; out.lowBias=0.35*t; out.highBias=-0.2*t; out.staccato=false; out.accentStrong=false;
+    out.sparkSet=['tam_tam','triangle','marimba','vibraphone'];
+    out.bassGain=1+0.2*t; out.percGain=0.25+0.25*t; out.lowBias=0.35*t; out.highBias=-0.2*t;
   }else if(k==='calm'){
-    out.leadSet=['clarinet','flute','violin'];
+    out.leadSet=['clarinet','flute','violin','alto_flute'];
     out.bedSet=['harp','cello','piano','horn']; out.bassSet=['double_bass'];
-    out.sparkSet=['celesta','harp','glockenspiel'];
-    out.leadGain=1; out.bedGain=1+0.1*t; out.bassGain=1; out.sparkGain=1-0.1*t;
-    out.percGain=0.15; out.staccato=false; out.accentStrong=false; out.highBias=0.1*t;
+    out.sparkSet=['celesta','harp','glockenspiel','vibraphone'];
+    out.bedGain=1+0.1*t; out.percGain=0.15; out.highBias=0.1*t;
   }
   return out;
 }
 
-function composerEquation(name){
-  // Returns function hooks to alter note choices
-  const eq = {
-    mozart:(notes)=>{ // add neighbor/aux tones sometimes
-      if(Math.random()<0.35){ const n=notes[notes.length-1]; notes.push(n-1); }
-      return notes;
-    },
-    bach:(notes)=>{ // more counter lines
-      if(Math.random()<0.5){ notes.push(notes[0]+7); }
-      return notes;
-    },
-    beethoven:(notes)=>{ // strong-beat accents via doubling an octave
-      if(Math.random()<0.4){ notes.push(notes[0]+12); }
-      return notes;
-    },
-    debussy:(notes)=>{ // planing/whole-tone feel
-      if(Math.random()<0.5){ const step=2; for(let i=1;i<3;i++) notes.push(notes[0]+i*step); }
-      return notes;
-    },
-    jazz:(notes)=>{ // altered extensions
-      if(Math.random()<0.45){ notes.push(notes[0]+10); } // b7
-      if(Math.random()<0.25){ notes.push(notes[0]+14); } // 9
-      return notes;
-    }
+/* ========= Composer “equations” hooks ========= */
+function composerHook(name){
+  const H={
+    mozart: (notes)=>{ if(Math.random()<0.35){ notes.push(notes[0]-1); } return notes; },
+    bach:   (notes)=>{ if(Math.random()<0.5){ notes.push(notes[0]+7); } return notes; },
+    beethoven:(notes)=>{ if(Math.random()<0.4){ notes.push(notes[0]+12); } return notes; },
+    debussy:(notes)=>{ if(Math.random()<0.5){ const step=2; for(let i=1;i<3;i++) notes.push(notes[0]+i*step); } return notes; },
+    jazz:   (notes)=>{ if(Math.random()<0.45){ notes.push(notes[0]+10); } if(Math.random()<0.25){ notes.push(notes[0]+14); } return notes; },
+    chopin: (notes)=>{ if(Math.random()<0.6){ notes.push(notes[0]-12); } return notes; },
+    stravinsky:(notes)=>{ if(Math.random()<0.6){ notes.push(notes[0]+5); } return notes; },
+    ravel:  (notes)=>{ if(Math.random()<0.5){ notes.push(notes[0]+11); } return notes; },
+    wagner: (notes)=>{ if(Math.random()<0.5){ notes.push(notes[0]+19); } return notes; },
+    tchaikovsky:(notes)=>{ if(Math.random()<0.4){ notes.push(notes[0]+2); } return notes; },
+    glass:  (notes)=>{ if(Math.random()<0.7){ notes.push(notes[0]+12); } return notes; }
   };
-  return eq[name] || ((x)=>x);
+  return H[name]||((x)=>x);
 }
 
-/* ========= Score Generator ========= */
+/* ========= Score generator ========= */
+function getType(instName){ const meta = ORCH.find(i=>i.name===instName); return meta?meta.type:'bowed'; }
+
 function generateScore(params){
-  const { bpm, totalSecs, energyArr, cadenceNames, swingBase, dotTri, vmin, vmax, bassDepth, modes,
-          emotionKind, emoIntensity, toneBias, percAmt, equationName, pace } = params;
+  const { bpm, totalSecs, energyArr, cadenceNames, swingBase, dotTri, vmin, vmax,
+          bassDepth, modes, emotionKind, emoIntensity, toneBias, percAmt,
+          equationName, pace, movement, tempoFactor, eqApproach } = params;
 
-  const eqHook = composerEquation(equationName);
-  const autoFeat = spectralFeatures(energyArr, 1, 1); // proxy features
-  const emo = emotionProfile(emotionKind, emoIntensity, autoFeat);
+  const hook = composerHook(equationName);
+  const features = spectralFeatures(energyArr);
+  const emo = emotionProfile(emotionKind, emoIntensity, features);
 
-  const beatPeriod0 = 60/bpm;
-  const paceScale = pace==='calm'? 1.1 : pace==='urgent'? 0.9 : 1.0;
+  /* Movement & tempo factor scalers */
+  let paceScale = pace==='calm'? 1.12 : pace==='urgent'? 0.9 : 1.0;
+  if(movement==='II') paceScale *= 1.18;
+  if(movement==='III') paceScale *= 0.98;
+  if(movement==='IV') paceScale *= 0.92;
+  if(tempoFactor==='structure') paceScale *= 0.97;
+  if(tempoFactor==='performance') paceScale *= (0.95 + Math.random()*0.1);
+  if(tempoFactor==='exceptions') paceScale *= (0.9 + Math.random()*0.2);
+
+  /* Approach: adjust randomness & density */
+  let randPush = 0.0, densityPush=1.0;
+  if(eqApproach==='finite'){ randPush = -0.2; densityPush=0.95; }
+  if(eqApproach==='infinite'){ randPush = +0.25; densityPush=1.1; }
+
+  const beatPeriod0 = 60/Math.max(40,Math.min(200,bpm));
   const beatPeriod = beatPeriod0*paceScale;
-
   const beatsPerBar=4;
   const cstOffset = eqPhaseCST(modes, beatPeriod);
   const totalBeats = Math.max(1, Math.floor(totalSecs/beatPeriod));
@@ -550,18 +627,15 @@ function generateScore(params){
   function pickFromSet(setNames, fallbackRole){
     const filt = setNames.filter(n=>allowedNames.includes(n));
     if(filt.length) return filt[Math.floor(Math.random()*filt.length)];
-    // fallback from role among allowed
     const rolePick = ORCH.filter(i=>allowedNames.includes(i.name) && i.role===fallbackRole);
     if(rolePick.length) return rolePick[Math.floor(Math.random()*rolePick.length)].name;
-    // absolute fallback
     return allowedNames[Math.floor(Math.random()*allowedNames.length)];
   }
 
   const REG = { lead:72, bed:60, bass:36, spark:79 };
   const events=[]; const last={lead:null,bass:null,bed:null,spark:null};
-  const cadenceGain = 0.70; // soften cadence
+  const cadenceGain = 0.70;
 
-  // role gains from emotion
   const G = { lead:emo.leadGain, bed:emo.bedGain, bass:emo.bassGain, spark:emo.sparkGain };
 
   for(let b=0;b<totalBeats;b++){
@@ -573,18 +647,17 @@ function generateScore(params){
     const tBeat = b*beatPeriod + cstOffset;
     const E = energyArr.length ? energyArr[Math.min(energyArr.length-1, b)] : 0.5;
 
-    // dynamic voices
-    let V = clamp(Math.round(vmin + (vmax - vmin)*E), 1, 8);
+    // density
+    let V = clamp(Math.round(vmin + (vmax - vmin)*E*densityPush), 1, 8);
+    if(Math.random()<Math.max(0,randPush)) V = Math.min(8, V+1);
     if(modes.includes('prime')){ const isPrime = (n)=>{ if(n<2) return false; for(let k=2;k*k<=n;k++) if(n%k===0) return false; return true; }; if(isPrime(b)) V = Math.max(1, V-1); }
 
     // swing
     let swing = swingBase;
     if(modes.includes('fourier')) swing = clamp(1.0 + 0.25*Math.sin(2*Math.PI*(b/16)), 1.0, 1.5);
 
-    // Pitch biases
     const toneShift = Math.round( (emo.highBias - emo.lowBias + toneBias*0.6) * 6 );
 
-    // want roles
     const want=[];
     if(V>=1) want.push('lead');
     if(V>=2) want.push('bass');
@@ -603,12 +676,11 @@ function generateScore(params){
       const e8 = beatPeriod/2;
       const dLong = (swing/(swing+1))*e8, dShort=(1/(swing+1))*e8;
       const useSwing = (swing>1.02) && (inBar%2===0);
-      const baseDur = useSwing ? (Math.random()<0.5? dLong: dShort) : (Math.random()<0.3? e8 : beatPeriod);
-      let dur = baseDur + (dotTri)*(Math.random()<0.5 ? 0.5*e8 : -1/6*beatPeriod);
+      let dur = (useSwing ? (Math.random()<0.5? dLong: dShort) : (Math.random()<(0.3+randPush*0.3)? e8 : beatPeriod));
+      dur += (dotTri)*(Math.random()<0.5 ? 0.5*e8 : -1/6*beatPeriod);
       dur = Math.max(emo.staccato?0.14:0.24, dur);
       let notes=[best];
-      notes = eqHook(notes);
-
+      notes = hook(notes);
       notes.forEach((midi,idx)=>{
         const vel = (idx===0?0.68:0.48) * G.lead * (emo.accentStrong && inBar===0 ? 1.15 : 1.0);
         events.push({inst, type:getType(inst), time:tBeat+(idx?0.02*idx:0), dur:dur, midi:midi, vel:vel});
@@ -624,8 +696,7 @@ function generateScore(params){
       let m = REG.bass + bassCand + toneShift;
       if(prev!=null){ const opts=[m,m-12,m+12]; m = opts.reduce((a,b)=> Math.abs(b-prev)<Math.abs(a-prev)?b:a, opts[0]); }
       const dur = beatPeriod*(Math.random()<0.6?1:2);
-      const vel = 0.58*bassDepth*G.bass;
-      events.push({inst, type:getType(inst), time:tBeat, dur:dur, midi:m, vel:vel});
+      events.push({inst, type:getType(inst), time:tBeat, dur:dur, midi:m, vel:0.58*bassDepth*G.bass});
       last.bass=m;
     }
 
@@ -655,7 +726,7 @@ function generateScore(params){
       }
     }
 
-    // Percussion (gentle, scaled by percAmt & emotion)
+    // Perc (scaled)
     const P = percAmt*emo.percGain;
     if(INST_SELECTION['bass_drum'] && inBar===0 && Math.random()<0.95) PATCH.k(tBeat, 0.35+0.35*E*P);
     if(INST_SELECTION['snare'] && inBar===2) PATCH.s(tBeat+0.02, 0.22+0.18*E*P);
@@ -665,17 +736,15 @@ function generateScore(params){
   return {events, bpm, seconds: totalSecs};
 }
 
-function getType(instName){ const meta = ORCH.find(i=>i.name===instName); return meta?meta.type:'bowed'; }
-
-/* ========= Playback & Export ========= */
+/* ========= Playback ========= */
 function playScore(score){
-  if(playing) return; // LIVE never toggles stop
-  const start=ACTX.currentTime+0.2; playing=true; setLiveOn(true); scheduled.length=0;
+  if(playing) return;
+  const start=ACTX.currentTime+0.2; playing=true; setLiveOn(true); startLine(Math.min(60, score.seconds)); scheduled.length=0;
   score.events.forEach(ev=>{
     const w = start + ev.time;
     const t=ev.type;
     if(t==='bowed') PATCH.bowed(ev.inst, ev.midi, w, ev.dur, ev.vel);
-    else if(t==='reed') PATCH.reed(ev.inst, ev.midi, w, ev.dur, ev.vel); // bugfix: use reed
+    else if(t==='reed') PATCH.reed(ev.inst, ev.midi, w, ev.dur, ev.vel);
     else if(t==='brass') PATCH.brass(ev.inst, ev.midi, w, ev.dur, ev.vel);
     else if(t==='pluck') PATCH.pluck(ev.inst, ev.midi, w, ev.dur, ev.vel);
     else if(t==='bell') PATCH.bell(ev.inst, ev.midi, w, ev.dur, ev.vel);
@@ -685,6 +754,7 @@ function playScore(score){
   });
 }
 
+/* ========= WAV render ========= */
 async function renderWav(score){
   await unlockAudio();
   const sr=44100, len=score.seconds+2;
@@ -696,7 +766,7 @@ async function renderWav(score){
   function osc(type,f){ const o=ctx.createOscillator(); o.type=type; o.frequency.value=f; return o; }
   function add(inst,type,m,when,dur,vel){
     if(type==='bowed' || type==='reed'){ const o=osc(type==='reed'?'square':'sawtooth',hz(m)),f=ctx.createBiquadFilter(); f.type='lowpass'; f.frequency.value= type==='reed'?2400:2200; const g=ctx.createGain(); ev(g,when, type==='reed'?0.03:0.04, type==='reed'?0.22:0.45, type==='reed'?0.55:0.8,Math.max(0.05,dur-(type==='reed'?0.25:0.4)), type==='reed'?0.2:0.3, vel*0.55); o.connect(f); f.connect(g); g.connect(B[inst].g); o.start(when); o.stop(when+dur+0.6); }
-    else if(type==='brass'){ const o=osc('sawtooth',hz(m)),f=ctx.createBiquadFilter(); f.type='lowpass'; f.frequency.value=1800; const g=ctx.createGain(); ev(g,when,0.02,0.25,0.6,Math.max(0.05,dur-0.3),0.25,vel*0.55); o.connect(f); f.connect(g); g.connect(B[inst].g); o.start(when); o.stop(when+dur+0.4); }
+    else if(type==='brass'){ const o=osc('sawtooth',hz(m)),f=ctx.createBiquadFilter(); f.type='lowpass'; f.frequency.value=1800; const g=ctx.createGain(); ev(g,when,0.02,0.25,0.6,Math.max(0.05,dur-0.3),0.25,vel*0.55); o.connect(f); f.connect(g); g.connect(B[inst].g); o.start(when); o.stop(when+0.4+dur); }
     else if(type==='pluck'){ const o=osc('triangle',hz(m)); const g=ctx.createGain(); ev(g,when,0.002,0.22,0.35,0.01,0.4,vel*0.6); o.connect(g); g.connect(B[inst].g); o.start(when); o.stop(when+0.5); }
     else if(type==='bell'){ const o=osc('sine',hz(m)); const g=ctx.createGain(); ev(g,when,0.002,0.6,0.3,0.02,1.2,vel*0.6); o.connect(g); g.connect(B[inst].g); o.start(when); o.stop(when+1.1); }
     else if(type==='organ'){ const o1=osc('sine',hz(m)),o2=osc('sine',hz(m)*2); const g=ctx.createGain(); ev(g,when,0.05,0.5,0.85,Math.max(0.05,dur-0.45),0.35,vel*0.55); o1.connect(g); o2.connect(g); g.connect(B[inst].g); o1.start(when); o2.start(when); o1.stop(when+0.6); o2.stop(when+0.6); }
@@ -717,41 +787,73 @@ async function renderWav(score){
   return new Blob([dv],{type:'audio/wav'});
 }
 
+/* ========= ROCK-SOLID download helper ========= */
+function downloadWavBlob(blob, filename='CST_LIVE_Symphony.wav'){
+  try{
+    const navAny = /** @type {any} */ (navigator);
+    if (navAny && typeof navAny.msSaveOrOpenBlob === 'function'){ // legacy Edge
+      navAny.msSaveOrOpenBlob(blob, filename);
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.rel = 'noopener';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    requestAnimationFrame(()=>{
+      a.click();
+      setTimeout(()=>{
+        try{ document.body.removeChild(a); }catch(e){}
+        try{ URL.revokeObjectURL(url); }catch(e){}
+      }, 2000);
+    });
+  }catch(err){
+    console.error('downloadWavBlob error:', err);
+    setMsg('Could not start download. Try again after Analyze/LIVE.', 'warn');
+  }
+}
+
 /* ========= UI Bindings ========= */
 let ANALYSIS = {bpm:null,seconds:null,beats:[],energy:[]}, SCORE=null;
 
 function updateVals(){
-  if($('swingVal')) $('swingVal').textContent=(+$('swing').value).toFixed(2);
-  if($('dotTriVal')) $('dotTriVal').textContent=(+$('dotTri').value).toFixed(2);
-  if($('vminVal')) $('vminVal').textContent=$('vmin').value;
-  if($('vmaxVal')) $('vmaxVal').textContent=$('vmax').value;
-  if($('vb')) $('vb').textContent=`${$('vmin').value}–${$('vmax').value}`;
-  if($('bassDepthVal')) $('bassDepthVal').textContent=(+$('bassDepth').value).toFixed(2);
-  if($('emoIntVal')) $('emoIntVal').textContent=(+$('emoInt').value).toFixed(2);
-  if($('toneBiasVal')) $('toneBiasVal').textContent=(+$('toneBias').value).toFixed(1);
-  if($('percAmtVal')) $('percAmtVal').textContent=(+$('percAmt').value).toFixed(2);
+  const id = (x)=>$(x);
+  if(id('swingVal')) id('swingVal').textContent=(+id('swing').value).toFixed(2);
+  if(id('dotTriVal')) id('dotTriVal').textContent=(+id('dotTri').value).toFixed(2);
+  if(id('vminVal')) id('vminVal').textContent=id('vmin').value;
+  if(id('vmaxVal')) id('vmaxVal').textContent=id('vmax').value;
+  if(id('vb')) id('vb').textContent=`${id('vmin').value}–${id('vmax').value}`;
+  if(id('bassDepthVal')) id('bassDepthVal').textContent=(+id('bassDepth').value).toFixed(2);
+  if(id('emoIntVal')) id('emoIntVal').textContent=(+id('emoInt').value).toFixed(2);
+  if(id('toneBiasVal')) id('toneBiasVal').textContent=(+id('toneBias').value).toFixed(1);
+  if(id('percAmtVal')) id('percAmtVal').textContent=(+id('percAmt').value).toFixed(2);
 }
 ['swing','dotTri','vmin','vmax','bassDepth','emoInt','toneBias','percAmt'].forEach(id=>{
   const el=$(id); if(el) el.addEventListener('input',()=>{ updateVals(); setMsg('Settings changed — press LIVE to apply.'); });
 });
 if($('cadence')) $('cadence').addEventListener('change',()=>{
-  const isC=$('cadence').value==='custom'; if($('cadenceCustom')) $('cadenceCustom').disabled=!isC;
-  if($('cadOut')) $('cadOut').textContent=isC?'Custom':$('cadence').value.replace(/-/g,'–');
+  const isC=$('cadence').value==='custom'; $('cadenceCustom').disabled=!isC;
+  $('cadOut').textContent=isC?'Custom':$('cadence').value.replace(/_/g,' ').replace(/-/g,'–');
   setMsg('Cadence changed — press LIVE to apply.');
 });
-if($('cadenceCustom')) $('cadenceCustom').addEventListener('input',()=>{ if($('cadence').value==='custom'){ if($('cadOut')) $('cadOut').textContent='Custom'; setMsg('Custom cadence updated — press LIVE to apply.'); } });
-if($('emotion')) $('emotion').addEventListener('change',()=>{ if($('emoOut')) $('emoOut').textContent=$('emotion').value.replace(/\b\w/g,m=>m.toUpperCase()); setMsg('Emotion changed — press LIVE to apply.'); });
-if($('equation')) $('equation').addEventListener('change',()=> setMsg('Composer equation changed — press LIVE to apply.'));
+if($('cadenceCustom')) $('cadenceCustom').addEventListener('input',()=>{ if($('cadence').value==='custom'){ $('cadOut').textContent='Custom'; setMsg('Custom cadence updated — press LIVE to apply.'); } });
+if($('emotion')) $('emotion').addEventListener('change',()=>{ $('emoOut').textContent=$('emotion').value.replace(/\b\w/g,m=>m.toUpperCase()); setMsg('Emotion changed — press LIVE to apply.'); });
+if($('equation')) $('equation').addEventListener('change',()=>{ $('eqOut').textContent=$('equation').value; setMsg('Composer equation changed — press LIVE to apply.'); });
 if($('pace')) $('pace').addEventListener('change',()=> setMsg('Pace changed — press LIVE to apply.'));
+if($('movement')) $('movement').addEventListener('change',()=> setMsg('Movement changed — press LIVE to apply.'));
+if($('tempoFactor')) $('tempoFactor').addEventListener('change',()=> setMsg('Tempo factor changed — press LIVE to apply.'));
 if($('allOn')) $('allOn').addEventListener('click',()=>{ selectAll(true); });
 if($('allOff')) $('allOff').addEventListener('click',()=>{ selectAll(false); });
-if($('saveSel')) $('saveSel').addEventListener('click', saveSelection);
+if($('saveSel')) $('saveSel').addEventListener('click', saveAllSelections);
 
+/* Analyze */
 if($('analyze')) $('analyze').addEventListener('click', async ()=>{
-  clearMsg(); setLiveOn(false); stopAll();
+  clearMsg(); setLiveOn(false); stopAll(); stopLine();
   const f=$('file')?.files?.[0];
   if(!f){ setMsg('Please choose an audio file first.','warn'); return; }
-  $('live')?.setAttribute('disabled','disabled'); if($('live')) $('live').textContent='LIVE — WAIT (Analyzing...)';
+  $('live')?.setAttribute('disabled','disabled'); $('live').textContent='LIVE — WAIT (Analyzing...)';
 
   try{
     await unlockAudio(); initBuses();
@@ -770,26 +872,27 @@ if($('analyze')) $('analyze').addEventListener('click', async ()=>{
     const maxE = beatEnergy.reduce((a,b)=>Math.max(a,b),0.0001);
     const E = beatEnergy.map(x=> clamp(x/maxE,0,1));
     ANALYSIS={bpm:Math.round(bpm),seconds,beats,energy:E};
-    if($('bpm')) $('bpm').textContent = Math.round(bpm);
-    if($('len')) $('len').textContent = seconds.toFixed(1)+' s';
+    $('bpm').textContent = Math.round(bpm);
+    $('len').textContent = seconds.toFixed(1)+' s';
     setMsg(seconds<buf.duration?'Using first 60 seconds. Analysis complete — press LIVE.':'Analysis complete — press LIVE.');
     $('live')?.removeAttribute('disabled');
   }catch(err){ console.error(err); setMsg('Analyze failed. Try another file.','warn'); }
-  finally{ if($('live')) $('live').textContent='LIVE — PLAY'; }
+  finally{ $('live').textContent='LIVE — PLAY'; }
 });
 
+/* Live play */
 if($('live')) $('live').addEventListener('click', async ()=>{
   if($('live').hasAttribute('disabled')) return;
   await unlockAudio(); initBuses();
   if(!ANALYSIS.bpm){ setMsg('Analyze first, then LIVE.','warn'); return; }
   if(playing){ setMsg('Already playing. Press Stop to silence; or change settings and press LIVE to regenerate.'); return; }
 
-  let cadName=$('cadence')?.value||'I-IV-V-I';
-  if(!cadName || cadName==='random') cadName = pickRandomCadence();
-  if(cadName!=='custom' && $('cadence')) $('cadence').value=cadName;
-  const cadCustom=$('cadenceCustom')?.value.trim()||'';
+  let cadName=$('cadence').value||'I-IV-V-I';
+  if(!cadName || cadName==='random') cadName = ['I-IV-V-I','I-vi-IV-V','ii-V-I','I-V-vi-IV','authentic','plagal','half','deceptive'][Math.floor(Math.random()*8)];
+  if(cadName!=='custom') $('cadence').value=cadName;
+  const cadCustom=$('cadenceCustom').value.trim()||'';
   const cadenceSeq=cadenceList(cadName, cadCustom);
-  if($('cadOut')) $('cadOut').textContent=(cadName==='custom'?(cadCustom||'Custom'):cadName).replace(/-/g,'–');
+  $('cadOut').textContent=(cadName==='custom'?(cadCustom||'Custom'):cadName).replace(/_/g,' ').replace(/-/g,'–');
 
   const modes = pickEquationModes();
 
@@ -798,82 +901,87 @@ if($('live')) $('live').addEventListener('click', async ()=>{
     totalSecs: ANALYSIS.seconds,
     energyArr: ANALYSIS.energy,
     cadenceNames: cadenceSeq,
-    swingBase:+($('swing')?.value||1.0),
-    dotTri:+($('dotTri')?.value||0.3),
-    vmin:+($('vmin')?.value||1),
-    vmax:+($('vmax')?.value||4),
-    bassDepth:+($('bassDepth')?.value||1.15),
+    swingBase:+$('swing').value,
+    dotTri:+$('dotTri').value,
+    vmin:+$('vmin').value,
+    vmax:+$('vmax').value,
+    bassDepth:+$('bassDepth').value,
     modes,
-    emotionKind: $('emotion')?.value || 'auto',
-    emoIntensity: +($('emoInt')?.value||0.6),
-    toneBias: +($('toneBias')?.value||0),
-    percAmt: +($('percAmt')?.value||0.4),
-    equationName: $('equation')?.value || 'beethoven',
-    pace: $('pace')?.value || 'medium'
+    emotionKind: $('emotion').value,
+    emoIntensity: +$('emoInt').value,
+    toneBias: +$('toneBias').value,
+    percAmt: +$('percAmt').value,
+    equationName: $('equation').value,
+    pace: $('pace').value,
+    movement: $('movement').value,
+    tempoFactor: $('tempoFactor').value,
+    eqApproach: $('eqApproach').value
   };
   SCORE = generateScore(params);
   if(!SCORE || !SCORE.events.length){ setMsg('No playable events (maybe no instruments selected).','warn'); return; }
   drawTimeline(SCORE);
 
-  const list=$('willPlay'); if(list){ list.innerHTML=''; const used=Array.from(new Set(SCORE.events.map(e=>e.inst))); used.forEach(n=>{ const d=document.createElement('div'); d.textContent=(n||'').replace(/_/g,' ').replace(/\b\w/g,m=>m.toUpperCase()); list.appendChild(d); }); }
+  const list=$('willPlay'); list.innerHTML=''; const used=Array.from(new Set(SCORE.events.map(e=>e.inst)));
+  used.forEach(n=>{ const d=document.createElement('div'); d.textContent=(n||'').replace(/_/g,' ').replace(/\b\w/g,m=>m.toUpperCase()); list.appendChild(d); });
 
   playScore(SCORE);
   clearMsg();
 });
 
+/* Stop / Reset */
 if($('stop')) $('stop').addEventListener('click', ()=>{ stopAll(); clearMsg(); });
-
 if($('reset')) $('reset').addEventListener('click', ()=>{
   stopAll(); SCORE=null; SOURCEBUF=null; ANALYSIS={bpm:null,seconds:null,beats:[],energy:[]};
   if($('file')) $('file').value="";
-  if($('bpm')) $('bpm').textContent='–';
-  if($('len')) $('len').textContent='–';
-  if($('live')) { $('live').setAttribute('disabled','disabled'); $('live').textContent='LIVE — PLAY'; setLiveOn(false); }
+  $('bpm').textContent='–'; $('len').textContent='–';
+  $('live').setAttribute('disabled','disabled'); $('live').textContent='LIVE — PLAY'; setLiveOn(false);
   randomize20();
-  if($('cadence')) $('cadence').value = pickRandomCadence();
-  if($('cadenceCustom')) $('cadenceCustom').value='';
-  clearMsg();
+  $('cadence').value='random'; $('cadenceCustom').value=''; $('cadenceCustom').disabled=true;
+  clearMsg(); drawLine(0);
   if(CTX && TLM){ const dpr=window.devicePixelRatio||1; TLM.width=TLM.clientWidth*dpr; TLM.height=TLM.clientHeight*dpr; CTX.clearRect(0,0,TLM.width,TLM.height); }
 });
 
+/* Export (uses robust downloader) */
 if($('export')) $('export').addEventListener('click', async ()=>{
   if(!SCORE){ setMsg('Nothing to export. Press LIVE first.','warn'); return; }
-  const blob=await renderWav(SCORE); const url=URL.createObjectURL(blob); const a=document.createElement('a');
-  a.href=url; a.download=`CST_LIVE_Symphony_${ANALYSIS.bpm}BPM_1min.wav`; a.click(); setTimeout(()=>URL.revokeObjectURL(url),5000);
+  try{
+    const blob=await renderWav(SCORE);
+    const bpmSafe = ANALYSIS?.bpm ? `${ANALYSIS.bpm}` : 'UNK';
+    downloadWavBlob(blob, `CST_LIVE_Symphony_${bpmSafe}BPM_1min.wav`);
+    setMsg('WAV export started…');
+  }catch(err){
+    console.error('Export failed:', err);
+    setMsg('Export failed. Try Analyze → LIVE, then export again.','warn');
+  }
 });
 
 /* ========= Init ========= */
 window.addEventListener('pointerdown', unlockAudio, {once:true});
-ensureAudio(); initBuses(); loadSelection(); buildInstList();
-(function firstVals(){ 
-  if($('live')) $('live').setAttribute('disabled','disabled');
-  if($('cadence')) $('cadence').value='random';
-  if($('cadenceCustom')) $('cadenceCustom').disabled=true;
-  if($('swing')) $('swing').value='1.10';
-  if($('dotTri')) $('dotTri').value='0.30';
-  if($('vmin')) $('vmin').value='1';
-  if($('vmax')) $('vmax').value='4';
-  if($('bassDepth')) $('bassDepth').value='1.15';
-  if($('emoInt')) $('emoInt').value='0.60';
-  if($('toneBias')) $('toneBias').value='0';
-  if($('percAmt')) $('percAmt').value='0.40';
-})();
-function updateValsSafe(){ try{ 
-  if($('swingVal')) $('swingVal').textContent=(+$('swing').value).toFixed(2);
-  if($('dotTriVal')) $('dotTriVal').textContent=(+$('dotTri').value).toFixed(2);
-  if($('vminVal')) $('vminVal').textContent=$('vmin').value;
-  if($('vmaxVal')) $('vmaxVal').textContent=$('vmax').value;
-  if($('vb')) $('vb').textContent=`${$('vmin').value}–${$('vmax').value}`;
-  if($('bassDepthVal')) $('bassDepthVal').textContent=(+$('bassDepth').value).toFixed(2);
-  if($('emoIntVal')) $('emoIntVal').textContent=(+$('emoInt').value).toFixed(2);
-  if($('toneBiasVal')) $('toneBiasVal').textContent=(+$('toneBias').value).toFixed(1);
-  if($('percAmtVal')) $('percAmtVal').textContent=(+$('percAmt').value).toFixed(2);
-} catch(e){} }
-updateValsSafe();
+function firstVals(){ 
+  $('live').setAttribute('disabled','disabled');
+  ['swing','dotTri','vmin','vmax','bassDepth','emoInt','toneBias','percAmt'].forEach(id=>{ const el=$(id); if(el && el.value==null) el.value = el.getAttribute('value'); });
+  // show readouts
+  (function update(){ 
+    try{
+      $('swingVal').textContent=(+$('swing').value).toFixed(2);
+      $('dotTriVal').textContent=(+$('dotTri').value).toFixed(2);
+      $('vminVal').textContent=$('vmin').value; $('vmaxVal').textContent=$('vmax').value;
+      $('vb').textContent=`${$('vmin').value}–${$('vmax').value}`;
+      $('bassDepthVal').textContent=(+$('bassDepth').value).toFixed(2);
+      $('emoIntVal').textContent=(+$('emoInt').value).toFixed(2);
+      $('toneBiasVal').textContent=(+$('toneBias').value).toFixed(1);
+      $('percAmtVal').textContent=(+$('percAmt').value).toFixed(2);
+    }catch(e){}
+  })();
+}
+ensureAudio(); initBuses();
+/* load saved selections before building list */
+loadAllSelections();
+buildInstList();
+firstVals();
 
-// Resume audio context when tab becomes visible again
+/* resume audio on visibility */
 document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') unlockAudio(); });
-
 </script>
 </body>
 </html>
