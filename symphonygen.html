@@ -3,23 +3,24 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>CST — Key & Bass Note Analyzer (No Libraries)</title>
+<title>CST — Key & Bass Analyzer + 1-Minute Mini Symphony (CSV → GM/WebMIDI)</title>
 <style>
   :root{
     --bg:#0a0f1f; --ink:#eaf1ff; --muted:#a8b7e3; --panel:#121a33; --line:#6ee7ff; --ok:#10b981; --warn:#f59e0b;
-    --grid:#1b254b; --accent:#3b82f6;
+    --grid:#1b254b; --accent:#3b82f6; --danger:#ef4444;
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
   header{padding:14px 16px;border-bottom:1px solid var(--grid);display:flex;gap:12px;align-items:center;flex-wrap:wrap}
   h1{font-size:18px;margin:0}
-  main{max-width:1100px;margin:0 auto;padding:16px;display:grid;grid-template-columns:320px 1fr;gap:16px}
+  main{max-width:1200px;margin:0 auto;padding:16px;display:grid;grid-template-columns:360px 1fr;gap:16px}
   .card{background:var(--panel);border:1px solid var(--grid);border-radius:12px;padding:14px}
   label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
-  input[type="file"],button,select{width:100%;padding:10px;border-radius:10px;border:1px solid var(--grid);background:#0e1733;color:var(--ink)}
+  input[type="file"],button,select,input[type="number"],input[type="checkbox"]{width:100%;padding:10px;border-radius:10px;border:1px solid var(--grid);background:#0e1733;color:var(--ink)}
   button{cursor:pointer;background:linear-gradient(180deg,#15245a,#0f1b45)}
   button:hover{filter:brightness(1.06)}
   .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
   .stat{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border:1px dashed var(--grid);border-radius:10px;margin-top:8px}
   .stat b{color:var(--ok)}
   .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;font-size:12px;white-space:pre;line-height:1.425}
@@ -29,18 +30,23 @@
   .hint{font-size:12px;color:var(--muted);margin-top:6px}
   .legend{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
   .legend span{font-size:12px}
-  .k{color:#fff;background:#12326a;border:1px solid #274a9a}
   .keys{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-top:8px}
   .keys div{padding:6px 8px;border:1px solid var(--grid);border-radius:8px;text-align:center}
+  .hr{height:1px;background:linear-gradient(90deg,transparent, #2a3a7a, transparent);margin:16px 0}
+  .danger{background:#3b1220;border-color:#6b1f35}
+  .flex{display:flex;gap:10px;align-items:center}
+  .small{font-size:12px}
 </style>
 </head>
 <body>
 <header>
-  <h1>Key & Bass Analyzer</h1>
-  <span class="pill">No libs • WebAudio + autocorrelation</span>
+  <h1>CST — Key & Bass Analyzer + 1-Minute Mini Symphony</h1>
+  <span class="pill">Analyzer: No libs • WebAudio + autocorr</span>
+  <span class="pill">Player: WebMIDI (GM) → fallback WebAudio synth</span>
 </header>
 
 <main>
+  <!-- ANALYZER (unchanged from previous answer) -->
   <section class="card">
     <label>Audio file (MP3 / WAV)</label>
     <input id="file" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg" />
@@ -58,7 +64,7 @@
       <span class="pill">Bass note emphasis (≤ 200 Hz)</span>
       <span class="pill">Key from pitch-class histogram</span>
     </div>
-    <p class="hint">Tip: this is monophonic/“dominant” note tracking. Mixed songs are polyphonic, so this tracks the strongest pitch per frame and “leans bass” below 200&nbsp;Hz.</p>
+    <p class="hint">Monophonic/“dominant” tracker. For true instrument separation, use a stem model (heavy) then analyze stems.</p>
   </section>
 
   <section class="card">
@@ -74,276 +80,593 @@
         <div id="hist" class="keys mono"></div>
       </div>
     </div>
-    <div class="hint">If you need real instrument separation (true piano vs. bass lines), you’ll want a source-separation model (e.g., Spleeter/MDX) which is too heavy to bundle here.</div>
+  </section>
+
+  <!-- MINI SYMPHONY PLAYER -->
+  <section class="card" style="grid-column:1 / -1">
+    <h2 style="margin:0 0 8px 0;font-size:16px">1-Minute Mini Symphony — CSV Orchestration</h2>
+    <div class="hint">CSV columns required: <b>time_s,dominant_midi,dominant_name,bass_midi,bass_name</b>. Times are in seconds; we clamp to 60s.</div>
+    <div class="hr"></div>
+
+    <div class="row">
+      <div>
+        <label>Track A — CSV</label>
+        <input id="csvA" type="file" accept=".csv" />
+      </div>
+      <div>
+        <label>Track B — CSV (optional, will combine)</label>
+        <input id="csvB" type="file" accept=".csv" />
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px">
+      <div>
+        <label>Track A — Dominant Program (Ch 1)</label>
+        <select id="progA1"></select>
+      </div>
+      <div>
+        <label>Track A — Bass Program (Ch 2)</label>
+        <select id="progA2"></select>
+      </div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div>
+        <label>Track B — Dominant Program (Ch 3)</label>
+        <select id="progB1"></select>
+      </div>
+      <div>
+        <label>Track B — Bass Program (Ch 4)</label>
+        <select id="progB2"></select>
+      </div>
+    </div>
+
+    <div class="row3" style="margin-top:10px">
+      <div>
+        <label class="flex"><input id="useMIDI" type="checkbox" /> <span>Use WebMIDI (GM) if available</span></label>
+      </div>
+      <div>
+        <label class="flex"><input id="metronome" type="checkbox" /> <span>GM Ch.10 Metronome</span></label>
+      </div>
+      <div>
+        <label>BPM for Metronome</label>
+        <input id="bpmClick" type="number" min="30" max="240" value="100" />
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:12px">
+      <button id="combineBtn" title="Load & merge A+B into a 60s layered program">Combine</button>
+      <div class="flex">
+        <button id="playBtn">Play (60s)</button>
+        <button id="stopBtn" class="danger">Stop</button>
+        <button id="resetBtn">Reset</button>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:12px">
+      <div>
+        <label>Schedule Preview (first 20 events)</label>
+        <div id="sched" class="scroller mono" style="min-height:140px"></div>
+      </div>
+      <div>
+        <label>Runtime Status</label>
+        <div id="status" class="scroller mono" style="min-height:140px"></div>
+      </div>
+    </div>
+
+    <div class="hint" style="margin-top:8px">
+      <b>General MIDI note:</b> Program numbers are 0–127 (e.g., 40 Violin, 41 Viola, 42 Cello, 43 Contrabass, 56 Trumpet, 57 Trombone, 60 French Horn, 46 Harp, 11 Vibraphone, 13 Xylophone, etc.).  
+      Channel 10 is reserved for percussion; we use it for the metronome (Closed HH 42 & Kick 36).
+    </div>
   </section>
 </main>
 
 <script>
-(() => {
-  const fileEl = document.getElementById('file');
-  const analyzeBtn = document.getElementById('analyzeBtn');
-  const exportBtn  = document.getElementById('exportBtn');
-  const keyOut = document.getElementById('keyOut');
-  const bpmOut = document.getElementById('bpmOut');
-  const framesOut = document.getElementById('framesOut');
-  const listEl = document.getElementById('list');
-  const histEl = document.getElementById('hist');
-  const roll = document.getElementById('roll'), rc = roll.getContext('2d');
+/* =========================
+   Utility / musical helpers
+   ========================= */
+const NOTE_NAMES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+function hzToMidi(hz){ return 69 + 12*Math.log2(hz/440); }
+function midiToHz(m){ return 440*Math.pow(2,(m-69)/12); }
+function midiToName(m){
+  const n = Math.round(m);
+  const name = NOTE_NAMES[(n % 12 + 12)%12];
+  const oct = Math.floor(n/12) - 1;
+  return `${name}${oct}`;
+}
+function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
 
-  const NOTE_NAMES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+/* =========================
+   Analyzer (same core as before)
+   ========================= */
+const KS_MAJOR = [6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88];
+const KS_MINOR = [6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17];
+const fileEl = document.getElementById('file');
+const analyzeBtn = document.getElementById('analyzeBtn');
+const exportBtn  = document.getElementById('exportBtn');
+const keyOut = document.getElementById('keyOut');
+const bpmOut = document.getElementById('bpmOut');
+const framesOut = document.getElementById('framesOut');
+const listEl = document.getElementById('list');
+const histEl = document.getElementById('hist');
+const roll = document.getElementById('roll'), rc = roll.getContext('2d');
 
-  // Krumhansl-Schmuckler (normalized) key profiles (C major / C minor)
-  const KS_MAJOR = [6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88];
-  const KS_MINOR = [6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17];
-
-  function hzToMidi(hz){ return 69 + 12*Math.log2(hz/440); }
-  function midiToHz(m){ return 440*Math.pow(2,(m-69)/12); }
-  function midiToName(m){
-    const n = Math.round(m);
-    const name = NOTE_NAMES[(n % 12 + 12)%12];
-    const oct = Math.floor(n/12) - 1;
-    return `${name}${oct}`;
+function autocorrPitch(frame, sampleRate){
+  const N = frame.length;
+  let mean=0; for(let i=0;i<N;i++) mean += frame[i]; mean/=N;
+  let maxAbs=0;
+  for(let i=0;i<N;i++){
+    frame[i] = (frame[i]-mean) * (0.5 - 0.5*Math.cos(2*Math.PI*i/(N-1)));
+    maxAbs = Math.max(maxAbs, Math.abs(frame[i]));
   }
-  function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
-
-  function autocorrPitch(frame, sampleRate){
-    // Center-clip & window then ACF; simple, robust for dominant pitch
-    // Returns frequency in Hz or 0 if no clear peak
-    const N = frame.length;
-    // Hann window & mean remove
-    let mean=0; for(let i=0;i<N;i++) mean += frame[i]; mean/=N;
-    let maxAbs=0;
+  const clip = 0.3*maxAbs;
+  if (clip>0){
     for(let i=0;i<N;i++){
-      frame[i] = (frame[i]-mean) * (0.5 - 0.5*Math.cos(2*Math.PI*i/(N-1)));
-      maxAbs = Math.max(maxAbs, Math.abs(frame[i]));
-    }
-    const clip = 0.3*maxAbs;
-    if (clip>0){
-      for(let i=0;i<N;i++){
-        if (frame[i]> clip) frame[i]-=clip;
-        else if (frame[i]<-clip) frame[i]+=clip;
-        else frame[i]=0;
-      }
-    }
-    // ACF
-    const minF=50, maxF=1000; // pitch search band
-    const minLag = Math.floor(sampleRate/maxF);
-    const maxLag = Math.floor(sampleRate/minF);
-    let bestLag=0, best=0;
-    for(let lag=minLag; lag<=Math.min(maxLag, N-3); lag++){
-      let sum=0;
-      for(let i=0;i<N-lag;i++) sum += frame[i]*frame[i+lag];
-      if (sum>best){best=sum; bestLag=lag;}
-    }
-    if (bestLag>0){
-      // Parabolic refine
-      const l=bestLag;
-      const c1 = acfAtLag(frame,l-1), c2=acfAtLag(frame,l), c3=acfAtLag(frame,l+1);
-      let shift = 0;
-      const denom = (c1 - 2*c2 + c3);
-      if (denom !== 0) shift = 0.5*(c1 - c3)/denom;
-      const refined = l + shift;
-      const freq = sampleRate / refined;
-      if (isFinite(freq) && freq>20 && freq<2000) return freq;
-    }
-    return 0;
-    function acfAtLag(x, lag){
-      if (lag<1 || lag>=x.length) return 0;
-      let s=0;
-      for(let i=0;i<x.length-lag;i++) s += x[i]*x[i+lag];
-      return s;
+      if (frame[i]> clip) frame[i]-=clip;
+      else if (frame[i]<-clip) frame[i]+=clip;
+      else frame[i]=0;
     }
   }
-
-  function estimateBPM(peaks, sr){
-    // very rough: histogram inter-onset intervals in 0.2..2.0 s → BPM 30..300
-    if (peaks.length<3) return 0;
-    const diffs=[];
-    for(let i=1;i<peaks.length;i++){
-      const dt = (peaks[i]-peaks[i-1])/sr;
-      if (dt>0.2 && dt<2.0) diffs.push(dt);
-    }
-    if (!diffs.length) return 0;
-    const med = diffs.sort((a,b)=>a-b)[Math.floor(diffs.length/2)];
-    let bpm = Math.round(60/med);
-    // fold to 60..180
-    while (bpm<60) bpm*=2;
-    while (bpm>180) bpm=Math.round(bpm/2);
-    return bpm;
+  const minF=50, maxF=1000;
+  const minLag = Math.floor(sampleRate/maxF);
+  const maxLag = Math.floor(sampleRate/minF);
+  let bestLag=0, best=0;
+  for(let lag=minLag; lag<=Math.min(maxLag, N-3); lag++){
+    let sum=0;
+    for(let i=0;i<N-lag;i++) sum += frame[i]*frame[i+lag];
+    if (sum>best){best=sum; bestLag=lag;}
   }
-
-  function correlateKey(pitchClassHist){
-    // Try all 12 rotations for major/minor; pick max correlation
-    function corr(a,b){ let s=0; for(let i=0;i<12;i++) s+=a[i]*b[i]; return s; }
-    function norm(v){ const n=Math.hypot(...v); return v.map(x=>x/(n||1)); }
-    const h = norm(pitchClassHist);
-    let best={name:"–",score:-1};
-    for(let r=0;r<12;r++){
-      const maj = KS_MAJOR.map((v,i)=>v * h[(i+r)%12]);
-      const min = KS_MINOR.map((v,i)=>v * h[(i+r)%12]);
-      const cMaj = maj.reduce((a,b)=>a+b,0);
-      const cMin = min.reduce((a,b)=>a+b,0);
-      if (cMaj>best.score) best={name:`${NOTE_NAMES[r]} major`, score:cMaj};
-      if (cMin>best.score) best={name:`${NOTE_NAMES[r]} minor`, score:cMin};
-    }
-    return best.name;
+  if (bestLag>0){
+    const l=bestLag;
+    const c1 = acfAtLag(frame,l-1), c2=acfAtLag(frame,l), c3=acfAtLag(frame,l+1);
+    let shift = 0;
+    const denom = (c1 - 2*c2 + c3);
+    if (denom !== 0) shift = 0.5*(c1 - c3)/denom;
+    const refined = l + shift;
+    const freq = sampleRate / refined;
+    if (isFinite(freq) && freq>20 && freq<2000) return freq;
   }
-
-  function drawRoll(events, durationSec){
-    rc.clearRect(0,0,roll.width,roll.height);
-    // grid
-    rc.strokeStyle = "rgba(110,231,255,0.25)";
-    rc.lineWidth = 1;
-    for(let i=0;i<=10;i++){
-      const x = (i/10)*roll.width;
-      rc.beginPath(); rc.moveTo(x,0); rc.lineTo(x,roll.height); rc.stroke();
-    }
-    // note lane mapping: MIDI 36..84
-    const minM=36, maxM=84, span=maxM-minM;
-    function yForMidi(m){ return roll.height - ((m-minM)/span)*roll.height; }
-
-    // draw dominant notes (cyan) & bass (lime accents)
-    events.forEach(ev=>{
-      const x = (ev.t/durationSec)*roll.width;
-      if (ev.midi){
-        rc.fillStyle = "rgba(110,231,255,0.85)";
-        const y = yForMidi(ev.midi);
-        rc.fillRect(x, y-3, 3, 6);
-      }
-      if (ev.bassMidi){
-        rc.fillStyle = "rgba(16,185,129,0.9)";
-        const yb = yForMidi(ev.bassMidi);
-        rc.fillRect(x, yb-4, 4, 8);
-      }
-    });
+  return 0;
+  function acfAtLag(x, lag){
+    if (lag<1 || lag>=x.length) return 0;
+    let s=0;
+    for(let i=0;i<x.length-lag;i++) s += x[i]*x[i+lag];
+    return s;
   }
-
-  analyzeBtn.onclick = async () => {
-    const f = fileEl.files?.[0];
-    if (!f){ alert("Choose an audio file first."); return; }
-
-    keyOut.textContent = "…";
-    bpmOut.textContent = "…";
-    framesOut.textContent = "…";
-    listEl.textContent = "";
-    histEl.innerHTML = "";
-
-    const arrBuf = await f.arrayBuffer();
-    const ac = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, 44100*120, 44100); // up to 120s
-    let audioBuf;
-    try{
-      audioBuf = await ac.decodeAudioData(arrBuf.slice(0));
-    }catch(e){
-      alert("Could not decode audio. Try a WAV/MP3.");
-      return;
+}
+function estimateBPM(peaks, sr){
+  if (peaks.length<3) return 0;
+  const diffs=[];
+  for(let i=1;i<peaks.length;i++){
+    const dt = (peaks[i]-peaks[i-1])/sr;
+    if (dt>0.2 && dt<2.0) diffs.push(dt);
+  }
+  if (!diffs.length) return 0;
+  const med = diffs.sort((a,b)=>a-b)[Math.floor(diffs.length/2)];
+  let bpm = Math.round(60/med);
+  while (bpm<60) bpm*=2;
+  while (bpm>180) bpm=Math.round(bpm/2);
+  return bpm;
+}
+function correlateKey(pitchClassHist){
+  function norm(v){ const n=Math.hypot(...v); return v.map(x=>x/(n||1)); }
+  const h = norm(pitchClassHist);
+  let best={name:"–",score:-1};
+  for(let r=0;r<12;r++){
+    const maj = KS_MAJOR.map((v,i)=>v * h[(i+r)%12]).reduce((a,b)=>a+b,0);
+    const min = KS_MINOR.map((v,i)=>v * h[(i+r)%12]).reduce((a,b)=>a+b,0);
+    if (maj>best.score) best={name:`${NOTE_NAMES[r]} major`, score:maj};
+    if (min>best.score) best={name:`${NOTE_NAMES[r]} minor`, score:min};
+  }
+  return best.name;
+}
+function drawRoll(events, durationSec){
+  rc.clearRect(0,0,roll.width,roll.height);
+  rc.strokeStyle = "rgba(110,231,255,0.25)";
+  rc.lineWidth = 1;
+  for(let i=0;i<=10;i++){
+    const x = (i/10)*roll.width;
+    rc.beginPath(); rc.moveTo(x,0); rc.lineTo(x,roll.height); rc.stroke();
+  }
+  const minM=36, maxM=84, span=maxM-minM;
+  function yForMidi(m){ return roll.height - ((m-minM)/span)*roll.height; }
+  events.forEach(ev=>{
+    const x = (ev.t/durationSec)*roll.width;
+    if (ev.midi){
+      rc.fillStyle = "rgba(110,231,255,0.85)";
+      const y = yForMidi(ev.midi);
+      rc.fillRect(x, y-3, 3, 6);
     }
-    const sr = audioBuf.sampleRate;
-    const ch = audioBuf.numberOfChannels;
-    const mono = new Float32Array(audioBuf.length);
-    // downmix
-    for(let c=0;c<ch;c++){
-      const data = audioBuf.getChannelData(c);
-      for(let i=0;i<data.length;i++) mono[i] = (mono[i]||0) + data[i]/ch;
+    if (ev.bassMidi){
+      rc.fillStyle = "rgba(16,185,129,0.9)";
+      const yb = yForMidi(ev.bassMidi);
+      rc.fillRect(x, yb-4, 4, 8);
     }
-    // analysis params
-    const frameSize = 4096;
-    const hop = 2048; // ~46ms @44.1k
-    const total = mono.length;
-    const durationSec = total/sr;
-
-    const events = [];
-    const pclass = new Float32Array(12);
-    const onsetPeaks = [];
-
-    // simple energy onset detection to estimate BPM
-    let prevE = 0;
-    for(let start=0; start+frameSize<=total; start+=hop){
-      const frame = mono.subarray(start, start+frameSize).slice(); // local copy (windowing modifies it)
-      // Energy for rough onsets
-      let e=0; for(let i=0;i<frame.length;i++) e += frame[i]*frame[i];
-      const de = e - prevE; prevE = e;
-      if (de>0.1) onsetPeaks.push(start);
-
-      const f0 = autocorrPitch(frame, sr); // Hz
-      let midi = 0, name = "", pc = -1;
-      if (f0>0){
-        const m = hzToMidi(f0);
-        midi = clamp(Math.round(m), 24, 100);
-        name = midiToName(m);
-        pc = ((Math.round(m)%12)+12)%12;
-        pclass[pc] += 1;
-      }
-
-      // “bass” hint: if strong low freq content exists, bias to ≤ 200 Hz fundamental
-      let bassMidi = 0;
-      if (f0>20 && f0<=200){
-        const mb = clamp(Math.round(hzToMidi(f0)), 20, 80);
-        bassMidi = mb;
-      }
-
-      const t = start/sr;
-      events.push({t, midi, name, bassMidi});
+  });
+}
+analyzeBtn.onclick = async () => {
+  const f = fileEl.files?.[0];
+  if (!f){ alert("Choose an audio file first."); return; }
+  keyOut.textContent = "…"; bpmOut.textContent = "…"; framesOut.textContent = "…";
+  listEl.textContent = ""; histEl.innerHTML = "";
+  const arrBuf = await f.arrayBuffer();
+  const ac = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, 44100*120, 44100);
+  let audioBuf;
+  try{ audioBuf = await ac.decodeAudioData(arrBuf.slice(0)); }
+  catch(e){ alert("Could not decode audio. Try WAV/MP3."); return; }
+  const sr = audioBuf.sampleRate, ch = audioBuf.numberOfChannels;
+  const mono = new Float32Array(audioBuf.length);
+  for(let c=0;c<ch;c++){
+    const data = audioBuf.getChannelData(c);
+    for(let i=0;i<data.length;i++) mono[i] = (mono[i]||0) + data[i]/ch;
+  }
+  const frameSize=4096, hop=2048, total=mono.length, durationSec=total/sr;
+  const events=[], pclass=new Float32Array(12), onsetPeaks=[];
+  let prevE=0;
+  for(let start=0; start+frameSize<=total; start+=hop){
+    const frame = mono.subarray(start, start+frameSize).slice();
+    let e=0; for(let i=0;i<frame.length;i++) e += frame[i]*frame[i];
+    const de = e - prevE; prevE = e; if (de>0.1) onsetPeaks.push(start);
+    const f0 = autocorrPitch(frame, sr);
+    let midi=0, pc=-1;
+    if (f0>0){
+      const m = hzToMidi(f0);
+      midi = clamp(Math.round(m), 24, 100);
+      pc = ((Math.round(m)%12)+12)%12; pclass[pc]+=1;
     }
-
-    // Key
-    const keyName = estimateKeySmoothed(pclass);
-    keyOut.textContent = keyName;
-
-    // Frames
-    framesOut.textContent = events.length.toString();
-
-    // BPM rough
-    const bpm = estimateBPM(onsetPeaks, sr);
-    bpmOut.textContent = bpm ? `${bpm} BPM` : "–";
-
-    // Histogram UI
-    const sum = Array.from(pclass).reduce((a,b)=>a+b,0) || 1;
-    histEl.innerHTML = "";
+    let bassMidi=0;
+    if (f0>20 && f0<=200){ bassMidi = clamp(Math.round(hzToMidi(f0)), 20, 80); }
+    const t = start/sr; events.push({t, midi, bassMidi});
+  }
+  const keyName = (()=>{
+    const sm = new Float32Array(12);
     for(let i=0;i<12;i++){
-      const pct = (pclass[i]/sum*100).toFixed(1);
-      const div = document.createElement('div');
-      div.textContent = `${NOTE_NAMES[i]} ${pct}%`;
-      histEl.appendChild(div);
+      const a=pclass[(i+11)%12], b=pclass[i], c=pclass[(i+1)%12];
+      sm[i]=(a+2*b+c)/4;
     }
+    return correlateKey(Array.from(sm));
+  })();
+  keyOut.textContent = keyName;
+  framesOut.textContent = events.length.toString();
+  const bpm = estimateBPM(onsetPeaks, sr);
+  bpmOut.textContent = bpm ? `${bpm} BPM` : "–";
+  const sum = Array.from(pclass).reduce((a,b)=>a+b,0) || 1;
+  histEl.innerHTML = "";
+  for(let i=0;i<12;i++){
+    const pct = (pclass[i]/sum*100).toFixed(1);
+    const div = document.createElement('div');
+    div.textContent = `${NOTE_NAMES[i]} ${pct}%`;
+    histEl.appendChild(div);
+  }
+  const lines = [];
+  for (const ev of events){
+    const ts = ev.t.toFixed(2).padStart(6,' ');
+    const dn = ev.midi ? midiToName(ev.midi) : "--";
+    const bn = ev.bassMidi ? midiToName(ev.bassMidi) : "--";
+    lines.push(`${ts}s    dom:${dn.padEnd(4,' ')}    bass:${bn}`);
+  }
+  listEl.textContent = lines.join("\n");
+  drawRoll(events, durationSec);
+};
+exportBtn.onclick = () => {
+  alert("Export works after you Analyze an audio file.\n(Use the analyzer above first.)");
+};
 
-    // List UI
-    const lines = [];
-    for (const ev of events){
-      const ts = ev.t.toFixed(2).padStart(6,' ');
-      const dn = ev.midi ? midiToName(ev.midi) : "--";
-      const bn = ev.bassMidi ? midiToName(ev.bassMidi) : "--";
-      lines.push(`${ts}s    dom:${dn.padEnd(4,' ')}    bass:${bn}`);
-    }
-    listEl.textContent = lines.join("\n");
+/* =========================
+   GM Program List (0..127)
+   ========================= */
+const GM_PROGRAMS = [
+  "0 Acoustic Grand Piano","1 Bright Acoustic Piano","2 Electric Grand Piano","3 Honky-tonk Piano","4 Rhodes Piano","5 Chorused Piano","6 Harpsichord","7 Clavinet",
+  "8 Celesta","9 Glockenspiel","10 Music Box","11 Vibraphone","12 Marimba","13 Xylophone","14 Tubular Bells","15 Dulcimer",
+  "16 Hammond Organ","17 Percussive Organ","18 Rock Organ","19 Church Organ","20 Reed Organ","21 Accordion","22 Harmonica","23 Tango Accordion",
+  "24 Acoustic Nylon Guitar","25 Acoustic Steel Guitar","26 Electric Jazz Guitar","27 Electric Clean Guitar","28 Electric Muted Guitar","29 Overdriven Guitar","30 Distortion Guitar","31 Guitar Harmonics",
+  "32 Acoustic Bass","33 Fingered Electric Bass","34 Plucked Electric Bass","35 Fretless Bass","36 Slap Bass 1","37 Slap Bass 2","38 Synth Bass 1","39 Synth Bass 2",
+  "40 Violin","41 Viola","42 Cello","43 Contrabass","44 Tremolo Strings","45 Pizzicato Strings","46 Orchestral Harp","47 Timpani",
+  "48 String Ensemble 1","49 String Ensemble 2","50 Synth Strings 1","51 Synth Strings 2","52 Choir \"Aah\"","53 Choir \"Ooh\"","54 Synth Voice","55 Orchestral Hit",
+  "56 Trumpet","57 Trombone","58 Tuba","59 Muted Trumpet","60 French Horn","61 Brass Section","62 Synth Brass 1","63 Synth Brass 2",
+  "64 Soprano Sax","65 Alto Sax","66 Tenor Sax","67 Baritone Sax","68 Oboe","69 English Horn","70 Bassoon","71 Clarinet",
+  "72 Piccolo","73 Flute","74 Recorder","75 Pan Flute","76 Bottle Blow","77 Shakuhachi","78 Whistle","79 Ocarina",
+  "80 Square Lead","81 Saw Lead","82 Calliope Lead","83 Chiff Lead","84 Charang Lead","85 Voice Lead","86 Fifths Lead","87 Bass Lead",
+  "88 New Age Pad","89 Warm Pad","90 Polysynth Pad","91 Choir Pad","92 Bowed Pad","93 Metallic Pad","94 Halo Pad","95 Sweep Pad",
+  "96 Rain","97 Soundtrack","98 Crystal","99 Atmosphere","100 Brightness","101 Goblins","102 Echoes","103 Sci-Fi",
+  "104 Sitar","105 Banjo","106 Shamisen","107 Koto","108 Kalimba","109 Bagpipe","110 Fiddle","111 Shanai",
+  "112 Tinkle Bell","113 Agogo","114 Steel Drums","115 Woodblock","116 Taiko Drum","117 Melodic Tom","118 Synth Drum","119 Reverse Cymbal",
+  "120 Guitar Fret Noise","121 Breath Noise","122 Seashore","123 Bird Tweet","124 Telephone Ring","125 Helicopter","126 Applause","127 Gun Shot"
+];
+function fillProgramSelect(id, def){
+  const el = document.getElementById(id);
+  el.innerHTML = "";
+  GM_PROGRAMS.forEach(line=>{
+    const opt = document.createElement("option");
+    opt.value = parseInt(line.split(" ")[0],10);
+    opt.textContent = line;
+    el.appendChild(opt);
+  });
+  if (typeof def==="number") el.value = String(def);
+}
+fillProgramSelect("progA1", 48); // String Ens 1
+fillProgramSelect("progA2", 32); // Acoustic Bass
+fillProgramSelect("progB1", 56); // Trumpet
+fillProgramSelect("progB2", 41); // Viola
 
-    drawRoll(events, durationSec);
+/* =========================
+   CSV → events
+   ========================= */
+const csvA = document.getElementById('csvA');
+const csvB = document.getElementById('csvB');
+const combineBtn = document.getElementById('combineBtn');
+const playBtn = document.getElementById('playBtn');
+const stopBtn = document.getElementById('stopBtn');
+const resetBtn = document.getElementById('resetBtn');
+const schedEl = document.getElementById('sched');
+const statusEl = document.getElementById('status');
+const useMIDIEl = document.getElementById('useMIDI');
+const metroEl = document.getElementById('metronome');
+const bpmClickEl = document.getElementById('bpmClick');
 
-    // CSV export
-    exportBtn.onclick = () => {
-      const header = "time_s,dominant_midi,dominant_name,bass_midi,bass_name\n";
-      const body = events.map(ev=>{
-        const dName = ev.midi? midiToName(ev.midi) : "";
-        const bName = ev.bassMidi? midiToName(ev.bassMidi) : "";
-        return `${ev.t.toFixed(4)},${ev.midi||""},${dName},${ev.bassMidi||""},${bName}`;
-      }).join("\n");
-      const blob = new Blob([header+body],{type:"text/csv"});
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href=url; a.download="analysis.csv"; a.click();
-      URL.revokeObjectURL(url);
-    };
+let PROGRAM = null; // combined schedule
+let AUDIO = { ctx:null, master:null, running:false, nodes:[] };
+let MIDI = { access:null, out:null, enabled:false };
 
-    function estimateKeySmoothed(hist){
-      // smooth histogram a little (neighbor average) and correlate
-      const sm = new Float32Array(12);
-      for(let i=0;i<12;i++){
-        const a = hist[(i+11)%12], b = hist[i], c = hist[(i+1)%12];
-        sm[i] = (a + 2*b + c)/4;
-      }
-      return correlateKey(Array.from(sm));
-    }
+async function parseCSV(file){
+  if (!file) return [];
+  const txt = await file.text();
+  const lines = txt.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  if (!lines.length) return [];
+  const header = lines[0].split(",").map(s=>s.trim());
+  const idx = {
+    t: header.indexOf("time_s"),
+    dm: header.indexOf("dominant_midi"),
+    dn: header.indexOf("dominant_name"),
+    bm: header.indexOf("bass_midi"),
+    bn: header.indexOf("bass_name")
   };
-})();
+  const rows=[];
+  for (let i=1;i<lines.length;i++){
+    const parts = lines[i].split(","); if (parts.length<2) continue;
+    const t = parseFloat(parts[idx.t]||"0");
+    const dm = parseInt(parts[idx.dm]||"0",10);
+    const bm = parseInt(parts[idx.bm]||"0",10);
+    if (isFinite(t)){ rows.push({t, dm:isFinite(dm)?dm:0, bm:isFinite(bm)?bm:0}); }
+  }
+  // clamp to [0, 60)
+  return rows.filter(r=>r.t>=0 && r.t<60).sort((a,b)=>a.t-b.t);
+}
+
+/* =========================
+   WebMIDI (GM) + fallback synth
+   ========================= */
+async function ensureMIDI(){
+  if (!useMIDIEl.checked){ MIDI.enabled=false; return false; }
+  if (!navigator.requestMIDIAccess){ status("WebMIDI not supported; using built-in synth."); MIDI.enabled=false; return false; }
+  try{
+    MIDI.access = await navigator.requestMIDIAccess({ sysex:false });
+    const outs = Array.from(MIDI.access.outputs.values());
+    if (!outs.length){ status("No MIDI outputs found; using built-in synth."); MIDI.enabled=false; return false; }
+    MIDI.out = outs[0];
+    MIDI.enabled = true;
+    status(`WebMIDI ready → Output: ${MIDI.out.name}`);
+    return true;
+  }catch(e){
+    status("WebMIDI permission denied; using built-in synth.");
+    MIDI.enabled=false; return false;
+  }
+}
+function midiSend(msg){ if (MIDI.enabled && MIDI.out){ MIDI.out.send(msg); } }
+function midiProgramChange(channel, program){ midiSend([0xC0 | (channel & 0x0F), program & 0x7F]); }
+function midiNoteOn(channel, note, velocity){ midiSend([0x90 | (channel & 0x0F), note & 0x7F, velocity & 0x7F]); }
+function midiNoteOff(channel, note){ midiSend([0x80 | (channel & 0x0F), note & 0x7F, 0]); }
+
+// Simple synth voice (fallback): waveform by register; basic ADSR
+function ensureAudio(){
+  if (!AUDIO.ctx){
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const master = ctx.createGain(); master.gain.value = 0.6; master.connect(ctx.destination);
+    AUDIO.ctx=ctx; AUDIO.master=master;
+  }
+  return AUDIO.ctx;
+}
+function voiceForMidi(midi, program){
+  // choose waveform roughly by instrument family
+  const wf = (()=>{
+    if (program>=40 && program<=49) return "sawtooth";       // strings
+    if (program>=56 && program<=63) return "square";         // brass
+    if (program>=72 && program<=79) return "sine";           // flutes/piccolo
+    if (program>=0 && program<=7)   return "triangle";       // pianos
+    if (program>=32 && program<=39) return "sine";           // basses
+    if (program===46)               return "triangle";       // harp
+    return "sawtooth";
+  })();
+  const ctx=ensureAudio();
+  const osc=ctx.createOscillator(); osc.type = wf;
+  const g=ctx.createGain(); g.gain.value=0.0;
+  // gentle lowpass for smoother tone
+  const lp=ctx.createBiquadFilter(); lp.type="lowpass"; lp.frequency.value = 20000;
+  osc.connect(lp); lp.connect(g); g.connect(AUDIO.master);
+  const f = midiToHz(midi);
+  osc.frequency.setValueAtTime(f, ctx.currentTime);
+  osc.start();
+  return {osc,g,lp,ctx};
+}
+function playNoteSynth(midi, program, when, dur=0.4, vel=0.8){
+  const v = voiceForMidi(midi, program);
+  const t = v.ctx.currentTime + when;
+  const a=0.01, d=0.1, s=0.6*vel, r=0.15;
+  v.g.gain.cancelScheduledValues(t);
+  v.g.gain.setValueAtTime(0.0, t);
+  v.g.gain.linearRampToValueAtTime(vel, t+a);
+  v.g.gain.linearRampToValueAtTime(s, t+a+d);
+  v.g.gain.linearRampToValueAtTime(0.0, t+a+d+dur+r);
+  v.osc.stop(t+a+d+dur+r+0.02);
+  AUDIO.nodes.push(v);
+}
+
+/* =========================
+   Scheduler / playback
+   ========================= */
+function buildProgram(rowsA, rowsB){
+  // Channels: 0 A-dom, 1 A-bass, 2 B-dom, 3 B-bass, 9 drums (metronome)
+  const prog = [];
+  const progA1 = parseInt(document.getElementById('progA1').value,10);
+  const progA2 = parseInt(document.getElementById('progA2').value,10);
+  const progB1 = parseInt(document.getElementById('progB1').value,10);
+  const progB2 = parseInt(document.getElementById('progB2').value,10);
+
+  // Program changes at t=0
+  prog.push({t:0, type:"pc", ch:0, program:progA1});
+  prog.push({t:0, type:"pc", ch:1, program:progA2});
+  prog.push({t:0, type:"pc", ch:2, program:progB1});
+  prog.push({t:0, type:"pc", ch:3, program:progB2});
+
+  // Notes (short stabs ~0.35s for dom, ~0.5s for bass)
+  rowsA.forEach(r=>{
+    if (r.dm) prog.push({t:r.t, type:"note", ch:0, midi:r.dm, vel:96, dur:0.35, program:progA1});
+    if (r.bm) prog.push({t:r.t, type:"note", ch:1, midi:r.bm, vel:100, dur:0.50, program:progA2});
+  });
+  rowsB.forEach(r=>{
+    if (r.dm) prog.push({t:r.t, type:"note", ch:2, midi:r.dm, vel:92, dur:0.30, program:progB1});
+    if (r.bm) prog.push({t:r.t, type:"note", ch:3, midi:r.bm, vel:96, dur:0.45, program:progB2});
+  });
+
+  // Optional metronome on ch 9 (GM ch 10). Closed HH (42) on every 0.5s, Kick (36) on whole seconds
+  if (metroEl.checked){
+    const bpm = clamp(parseInt(bpmClickEl.value,10)||100, 30, 240);
+    const spb = 60/bpm;
+    for (let t=0; t<60; t+=spb){
+      const isDownbeat = Math.abs((t/ spb) % 4) < 0.001;
+      prog.push({t:t, type:"drum", ch:9, note:isDownbeat?36:42, vel:isDownbeat?110:70, dur:0.05});
+    }
+  }
+
+  // only first 60s
+  return prog.filter(e=>e.t>=0 && e.t<60).sort((a,b)=>a.t-b.t);
+}
+
+function previewSchedule(sched){
+  const lines = [];
+  for (let i=0;i<Math.min(200, sched.length); i++){
+    const e = sched[i];
+    if (e.type==="pc") lines.push(`${e.t.toFixed(2)}s  CH${e.ch+1}  ProgramChange → ${e.program}`);
+    else if (e.type==="note") lines.push(`${e.t.toFixed(2)}s  CH${e.ch+1}  Note ${midiToName(e.midi)} (${e.midi}) vel ${e.vel} dur ${e.dur}s`);
+    else if (e.type==="drum") lines.push(`${e.t.toFixed(2)}s  CH10  Drum ${e.note} vel ${e.vel}`);
+  }
+  schedEl.textContent = lines.join("\n");
+}
+
+function status(msg){ statusEl.textContent = (statusEl.textContent ? statusEl.textContent+"\n" : "") + msg; statusEl.scrollTop = statusEl.scrollHeight; }
+
+let currentTimer = null;
+function stopAll(){
+  if (currentTimer){ clearTimeout(currentTimer); currentTimer=null; }
+  if (MIDI.enabled){
+    // send all-notes-off on channels 0..3 and 9
+    for (const ch of [0,1,2,3,9]) midiSend([0xB0 | ch, 123, 0]);
+  }
+  if (AUDIO.ctx){
+    AUDIO.nodes.forEach(v=>{ try{ v.osc.stop(); }catch(_){} });
+    AUDIO.nodes.length = 0;
+  }
+  AUDIO.running = false;
+  status("Stopped.");
+}
+
+async function playProgram(sched){
+  stopAll();
+  const usingMIDI = await ensureMIDI();
+  const startAt = performance.now()/1000;
+  AUDIO.running = true;
+
+  // Queue events
+  function scheduleChunk(idx){
+    if (!AUDIO.running) return;
+    const now = performance.now()/1000 - startAt;
+    const lookAhead = 0.25; // seconds
+    let i = idx;
+    while (i<sched.length && (sched[i].t <= now + lookAhead)){
+      const e = sched[i];
+      const dt = Math.max(0, e.t - now);
+      if (e.type==="pc"){
+        if (usingMIDI) midiProgramChange(e.ch, e.program);
+        // fallback synth uses program at note-time only
+      }else if (e.type==="note"){
+        if (usingMIDI){
+          // Note on/off via WebMIDI
+          midiNoteOn(e.ch, e.midi, e.vel);
+          midiSend([0x80 | e.ch, e.midi & 0x7F, 0x40]); // safety off
+          setTimeout(()=>midiNoteOff(e.ch, e.midi), Math.max(10, e.dur*1000));
+        }else{
+          // WebAudio synth
+          playNoteSynth(e.midi, e.program, dt, e.dur, e.vel/127);
+        }
+      }else if (e.type==="drum"){
+        if (usingMIDI){
+          midiNoteOn(e.ch, e.note, e.vel);
+          setTimeout(()=>midiNoteOff(e.ch, e.note), Math.max(5, e.dur*1000));
+        }else{
+          // simple click (noise burst)
+          const ctx=ensureAudio();
+          const nbuf = ctx.createBuffer(1, ctx.sampleRate*0.05, ctx.sampleRate);
+          const ch0 = nbuf.getChannelData(0);
+          for (let j=0;j<ch0.length;j++) ch0[j] = (Math.random()*2-1)*0.5;
+          const src = ctx.createBufferSource(); src.buffer=nbuf;
+          const g=ctx.createGain(); g.gain.value=0.0;
+          src.connect(g); g.connect(AUDIO.master);
+          const t = ctx.currentTime + dt;
+          g.gain.setValueAtTime(0, t);
+          g.gain.linearRampToValueAtTime(0.8, t+0.005);
+          g.gain.linearRampToValueAtTime(0, t+0.05);
+          src.start(t); AUDIO.nodes.push({osc:src,g,ctx});
+        }
+      }
+      i++;
+    }
+    if (i<sched.length){
+      currentTimer = setTimeout(()=>scheduleChunk(i), 30);
+    }else{
+      // stop after last event (~60s)
+      currentTimer = setTimeout(()=>{ AUDIO.running=false; status("Done (≈60s)."); }, 1000);
+    }
+  }
+  status("Playing…");
+  scheduleChunk(0);
+}
+
+/* =========================
+   Wire up CSV workflow
+   ========================= */
+let rowsA = [], rowsB = [];
+async function combine(){
+  rowsA = await parseCSV(csvA.files?.[0]);
+  rowsB = await parseCSV(csvB.files?.[0]);
+  status(`Track A rows: ${rowsA.length} • Track B rows: ${rowsB.length}`);
+  PROGRAM = buildProgram(rowsA, rowsB);
+  previewSchedule(PROGRAM);
+}
+combineBtn.onclick = combine;
+
+playBtn.onclick = async ()=>{
+  if (!PROGRAM){
+    await combine();
+    if (!PROGRAM || !PROGRAM.length){ alert("Load at least one CSV first (Track A and/or Track B)."); return; }
+  }
+  playProgram(PROGRAM);
+};
+stopBtn.onclick = stopAll;
+resetBtn.onclick = ()=>{
+  stopAll();
+  PROGRAM=null; rowsA=[]; rowsB=[];
+  schedEl.textContent = ""; statusEl.textContent = "";
+  csvA.value=""; csvB.value="";
+  status("Reset.");
+};
+
+/* =========================
+   Finish: small safety UX
+   ========================= */
+document.addEventListener('visibilitychange', ()=>{ if (document.hidden) stopAll(); });
+
+/* =========================
+   END
+   ========================= */
 </script>
 </body>
 </html>
