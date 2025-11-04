@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>CST — Dual Key Analyzer (60s) + Built-in GM Synth (Always Plays)</title>
+<title>CST — Dual Key Analyzer (60s) + Built-in GM Synth (Real-time Scheduler)</title>
 <style>
   :root{
     --bg:#0a0f1f; --ink:#eaf1ff; --muted:#a8b7e3; --panel:#121a33; --line:#6ee7ff; --ok:#10b981; --warn:#f59e0b;
@@ -45,7 +45,7 @@
 <body>
 <header>
   <h1>CST — Dual Key Analyzer (60s) + Built-in GM Synth</h1>
-  <span class="pill">No downloads • Always produces notes • Stable pacing</span>
+  <span class="pill">No downloads • Real-time scheduling • Full-minute playback</span>
 </header>
 
 <main>
@@ -114,7 +114,7 @@
     <div id="status">Ready.</div>
   </section>
 
-  <!-- RIGHT: Visuals & Instruments -->
+  <!-- RIGHT: Visuals -->
   <section class="card">
     <label>Piano-roll (Song A + B, time → note)</label>
     <canvas id="roll" width="960" height="240"></canvas>
@@ -125,26 +125,15 @@
         <div id="previewList" class="scroller mono"></div>
       </div>
       <div>
-        <label>Per-Instrument Notes</label>
-        <div id="instList" class="scroller mono" style="min-height:120px"></div>
-      </div>
-    </div>
-
-    <div class="row" style="margin-top:8px">
-      <div>
         <label>Pitch-class histogram — A</label>
         <div id="histA" class="scroller mono" style="min-height:120px"></div>
-      </div>
-      <div>
-        <label>Pitch-class histogram — B</label>
-        <div id="histB" class="scroller mono" style="min-height:120px"></div>
       </div>
     </div>
 
     <div class="hr"></div>
     <div class="panelTitle">
       <label style="margin:0">All GM Instruments (0–127)</label>
-      <span class="pill" id="selInfo">Select an instrument to view notes</span>
+      <span class="pill" id="selInfo">Counts update after analyze</span>
     </div>
     <div id="gmGrid" class="gmGrid" style="margin-top:8px"></div>
   </section>
@@ -169,7 +158,7 @@ function snapToScale(midi, pcs){
   return Math.round(midi);
 }
 
-/* ========= GM label list (for UI) ========= */
+/* ========= GM labels (UI text only) ========= */
 function GMLabel(p){
   const names=[
 "0 Acoustic Grand Piano","1 Bright Acoustic Piano","2 Electric Grand Piano","3 Honky-tonk Piano","4 Rhodes Piano","5 Chorused Piano","6 Harpsichord","7 Clavinet",
@@ -196,10 +185,9 @@ const analyzeA=document.getElementById('analyzeA'), analyzeB=document.getElement
 const keyAEl=document.getElementById('keyA'), keyBEl=document.getElementById('keyB');
 const framesAEl=document.getElementById('framesA'), framesBEl=document.getElementById('framesB');
 const bpmAEl=document.getElementById('bpmA'), bpmBEl=document.getElementById('bpmB');
-const histAEl=document.getElementById('histA'), histBEl=document.getElementById('histB');
+const histAEl=document.getElementById('histA');
 const roll=document.getElementById('roll'), rc=roll.getContext('2d');
 const previewList=document.getElementById('previewList');
-const instList=document.getElementById('instList');
 const gmGrid=document.getElementById('gmGrid'), selInfo=document.getElementById('selInfo');
 const speedSquares=[...document.querySelectorAll('.whiteSquare')];
 const playBtn=document.getElementById('playBtn'), stopBtn=document.getElementById('stopBtn'), resetBtn=document.getElementById('resetBtn');
@@ -226,15 +214,12 @@ function zeroCrossPitch(frame, sr){
   return (freq>40 && freq<2000)? freq : 0;
 }
 function fftPitch(frame, sr){
-  // naive DFT peak (coarse) — last resort
   const N=frame.length, step=1;
   let bestF=0,bestP=0;
   for(let hz=60; hz<=1000; hz+=10){
-    const w=2*Math.PI*hz/sr;
-    let re=0, im=0;
+    const w=2*Math.PI*hz/sr; let re=0, im=0;
     for(let n=0;n<N;n+=step){ const phi=w*n; re+=frame[n]*Math.cos(phi); im-=frame[n]*Math.sin(phi); }
-    const p=re*re+im*im;
-    if (p>bestP){ bestP=p; bestF=hz; }
+    const p=re*re+im*im; if (p>bestP){ bestP=p; bestF=hz; }
   }
   return bestF||0;
 }
@@ -243,7 +228,7 @@ function autocorrPitch(frame, sr){
   let mean=0; for(let i=0;i<N;i++) mean+=frame[i]; mean/=N;
   let maxAbs=0;
   for(let i=0;i<N;i++){ frame[i]=(frame[i]-mean)*(0.5-0.5*Math.cos(2*Math.PI*i/(N-1))); maxAbs=Math.max(maxAbs,Math.abs(frame[i])); }
-  const clip=0.25*maxAbs; // slightly lower clip to be less aggressive
+  const clip=0.25*maxAbs;
   if (clip>0){ for(let i=0;i<N;i++){ if (frame[i]> clip) frame[i]-=clip; else if (frame[i]<-clip) frame[i]+=clip; } }
   const minF=50,maxF=1000,minLag=Math.floor(sr/maxF),maxLag=Math.floor(sr/minF); let bestLag=0,best=0;
   for(let lag=minLag; lag<=Math.min(maxLag,N-3); lag++){ let s=0; for(let i=0;i<N-lag;i++) s+=frame[i]*frame[i+lag]; if (s>best){best=s; bestLag=lag;} }
@@ -290,16 +275,10 @@ function renderGMGrid(){
     const d=document.createElement('div'); d.className="gmItem";
     const cnt=routed.get(p).length;
     d.innerHTML=`<div class="num">#${p}</div><div class="name">${GMLabel(p)}</div><div class="cnt">notes: ${cnt}</div>`;
-    d.onclick=()=>{ selectedProg=p; showInstrumentNotes(p); };
+    d.onclick=()=>{ selectedProg=p; selInfo.textContent=`Instrument #${p} — ${GMLabel(p)} — notes routed: ${cnt}`; };
     gmGrid.appendChild(d);
   }
-  showInstrumentNotes(selectedProg);
-}
-function showInstrumentNotes(p){
-  const arr=routed.get(p)||[];
-  selInfo.textContent=`Instrument #${p} — ${GMLabel(p)} — ${arr.length} notes`;
-  const lines=[]; for(const e of arr){ lines.push(`${e.t.toFixed(2).padStart(6,' ')}s   ${midiToName(e.midi).padEnd(5,' ')} (${e.midi})   from:${e.src}`); }
-  instList.textContent=lines.join("\n")||"(no notes for this instrument)";
+  selInfo.textContent="Click any tile to see its routed note count.";
 }
 function renderNotePreview(){
   const lines=[" time     DOM_A   BASS_A    DOM_B   BASS_B"];
@@ -309,14 +288,13 @@ function renderNotePreview(){
     const t=((a.t??b.t??0)).toFixed(2).padStart(6,' ');
     const ad=a.m?midiToName(a.m).padEnd(5,' '):" --  "; const ab=a.b?midiToName(a.b).padEnd(5,' '):" --  ";
     const bd=b.m?midiToName(b.m).padEnd(5,' '):" --  "; const bb=b.b?midiToName(b.b).padEnd(5,' '):" --  ";
-    lines.push(`${t}s   ${ad}   ${ab}    ${bd}   ${bb}`); if (lines.length>200) break;
+    lines.push(`${t}s   ${ad}   ${ab}    ${bd}   ${bb}`); if (lines.length>400) break;
   }
   previewList.textContent=lines.join("\n");
 }
 
 /* ========= WebAudio Core (built-in synth) ========= */
 let AUDIO={ctx:null, master:null, comp:null, speed:1.0};
-let activeNodes=[];
 function ensureAudio(){
   if (!AUDIO.ctx){
     const ctx=new (window.AudioContext||window.webkitAudioContext)();
@@ -333,16 +311,16 @@ async function resumeAudio(){
   if (ctx.state === 'suspended') { try { await ctx.resume(); } catch(e){} }
   return ctx;
 }
+
+/* Lightweight instrument preset */
 function presetFor(program, midi, isBass){
-  if (isBass || midi<=52) return {wave:'sawtooth', lpHz:420, q:0.9, a:0.004, d:0.06, s:0.6, r:0.08, vib:0, noisey:0};
-  if (program>=40 && program<=49) return {wave:'triangle', lpHz:2600, q:0.7, a:0.008, d:0.18, s:0.7, r:0.2, vib:4.5, noisey:0};
-  if (program>=56 && program<=63) return {wave:'square', lpHz:1800, q:0.8, a:0.003, d:0.14, s:0.55, r:0.13, vib:3.0, noisey:0};
-  if (program>=68 && program<=79) return {wave:'sine', lpHz:2400, q:0.6, a:0.004, d:0.10, s:0.65, r:0.14, vib:5.5, noisey:0};
-  if (program===46) return {wave:'triangle', lpHz:3500, q:0.6, a:0.005, d:0.25, s:0.8, r:0.6, vib:0.8, noisey:0};
-  if (program===47) return {wave:'sine', lpHz:900, q:1.2, a:0.002, d:0.08, s:0.5, r:0.2, vib:0, noisey:0.002};
-  if (program<=7) return {wave:'triangle', lpHz:3200, q:0.7, a:0.003, d:0.12, s:0.65, r:0.08, vib:0.6, noisey:0};
-  if (program>=48 && program<=55) return {wave:'triangle', lpHz:2600, q:0.8, a:0.006, d:0.22, s:0.7, r:0.25, vib:0.7, noisey:0};
-  return {wave:'sawtooth', lpHz:2200, q:0.9, a:0.004, d:0.16, s:0.6, r:0.18, vib:0.4, noisey:0};
+  if (isBass || midi<=52) return {wave:'sawtooth', lpHz:420, q:0.9, a:0.004, d:0.06, s:0.6, r:0.08, vib:0};
+  if (program>=40 && program<=49) return {wave:'triangle', lpHz:2600, q:0.7, a:0.008, d:0.18, s:0.7, r:0.2, vib:4.5};
+  if (program>=56 && program<=63) return {wave:'square', lpHz:1800, q:0.8, a:0.003, d:0.14, s:0.55, r:0.13, vib:3.0};
+  if (program>=68 && program<=79) return {wave:'sine', lpHz:2400, q:0.6, a:0.004, d:0.10, s:0.65, r:0.14, vib:5.5};
+  if (program<=7) return {wave:'triangle', lpHz:3200, q:0.7, a:0.003, d:0.12, s:0.65, r:0.08, vib:0.6};
+  if (program>=48 && program<=55) return {wave:'triangle', lpHz:2600, q:0.8, a:0.006, d:0.22, s:0.7, r:0.25, vib:0.7};
+  return {wave:'sawtooth', lpHz:2200, q:0.9, a:0.004, d:0.16, s:0.6, r:0.18, vib:0.4};
 }
 function startNote(program, midi, when, dur, gainVal, isBass){
   const ctx=ensureAudio();
@@ -350,30 +328,14 @@ function startNote(program, midi, when, dur, gainVal, isBass){
   const p=presetFor(program, midi, isBass);
 
   const osc=ctx.createOscillator(); osc.type=p.wave; osc.frequency.setValueAtTime(f, when);
-
-  let lfo, lfoGain;
   if (p.vib>0){
-    lfo=ctx.createOscillator(); lfo.type='sine'; lfo.frequency.setValueAtTime(5.2, when);
-    lfoGain=ctx.createGain(); lfoGain.gain.setValueAtTime(p.vib, when);
-    lfo.connect(lfoGain); lfoGain.connect(osc.frequency);
-    lfo.start(when); lfo.stop(when+dur+p.r+0.3);
+    const lfo=ctx.createOscillator(); const lfoGain=ctx.createGain();
+    lfo.type='sine'; lfo.frequency.setValueAtTime(5.2, when); lfoGain.gain.setValueAtTime(p.vib, when);
+    lfo.connect(lfoGain); lfoGain.connect(osc.frequency); lfo.start(when); lfo.stop(when+dur+p.r+0.3);
   }
-
   const biq=ctx.createBiquadFilter(); biq.type='lowpass';
   const baseCut=p.lpHz * Math.min(1.8, Math.max(0.6, midi/80));
-  biq.frequency.setValueAtTime(baseCut, when);
-  biq.Q.setValueAtTime(p.q, when);
-
-  let noise, noiseGain;
-  if (p.noisey>0){
-    noise=ctx.createBufferSource();
-    const nbuf=ctx.createBuffer(1, Math.max(1, Math.floor(ctx.sampleRate*dur)), ctx.sampleRate);
-    const ch=nbuf.getChannelData(0); for(let i=0;i<ch.length;i++) ch[i]=(Math.random()*2-1)*p.noisey;
-    noise.buffer=nbuf; noise.loop=false;
-    noiseGain=ctx.createGain(); noiseGain.gain.setValueAtTime(gainVal*0.8, when);
-    noise.connect(noiseGain); noiseGain.connect(biq);
-    noise.start(when); noise.stop(when+dur);
-  }
+  biq.frequency.setValueAtTime(baseCut, when); biq.Q.setValueAtTime(p.q, when);
 
   const amp=ctx.createGain();
   const a=p.a, d=p.d, s=p.s, r=p.r;
@@ -383,34 +345,18 @@ function startNote(program, midi, when, dur, gainVal, isBass){
   amp.gain.setValueAtTime(gainVal*s, when+dur);
   amp.gain.linearRampToValueAtTime(0.0005, when+dur+r);
 
-  osc.connect(biq);
-  biq.connect(amp);
-  amp.connect(AUDIO.comp);
+  osc.connect(biq); biq.connect(amp); amp.connect(AUDIO.comp);
 
   osc.start(when);
   osc.stop(when+dur+r+0.05);
-
-  activeNodes.push({osc, amp, biq, lfo, lfoGain, noise, noiseGain});
 }
-function stopAll(){
-  const now=(AUDIO.ctx?AUDIO.ctx.currentTime:0)+0.001;
-  activeNodes.forEach(n=>{
-    try{ if (n.amp){ n.amp.gain.cancelScheduledValues(0); n.amp.gain.setValueAtTime(n.amp.gain.value||0, now); n.amp.gain.linearRampToValueAtTime(0.0001, now+0.03);} }catch(_){}
-    try{ n.osc && n.osc.stop(now+0.04);}catch(_){}
-    try{ n.lfo && n.lfo.stop(now+0.05);}catch(_){}
-    try{ n.noise && n.noise.stop(now+0.05);}catch(_){}
-  });
-  activeNodes.length=0;
-  status("Stopped.");
-}
-function status(msg){ statusEl.textContent = msg; }
 
 /* ========= Routing rules ========= */
 function routeEvent(t,midi,isBass,src){
   function push(p){ routed.get(p).push({t, midi, src}); }
-  if (isBass || midi<=52){ [32,33,34,35,43].forEach(push); return; }
-  if (midi>=53 && midi<=72){ [41,42,60,71,48].forEach(push); return; }
-  [40,73,56,72,0,48].forEach(push);
+  if (isBass || midi<=52){ [32].forEach(push); return; }            // single program to reduce CPU
+  if (midi>=53 && midi<=72){ [41].forEach(push); return; }          // viola midrange
+  [40].forEach(push);                                               // violin for highs
 }
 function rerouteAll(){
   routed=initRouted();
@@ -418,22 +364,26 @@ function rerouteAll(){
   B.events.forEach(ev=>{ if(ev.m) routeEvent(ev.t,ev.m,false,'B'); if(ev.b) routeEvent(ev.t,ev.b,true,'B'); });
 }
 
-/* ========= Build schedule (quantize + density) ========= */
+/* ========= Build schedule (quantize + density cap) ========= */
 function buildSchedule(){
   const sch=[];
   function addSide(side){
     const evs=(side==='A'?A.events:B.events);
     const bpm=(side==='A'?A.bpm:B.bpm)||100;
-    const spb=60/bpm, grid=Math.max(0.08, spb/4); // allow denser if fast
+    const spb=60/bpm, grid=Math.max(0.1, spb/4);
     const lastByPitch=new Map();
+    let perSecond=0, lastSec=-1;
     for (const e of evs){
       if (!e.m && !e.b) continue;
       const tQ=Math.max(0,Math.min(60,Math.round(e.t/grid)*grid));
+      const sec=Math.floor(tQ);
+      if (sec!==lastSec){ perSecond=0; lastSec=sec; }
       const add=(m,isBass)=>{
         if (!m) return;
         const last=lastByPitch.get(m)||-999;
-        if (tQ-last<0.06) return; // density control
-        lastByPitch.set(m,tQ);
+        if (tQ-last<0.06) return;
+        if (perSecond>14) return; // hard cap events/sec to keep CPU low
+        lastByPitch.set(m,tQ); perSecond++;
         sch.push({t:tQ, midi:Math.round(m), src:side, isBass});
       };
       add(e.m,false); add(e.b,true);
@@ -443,64 +393,87 @@ function buildSchedule(){
   return sch.filter(x=>x.t>=0&&x.t<60).sort((a,b)=>a.t-b.t);
 }
 
-/* ========= Program selection for a midi note ========= */
-function programsFor(midi,isBass){
-  if (isBass || midi<=52) return [32,33,34,35,43];
-  if (midi>=53 && midi<=72) return [41,42,60,71,48];
-  return [40,73,56,72,0,48];
+/* ========= One program per note ========= */
+function programFor(midi,isBass){
+  if (isBass || midi<=52) return 32;      // acoustic bass
+  if (midi>=53 && midi<=72) return 41;    // viola
+  return 40;                              // violin
 }
 
-/* ========= Playback (uses built-in synth) ========= */
-async function play(){
-  status("Preparing…");
-  await resumeAudio();
+/* ========= Real-time scheduler (fixes 3s playback cutoff) ========= */
+let playing=false, sch=[], schIndex=0, schedTimer=null, startAudio=0, startPerf=0;
+const LOOKAHEAD=0.25;           // seconds of audio time to schedule ahead
+const TICK_MS=25;               // scheduler tick
 
-  stopAll();
-
-  let sch=buildSchedule();
-  if (!sch.length){
-    status("No detected notes; generating fallback…");
-    // guaranteed fallback: simple 1/8 grid arpeggio + bass in detected key(s)
-    const fallback = generateFallback();
-    A.events = fallback.A; B.events = fallback.B;
-    rerouteAll(); drawRoll(); renderGMGrid(); renderNotePreview();
-    sch = buildSchedule();
-  }
-  if (!sch.length){ status("Still no notes."); alert("No notes yet. Try analyzing A or B again."); return; }
-
+function schedulerTick(){
   const ctx=AUDIO.ctx;
   const speed=AUDIO.speed||1.0;
-  const mixA=parseFloat(mixAEl.value||"0.85"), mixB=parseFloat(mixBEl.value||"0.7");
-  const start = ctx.currentTime + 0.08;
+  const nowA=ctx.currentTime;
+  const horizon=nowA + LOOKAHEAD;
 
-  for (const e of sch){
-    const when = start + (e.t)*(1/speed);
+  while (schIndex<sch.length){
+    const e=sch[schIndex];
+    const when = startAudio + (e.t)*(1/speed);
+    if (when > horizon) break;
+
     const dur = (e.midi<=52? 0.55:0.35) * (1/speed);
+    const mixA=parseFloat(mixAEl.value||"0.85"), mixB=parseFloat(mixBEl.value||"0.7");
     const vel = (e.midi<=52? 0.95:0.80) * (e.src==='A'? mixA : mixB);
-    const progs = programsFor(e.midi,e.isBass).slice(0,2);
-    for (const p of progs){
-      startNote(p, e.midi, when, dur, vel, e.isBass);
-    }
+    startNote(programFor(e.midi,e.isBass), e.midi, when, dur, vel, e.isBass);
+    schIndex++;
   }
+
+  // stop when finished
+  if (schIndex>=sch.length){
+    clearInterval(schedTimer); schedTimer=null; playing=false;
+    status("Finished.");
+  }
+}
+
+async function play(){
+  await resumeAudio();
+  stopPlayback(); // clear any previous run
+
+  sch=buildSchedule();
+  if (!sch.length){
+    status("No detected notes; generating fallback…");
+    const fb=generateFallback(); A.events=fb.A; B.events=fb.B;
+    rerouteAll(); drawRoll(); renderGMGrid(); renderNotePreview();
+    sch=buildSchedule();
+  }
+  if (!sch.length){ status("Still no notes."); alert("No notes yet. Analyze A and/or B first."); return; }
+
+  playing=true; schIndex=0;
+  const ctx=AUDIO.ctx;
+  startAudio=ctx.currentTime + 0.06;
+  startPerf=performance.now()/1000;
+
+  // start scheduler
+  schedTimer=setInterval(schedulerTick, TICK_MS);
   status("Playing…");
+}
+function stopPlayback(){
+  if (schedTimer){ clearInterval(schedTimer); schedTimer=null; }
+  playing=false; schIndex=sch.length;
+  status("Stopped.");
 }
 
 /* ========= Fallback generator ========= */
 function generateFallback(){
   function build(side){
     const key = (side==='A'?A.key:B.key);
-    const pcs = keyScalePcs(key) || MAJOR; // default major
+    const pcs = keyScalePcs(key) || MAJOR;
     const tonicPc = pcs[0];
     const tonicMidi = 60 + tonicPc;         // C4-based tonic
     const bassTonic = 36 + tonicPc;         // C2-based tonic
     const bpm = (side==='A'?A.bpm:B.bpm)||100;
     const spb = 60/bpm;
-    const grid = Math.max(0.125, spb/2);    // 1/8 notes baseline
+    const grid = Math.max(0.125, spb/2);    // 1/8 baseline
     const out=[];
     for (let t=0; t<60; t+=grid){
       const step = Math.floor((t/grid)) % pcs.length;
       const m = tonicMidi + (pcs[step] - tonicPc);
-      const b = (step%2===0)? bassTonic : bassTonic+5; // tonic/fifth
+      const b = (step%2===0)? bassTonic : bassTonic+5;
       out.push({t, m, b});
     }
     return out;
@@ -508,7 +481,7 @@ function generateFallback(){
   return { A: build('A'), B: build('B') };
 }
 
-/* ========= Analysis (with 3-stage pitch & guaranteed content) ========= */
+/* ========= Analysis (3-stage pitch + guaranteed content) ========= */
 async function analyze(file, side){
   if (!file){ alert(`Choose audio for Song ${side}.`); return; }
   const arrBuf=await file.arrayBuffer();
@@ -520,25 +493,22 @@ async function analyze(file, side){
 
   const frame=4096, hop=2048, total=mono.length, maxS=Math.min(total,Math.floor(sr*60));
   const out=[], pclass=new Float32Array(12), onsets=[];
-  let prevE=0, detected=0;
+  let prevE=0;
 
   for(let st=0; st+frame<=maxS; st+=hop){
     const fr=mono.subarray(st,st+frame).slice();
     let E=0; for(let i=0;i<fr.length;i++) E+=fr[i]*fr[i];
-    const dE=E-prevE; prevE=E; if (dE>0.08) onsets.push(st); // lower threshold
+    const dE=E-prevE; prevE=E; if (dE>0.08) onsets.push(st);
 
-    // stage 1: autocorr
     let f0=autocorrPitch(fr.slice(),sr);
-    // stage 2: zero-cross fallback
     if (!f0) f0=zeroCrossPitch(fr,sr);
-    // stage 3: coarse FFT fallback
     if (!f0) f0=fftPitch(fr,sr);
 
     let m=0,b=0;
     if (f0>0){
       m=clamp(Math.round(hzToMidi(f0)),24,96);
       if (f0<=220) b=clamp(Math.round(hzToMidi(f0)),28,72);
-      if (m) { pclass[((m%12)+12)%12]+=1; detected++; }
+      if (m) pclass[((m%12)+12)%12]+=1;
     }
     out.push({t:st/sr, m, b});
   }
@@ -559,9 +529,9 @@ async function analyze(file, side){
   const pcs=keyScalePcs(keyName);
   if (snapScaleEl.checked){ for (const e of out){ if(e.m) e.m=snapToScale(e.m,pcs); if(e.b) e.b=snapToScale(e.b,pcs); } }
 
-  let bpm=estimateBPM(onsets,sr);
+  const bpm=estimateBPM(onsets,sr);
 
-  // Guarantee content: if too few detected frames, synthesize a simple pattern so Play will work
+  // Guarantee content
   const meaningful = out.filter(e=>e.m||e.b).length;
   if (meaningful < 8){
     const fb = generateFallback();
@@ -573,8 +543,8 @@ async function analyze(file, side){
   }
 
   // UI updates
-  if (side==='A'){ framesAEl.textContent=String(out.length); keyAEl.textContent=keyName; bpmAEl.textContent=`${bpm}`; drawHist(histAEl, pclass); }
-  else{ framesBEl.textContent=String(out.length); keyBEl.textContent=keyName; bpmBEl.textContent=`${bpm}`; drawHist(histBEl, pclass); }
+  if (side==='A'){ framesAEl.textContent=String(out.length); keyAEl.textContent=keyName; bpmAEl.textContent=`${bpm}`; drawHist(histAEl, A.pclass); }
+  else{ framesBEl.textContent=String(out.length); keyBEl.textContent=keyName; bpmBEl.textContent=`${bpm}`; }
 
   rerouteAll(); drawRoll(); renderGMGrid(); renderNotePreview();
   status(`Analyzed ${side}.`);
@@ -585,16 +555,16 @@ analyzeA.onclick=()=>analyze(fileA.files?.[0],'A');
 analyzeB.onclick=()=>analyze(fileB.files?.[0],'B');
 speedSquares.forEach(sq=>{ sq.onclick=()=>{ speedSquares.forEach(x=>x.classList.remove('active')); sq.classList.add('active'); AUDIO.speed=parseFloat(sq.dataset.speed)||1.0; }; });
 document.getElementById('masterVol').oninput=()=>{ ensureAudio(); AUDIO.master.gain.value=parseFloat(masterVolEl.value); };
-mixAEl.oninput=()=>{ rerouteAll(); renderGMGrid(); }; 
+mixAEl.oninput=()=>{ rerouteAll(); renderGMGrid(); };
 mixBEl.oninput=()=>{ rerouteAll(); renderGMGrid(); };
 playBtn.onclick=()=>play();
-stopBtn.onclick=()=>stopAll();
+stopBtn.onclick=()=>stopPlayback();
 resetBtn.onclick=()=>{
-  stopAll();
+  stopPlayback();
   A={events:[],pclass:new Float32Array(12),key:"–",bpm:100};
   B={events:[],pclass:new Float32Array(12),key:"–",bpm:100};
   keyAEl.textContent='–'; keyBEl.textContent='–'; framesAEl.textContent='–'; framesBEl.textContent='–'; bpmAEl.textContent='–'; bpmBEl.textContent='–';
-  histAEl.textContent=''; histBEl.textContent=''; previewList.textContent=''; instList.textContent='';
+  histAEl.textContent=''; previewList.textContent='';
   routed=initRouted(); renderGMGrid(); drawRoll(); fileA.value=""; fileB.value="";
   status("Ready.");
 };
