@@ -8,7 +8,7 @@
 <style>
   :root{
     --bg:#081022; --panel:#0f1636; --ink:#e9f1ff; --muted:#9fb2e4; --grid:#1a2658; --btn:#15235a;
-    --ok:#153560; --warn:#5b3d00; --border:#274a9a; --live:#10b981; --line:#ffd54a; /* yellow playline */
+    --ok:#153560; --warn:#5b3d00; --border:#274a9a; --live:#10b981; --line:#ffd54a;
   }
   *{box-sizing:border-box}
   html,body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
@@ -45,29 +45,24 @@
   .lineWrap{margin-bottom:10px}
   #playline{width:100%;height:8px;display:block;background:#0b1333;border:1px solid var(--grid);border-radius:999px}
 
-  /* WAV button (bigger + icon) */
-  #export.btn-wav{
-    font-weight:600; letter-spacing:.2px;
-    display:inline-flex; align-items:center; gap:10px;
-    padding:12px 16px; border-radius:14px;
-    transform:translateZ(0);
-  }
-  #export.btn-wav .icon{display:inline-flex}
-  #export.btn-wav .txt{white-space:nowrap}
+  /* WAV button */
+  #export.btn-wav{font-weight:600; letter-spacing:.2px; display:inline-flex; align-items:center; gap:10px;
+    padding:12px 16px; border-radius:14px; transform:translateZ(0);}
+  #export.btn-wav .icon{display:inline-flex} #export.btn-wav .txt{white-space:nowrap}
 
-  /* Composer Mix mini layout */
   .mixRow{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .inlineBtns{display:flex;gap:8px;align-items:center}
-
-  /* Will Play list → 2 columns */
   #willPlay{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px}
+
+  /* Timeline with left label gutter */
+  #timeline{width:100%;height:260px;display:block;background:linear-gradient(180deg,#0b1536,#0b1230)}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>CST LIVE Symphony — 1-Minute Orchestral Follower</h1>
   <div class="lineWrap"><canvas id="playline" title="0 → 60 seconds progress"></canvas></div>
-  <p class="sub">Upload a song → <b>Analyze</b> (first 60s) → when <b>LIVE — PLAY</b> lights, click it. Or use <b>Generate</b> to create notes without audio, or Hybrid to use analyzed tempo/energy.</p>
+  <p class="sub">Upload a song → <b>Analyze</b> (first 60s). Or use <b>Generate</b> to create notes with no audio, or Hybrid to use analyzed tempo/energy. Then click <b>LIVE — PLAY</b>.</p>
 
   <section class="card">
     <div class="pad">
@@ -78,11 +73,9 @@
         <button id="stop">Stop</button>
         <button id="reset">Reset</button>
 
-        <!-- New generate & print controls -->
         <button id="genCompose" title="Generate 60s composition (no upload)">Generate (Compose)</button>
         <button id="genHybrid" title="Generate using analyzed tempo/energy">Generate (Hybrid)</button>
 
-        <!-- Bigger WAV button -->
         <button id="export" class="btn-wav" title="Render the 1-minute symphony to WAV and download">
           <span class="icon" aria-hidden="true">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
@@ -107,7 +100,7 @@
         <div><b>Will Play</b><div id="willPlay" class="tiny" style="min-height:54px"></div></div>
       </div>
     </div>
-    <canvas id="timeline" title="Timeline of instruments & notes" style="width:100%;height:240px;display:block;background:linear-gradient(180deg,#0b1536,#0b1230)"></canvas>
+    <canvas id="timeline" title="Timeline of instruments & notes"></canvas>
   </section>
 
   <section class="card">
@@ -222,8 +215,7 @@
 
           <label>Voices per beat</label>
           <div>
-            <input id="vmin" type="range" min="1" max="6" step="1" value="1"/> <span class="tiny" id="vminVal">1</span>
-            <br/>
+            <input id="vmin" type="range" min="1" max="6" step="1" value="1"/> <span class="tiny" id="vminVal">1</span><br/>
             <input id="vmax" type="range" min="2" max="8" step="1" value="4"/> <span class="tiny" id="vmaxVal">4</span>
             <div class="tiny">range: <span id="vb">1–4</span></div>
           </div>
@@ -241,8 +233,8 @@
         <div class="help" style="margin-top:10px">
           <b>Notes</b>
           <ul class="note">
-            <li><b>Composer Mix</b> lets you pick <b>exactly two</b> styles (e.g., Mozart & Beethoven) and set A% vs B%.</li>
-            <li><b>Generate</b> makes notes without playing; <b>LIVE — PLAY</b> plays them; <b>🖨️ Print Notes</b> prints the 60s score.</li>
+            <li><b>Composer Mix</b> uses exactly two styles (e.g., Mozart & Beethoven) with A% vs B%.</li>
+            <li><b>Generate</b> only builds notes; then <b>LIVE — PLAY</b> plays them. <b>🖨️ Print Notes</b> prints the 60s score.</li>
           </ul>
         </div>
       </div>
@@ -261,7 +253,7 @@ function setLiveOn(on){ const b=$('live'); if(!b) return; if(on){ b.classList.ad
 const LINE = $('playline'); const LCTX = LINE.getContext('2d');
 let rafId=null, playStart=0, playLen=60, lineActive=false, playTimer=null;
 
-/* ✅ Hard caps */
+/* Caps */
 const MAX_ANALYZE_SECONDS = 60;
 const MAX_PLAY_SECONDS    = 60;
 
@@ -327,28 +319,62 @@ function blendedHook(A, B, wA){
   };
 }
 
-/* ========= Canvas timeline ========= */
+/* ========= Canvas timeline (with labels) ========= */
 const TLM = document.getElementById('timeline'); 
 const CTX = TLM ? TLM.getContext('2d') : null;
 function drawTimeline(score){
   if(!TLM || !CTX || !score) return;
-  const dpr=window.devicePixelRatio||1; const W=TLM.clientWidth*dpr, H=TLM.clientHeight*dpr; 
+  const dpr=window.devicePixelRatio||1; 
+  const W=TLM.clientWidth*dpr, H=TLM.clientHeight*dpr; 
   TLM.width=W; TLM.height=H; CTX.clearRect(0,0,W,H);
-  const rows = Array.from(new Set(score.events.map(e=>e.inst))).concat(['perc']);
+
+  const labelW = Math.floor(140*dpr); // left gutter for instrument labels
+  const areaW = W - labelW;
+
+  // rows (unique instruments in score)
+  const rows = Array.from(new Set(score.events.map(e=>e.inst)));
+  if(!rows.length){ return; }
+
   const rh = H/rows.length;
   const colors = {}; rows.forEach((r,i)=>colors[r]=`hsl(${(i*47)%360} 70% 72%)`);
+
+  // draw row labels
+  CTX.fillStyle='#cfe3ff'; CTX.font=`${Math.max(10,Math.floor(12*dpr))}px system-ui,Segoe UI,Roboto,Arial`;
+  rows.forEach((name,i)=>{
+    const y = i*rh + rh*0.6;
+    CTX.fillText(name.replace(/_/g,' '), 8*dpr, y);
+    CTX.strokeStyle="#1b2a66"; CTX.lineWidth=1; CTX.beginPath(); CTX.moveTo(labelW, i*rh); CTX.lineTo(W, i*rh); CTX.stroke();
+  });
+
+  // vertical beat grid
   CTX.strokeStyle="#1b2a66"; CTX.lineWidth=1;
   const beats = Math.max(1, Math.round(score.seconds/(60/score.bpm)));
-  for(let i=0;i<=beats;i++){ const x=i*(W/beats); CTX.beginPath(); CTX.moveTo(x,0); CTX.lineTo(x,H); CTX.stroke(); }
-  const rx = t => (t/score.seconds)*W;
+  for(let i=0;i<=beats;i++){ 
+    const x=labelW + i*(areaW/beats); 
+    CTX.beginPath(); CTX.moveTo(x,0); CTX.lineTo(x,H); CTX.stroke(); 
+  }
+
+  const rx = t => labelW + (t/score.seconds)*areaW;
+
+  // events
   score.events.forEach(e=>{
     const ri=rows.indexOf(e.inst); if(ri<0) return; 
-    const x=rx(e.time), w=(e.dur/score.seconds)*W, y=ri*rh+rh*0.2, h=rh*0.6; 
-    CTX.fillStyle=colors[e.inst]; CTX.fillRect(x,y,Math.max(1.5,w),h);
+    const y=ri*rh+rh*0.2, h=rh*0.6;
+    if(e.type==='perc'){
+      // draw as a thin tick
+      const x=rx(e.time);
+      CTX.strokeStyle=colors[e.inst]; 
+      CTX.lineWidth=Math.max(1, dpr);
+      CTX.beginPath(); CTX.moveTo(x, y); CTX.lineTo(x, y+h); CTX.stroke();
+    }else{
+      const x=rx(e.time), w=Math.max(1.5,(e.dur/score.seconds)*areaW);
+      CTX.fillStyle=colors[e.inst]; 
+      CTX.fillRect(x,y,w,h);
+    }
   });
 }
 
-/* ========= Audio ========= */
+/* ========= Audio scaffolding ========= */
 let ACTX=null, master=null, BUS={}, scheduled=[], playing=false;
 function ensureAudio(){ if(ACTX) return; ACTX = new (window.AudioContext||window.webkitAudioContext)(); master = ACTX.createGain(); master.gain.value=0.9; master.connect(ACTX.destination); }
 async function unlockAudio(){ ensureAudio(); try{ await ACTX.resume(); }catch(e){} }
@@ -411,7 +437,7 @@ function labelOf(inst){ return inst?.label || (inst?.name||'').replace(/_/g,' ')
 
 /* ========= Selection & persistence ========= */
 let INST_SELECTION = {}; // name -> bool
-const LS_KEY='cst_orch_selection_v7_mix3';
+const LS_KEY='cst_orch_selection_v8_mix4';
 const DEFAULT_COMP_A='Mozart', DEFAULT_COMP_B='Beethoven';
 
 function saveAllSelections(){
@@ -539,7 +565,7 @@ function eqPhaseCST(modes, beatPeriod){
   return (phase%1)*beatPeriod;
 }
 
-/* ========= Cadences ========= */
+/* ========= Cadences & Emotion ========= */
 function chordFromDegree(deg){
   const map={'I':0,'ii':2,'iii':4,'IV':5,'V':7,'vi':9,'VII':11};
   let root = map[deg];
@@ -559,8 +585,6 @@ function cadenceList(name, custom){
   if(name==='custom'){ if(!custom) return ['I','IV','V','I']; return custom.split(/[,\s]+/).filter(Boolean); }
   return ['I','IV','V','I'];
 }
-
-/* ========= Emotion profiles ========= */
 function emotionProfile(kind, intensity, autoFeat){
   const base = {
     leadGain:1, bedGain:1, bassGain:1, sparkGain:1, percGain:0.4,
@@ -613,9 +637,9 @@ function emotionProfile(kind, intensity, autoFeat){
 
 /* ========= Helpers ========= */
 function getType(instName){ const meta = ORCH.find(i=>i.name===instName); return meta?meta.type:'bowed'; }
-const REG = { lead:72, bed:60, bass:36, spark:79 }; // pitch centers
+const REG = { lead:72, bed:60, bass:36, spark:79 };
 
-/* ========= Score generator (uses blended composer hook) — UPDATED CLAMP ========= */
+/* ========= PURE Score generator (no audio side-effects) ========= */
 function generateScore(params){
   let {
     bpm, totalSecs, energyArr, cadenceNames, swingBase, dotTri, vmin, vmax,
@@ -624,7 +648,6 @@ function generateScore(params){
     compA, compB, mixA, ensureAll=true
   } = params;
 
-  // ✅ Clamp to 60 seconds hard
   totalSecs = Math.min(MAX_PLAY_SECONDS, Math.max(1, totalSecs || MAX_PLAY_SECONDS));
 
   const wA = clamp(mixA,0,1);
@@ -633,7 +656,6 @@ function generateScore(params){
   const features = spectralFeatures(energyArr||[]);
   const emo = emotionProfile(emotionKind, emoIntensity, features);
 
-  /* Movement & tempo factor scalers */
   let paceScale = pace==='calm'? 1.12 : pace==='urgent'? 0.9 : 1.0;
   if(movement==='II') paceScale *= 1.18;
   if(movement==='III') paceScale *= 0.98;
@@ -655,7 +677,7 @@ function generateScore(params){
   const barChords = Array.from({length: totalBars}, (_,b)=> chordFromDegree(cadenceNames[b % cadenceNames.length]));
 
   const allowedNames = ORCH.filter(i=>INST_SELECTION[i.name]).map(i=>i.name);
-  if(!allowedNames.length) return {events:[],bpm,totalSecs};
+  if(!allowedNames.length) return {events:[],bpm,totalSecs:totalSecs, seconds:totalSecs};
 
   function pickFromSet(setNames, fallbackRole){
     const filt = setNames.filter(n=>allowedNames.includes(n));
@@ -755,11 +777,16 @@ function generateScore(params){
       }
     }
 
-    // Perc scaled by emotion/percussion amount
+    // Percussion as EVENTS (no audio here)
     const P = (+$('percAmt').value)*emo.percGain;
-    if(INST_SELECTION['bass_drum'] && inBar===0 && Math.random()<0.95) PATCH.k(tBeat, 0.35+0.35*E*P);
-    if(INST_SELECTION['snare'] && inBar===2) PATCH.s(tBeat+0.02, 0.22+0.18*E*P);
-    if((INST_SELECTION['triangle']||INST_SELECTION['cymbals']) && Math.random()<0.25) PATCH.h(tBeat+0.01, 0.12+0.12*E*P);
+    if(INST_SELECTION['bass_drum'] && inBar===0 && Math.random()<0.95)
+      events.push({inst:'bass_drum', type:'perc', perc:'k', time:tBeat, dur:0, midi:0, vel:0.35+0.35*E*P});
+    if(INST_SELECTION['snare'] && inBar===2)
+      events.push({inst:'snare', type:'perc', perc:'s', time:tBeat+0.02, dur:0, midi:0, vel:0.22+0.18*E*P});
+    if((INST_SELECTION['triangle']||INST_SELECTION['cymbals']) && Math.random()<0.25){
+      const which = INST_SELECTION['cymbals'] ? 'cymbals' : 'triangle';
+      events.push({inst:which, type:'perc', perc:'h', time:tBeat+0.01, dur:0, midi:0, vel:0.12+0.12*E*P});
+    }
   }
 
   /* Ensure coverage: at least 1 note per selected instrument */
@@ -774,15 +801,20 @@ function generateScore(params){
       let midi = (role==='lead')? REG.lead : (role==='bass')? REG.bass : (role==='sparkle')? REG.spark : REG.bed;
       const vel = 0.45;
       const dur = 0.35;
-      events.push({inst:name, type:getType(name), time:t, dur:dur, midi:midi, vel:vel});
+      if(getType(name)==='perc'){
+        events.push({inst:name, type:'perc', perc:'h', time:t, dur:0, midi:0, vel:0.12});
+      }else{
+        events.push({inst:name, type:getType(name), time:t, dur:dur, midi:midi, vel:vel});
+      }
     });
   }
 
   events.sort((a,b)=>a.time-b.time);
   return {events, bpm, seconds: totalSecs};
 }
-
-/* ========= WebAudio patches (playback) ========= */
+</script>
+<script>
+/* ========= WebAudio patches ========= */
 function midiToHz(m){ return 440*Math.pow(2,(m-69)/12); }
 function envGain(g,t0,a,d,sus,hold,rel,amp){
   const t1=t0+a, t2=t1+d, t3=t2+hold, t4=t3+rel;
@@ -820,13 +852,13 @@ const PATCH = {
     const g=ACTX.createGain(); const end=envGain(g,when,0.01,0.3,0.5,Math.max(0.05,dur-0.25),0.25,vel*0.65*depth);
     o.connect(g); g.connect(BUS[bus].g); o.start(when); o.stop(end); scheduled.push({o:[o],g,end}); },
   // Perc
-  k:(t,v)=>{ const o=ACTX.createOscillator(); o.type='sine'; o.frequency.setValueAtTime(130,t); o.frequency.exponentialRampToValueAtTime(40,t+0.12); const g=ACTX.createGain(); g.gain.setValueAtTime(v*0.6,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.18); o.connect(g); g.connect(BUS.perc.g); o.start(t); o.stop(t+0.2); },
-  s:(t,v)=>{ const s=ACTX.createBufferSource(); const b=ACTX.createBuffer(1,ACTX.sampleRate*0.2,ACTX.sampleRate); const d=b.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1; s.buffer=b; const f=ACTX.createBiquadFilter(); f.type='highpass'; f.frequency.value=1800; const g=ACTX.createGain(); g.gain.setValueAtTime(v*0.35,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.2); s.connect(f); f.connect(g); g.connect(BUS.perc.g); s.start(t); s.stop(t+0.2); },
-  h:(t,v)=>{ const s=ACTX.createBufferSource(); const b=ACTX.createBuffer(1,ACTX.sampleRate*0.08,ACTX.sampleRate); const d=b.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1; s.buffer=b; const f=ACTX.createBiquadFilter(); f.type='highpass'; f.frequency.value=5000; const g=ACTX.createGain(); g.gain.setValueAtTime(v*0.18,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.08); s.connect(f); s.connect(g); g.connect(BUS.perc.g); s.start(t); s.stop(t+0.08); }
+  k:(t,v)=>{ const o=ACTX.createOscillator(); o.type='sine'; o.frequency.setValueAtTime(130,t); o.frequency.exponentialRampToValueAtTime(40,t+0.12); const g=ACTX.createGain(); g.gain.setValueAtTime(v*0.6,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.18); o.connect(g); g.connect(BUS['bass_drum']?.g || master); o.start(t); o.stop(t+0.2); },
+  s:(t,v)=>{ const s=ACTX.createBufferSource(); const b=ACTX.createBuffer(1,ACTX.sampleRate*0.2,ACTX.sampleRate); const d=b.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1; s.buffer=b; const f=ACTX.createBiquadFilter(); f.type='highpass'; f.frequency.value=1800; const g=ACTX.createGain(); g.gain.setValueAtTime(v*0.35,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.2); s.connect(f); f.connect(g); g.connect(BUS['snare']?.g || master); s.start(t); s.stop(t+0.2); },
+  h:(t,v)=>{ const s=ACTX.createBufferSource(); const b=ACTX.createBuffer(1,ACTX.sampleRate*0.08,ACTX.sampleRate); const d=b.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1; s.buffer=b; const f=ACTX.createBiquadFilter(); f.type='highpass'; f.frequency.value=5000; const g=ACTX.createGain(); g.gain.setValueAtTime(v*0.18,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.08); s.connect(f); s.connect(g); g.connect(BUS['cymbals']?.g || BUS['triangle']?.g || master); s.start(t); s.stop(t+0.08); }
 };
-function initBuses(){ ORCH_MASTER.forEach((k,i)=>{ BUS[k]=BUS[k]||makeBus(k==='perc'?0.7:0.7,(i%2?0.08:-0.08)); }); if(!BUS.perc) BUS.perc = makeBus(0.7, 0); }
+function initBuses(){ ORCH_MASTER.forEach((k,i)=>{ BUS[k]=BUS[k]||makeBus(0.7,(i%2?0.08:-0.08)); }); }
 
-/* ========= WAV render (export) — UPDATED CLAMP ========= */
+/* ========= WAV render (handles perc) ========= */
 async function renderWav(score){
   await unlockAudio();
   const sr=44100;
@@ -837,16 +869,26 @@ async function renderWav(score){
   function hz(m){ return 440*Math.pow(2,(m-69)/12); }
   function ev(g,t0,a,d,s,hold,rel,amp){ const t1=t0+a,t2=t1+d,t3=t2+hold,t4=t3+rel; g.gain.setValueAtTime(0,t0); g.gain.linearRampToValueAtTime(amp,t1); g.gain.linearRampToValueAtTime(amp*s,t2); g.gain.setValueAtTime(amp*s,t3); g.gain.linearRampToValueAtTime(0,t4); }
   function osc(type,f){ const o=ctx.createOscillator(); o.type=type; o.frequency.value=f; return o; }
-  function add(inst,type,m,when,dur,vel){
-    if(type==='bowed' || type==='reed'){ const o=osc(type==='reed'?'square':'sawtooth',hz(m)),f=ctx.createBiquadFilter(); f.type='lowpass'; f.frequency.value= type==='reed'?2400:2200; const g=ctx.createGain(); ev(g,when, type==='reed'?0.03:0.04, type==='reed'?0.22:0.45, type==='reed'?0.55:0.8,Math.max(0.05,dur-(type==='reed'?0.25:0.4)), type==='reed'?0.2:0.3, vel*0.55); o.connect(f); f.connect(g); g.connect(B[inst].g); o.start(when); o.stop(when+dur+0.6); }
-    else if(type==='brass'){ const o=osc('sawtooth',hz(m)),f=ctx.createBiquadFilter(); f.type='lowpass'; f.frequency.value=1800; const g=ctx.createGain(); ev(g,when,0.02,0.25,0.6,Math.max(0.05,dur-0.3),0.25,vel*0.55); o.connect(f); f.connect(g); g.connect(B[inst].g); o.start(when); o.stop(when+0.4+dur); }
+  function noiseBuf(dur){ const b=ctx.createBuffer(1, Math.max(1,Math.floor(ctx.sampleRate*dur)), ctx.sampleRate); const d=b.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1; return b; }
+
+  function add(inst,type,m,when,dur,vel,extra){
+    if(type==='perc'){
+      if(extra==='k'){ const o=osc('sine',130); const g=ctx.createGain(); o.frequency.setValueAtTime(130,when); o.frequency.exponentialRampToValueAtTime(40,when+0.12); g.gain.setValueAtTime(vel*0.6,when); g.gain.exponentialRampToValueAtTime(0.0001,when+0.18); o.connect(g); g.connect(B[inst]?.g || master); o.start(when); o.stop(when+0.2); }
+      else if(extra==='s'){ const s=ctx.createBufferSource(); s.buffer=noiseBuf(0.2); const f=ctx.createBiquadFilter(); f.type='highpass'; f.frequency.value=1800; const g=ctx.createGain(); g.gain.setValueAtTime(vel*0.35,when); g.gain.exponentialRampToValueAtTime(0.0001,when+0.2); s.connect(f); f.connect(g); g.connect(B[inst]?.g || master); s.start(when); s.stop(when+0.2); }
+      else { const s=ctx.createBufferSource(); s.buffer=noiseBuf(0.08); const f=ctx.createBiquadFilter(); f.type='highpass'; f.frequency.value=5000; const g=ctx.createGain(); g.gain.setValueAtTime(vel*0.18,when); g.gain.exponentialRampToValueAtTime(0.0001,when+0.08); s.connect(f); f.connect(g); g.connect(B[inst]?.g || master); s.start(when); s.stop(when+0.08); }
+      return;
+    }
+    if(type==='bowed' || type==='reed'){ const o=osc(type==='reed'?'square':'sawtooth',hz(m)),f=ctx.createBiquadFilter(); f.type='lowpass'; f.frequency.value= type==='reed'?2400:2200; const g=ctx.createGain(); ev(g,when, type==='reed'?0.03:0.04, type==='reed'?0.22:0.45, type==='reed'?0.55:0.8,Math.max(0.05,dur-(type==='reed'?0.25:0.4)), type==='reed'?0.2:0.3, vel*0.55); o.connect(f); f.connect(g); g.connect(B[inst].g); o.start(when); o.stop(when+Math.max(0.4,dur)); }
+    else if(type==='brass'){ const o=osc('sawtooth',hz(m)),f=ctx.createBiquadFilter(); f.type='lowpass'; f.frequency.value=1800; const g=ctx.createGain(); ev(g,when,0.02,0.25,0.6,Math.max(0.05,dur-0.3),0.25,vel*0.55); o.connect(f); f.connect(g); g.connect(B[inst].g); o.start(when); o.stop(when+Math.max(0.4,dur)); }
     else if(type==='pluck'){ const o=osc('triangle',hz(m)); const g=ctx.createGain(); ev(g,when,0.002,0.22,0.35,0.01,0.4,vel*0.6); o.connect(g); g.connect(B[inst].g); o.start(when); o.stop(when+0.5); }
     else if(type==='bell'){ const o=osc('sine',hz(m)); const g=ctx.createGain(); ev(g,when,0.002,0.6,0.3,0.02,1.2,vel*0.6); o.connect(g); g.connect(B[inst].g); o.start(when); o.stop(when+1.1); }
-    else if(type==='organ'){ const o1=osc('sine',hz(m)),o2=osc('sine',hz(m)*2); const g=ctx.createGain(); ev(g,when,0.05,0.5,0.85,Math.max(0.05,dur-0.45),0.35,vel*0.55); o1.connect(g); o2.connect(g); g.connect(B[inst].g); o1.start(when); o2.start(when); o1.stop(when+0.6); o2.stop(when+0.6); }
+    else if(type==='organ'){ const o1=osc('sine',hz(m)),o2=osc('sine',hz(m)*2); const g=ctx.createGain(); ev(g,when,0.05,0.5,0.85,Math.max(0.05,dur-0.45),0.35,vel*0.55); o1.connect(g); o2.connect(g); g.connect(B[inst].g); o1.start(when); o2.start(when); o1.stop(when+Math.max(0.6,dur)); o2.stop(when+Math.max(0.6,dur)); }
     else if(type==='bass'){ const o=osc('triangle',hz(m)); const g=ctx.createGain(); ev(g,when,0.01,0.3,0.5,Math.max(0.05,dur-0.25),0.25,vel*0.65*(+$('bassDepth').value)); o.connect(g); g.connect(B[inst].g); o.start(when); o.stop(when+0.35); }
   }
-  score.events.forEach(e=> add(e.inst,e.type,e.midi, e.time+0.05, e.dur, e.vel));
+
+  score.events.forEach(e=> add(e.inst,e.type,e.midi, e.time+0.05, e.dur, e.vel, e.perc));
   const buf=await ctx.startRendering();
+
   // WAV packing
   function interleave(L,R){ const out=new Float32Array(L.length+R.length); for(let i=0,j=0;i<L.length;i++,j+=2){ out[j]=L[i]; out[j+1]=R[i]; } return out; }
   function f32To16(view,off,data){ for(let i=0;i<data.length;i++,off+=2){ let s=Math.max(-1,Math.min(1,data[i])); s=s<0?s*0x8000:s*0x7FFF; view.setInt16(off,s,true);} }
@@ -868,22 +910,10 @@ function downloadWavBlob(blob, filename='CST_LIVE_Symphony.wav'){
     }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.rel = 'noopener';
-    a.style.display = 'none';
+    a.href = url; a.download = filename; a.rel = 'noopener'; a.style.display = 'none';
     document.body.appendChild(a);
-    requestAnimationFrame(()=>{
-      a.click();
-      setTimeout(()=>{
-        try{ document.body.removeChild(a); }catch(e){}
-        try{ URL.revokeObjectURL(url); }catch(e){}
-      }, 2000);
-    });
-  }catch(err){
-    console.error('downloadWavBlob error:', err);
-    setMsg('Could not start download. Try again after Analyze/LIVE.', 'warn');
-  }
+    requestAnimationFrame(()=>{ a.click(); setTimeout(()=>{ try{ document.body.removeChild(a);}catch(e){} try{ URL.revokeObjectURL(url);}catch(e){} }, 1200); });
+  }catch(err){ console.error('downloadWavBlob error:', err); setMsg('Could not start download. Try again after Analyze/LIVE.', 'warn'); }
 }
 
 /* ========= Printing ========= */
@@ -895,9 +925,13 @@ function midiToName(n){
 function printScore(score){
   if(!score || !score.events || !score.events.length){ setMsg('Nothing to print — generate first.','warn'); return; }
   const nowCST = new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',dateStyle:'medium',timeStyle:'medium'}).format(new Date());
-  const w=window.open('','_blank','width=1000,height=800');
   const rows = score.events.slice().sort((a,b)=>a.time-b.time)
-    .map(e=>`<tr><td>${e.time.toFixed(2)}s</td><td>${labelOf(ORCH.find(x=>x.name===e.inst)||{name:e.inst})}</td><td>${e.inst}</td><td>${midiToName(e.midi)} (${e.midi})</td><td>${e.dur.toFixed(2)}s</td><td>${e.vel.toFixed(2)}</td></tr>`).join('');
+    .map(e=>{
+      const lab = labelOf(ORCH.find(x=>x.name===e.inst)||{name:e.inst});
+      const pitch = e.type==='perc' ? e.perc.toUpperCase() : `${midiToName(e.midi)} (${e.midi})`;
+      return `<tr><td>${e.time.toFixed(2)}s</td><td>${lab}</td><td>${e.inst}</td><td>${pitch}</td><td>${e.type==='perc'?'—':e.dur.toFixed(2)+'s'}</td><td>${e.vel.toFixed(2)}</td></tr>`;
+    }).join('');
+  const w=window.open('','_blank','width=1000,height=800');
   w.document.write(`
     <html><head><title>60s Notes — CST LIVE Symphony</title>
       <style>
@@ -920,8 +954,7 @@ function printScore(score){
   `);
   w.document.close();
 }
-</script>
-<script>
+
 /* ========= UI state ========= */
 let ANALYSIS = {bpm:null,seconds:null,beats:[],energy:[]}, SCORE=null;
 
@@ -949,7 +982,7 @@ if($('cadence')) $('cadence').addEventListener('change',()=>{
 if($('cadenceCustom')) $('cadenceCustom').addEventListener('input',()=>{ if($('cadence').value==='custom'){ $('cadOut').textContent='Custom'; setMsg('Custom cadence updated — press LIVE or Generate.'); } });
 if($('emotion')) $('emotion').addEventListener('change',()=>{ $('emoOut').textContent=$('emotion').value.replace(/\b\w/g,m=>m.toUpperCase()); setMsg('Emotion changed — press LIVE or Generate.'); });
 
-/* Build Composer dropdowns and enforce two-not-same */
+/* Composer dropdowns */
 function buildComposerDropdowns(){
   const a=$('compA'), b=$('compB');
   a.innerHTML=''; b.innerHTML='';
@@ -982,18 +1015,8 @@ function updateMixOut(){
   }});
 });
 if($('compMixA')) $('compMixA').addEventListener('input',()=>{ updateMixOut(); setMsg('Composer mix changed — press LIVE or Generate.'); });
-
-if($('swapAB')) $('swapAB').addEventListener('click', ()=>{
-  const A=$('compA').value, B=$('compB').value;
-  $('compA').value=B; $('compB').value=A;
-  updateMixOut(); setMsg('Swapped A and B — press LIVE or Generate.');
-});
-if($('resetAB')) $('resetAB').addEventListener('click', ()=>{
-  $('compA').value='Mozart';
-  $('compB').value='Beethoven';
-  $('compMixA').value=50;
-  updateMixOut(); setMsg('Reset to Mozart/Beethoven 50/50 — press LIVE or Generate.');
-});
+if($('swapAB')) $('swapAB').addEventListener('click', ()=>{ const A=$('compA').value, B=$('compB').value; $('compA').value=B; $('compB').value=A; updateMixOut(); setMsg('Swapped A and B — press LIVE or Generate.'); });
+if($('resetAB')) $('resetAB').addEventListener('click', ()=>{ $('compA').value='Mozart'; $('compB').value='Beethoven'; $('compMixA').value=50; updateMixOut(); setMsg('Reset to Mozart/Beethoven 50/50 — press LIVE or Generate.'); });
 
 if($('pace')) $('pace').addEventListener('change',()=> setMsg('Pace changed — press LIVE or Generate.'));
 if($('movement')) $('movement').addEventListener('change',()=> setMsg('Movement changed — press LIVE or Generate.'));
@@ -1094,6 +1117,7 @@ if($('genCompose')) $('genCompose').addEventListener('click', ()=>{
   drawTimeline(SCORE);
   updateWillPlayListFromSelection();
   setMsg('Generated (Compose). Press LIVE — PLAY to listen, or 🖨️ Print Notes.');
+  $('live').removeAttribute('disabled');
 });
 
 /* Generate (Hybrid) */
@@ -1106,21 +1130,28 @@ if($('genHybrid')) $('genHybrid').addEventListener('click', ()=>{
   drawTimeline(SCORE);
   updateWillPlayListFromSelection();
   setMsg('Generated (Hybrid). Press LIVE — PLAY to listen, or 🖨️ Print Notes.');
+  $('live').removeAttribute('disabled');
 });
 
-/* Live play — ✅ clamp score.seconds and line to 60 */
+/* Live play */
 function playScore(score){
   if(playing) return;
-  // clamp at play time
   if (score && typeof score.seconds === 'number') score.seconds = Math.min(score.seconds, MAX_PLAY_SECONDS);
 
   const start=ACTX.currentTime+0.2; playing=true; setLiveOn(true);
   startLine(Math.min(MAX_PLAY_SECONDS, score.seconds)); scheduled.length=0;
   if(playTimer){ clearTimeout(playTimer); }
   playTimer=setTimeout(()=>{ stopAll(); }, Math.max(0, (score.seconds*1000)+120));
+
   score.events.forEach(ev=>{
     const w = start + ev.time;
     const t=ev.type;
+    if(t==='perc'){
+      if(ev.perc==='k') PATCH.k(w, ev.vel);
+      else if(ev.perc==='s') PATCH.s(w, ev.vel);
+      else PATCH.h(w, ev.vel);
+      return;
+    }
     if(t==='bowed') PATCH.bowed(ev.inst, ev.midi, w, ev.dur, ev.vel);
     else if(t==='reed') PATCH.reed(ev.inst, ev.midi, w, ev.dur, ev.vel);
     else if(t==='brass') PATCH.brass(ev.inst, ev.midi, w, ev.dur, ev.vel);
@@ -1137,9 +1168,15 @@ if($('live')) $('live').addEventListener('click', async ()=>{
   if($('live').hasAttribute('disabled')) return;
   await unlockAudio(); initBuses();
   if(!SCORE){
-    if(!ANALYSIS.bpm){ setMsg('Analyze first (or use Generate).','warn'); return; }
-    const params = buildParamsFromUI({bpm:ANALYSIS.bpm, seconds:ANALYSIS.seconds, energy:ANALYSIS.energy});
-    SCORE = generateScore(params);
+    const mode=$('sourceMode').value;
+    if(mode==='hybrid' && ANALYSIS.bpm){
+      const params = buildParamsFromUI({bpm:ANALYSIS.bpm, seconds:ANALYSIS.seconds, energy:ANALYSIS.energy});
+      SCORE = generateScore(params);
+    }else{
+      const bpm = defaultBpm(), seconds=60, beats=Math.floor(seconds/(60/bpm));
+      const energy = Array.from({length:beats}, ()=>0.5);
+      SCORE = generateScore(buildParamsFromUI({bpm,seconds,energy}));
+    }
   }
   if(!SCORE || !SCORE.events.length){ setMsg('Nothing to play. Use Generate first.','warn'); return; }
   drawTimeline(SCORE);
