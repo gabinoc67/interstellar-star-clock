@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>CST — Audio→CSV • 10 (A) + 6 (B) Orchestrator (60s, non-overlapping)</title>
+<title>CST — Audio→CSV • A:10 + B:6 (Non-overlap) • 60s Orchestrator</title>
 <style>
   :root{
     --bg:#081122; --ink:#eaf1ff; --muted:#9fb2e4; --panel:#111b38; --grid:#1a2758; --accent:#3b82f6;
@@ -55,7 +55,7 @@
   .btnSmall{padding:6px 8px;font-size:12px;background:#122153;border:1px solid #23438e;border-radius:8px}
   .btnSmall:hover{filter:brightness(1.1)}
 
-  /* Conductor + guide at top */
+  /* Conductor + guide */
   .conductor{
     position:absolute; left:50%; transform:translateX(-50%);
     top:16px; width:92px;height:92px;border-radius:50%; background:#0d1b44;border:2px solid #284a9b;
@@ -72,7 +72,7 @@
   .guide ol{margin:6px 0 0 16px; padding-left:10px}
   .guide li{margin:2px 0}
 
-  /* Side pickers */
+  /* Pick lists */
   .twoCols{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .pickList{display:grid;grid-template-columns:1fr;gap:8px}
   .pickItem{display:flex;align-items:center;justify-content:space-between;border:1px solid var(--grid);border-radius:10px;padding:6px 10px;background:#0d1a3d}
@@ -82,7 +82,7 @@
 <body>
 <header>
   <h1>CST — Audio→CSV • A:10 + B:6 Instruments (No Overlap) • 60s</h1>
-  <span style="font-size:12px;color:#9ad1ff">A and B have separate instrument sets; B excludes anything A picked.</span>
+  <span style="font-size:12px;color:#9ad1ff">A and B have separate picks; B never overlaps A.</span>
 </header>
 
 <main>
@@ -100,7 +100,7 @@
       <div class="stat"><span>Detected Key</span><b id="detKey">–</b></div>
       <div class="stat"><span>Detected BPM</span><b id="detBPM">–</b></div>
     </div>
-    <small class="hint">CSV headers: <b>t,m,b</b> (time sec, dominant MIDI, bass MIDI). Export and then load in A/B.</small>
+    <small class="hint">CSV headers: <b>t,m,b</b> (time sec, dominant MIDI, bass MIDI). Export → then load into A/B.</small>
 
     <div class="hr"></div>
 
@@ -233,7 +233,7 @@
     <div id="status">Ready.</div>
   </section>
 
-  <!-- RIGHT: STAGE (unchanged layout) -->
+  <!-- RIGHT: STAGE -->
   <section class="card stage">
     <div class="stageHeader">
       <div class="stat"><span>Seating</span><b>Even spacing • Front strings, winds middle, brass back, perc rear</b></div>
@@ -245,7 +245,7 @@
       <b>How the 1-minute AI Symphony Orchestra works (HTML + Web Audio)</b>
       <ol>
         <li><b>Load Audio</b> and <b>Analyze 60s</b> → auto-detected notes.</li>
-        <li><b>Export CSV</b> (<code>t,m,b</code>) and then load into <b>A</b> and <b>B</b>.</li>
+        <li><b>Export CSV</b> (<code>t,m,b</code>) and then load into <b>A</b> and/or <b>B</b>.</li>
         <li>Pick instruments: <b>A = 10</b>, then <b>B = 6</b> from the remaining (no overlap).</li>
         <li>Set Composer/Key/Tempo/Quantize/Swing/Humanize/Reverb/Spread + Cadence & Pace.</li>
         <li>Press <b>Play</b>. Lights blink on the sections that are sounding.</li>
@@ -312,7 +312,7 @@ SECTIONS.forEach(id=>{ DOT[id]=document.getElementById('dot-'+id); CHK[id]=docum
 document.querySelectorAll('[data-mute]').forEach(b=>b.onclick=()=>{const s=b.getAttribute('data-mute'); MUTE[s]=!MUTE[s]; b.textContent=MUTE[s]?'Unmute':'Mute';});
 document.querySelectorAll('[data-solo]').forEach(b=>b.onclick=()=>{const s=b.getAttribute('data-solo'); if(SOLO.on&&SOLO.id===s){SOLO.on=false;SOLO.id=null;b.textContent='Solo';}else{SOLO.on=true;SOLO.id=s;document.querySelectorAll('[data-solo]').forEach(x=>x.textContent='Solo');b.textContent='Unsolo';}});
 
-/* ===== Families ===== */
+/* ===== Families & labels ===== */
 const FAM={
   strings:['vln1','vln2','violas','cellos','basses','harp','piano'],
   winds:['flutes','oboes','clarinets','bassoons'],
@@ -333,7 +333,11 @@ function pickN(arr,n,exclude=new Set()){
   while(pool.length && out.length<n){ const k=Math.floor(Math.random()*pool.length); out.push(pool.splice(k,1)[0]); }
   return out;
 }
-function rerenderSide(side){
+function famOf(id){
+  for (const k of Object.keys(FAM)) if (FAM[k].includes(id)) return k;
+  return 'strings';
+}
+function renderSide(side){
   const box = side==='A'? listA : listB;
   const arr = side==='A'? PICK_A : PICK_B;
   const setCount = side==='A'? selCountA : selCountB;
@@ -352,37 +356,34 @@ function rerenderSide(side){
   });
 }
 function randomizeA(){
+  // keep locked
   const keep=PICK_A.filter(x=>x.locked);
   const excl=new Set(keep.map(x=>x.id));
   const p=[];
-  // 2 per family
+  // 2 per family (strings, winds, brass, perc)
   for(const fam of ['strings','winds','brass','perc']){
-    const take=pickN(FAM[fam], 2, excl);
+    const need = Math.min(2, Math.max(0, 10 - (keep.length+p.length)));
+    const take=pickN(FAM[fam], need, excl);
     take.forEach(id=>{excl.add(id); p.push({id,fam});});
   }
-  // 2 wildcards from anything
+  // fill remaining up to 10 from all
   const all=[...FAM.strings,...FAM.winds,...FAM.brass,...FAM.perc];
-  pickN(all, 2, excl).forEach(id=>{
-    let fam='strings'; for(const k of Object.keys(FAM)) if(FAM[k].includes(id)) fam=k;
-    p.push({id,fam});
-  });
+  pickN(all, 10 - (keep.length+p.length), excl).forEach(id=>{excl.add(id); p.push({id,fam:famOf(id)});});
   PICK_A=[...keep, ...p].slice(0,10).map(x=>({...x,locked:!!x.locked}));
-  // After A changes, ensure B remains non-overlapping:
+
+  // ensure B doesn't overlap A
   enforceBExclusion();
-  rerenderSide('A'); rerenderSide('B');
+  renderSide('A'); renderSide('B');
 }
 function randomizeB(){
   const keep=PICK_B.filter(x=>x.locked);
   const excl=new Set([...PICK_A.map(x=>x.id), ...keep.map(x=>x.id)]);
   const all=[...FAM.strings,...FAM.winds,...FAM.brass,...FAM.perc];
-  const chosen=pickN(all, 6 - keep.length, excl).map(id=>{
-    let fam='strings'; for(const k of Object.keys(FAM)) if(FAM[k].includes(id)) fam=k; return {id,fam};
-  });
+  const chosen=pickN(all, 6 - keep.length, excl).map(id=>({id,fam:famOf(id)}));
   PICK_B=[...keep, ...chosen].slice(0,6).map(x=>({...x,locked:!!x.locked}));
-  rerenderSide('B');
+  renderSide('B');
 }
 function enforceBExclusion(){
-  // Remove any B picks that overlap A (unless locked, but we still must exclude per requirement)
   const aSet=new Set(PICK_A.map(x=>x.id));
   let changed=false;
   PICK_B = PICK_B.filter(x=>!aSet.has(x.id) ? true : (changed=true,false));
@@ -390,14 +391,12 @@ function enforceBExclusion(){
     // fill back to 6
     const excl=new Set([...aSet, ...PICK_B.map(x=>x.id)]);
     const all=[...FAM.strings,...FAM.winds,...FAM.brass,...FAM.perc];
-    const fill=pickN(all, 6 - PICK_B.length, excl).map(id=>{
-      let fam='strings'; for(const k of Object.keys(FAM)) if(FAM[k].includes(id)) fam=k; return {id,fam};
-    });
+    const fill=pickN(all, 6 - PICK_B.length, excl).map(id=>({id,fam:famOf(id)}));
     PICK_B=[...PICK_B, ...fill].slice(0,6).map(x=>({...x,locked:!!x.locked}));
   }
 }
 
-/* ===== Conductor presets ===== */
+/* ===== Presets ===== */
 const PRESETS_BASE={
   classic:{swing:0.06,human:5,  quant:0.125, reverb:0.12, spread:0.45},
   bold:{   swing:0.08,human:7,  quant:0.125, reverb:0.16, spread:0.55},
@@ -426,7 +425,7 @@ const PRESETS={
   tower:PRESETS_BASE.kinetic, montgomery:PRESETS_BASE.vibrant, williams:PRESETS_BASE.cinematic, zimmer:PRESETS_BASE.hybrid,
   cinematic:PRESETS_BASE.cinematic
 };
-function applyConductor(){
+function applyConductorPreset(){
   const p=PRESETS[composerEl.value]||PRESETS.cinematic;
   swingEl.value=String(p.swing); humanEl.value=String(p.human); quantEl.value=String(p.quant);
   reverbMixEl.value=String(p.reverb); spreadEl.value=String(p.spread);
@@ -505,7 +504,7 @@ async function analyzeAudio(file){
   setStatus("Analysis complete → Export CSV.");
 }
 
-/* ===== Audio chain (osc-based) ===== */
+/* ===== Audio chain (osc/noise) ===== */
 let AUDIO={ctx:null, master:null, comp:null, dry:null, wet:null, convolver:null, bus:{}};
 let idxTimer=null, t0=0, schArr=[], idx=0;
 const LOOKAHEAD=0.25;
@@ -607,12 +606,11 @@ btnLoadB.onclick=async()=>{ const f=csvB.files?.[0]; if(!f){alert("Select CSV fo
   setStatus(`B loaded: ${B.events.length} rows`);
 };
 
-/* ===== Conductor & transport ===== */
-function applyConductor(){ const p=PRESETS[composerEl.value]||PRESETS.cinematic;
-  swingEl.value=String(p.swing); humanEl.value=String(p.human); quantEl.value=String(p.quant);
-  reverbMixEl.value=String(p.reverb); spreadEl.value=String(p.spread); }
+/* ===== Conductor & musicalization ===== */
+function applyConductorPresetAndUI(){ applyConductorPreset(); }
+composerEl.onchange=applyConductorPresetAndUI;
 
-function activeTen(side){ return new Set((side==='A'?PICK_A:PICK_B).map(x=>x.id)); }
+function activeSet(side){ return new Set((side==='A'?PICK_A:PICK_B).map(x=>x.id)); }
 
 function densityCap(){ return Math.max(4, Math.round(10*PRESETS_PACE[PAC].density)); }
 function cadenceBeats(BPM){
@@ -625,7 +623,7 @@ function cadenceBeats(BPM){
   return {beat, hits};
 }
 function sectionForSelected(midi,isBass,side){
-  const chosen=activeTen(side);
+  const chosen=activeSet(side);
   const byPitch=()=>{
     if(isBass || midi<=43) return ['basses','trombones','horns','piano'].find(s=>chosen.has(s)) || null;
     if(midi<=55) return ['cellos','violas','horns','piano'].find(s=>chosen.has(s)) || null;
@@ -661,7 +659,7 @@ function musicalize(events, side){
     };
     push(m,false); push(b,true);
   }
-  const chosen=activeTen(side);
+  const chosen=activeSet(side);
   const {beat:hbeat, hits}=cadenceBeats(BPM);
   if(chosen.has('perc') || chosen.has('drums')){
     const comp=CADENCES[CAD], sync=comp.sync||0;
@@ -680,7 +678,6 @@ function musicalize(events, side){
 function buildSchedule(){ const a=musicalize(A.events,'A'); const b=musicalize(B.events,'B'); return [...a,...b].sort((x,y)=>x.t-y.t); }
 
 /* ===== Transport ===== */
-let idxTimer=null, t0=0, schArr=[], idx=0;
 async function doPlay(){
   await resumeAudio();
   if(PICK_A.length===0) randomizeA();
@@ -724,10 +721,10 @@ resetBtn.onclick=()=>{
   composerEl.value='cinematic'; keyRootEl.value='C'; keyModeEl.value='major';
   bpmEl.value='100'; quantEl.value='0.125'; swingEl.value='0.10'; humanEl.value='6';
   masterVolEl.value='0.85'; reverbMixEl.value='0.18'; spreadEl.value='0.55';
-  applyConductor();
+  applyConductorPreset();
   if(AUDIO.ctx){ AUDIO.master.gain.value=parseFloat(masterVolEl.value); AUDIO.wet.gain.value=parseFloat(reverbMixEl.value); buildBuses(); }
   CAD='even'; PAC='andante'; cadName.textContent='Even'; paceName.textContent='Andante';
-  PICK_A=[]; PICK_B=[]; rerenderSide('A'); rerenderSide('B');
+  PICK_A=[]; PICK_B=[]; renderSide('A'); renderSide('B');
   for(const id of SECTIONS){
     const chk=CHK[id], dot=DOT[id];
     if(chk){ chk.classList.remove('checked'); chk.textContent=''; }
@@ -745,8 +742,8 @@ spreadEl.oninput=()=>{ if(AUDIO.ctx){ try{AUDIO.ctx.close();}catch(_){ } AUDIO.c
 /* ===== Init ===== */
 (function init(){
   NOTE.forEach(n=>{ const o=document.createElement('option'); o.value=n; o.textContent=n; if(n==='C') o.selected=true; keyRootEl.appendChild(o); });
-  applyConductor();
-  randomizeA(); randomizeB();
+  applyConductorPreset();
+  randomizeA(); randomizeB();      // ensure lists are populated on load
   conductor.style.animationPlayState='paused';
   setStatus('Ready.');
 })();
