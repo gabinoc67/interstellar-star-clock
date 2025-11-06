@@ -76,9 +76,7 @@
   .fam{font-size:11px;color:#9fb8ff;margin-left:6px}
 
   /* Status dots */
-  .statusDot{
-    width:12px;height:12px;border-radius:3px;background:#ffffff;border:2px solid #dddddd;display:inline-block;
-  }
+  .statusDot{ width:12px;height:12px;border-radius:3px;background:#ffffff;border:2px solid #dddddd;display:inline-block; }
   .statusOn{background:var(--ok);border-color:#b7f5cd;}
 
   /* Conductor square panel under stage */
@@ -89,6 +87,19 @@
   }
   .conLabel{font-size:12px;color:#cfe1ff;opacity:0.9}
 
+  /* === A/B stage highlights === */
+  .section.isA { outline: 2px solid #10b981; box-shadow: 0 0 0 3px rgba(16,185,129,.18) inset; }
+  .section.isB { outline: 2px solid #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.18) inset; }
+
+  .badge {
+    display:inline-block; margin-left:6px; padding:2px 6px; border-radius:8px;
+    font-size:10px; font-weight:700; letter-spacing:.3px; vertical-align:middle;
+  }
+  .badgeA { background:#0b2a1e; border:1px solid #10b981; color:#b9f6da; }
+  .badgeB { background:#0b1f3d; border:1px solid #3b82f6; color:#cfe1ff; }
+
+  /* Small utility */
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,"Liberation Mono",Consolas,"Courier New",monospace;font-size:11px;color:#bfe3ff}
 </style>
 </head>
 <body>
@@ -254,6 +265,19 @@
 
     <div class="hr"></div>
 
+    <!-- NEW: Family Opening controls -->
+    <label style="font-weight:700">Family Opening (entry timing bias)</label>
+    <div class="row">
+      <button id="btnOpenRandom" title="Generate a musical opening order">Randomize Family Opening</button>
+      <button id="btnOpenReset">Reset Default</button>
+    </div>
+    <div class="stat" style="margin-top:6px">
+      <span>Open @ seconds (Strings, Winds, Brass, Perc)</span>
+      <b class="mono" id="openSummary">0, 8, 16, 24</b>
+    </div>
+
+    <div class="hr"></div>
+
     <!-- A vs B pickers -->
     <label style="font-weight:700">Orchestration Picks (A:10, B:6 non-overlapping)</label>
     <div class="twoCols" style="margin-top:6px">
@@ -339,7 +363,6 @@
     </div>
   </section>
 </main>
-
 <script>
 /* ===== Helpers & scales ===== */
 const NOTE=["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
@@ -363,9 +386,13 @@ const cadName=$('cadName'), paceName=$('paceName');
 const btnRandomA=$('btnRandomA'), btnRandomB=$('btnRandomB'), listA=$('listA'), listB=$('listB'), selCountA=$('selCountA'), selCountB=$('selCountB');
 const gmProgEl=$('gmProg'), btnExportAudio=$('btnExportAudio');
 
+/* NEW: Family Opening controls */
+const btnOpenRandom=$('btnOpenRandom'), btnOpenReset=$('btnOpenReset'), openSummary=$('openSummary');
+
 /* Status dots */
 const dotA=$('dotA'), dotB=$('dotB'), dotAnalyze=$('dotAnalyze'), dotExport=$('dotExport');
 function light(el,on){ if(!el) return; if(on){ el.classList.add('statusOn'); } else { el.classList.remove('statusOn'); } }
+function setStatus(s){ statusEl.textContent=s; }
 function updateConLabel(){ const txt=composerEl.options[composerEl.selectedIndex].textContent; conLabel.textContent='Conductor / Musicalize: ' + txt; }
 
 /* ===== Stage state ===== */
@@ -374,6 +401,26 @@ const DOT={}, CHK={}, MUTE={}, SOLO={on:false,id:null};
 SECTIONS.forEach(id=>{ DOT[id]=document.getElementById('dot-'+id); CHK[id]=document.getElementById('chk-'+id); MUTE[id]=false; });
 document.querySelectorAll('[data-mute]').forEach(b=>b.onclick=()=>{const s=b.getAttribute('data-mute'); MUTE[s]=!MUTE[s]; b.textContent=MUTE[s]?'Unmute':'Mute';});
 document.querySelectorAll('[data-solo]').forEach(b=>b.onclick=()=>{const s=b.getAttribute('data-solo'); if(SOLO.on&&SOLO.id===s){SOLO.on=false;SOLO.id=null;b.textContent='Solo';}else{SOLO.on=true;SOLO.id=s;document.querySelectorAll('[data-solo]').forEach(x=>x.textContent='Solo');b.textContent='Unsolo';}});
+
+/* === Stage sync (paint A/B on the 16 sections) === */
+function markStage(){
+  const aSet = new Set(PICK_A.map(x=>x.id));
+  const bSet = new Set(PICK_B.map(x=>x.id));
+  SECTIONS.forEach(id=>{
+    const secEl = document.querySelector(`.section[data-sec="${id}"]`);
+    if(!secEl) return;
+    secEl.classList.remove('isA','isB');
+    const titleEl = secEl.querySelector('.title'); if(!titleEl) return;
+    titleEl.querySelectorAll('.badge').forEach(b=>b.remove());
+    if(aSet.has(id)){
+      secEl.classList.add('isA');
+      const b = document.createElement('span'); b.className='badge badgeA'; b.textContent='A'; titleEl.appendChild(b);
+    }else if(bSet.has(id)){
+      secEl.classList.add('isB');
+      const b = document.createElement('span'); b.className='badge badgeB'; b.textContent='B'; titleEl.appendChild(b);
+    }
+  });
+}
 
 /* ===== Families & labels ===== */
 const FAM={strings:['vln1','vln2','violas','cellos','basses','harp','piano'], winds:['flutes','oboes','clarinets','bassoons'], brass:['horns','trumpets','trombones'], perc:['perc','drums']};
@@ -423,7 +470,7 @@ function randomizeA(){
   const all=[...FAM.strings,...FAM.winds,...FAM.brass,...FAM.perc];
   pickN(all, 10 - (keep.length+p.length), excl).forEach(id=>{excl.add(id); p.push({id,fam:famOf(id)});});
   PICK_A=[...keep, ...p].slice(0,10).map(x=>({...x,locked:!!x.locked}));
-  enforceBExclusion(); renderSide('A'); renderSide('B');
+  enforceBExclusion(); renderSide('A'); renderSide('B'); markStage();
 }
 function randomizeB(){
   const keep=PICK_B.filter(x=>x.locked);
@@ -431,10 +478,10 @@ function randomizeB(){
   const all=[...FAM.strings,...FAM.winds,...FAM.brass,...FAM.perc];
   const chosen=pickN(all, 6 - keep.length, excl).map(id=>({id,fam:famOf(id)}));
   PICK_B=[...keep, ...chosen].slice(0,6).map(x=>({...x,locked:!!x.locked}));
-  renderSide('B');
+  renderSide('B'); markStage();
 }
 
-/* ===== Presets ===== */
+/* ===== Conductor presets ===== */
 const PRESETS_BASE={
   classic:{swing:0.06,human:5,  quant:0.125, reverb:0.12, spread:0.45},
   bold:{   swing:0.08,human:7,  quant:0.125, reverb:0.16, spread:0.55},
@@ -495,7 +542,6 @@ document.querySelectorAll('.paceBtn').forEach(b=>b.onclick=()=>{ PAC=b.dataset.p
 
 /* ===== Analysis: Audio → CSV ===== */
 let A={events:[]}, B={events:[]}, LAST_ANALYSIS={events:[],key:"C major",bpm:100};
-function setStatus(s){ statusEl.textContent=s; }
 function toCSV(events){ const rows=["t,m,b"]; for(const e of events){ rows.push(`${e.t.toFixed(3)},${e.m|0},${e.b|0}`);} return rows.join("\n"); }
 function downloadCSV(name,text){ const blob=new Blob([text],{type:"text/csv"}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url;a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(url);a.remove();},0); }
 function parseCSV(text){
@@ -596,21 +642,19 @@ let GM_PROGRAM = parseInt(gmProgEl.value,10) || 48;
 gmProgEl.onchange=()=>{ GM_PROGRAM = clamp(parseInt(gmProgEl.value,10)||0,0,127); };
 
 function gmPresetFor(p){
-  // Rough families based on GM ranges
+  // Rough families based on GM ranges (osc/noise approximations)
   if(p>=32 && p<=39) return {wave:'sine', lp:800, q:0.8, a:0.006, d:0.12, s:0.85, r:0.20}; // Bass
   if(p<=7) return {wave:'triangle', lp:3200, q:0.7, a:0.003, d:0.12, s:0.0, r:0.2}; // Piano
-  if(p>=40 && p<=55) return {wave:'sine', lp:2200, q:0.6, a:0.008, d:0.16, s:0.75, r:0.22}; // Strings/Ensemble
+  if(p>=40 && p<=55) return {wave:'sine', lp:2200, q:0.6, a:0.008, d:0.16, s:0.75, r:0.22}; // Strings
   if(p>=56 && p<=63) return {wave:'triangle', lp:2400, q:0.9, a:0.004, d:0.14, s:0.70, r:0.24}; // Brass
   if(p>=64 && p<=71) return {wave:'triangle', lp:2000, q:0.7, a:0.008, d:0.14, s:0.65, r:0.22}; // Reed
   if(p>=72 && p<=79) return {wave:'sine', lp:3000, q:0.5, a:0.006, d:0.12, s:0.55, r:0.20}; // Pipe
-  if(p>=80 && p<=95) return {wave:'sawtooth', lp:2600, q:0.6, a:0.004, d:0.12, s:0.60, r:0.20}; // Synth lead/pad
-  if(p>=96 && p<=119) return {wave:'triangle', lp:1800, q:0.7, a:0.006, d:0.12, s:0.65, r:0.18}; // FX/Ethnic/Percussive
+  if(p>=80 && p<=95) return {wave:'sawtooth', lp:2600, q:0.6, a:0.004, d:0.12, s:0.60, r:0.20}; // Synth
+  if(p>=96 && p<=119) return {wave:'triangle', lp:1800, q:0.7, a:0.006, d:0.12, s:0.65, r:0.18}; // FX/Ethnic
   if(p>=120) return {wave:'noise', lp:6000, q:0.5, a:0.001, d:0.06, s:0.0, r:0.12}; // SFX
   return {wave:'sine', lp:2000, q:0.6, a:0.008, d:0.16, s:0.68, r:0.20};
 }
-
 function sectionPreset(sec){
-  // Base per-section
   let base;
   if(sec==='piano')    base={wave:'triangle',  lp:3200, q:0.7, a:0.002, d:0.12, s:0.0, r:0.20};
   else if(sec==='drums') base={wave:'noise',     lp:7000, q:0.6, a:0.001, d:0.08, s:0.0, r:0.12};
@@ -625,18 +669,16 @@ function sectionPreset(sec){
   else if(sec==='bassoons') base={wave:'sine',   lp:1200, q:0.8, a:0.010, d:0.18, s:0.7, r:0.22};
   else if(sec==='trumpets') base={wave:'triangle', lp:2400, q:0.9, a:0.004, d:0.12, s:0.65,r:0.22};
   else if(sec==='horns')    base={wave:'sine',     lp:1800, q:0.9, a:0.008, d:0.14, s:0.7, r:0.24};
-  else if(sec==='trombones')base={wave:'sine',     lp:1400, q:0.9, a:0.006, d:0.16, s:0.75,r:0.26};
+  else if(sec==='trombones')base={wave:'sine',     lp:1400, q:0.9, a:0.006, d:0.16, s:0.75, r:0.26};
   else if(sec==='perc')     base={wave:'noise',    lp:6000, q:0.5, a:0.001, d:0.06, s:0.0, r:0.12};
   else base={wave:'sine',lp:2000,q:0.6,a:0.008,d:0.16,s:0.68,r:0.2};
 
-  // GM override (approximate)
   const gm=gmPresetFor(GM_PROGRAM);
   if(base.wave!=='noise' && gm){
     base={...base, wave:gm.wave, lp:gm.lp, q:gm.q, a:gm.a, d:gm.d, s:gm.s, r:gm.r};
   }
   return base;
 }
-
 function playSection(sec, midi, when, dur, gain){
   if(MUTE[sec] || (SOLO.on && SOLO.id!==sec)) return;
   const ctx=getAudio(), p=sectionPreset(sec);
@@ -670,6 +712,7 @@ btnLoadA.onclick=async()=>{ const f=csvA.files?.[0]; if(!f){alert("Select CSV fo
   setStatus(`A loaded: ${A.events.length} rows`);
   light(dotA,true);
   checkExportReady();
+  markStage();
 };
 btnLoadB.onclick=async()=>{ const f=csvB.files?.[0]; if(!f){alert("Select CSV for B");return;}
   try{B.events=parseCSV(await f.text());}catch(e){alert(e.message);return;}
@@ -677,14 +720,49 @@ btnLoadB.onclick=async()=>{ const f=csvB.files?.[0]; if(!f){alert("Select CSV fo
   setStatus(`B loaded: ${B.events.length} rows`);
   light(dotB,true);
   checkExportReady();
+  markStage();
 };
 
 /* ===== Conductor & musicalization ===== */
 function applyConductorPresetAndUI(){ applyConductorPreset(); }
 composerEl.onchange=applyConductorPresetAndUI;
 
-function activeSet(side){ return new Set((side==='A'?PICK_A:PICK_B).map(x=>x.id)); }
+/* ===== Family Opening bias (NEW) ===== */
+// Default (Strings 0s, Winds 8s, Brass 16s, Perc 24s)
+let FAMILY_OPEN = { strings: 0, winds: 8, brass: 16, perc: 24 };
 
+function familyOfSection(sec){
+  if (['vln1','vln2','violas','cellos','basses','harp','piano'].includes(sec)) return 'strings';
+  if (['flutes','oboes','clarinets','bassoons'].includes(sec)) return 'winds';
+  if (['horns','trumpets','trombones'].includes(sec)) return 'brass';
+  if (['perc','drums'].includes(sec)) return 'perc';
+  return 'strings';
+}
+function summarizeOpenings(){
+  const s = `${FAMILY_OPEN.strings}, ${FAMILY_OPEN.winds}, ${FAMILY_OPEN.brass}, ${FAMILY_OPEN.perc}`;
+  openSummary.textContent = s;
+}
+function randomIn(min,max){ return Math.floor(Math.random()*(max-min+1))+min; }
+/* Musical randomizer: guarantees increasing order and spacing */
+function randomizeFamilyOpening(){
+  const s0 = 0; // strings always allowed from the top for symphonic feel
+  const w0 = randomIn(6,14);
+  const b0 = randomIn(w0+4, Math.min(26, w0+14));
+  const p0 = randomIn(b0+4, Math.min(36, b0+14));
+  FAMILY_OPEN = { strings: s0, winds: w0, brass: b0, perc: p0 };
+  summarizeOpenings();
+  setStatus(`Family Opening randomized → ${openSummary.textContent} (S,W,B,P @ sec)`);
+}
+function resetFamilyOpening(){
+  FAMILY_OPEN = { strings: 0, winds: 8, brass: 16, perc: 24 };
+  summarizeOpenings();
+  setStatus('Family Opening reset to default (0, 8, 16, 24).');
+}
+btnOpenRandom.onclick = randomizeFamilyOpening;
+btnOpenReset.onclick  = resetFamilyOpening;
+
+/* ===== Selection helpers that use Family Opening ===== */
+function activeSet(side){ return new Set((side==='A'?PICK_A:PICK_B).map(x=>x.id)); }
 function densityCap(){ return Math.max(4, Math.round(10*PRESETS_PACE[PAC].density)); }
 function cadenceBeats(BPM){
   const beat=60/ Math.max(40, Math.min(220, BPM));
@@ -695,20 +773,29 @@ function cadenceBeats(BPM){
   }
   return {beat, hits};
 }
-function sectionForSelected(midi,isBass,side){
+/* UPDATED: prefers families that are "open" at time q */
+function sectionForSelected(midi,isBass,side,tSec){
   const chosen=activeSet(side);
+  const allowed=[...chosen].filter(sec=>{
+    const fam=familyOfSection(sec); const openAt=FAMILY_OPEN[fam] ?? 0;
+    return tSec>=openAt;
+  });
+  const tryPick=(pool)=>pool.find(s=>allowed.includes(s)) || null;
   const byPitch=()=>{
-    if(isBass || midi<=43) return ['basses','trombones','horns','piano'].find(s=>chosen.has(s)) || null;
-    if(midi<=55) return ['cellos','violas','horns','piano'].find(s=>chosen.has(s)) || null;
-    if(midi<=64) return ['violas','vln2','clarinets','piano'].find(s=>chosen.has(s)) || null;
-    if(midi<=76) return ['vln2','vln1','flutes','oboes','clarinets','piano'].find(s=>chosen.has(s)) || null;
-    if(midi<=84) return ['vln1','flutes','oboes','piano'].find(s=>chosen.has(s)) || null;
-    return ['flutes','vln1','clarinets','oboes','piano'].find(s=>chosen.has(s)) || null;
+    if(isBass || midi<=43) return tryPick(['basses','trombones','horns','piano']);
+    if(midi<=55)          return tryPick(['cellos','violas','horns','piano']);
+    if(midi<=64)          return tryPick(['violas','vln2','clarinets','piano']);
+    if(midi<=76)          return tryPick(['vln2','vln1','flutes','oboes','clarinets','piano']);
+    if(midi<=84)          return tryPick(['vln1','flutes','oboes','piano']);
+    return tryPick(['flutes','vln1','clarinets','oboes','piano']);
   };
   const cand=byPitch();
   if(cand) return cand;
-  const arr=[...chosen]; return arr[Math.floor(Math.random()*arr.length)] || 'vln1';
+  if(allowed.length) return allowed[Math.floor(Math.random()*allowed.length)];
+  const any=[...chosen];
+  return any[Math.floor(Math.random()*any.length)] || 'vln1';
 }
+
 function musicalize(events, side){
   if(!events?.length) return [];
   const BPM = Math.round(parseFloat(bpmEl.value||"100") * PRESETS_PACE[PAC].bpmMul);
@@ -728,7 +815,7 @@ function musicalize(events, side){
       lastBy.set(midi,q); perSec++;
       const jitter=(Math.random()*2-1)*human, dur=isBass?0.45:0.28, base=isBass?0.9:0.76;
       const vel=Math.max(0.25,Math.min(1.0, base*(0.9+0.2*((midi/127)-0.5))));
-      out.push({t:Math.max(0,Math.min(60,q+jitter)), midi:Math.round(midi), dur, vel, isBass, sec:sectionForSelected(midi,isBass,side)});
+      out.push({t:Math.max(0,Math.min(60,q+jitter)), midi:Math.round(midi), dur, vel, isBass, sec:sectionForSelected(midi,isBass,side,q)});
     };
     push(m,false); push(b,true);
   }
@@ -762,7 +849,7 @@ async function doPlay(){
   idxTimer=setInterval(tick,25);
   conductor.style.animationPlayState='running';
   setStatus("Playing…");
-  light(dotExport,true); // we have a schedule → ready to export
+  light(dotExport,true);
 }
 function tick(){
   const now=AUDIO.ctx.currentTime, horizon=now+LOOKAHEAD;
@@ -781,14 +868,13 @@ function checkExportReady(){
   light(dotExport, !!ready);
 }
 btnExportAudio.onclick=async()=>{
-  // Build schedule from current A/B (no need to hit Play)
   if(PICK_A.length===0) randomizeA();
   if(PICK_B.length===0) randomizeB();
   const sched = buildSchedule();
   if(!sched.length){ alert("No notes to export. Load CSV into A/B or analyze audio first."); return; }
   light(dotExport,true);
 
-  const sampleRate=44100, duration=61; // 60s + tail
+  const sampleRate=44100, duration=61;
   const ctx=new OfflineAudioContext(2, sampleRate*duration, sampleRate);
 
   function playOffline(sec, midi, when, dur, gain){
@@ -870,7 +956,8 @@ resetBtn.onclick=()=>{
   applyConductorPreset();
   if(AUDIO.ctx){ AUDIO.master.gain.value=parseFloat(masterVolEl.value); AUDIO.wet.gain.value=parseFloat(reverbMixEl.value); buildBuses(); }
   CAD='even'; PAC='andante'; cadName.textContent='Even'; paceName.textContent='Andante';
-  PICK_A=[]; PICK_B=[]; renderSide('A'); renderSide('B');
+  PICK_A=[]; PICK_B=[]; renderSide('A'); renderSide('B'); markStage();
+  FAMILY_OPEN = { strings: 0, winds: 8, brass: 16, perc: 24 }; summarizeOpenings();
   for(const id of SECTIONS){
     const chk=CHK[id], dot=DOT[id];
     if(chk){ chk.classList.remove('checked'); chk.textContent=''; }
@@ -892,10 +979,12 @@ spreadEl.oninput=()=>{ if(AUDIO.ctx){ try{AUDIO.ctx.close();}catch(_){ } AUDIO.c
   NOTE.forEach(n=>{ const o=document.createElement('option'); o.value=n; o.textContent=n; if(n==='C') o.selected=true; keyRootEl.appendChild(o); });
   applyConductorPreset();
   updateConLabel();
+  summarizeOpenings();
   randomizeA(); randomizeB();
   conductor.style.animationPlayState='paused';
   setStatus('Ready.');
   checkExportReady();
+  markStage();
 })();
 </script>
 </body>
