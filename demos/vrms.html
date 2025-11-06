@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CST-Locked VT↔CIT vRMS — Always-Live Wave + Scan (rAF + Fallback)</title>
+<style>
+  :root{--bg:#0b1222;--panel:#121a33;--ink:#eaf0ff;--muted:#a9b7e3;--accent:#8fb4ff;--grid:#1b2550;--ok:#7bffb1;--bad:#ff8c8c}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
+  .wrap{max-width:1200px;margin:0 auto;padding:18px}
+  h1{font-size:1.4rem;margin:0 0 10px}
+  .sub{color:var(--muted);font-size:0.95rem;margin:0 0 16px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+  .card{background:var(--panel);border:1px solid var(--grid);border-radius:14px;padding:14px}
+  label{display:block;font-size:12px;color:var(--muted);margin:8px 0 4px}
+  input,select{width:100%;padding:8px 10px;border-radius:10px;border:1px solid var(--grid);background:#0e1630;color:var(--ink)}
+  .btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  button{background:#15224d;color:var(--ink);border:1px solid var(--accent);padding:8px 10px;border-radius:10px;cursor:pointer}
+  button:hover{background:#1b2b63}
+  .kv{display:grid;grid-template-columns:200px 1fr;gap:10px;margin:6px 0}
+  .good{color:var(--ok)}
+  .bad{color:var(--bad)}
+  canvas{width:100%;height:300px;background:#0f1836;border:1px solid var(--grid);border-radius:10px;display:block}
+  table{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px}
+  th,td{border:1px solid var(--grid);padding:6px;text-align:center}
+  th{background:#182045;color:var(--ink)}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+  .small{font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>CST-Locked VT↔CIT vRMS — Always-Live Wave + Scan</h1>
+  <p class="sub">Wave is continuously animated and phase-locked to ω′ = (2π/T)·T<sub>cst</sub>. Numbers (u_v, Residual, Status) update every frame from the live wave. <strong>Disclaimer:</strong> Concept demo — not physically proven.</p>
+
+  <div class="grid">
+    <div class="card">
+      <h3>Body & Constants</h3>
+      <div class="grid-3">
+        <div><label>Radius R (m)</label><input id="R" value="6371000" type="number"/></div>
+        <div><label>ρ_mat (kg/m³)</label><input id="rho_mat" value="5510" type="number"/></div>
+        <div><label>Mass M (kg)</label><input id="M" value="5.972e24" type="number"/></div>
+      </div>
+      <div class="grid-3">
+        <div><label>g (m/s²)</label><input id="g_obs" value="9.81" step="0.01" type="number"/></div>
+        <div><label>c (m/s)</label><input id="c" value="2.99792458e8" type="number"/></div>
+        <div><label>κ</label><input id="kappa" value="1" step="0.01" type="number"/></div>
+      </div>
+      <div class="grid-3">
+        <div><label>Boundary</label>
+          <select id="boundary">
+            <option value="toroid" selected>Toroid</option>
+            <option value="spherical">Spherical</option>
+          </select>
+        </div>
+        <div><label>α (spherical)</label><input id="alpha" value="1" step="0.1" type="number"/></div>
+        <div><label>T (s)</label><input id="T" value="3240" step="1" type="number"/></div>
+      </div>
+      <div class="btns">
+        <button id="presetEarth">Earth</button>
+        <button id="presetMoon">Moon</button>
+        <button id="presetMars">Mars</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>CST & Wave Controls</h3>
+      <div class="grid-3">
+        <div><label>T_cst</label><input id="T_cst" value="1.000000" step="0.000001" type="number"/></div>
+        <div><label>Δ window (min)</label><input id="delta" value="20" type="number"/></div>
+        <div><label>Amplitude (ppm)</label><input id="amp_ppm" value="120" type="number"/></div>
+      </div>
+      <p class="small">Wave runs continuously. Use Pause/Resume below if needed.</p>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h3>Live Wave & Results</h3>
+    <canvas id="chart" width="1000" height="300"></canvas>
+    <div id="decision" class="mono"></div>
+    <div class="btns">
+      <button id="toggleLive">⏸ Pause</button>
+      <span class="small">Heartbeat: <span id="hb">0</span></span>
+    </div>
+    <p class="small">A tracer dot rides the wave to make motion obvious. Frequency is ω′; amplitude is scaled from ppm. Change T, T_cst, boundary/α to see immediate response.</p>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h3>Scan Results</h3>
+    <div class="btns">
+      <button id="autoScan">Auto-Scan 10×</button>
+      <button id="clearScan">Clear Scan</button>
+    </div>
+    <table id="scanTable">
+      <thead><tr><th>#</th><th>τ*</th><th>u_v (J/m³)</th><th>Residual (J/m³)</th><th>Status</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+(function(){
+  const el = id => document.getElementById(id);
+  const fmtExp = x => (isFinite(x) ? Number(x).toExponential(3) : "—");
+  const TWO_PI = 2*Math.PI;
+
+  let running = true, phase = 0, lastTs = 0, rafId = null, intervalId = null, hb = 0;
+
+  function computeState(){
+    const R = +el('R').value,
+          rho = +el('rho_mat').value,
+          M = +el('M').value,            // note: M is unused in residual here but kept for completeness
+          g = +el('g_obs').value,
+          c = +el('c').value,
+          kappa = +el('kappa').value,
+          T = Math.max(+el('T').value, 1e-6),
+          T_cst = +el('T_cst').value;
+    const boundary = el('boundary').value,
+          alpha = Math.max(+el('alpha').value, 1e-9);
+
+    const omega = TWO_PI / T;
+    const omega_cst = omega * T_cst;
+
+    let v_base = omega_cst * R;
+    if (boundary === 'spherical') v_base = (omega_cst * R) / alpha;
+
+    // u_v and rho_in (simple mapping used in earlier prototypes)
+    const rho_v = (g * rho * R) / (kappa * TWO_PI * c * c);
+    const u_v = rho_v * c * c;
+    const rho_in = u_v / (v_base * v_base);
+
+    const amp_ppm = +el('amp_ppm').value;
+    const delta = +el('delta').value;
+
+    return {R, rho, M, g, c, kappa, T, T_cst, boundary, alpha, omega_cst, v_base, u_v, rho_in, amp_ppm, delta};
+  }
+
+  function vInstant(state, tSec){
+    const amp_v = state.v_base * (state.amp_ppm / 1e6);
+    return state.v_base + amp_v * Math.sin(state.omega_cst * tSec + phase);
+  }
+
+  function drawWave(state){
+    const cnv = el('chart'), ctx = cnv.getContext('2d');
+    const w = cnv.width, h = cnv.height;
+    ctx.clearRect(0,0,w,h);
+
+    // frame
+    ctx.strokeStyle = '#1b2550'; ctx.lineWidth = 1; ctx.strokeRect(40,10,w-50,h-30);
+
+    // acceptance band (visual only)
+    const bandW = Math.min(w-50, (w-50) * Math.min(state.delta/60, 0.8));
+    ctx.fillStyle = 'rgba(123,255,177,0.12)';
+    ctx.fillRect(40 + (w-50)/2 - bandW/2, 10, bandW, h-30);
+
+    // visual amplitude in px (maps ppm -> pixels to make motion obvious)
+    const Apx = Math.max(12, state.amp_ppm * 2); // e.g., 120 ppm => 240 px peak-to-peak
+    const cycles = 3;                             // draw 3 cycles across width
+    const kx = TWO_PI * cycles / (w-50);
+
+    // sine wave
+    ctx.beginPath();
+    for(let x=0;x<w-50;x++){
+      const X = 40 + x;
+      const y = 10 + (h-30)/2 + Apx * Math.sin(kx * x + phase);
+      if(x===0) ctx.moveTo(X,y); else ctx.lineTo(X,y);
+    }
+    ctx.strokeStyle = '#8fb4ff'; ctx.lineWidth = 2; ctx.stroke();
+
+    // tracer dot moving along the wave (makes motion obvious even if frequency is low)
+    const t = (Date.now()/1000) % 1;                 // 0..1 across the width every 1s
+    const xDot = 40 + Math.floor(t * (w-50));
+    const yDot = 10 + (h-30)/2 + Apx * Math.sin(kx*(xDot-40) + phase);
+    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(xDot, yDot, 4, 0, TWO_PI); ctx.fill();
+
+    // baseline
+    const yBase = 10 + (h-30)/2;
+    ctx.setLineDash([4,4]); ctx.strokeStyle='#ffd37a';
+    ctx.beginPath(); ctx.moveTo(40,yBase); ctx.lineTo(w-10,yBase); ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  function updateDecision(state){
+    const vNow = vInstant(state, 0);
+    const Rres = state.u_v - state.rho_in * vNow * vNow;
+    const pass = Math.abs(Rres) < 1e6;
+    el('decision').innerHTML =
+      `u_v=${fmtExp(state.u_v)} | Residual=${fmtExp(Rres)} | ` +
+      `<span style="color:${pass?'#7bffb1':'#ff8c8c'}">${pass?'PASS':'REJECT'}</span>`;
+  }
+
+  function frame(ts){
+    const S = computeState();
+    const dt = lastTs ? (ts - lastTs) / 1000 : 0;
+    lastTs = ts;
+    if (running) { phase += S.omega_cst * dt; }
+    updateDecision(S);
+    drawWave(S);
+    hb = (hb + 1) % 100000; el('hb').textContent = hb;
+    rafId = requestAnimationFrame(frame);
+  }
+
+  function startFallback(){
+    if (intervalId) return;
+    intervalId = setInterval(()=>{
+      const S = computeState();
+      // ~30 fps fixed-step phase increment
+      if (running) { phase += S.omega_cst * (1/30); }
+      updateDecision(S);
+      drawWave(S);
+      hb = (hb + 1) % 100000; el('hb').textContent = hb;
+    }, 33);
+  }
+
+  // Scan controls
+  el('autoScan').onclick = ()=>{
+    const S = computeState();
+    const tbody = el('scanTable').querySelector('tbody');
+    tbody.innerHTML = '';
+    const now = Date.now();
+    for(let i=0;i<10;i++){
+      const tSec = i*6; // 6-second steps
+      const v_i = vInstant(S, tSec);
+      const Rres = S.u_v - S.rho_in * v_i * v_i;
+      const pass = Math.abs(Rres) < 1e6;
+      const tau = new Date(now + i*6000).toISOString();
+      const row =
+        `<tr><td>${i+1}</td><td>${tau}</td><td>${fmtExp(S.u_v)}</td>` +
+        `<td>${fmtExp(Rres)}</td><td style="color:${pass?'#7bffb1':'#ff8c8c'}">${pass?'PASS':'REJECT'}</td></tr>`;
+      tbody.insertAdjacentHTML('beforeend', row);
+    }
+  };
+  el('clearScan').onclick = ()=>{ el('scanTable').querySelector('tbody').innerHTML = ''; };
+
+  // Pause/Resume
+  el('toggleLive').onclick = ()=>{
+    running = !running;
+    el('toggleLive').textContent = running ? '⏸ Pause' : '▶ Resume';
+  };
+
+  // Presets
+  el('presetEarth').onclick = ()=>{ el('R').value=6371000; el('rho_mat').value=5510; el('M').value=5.972e24; el('g_obs').value=9.81; el('T').value=3240; };
+  el('presetMoon').onclick  = ()=>{ el('R').value=1737400; el('rho_mat').value=3340; el('M').value=7.347e22; el('g_obs').value=1.62; el('T').value=5460; };
+  el('presetMars').onclick  = ()=>{ el('R').value=3389500; el('rho_mat').value=3930; el('M').value=6.417e23; el('g_obs').value=3.71; el('T').value=3540; };
+
+  // Reflect input changes next frame automatically
+  ['R','rho_mat','M','g_obs','c','kappa','T','boundary','alpha','T_cst','delta','amp_ppm'].forEach(id=>{
+    el(id).addEventListener('input', ()=>{/* next frame picks it up */});
+  });
+
+  // Kick off animation + robust fallback (some browsers throttle rAF on refresh)
+  requestAnimationFrame(frame);
+  startFallback();
+})();
+</script>
+</body>
+</html>
