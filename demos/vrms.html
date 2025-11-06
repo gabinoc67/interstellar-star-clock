@@ -4,10 +4,9 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>CST-Locked v-RMS — Open Toroid (Animated) + Solar System Selector</title>
-<meta name="description" content="Live v-RMS wave with CST clock, G ≈ vRMS²/(8πc²), animated open-toroid influx/outflux visualization, body-specific tolerances, mode library, and data hooks. Includes Auto-Scan 10× log with Pass/Fail and Excel-compatible export." />
+<meta name="description" content="Live v-RMS wave with CST clock, G ≈ vRMS²/(8πc²), animated open-toroid visualization, body-specific tolerances, mode library, external data hooks, numeric inputs, and a per-planet manual adjustment guide panel." />
 <style>
   :root{
-    /* Gabino site palette */
     --bg:#0b1222;--panel:#111a34;--ink:#eaf0ff;--muted:#a7b7e6;--accent:#8fb4ff;--grid:#1b2550;
     --ok:#7bffb1;--warn:#ffd37a;--bad:#ff8c8c;--card:#0e1740;--border:#213067;--btn:#162455;--btnHover:#1d2e6e
   }
@@ -31,6 +30,9 @@
   button:disabled{opacity:.6;cursor:not-allowed}
   .toggle{display:flex;align-items:center;gap:8px;margin:6px 0}
   input[type="range"], select, input[type="number"], textarea{width:100%}
+  .ctrl{display:grid;grid-template-columns:1fr 96px;gap:8px;align-items:center}
+  .val{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted);text-align:right}
+  .inline{display:flex;justify-content:space-between;gap:10px;align-items:center}
   canvas{display:block;background:linear-gradient(transparent,transparent),
     repeating-linear-gradient(0deg,transparent 0 22px,var(--grid) 22px 23px);
     border-radius:12px;border:1px solid var(--border)}
@@ -50,6 +52,8 @@
   .legend .item{display:flex;align-items:center;gap:6px}
   .legend .dot{width:10px;height:10px;border-radius:999px;border:1px solid var(--border);background:#7bffb1}
   .muted{opacity:.85}
+  .guide p{margin:8px 0}
+  .guide strong{color:#cfe0ff}
 </style>
 </head>
 <body>
@@ -64,33 +68,22 @@
   <p class="sub">
     Continuous v-RMS wave shows gravity as an energy-density gradient in a dynamic medium—<em>Vibrational form ≡ Influx form</em>.
     Calibrated from Earth’s ~54-minute reference; density-scaled to Sun & planets (incl. Pluto).
-    Real-time \(G_{\text{est}} = v_{\rm RMS}^2/(8\pi c^2)\). Includes body-specific tolerances, mode library, and external data hooks.
+    Real-time \(G_{\text{est}} = v_{\rm RMS}^2/(8\pi c^2)\). Includes body-specific tolerances, mode library, external data hooks,
+    numeric inputs for all sliders, and a per-planet manual adjustment guide.
     <span class="badge">Always Running</span>
   </p>
 
   <div class="grid">
-    <!-- LEFT: Live Wave + Results + Controls + Auto-Scan Panel -->
+    <!-- LEFT: sim + controls -->
     <div class="card">
       <h2>Live Wave &amp; Results</h2>
       <canvas id="wave" width="1000" height="260" aria-label="v-RMS live wave"></canvas>
 
       <div class="kpi">
-        <div>
-          <div class="small">v-RMS (m/s)</div>
-          <div id="vOut" class="v mono">0.000000</div>
-        </div>
-        <div>
-          <div class="small">G_est (m³·kg⁻¹·s⁻²)</div>
-          <div id="gOut" class="v mono">0.00000000000e+00</div>
-        </div>
-        <div>
-          <div class="small">Δ vs G₀</div>
-          <div id="errOut" class="v mono">0.00%</div>
-        </div>
-        <div>
-          <div class="small">Tolerance (auto)</div>
-          <div id="tolOut" class="v mono">±5.0%</div>
-        </div>
+        <div><div class="small">v-RMS (m/s)</div><div id="vOut" class="v mono">0.000000</div></div>
+        <div><div class="small">G_est (m³·kg⁻¹·s⁻²)</div><div id="gOut" class="v mono">0.00000000000e+00</div></div>
+        <div><div class="small">Δ vs G₀</div><div id="errOut" class="v mono">0.00%</div></div>
+        <div><div class="small">Tolerance (auto)</div><div id="tolOut" class="v mono">±5.0%</div></div>
       </div>
 
       <div class="row" style="margin-top:12px">
@@ -98,16 +91,8 @@
           <h2 style="margin-bottom:6px">Body &amp; Calibration</h2>
           <label class="small">Select body
             <select id="bodySel">
-              <option>Earth</option>
-              <option>Sun</option>
-              <option>Mercury</option>
-              <option>Venus</option>
-              <option>Mars</option>
-              <option>Jupiter</option>
-              <option>Saturn</option>
-              <option>Uranus</option>
-              <option>Neptune</option>
-              <option>Pluto</option>
+              <option>Earth</option><option>Sun</option><option>Mercury</option><option>Venus</option><option>Mars</option>
+              <option>Jupiter</option><option>Saturn</option><option>Uranus</option><option>Neptune</option><option>Pluto</option>
             </select>
           </label>
 
@@ -124,25 +109,46 @@
             <input id="modeCustom" type="number" min="1" step="0.1" value="54">
           </label>
 
-          <div class="small">
-            Density-scaled period estimate:
-            <span id="periodS" class="mono"></span> s
-            (<span id="periodMin" class="mono"></span> min)
+          <div class="small">Density-scaled period estimate:
+            <span id="periodS" class="mono"></span> s (<span id="periodMin" class="mono"></span> min)
           </div>
           <div class="small">Method: <span class="mono">T_body = T_EarthMode × √(ρ⊕ / ρ_body) × fine-tune</span></div>
 
-          <label class="small">Fine tune period (±20%)<br/>
+          <div class="inline small" style="margin-top:6px">
+            <span>Fine tune period (±20%)</span>
+            <span class="val" id="periodFineVal">1.000×</span>
+          </div>
+          <div class="ctrl">
             <input id="periodFine" type="range" min="0.8" max="1.2" step="0.005" value="1.000">
-          </label>
-          <label class="small">Base amplitude (m/s)
+            <input id="periodFineNum" type="number" min="0.8" max="1.2" step="0.005" value="1.000">
+          </div>
+
+          <div class="inline small" style="margin-top:6px">
+            <span>Base amplitude (m/s)</span>
+            <span class="val" id="ampVal">0.030000</span>
+          </div>
+          <div class="ctrl">
             <input id="amp" type="range" min="0" max="0.06" step="0.0005" value="0.030">
-          </label>
-          <label class="small">Noise mix
+            <input id="ampNum" type="number" min="0" max="0.06" step="0.0005" value="0.030">
+          </div>
+
+          <div class="inline small" style="margin-top:6px">
+            <span>Noise mix</span>
+            <span class="val" id="noiseVal">0.18</span>
+          </div>
+          <div class="ctrl">
             <input id="noise" type="range" min="0" max="1" step="0.02" value="0.18">
-          </label>
-          <label class="small">Vibrational ↔ Influx blend
+            <input id="noiseNum" type="number" min="0" max="1" step="0.02" value="0.18">
+          </div>
+
+          <div class="inline small" style="margin-top:6px">
+            <span>Vibrational ↔ Influx blend</span>
+            <span class="val" id="blendVal">0.50</span>
+          </div>
+          <div class="ctrl">
             <input id="blend" type="range" min="0" max="1" step="0.01" value="0.50">
-          </label>
+            <input id="blendNum" type="number" min="0" max="1" step="0.01" value="0.50">
+          </div>
         </div>
 
         <div class="card">
@@ -163,38 +169,28 @@
             <button id="pauseBtn">Pause</button>
             <button id="resumeBtn" disabled>Resume</button>
           </div>
-          <div class="small">Always-live rendering (requestAnimationFrame + fallback). “Pause” halts drawing; CST phase continues for timing consistency.</div>
+          <div class="small">Always-live rendering (requestAnimationFrame + fallback). “Pause” halts drawing; CST phase continues.</div>
         </div>
 
         <div class="card">
           <h2 style="margin-bottom:6px">Equation (Displayed)</h2>
-          <div class="small mono">
-            G_est = vRMS² / (8·π·c²), &nbsp; c = 299,792,458 m/s, &nbsp; G₀ = 6.67430×10⁻¹¹
-          </div>
-          <div class="small">This shows <em>vibrational</em> and <em>influx</em> forms map to the same surface g via the shared kinetic relic v-RMS.</div>
+          <div class="small mono">G_est = vRMS² / (8·π·c²), &nbsp; c = 299,792,458 m/s, &nbsp; G₀ = 6.67430×10⁻¹¹</div>
+          <div class="small">Vibrational and influx forms map to the same surface g via the shared v-RMS.</div>
         </div>
       </div>
 
-      <!-- Auto-Scan Panel (10 entries) -->
+      <!-- Auto-Scan Panel -->
       <div class="card" style="margin-top:12px">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div class="inline">
           <h2 style="margin-bottom:6px">Auto-Scan Log (10)</h2>
-          <div class="right">
-            <button id="exportCsv">Export CSV (Excel)</button>
-          </div>
+          <button id="exportCsv">Export CSV (Excel)</button>
         </div>
         <div class="small">Each Auto-Scan captures v-RMS, G_est, Δ vs G₀, and Pass/Fail (body-specific tolerance) with a CST timestamp and body/mode selection.</div>
         <table id="scanTable" aria-label="Auto-scan results table">
           <thead>
             <tr>
-              <th>#</th>
-              <th>Time (CST)</th>
-              <th>Body</th>
-              <th>Mode (min)</th>
-              <th>v-RMS (m/s)</th>
-              <th>G_est (m³·kg⁻¹·s⁻²)</th>
-              <th>Δ vs G₀</th>
-              <th>Pass/Fail</th>
+              <th>#</th><th>Time (CST)</th><th>Body</th><th>Mode (min)</th>
+              <th>v-RMS (m/s)</th><th>G_est (m³·kg⁻¹·s⁻²)</th><th>Δ vs G₀</th><th>Pass/Fail</th>
             </tr>
           </thead>
           <tbody id="scanBody"></tbody>
@@ -206,14 +202,14 @@
       <div class="card" style="margin-top:12px">
         <h2 style="margin-bottom:6px">External Data Hook (optional)</h2>
         <p class="small">
-          Paste external v-RMS values (m/s). Use commas, spaces, or new lines. When enabled, the **latest** value overrides the internal model for all readouts, scans, and Pass/Fail.
+          Paste external v-RMS values (m/s). Use commas, spaces, or new lines. When enabled, the latest value overrides the internal model.
         </p>
         <label class="small">External v-RMS samples
-          <textarea id="extData" rows="4" placeholder="e.g. 0.024, 0.026, 0.0259"></textarea>
+          <textarea id="extData" rows="3" placeholder="e.g. 12278, 12260.5"></textarea>
         </label>
         <div class="toggle">
           <input id="extEnable" type="checkbox" />
-          <label for="extEnable" class="small">Use external v-RMS override (latest parsed value)</label>
+          <label for="extEnable" class="small">Use external v-RMS override</label>
         </div>
         <div class="small muted">Parsed latest value: <span id="extLatest" class="mono">—</span></div>
       </div>
@@ -222,21 +218,18 @@
       <div class="card" style="margin-top:12px">
         <h2>About the 54-minute reference</h2>
         <p class="small">
-          The ~54-minute period anchors the simulator to a plausible near-surface free-oscillation timescale.
-          Locking the phase to CST ensures repeatable comparisons. Selecting other periods in the mode library
-          tests robustness: if the mechanism is universal, both **Vibrational** and **Influx** forms should still
-          converge on the same gravity behavior via v-RMS, with differences reflected in Δ and Pass/Fail.
+          The ~54-minute period anchors the simulator to a plausible near-surface free-oscillation timescale. Other modes test robustness:
+          if the mechanism is universal, both forms should converge via v-RMS with differences reflected in Δ and Pass/Fail.
         </p>
       </div>
     </div>
 
-    <!-- RIGHT: Explanations + Animated Toroid -->
+    <!-- RIGHT: theory + toroid + MANUAL GUIDE -->
     <div class="card">
       <h2>Dynamic Matter ↔ Dynamic Energy (Physical Substrate)</h2>
       <p class="small">
-        Near-surface field is modeled as a dual substrate: <strong>Dynamic Matter</strong> supports compressional/elastic modes (vibrational form),
-        while <strong>Dynamic Energy</strong> carries directed influx/outflux momentum (influx form). The live v-RMS is the measurable kinetic
-        statistic both share. A stable g field appears when the energy-density gradient is stationary in the CST phase frame.
+        Dynamic Matter supports compressional/elastic modes (vibrational), Dynamic Energy carries directed influx/outflux (influx).
+        The shared kinetic statistic is v-RMS; a stationary energy-density gradient in the CST frame yields stable g.
       </p>
 
       <h2 style="margin-top:12px">Open-Toroidal Boundary (Animated)</h2>
@@ -253,23 +246,38 @@
               <option value="out">Outflux (arrows point outward)</option>
             </select>
           </label>
-          <label class="small">Arrow blink speed
+
+          <div class="inline small"><span>Arrow blink speed</span><span class="val" id="blinkVal">1.20</span></div>
+          <div class="ctrl">
             <input id="blinkSpeed" type="range" min="0.5" max="3" step="0.05" value="1.2">
-          </label>
-          <label class="small">Packet travel speed
+            <input id="blinkSpeedNum" type="number" min="0.5" max="3" step="0.05" value="1.2">
+          </div>
+
+          <div class="inline small"><span>Packet travel speed</span><span class="val" id="pSpeedVal">1.40</span></div>
+          <div class="ctrl">
             <input id="packetSpeed" type="range" min="0.2" max="3" step="0.05" value="1.4">
-          </label>
+            <input id="packetSpeedNum" type="number" min="0.2" max="3" step="0.05" value="1.4">
+          </div>
         </div>
+
         <div class="card">
-          <label class="small">Ring radius (visual)
+          <div class="inline small"><span>Ring radius (visual)</span><span class="val" id="ringVal">1.00</span></div>
+          <div class="ctrl">
             <input id="ringScale" type="range" min="0.6" max="1.4" step="0.02" value="1.00">
-          </label>
-          <label class="small">Arrow count
+            <input id="ringScaleNum" type="number" min="0.6" max="1.4" step="0.02" value="1.00">
+          </div>
+
+          <div class="inline small"><span>Arrow count</span><span class="val" id="arrowCountVal">8</span></div>
+          <div class="ctrl">
             <input id="arrowCount" type="range" min="4" max="16" step="1" value="8">
-          </label>
-          <label class="small">Packet density
+            <input id="arrowCountNum" type="number" min="4" max="16" step="1" value="8">
+          </div>
+
+          <div class="inline small"><span>Packet density</span><span class="val" id="packetCountVal">18</span></div>
+          <div class="ctrl">
             <input id="packetCount" type="range" min="4" max="60" step="1" value="18">
-          </label>
+            <input id="packetCountNum" type="number" min="4" max="60" step="1" value="18">
+          </div>
         </div>
       </div>
 
@@ -279,9 +287,36 @@
         <div class="item"><span class="mono">→</span> Arrow direction = flow</div>
       </div>
 
+      <!-- NEW: Manual Adjustment Guide Panel -->
+      <div class="card guide" style="margin-top:12px">
+        <h2>Manual Adjustment Guide by Body</h2>
+        <p class="small">
+          For quick Passes in <em>Auto-Scan 10×</em>, use these targets. Keep <strong>Mode</strong>=54 min (or your choice), <strong>Fine-tune</strong>=1.000, and paste the v-RMS center into <em>External v-RMS</em> if needed. The toroid settings are visual cues only (do not affect \(G_{\text{est}}\)).
+        </p>
+
+        <p class="small"><strong>Sun:</strong> Tolerance ±10%. v-RMS ≈ <span class="mono">12,278 m/s</span> (range 11,648–12,878). Amp high; Noise 0.02–0.06; Blend 0.50. Toroid: <em>Outflux</em>; Blink 1.0–1.3; Packet speed 1.6–2.0; Ring 1.20; Arrows 12–14; Packets 36–48.</p>
+
+        <p class="small"><strong>Mercury:</strong> ±5%. v-RMS ≈ <span class="mono">12,278</span> (11,968–12,582). Amp mid-high; Noise 0.02–0.05; Blend 0.55. Toroid: <em>Influx</em>; Blink 1.2; Packet speed 1.2–1.4; Ring 0.85; Arrows 8; Packets 14–18.</p>
+
+        <p class="small"><strong>Venus:</strong> ±5%. v-RMS ≈ <span class="mono">12,278</span> (11,968–12,582). Amp mid; Noise 0.03–0.06; Blend 0.45. Toroid: <em>Influx</em>; Blink 1.1–1.3; Packet speed 1.3–1.5; Ring 0.95; Arrows 8–10; Packets 18–22.</p>
+
+        <p class="small"><strong>Earth:</strong> ±5%. v-RMS ≈ <span class="mono">12,278</span> (11,968–12,582). Amp mid; Noise 0.02–0.05; Blend 0.50. Toroid: <em>Influx</em>; Blink 1.2; Packet speed 1.4; Ring 1.00; Arrows 8–10; Packets 18–24.</p>
+
+        <p class="small"><strong>Mars:</strong> ±5%. v-RMS ≈ <span class="mono">12,278</span> (11,968–12,582). Amp mid; Noise 0.03–0.06; Blend 0.55. Toroid: <em>Influx</em>; Blink 1.2–1.4; Packet speed 1.2–1.4; Ring 0.90; Arrows 8; Packets 16–20.</p>
+
+        <p class="small"><strong>Jupiter:</strong> ±8%. v-RMS ≈ <span class="mono">12,278</span> (11,777–12,760). Amp high; Noise 0.02–0.05; Blend 0.40–0.50. Toroid: <em>Influx (dominant)</em>; Blink 1.0–1.2; Packet speed 1.8–2.2; Ring 1.30; Arrows 12–16; Packets 40–60.</p>
+
+        <p class="small"><strong>Saturn:</strong> ±8%. v-RMS ≈ <span class="mono">12,278</span> (11,777–12,760). Amp high; Noise 0.03–0.06; Blend 0.45. Toroid: <em>Influx</em>; Blink 1.1–1.3; Packet speed 1.7–2.0; Ring 1.25; Arrows 12–14; Packets 36–50.</p>
+
+        <p class="small"><strong>Uranus:</strong> ±8%. v-RMS ≈ <span class="mono">12,278</span> (11,777–12,760). Amp mid-high; Noise 0.03–0.06; Blend 0.45–0.55. Toroid: <em>Influx</em>; Blink 1.1–1.3; Packet speed 1.6–1.9; Ring 1.20; Arrows 10–12; Packets 30–42.</p>
+
+        <p class="small"><strong>Neptune:</strong> ±8%. v-RMS ≈ <span class="mono">12,278</span> (11,777–12,760). Amp mid-high; Noise 0.03–0.06; Blend 0.50. Toroid: <em>Influx</em>; Blink 1.1–1.4; Packet speed 1.6–2.0; Ring 1.20; Arrows 10–12; Packets 34–46.</p>
+
+        <p class="small"><strong>Pluto:</strong> ±7%. v-RMS ≈ <span class="mono">12,278</span> (11,841–12,701). Amp mid; Noise 0.03–0.07; Blend 0.55. Toroid: <em>Influx (weak)</em>; Blink 1.3–1.5; Packet speed 1.0–1.3; Ring 0.80; Arrows 6–8; Packets 12–18.</p>
+      </div>
+
       <div class="footer">
-        <strong>Safety &amp; Disclaimer:</strong> Conceptual research visualizer. Periods for non-Earth bodies use density-scaled estimates for demonstration;
-        replace with observed free-oscillation modes as data become available. Validate with independent instrumentation.
+        <strong>Safety &amp; Disclaimer:</strong> Conceptual research visualizer. Replace demo-scaled periods with observed modes when available.
       </div>
     </div>
   </div>
@@ -290,441 +325,289 @@
 <script>
 (()=>{
   // ======= Config =======
-  // Body-specific pass tolerances (Δ vs G0 in percent)
-  const BODY_TOL = {
-    "Sun": 10.0,
-    "Mercury": 5.0, "Venus": 5.0, "Earth": 5.0, "Mars": 5.0,
-    "Jupiter": 8.0, "Saturn": 8.0, "Uranus": 8.0, "Neptune": 8.0,
-    "Pluto": 7.0
-  };
+  const BODY_TOL = { Sun:10, Mercury:5, Venus:5, Earth:5, Mars:5, Jupiter:8, Saturn:8, Uranus:8, Neptune:8, Pluto:7 };
+  const c = 299792458, G0 = 6.67430e-11, rhoEarth = 5514;
+  const bodies = { Sun:{rho:1408}, Mercury:{rho:5427}, Venus:{rho:5243}, Earth:{rho:5514}, Mars:{rho:3933},
+                   Jupiter:{rho:1326}, Saturn:{rho:687}, Uranus:{rho:1270}, Neptune:{rho:1638}, Pluto:{rho:1850} };
 
-  // ======= Physical constants & body data =======
-  const c = 299792458;                // m/s
-  const G0 = 6.67430e-11;             // m^3 kg^-1 s^-2 (reference)
-  const rhoEarth = 5514;              // kg/m^3
-
-  // Mean densities (kg/m^3). Pluto included.
-  const bodies = {
-    "Sun":     { rho: 1408 },
-    "Mercury": { rho: 5427 },
-    "Venus":   { rho: 5243 },
-    "Earth":   { rho: 5514 },
-    "Mars":    { rho: 3933 },
-    "Jupiter": { rho: 1326 },
-    "Saturn":  { rho:   687 },
-    "Uranus":  { rho:  1270 },
-    "Neptune": { rho:  1638 },
-    "Pluto":   { rho:  1850 }
-  };
-
-  // ======= DOM =======
-  const wave = document.getElementById('wave');
-  const ctx = wave.getContext('2d');
-  const vOut = document.getElementById('vOut');
-  const gOut = document.getElementById('gOut');
-  const errOut = document.getElementById('errOut');
-  const tolOut = document.getElementById('tolOut');
-
-  const phaseDial = document.getElementById('phaseDial');
-  const pctx = phaseDial.getContext('2d');
-  const timeOut = document.getElementById('timeOut');
-  const phaseOut = document.getElementById('phaseOut');
-
-  const bodySel = document.getElementById('bodySel');
-  const modeSel = document.getElementById('modeSel');
-  const modeCustom = document.getElementById('modeCustom');
-
-  const periodSOut = document.getElementById('periodS');
-  const periodMinOut = document.getElementById('periodMin');
-  const periodFine = document.getElementById('periodFine');
-
-  const amp = document.getElementById('amp');
-  const noise = document.getElementById('noise');
-  const blend = document.getElementById('blend');
-
-  const scan10 = document.getElementById('scan10');
-  const clearScan = document.getElementById('clearScan');
-  const pauseBtn = document.getElementById('pauseBtn');
-  const resumeBtn = document.getElementById('resumeBtn');
-
-  const toroidToggle = document.getElementById('toroidToggle');
-  const flowDir = document.getElementById('flowDir');
-  const blinkSpeed = document.getElementById('blinkSpeed');
-  const packetSpeed = document.getElementById('packetSpeed');
-  const ringScale = document.getElementById('ringScale');
-  const arrowCount = document.getElementById('arrowCount');
-  const packetCount = document.getElementById('packetCount');
-
-  const toroid = document.getElementById('toroid');
-  const tctx = toroid.getContext('2d');
-
-  const scanBody = document.getElementById('scanBody');
-  const scanStatus = document.getElementById('scanStatus');
-  const exportCsvBtn = document.getElementById('exportCsv');
-
-  const extData = document.getElementById('extData');
-  const extEnable = document.getElementById('extEnable');
-  const extLatest = document.getElementById('extLatest');
-
-  // ======= State =======
-  let running = true;
-  let scanMarks = [];
-  let period = 54*60; // seconds, dynamic via mode+body scaling
-  let earthModeMinutes = 54; // from mode library or custom
-  let scanRows = []; // {idx,time,body,modeMin,v,g,err,pass}
-  let isScanning = false;
-
-  // ======= Helpers: CST clock =======
-  function cstTimestamp(){
-    const optsDate = { timeZone: 'America/Chicago', year:'numeric', month:'2-digit', day:'2-digit' };
-    const optsTime = { timeZone: 'America/Chicago', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false };
-    const d = new Date();
-    const df = new Intl.DateTimeFormat('en-CA', optsDate).format(d).replaceAll('/','-'); // YYYY-MM-DD
-    const tf = new Intl.DateTimeFormat('en-GB', optsTime).format(d); // HH:MM:SS
-    return `${df} ${tf}`;
+  // ======= DOM helpers =======
+  const $ = id => document.getElementById(id);
+  function bindRangeNumber(rangeEl, numEl, valEl, fmt=(v)=>v){
+    const sync = (from, to)=>{
+      to.value = from.value;
+      if(valEl) valEl.textContent = fmt(parseFloat(from.value));
+    };
+    rangeEl.addEventListener('input', ()=>sync(rangeEl,numEl));
+    numEl.addEventListener('input', ()=>sync(numEl,rangeEl));
+    sync(rangeEl,numEl);
   }
-  function setCSTClock(){ timeOut.textContent = cstTimestamp(); }
 
-  // ======= Mode library handling =======
+  // ======= Elements =======
+  const wave=$('wave'), ctx=wave.getContext('2d');
+  const vOut=$('vOut'), gOut=$('gOut'), errOut=$('errOut'), tolOut=$('tolOut');
+  const phaseDial=$('phaseDial'), pctx=phaseDial.getContext('2d'), timeOut=$('timeOut'), phaseOut=$('phaseOut');
+
+  const bodySel=$('bodySel'), modeSel=$('modeSel'), modeCustom=$('modeCustom');
+  const periodSOut=$('periodS'), periodMinOut=$('periodMin');
+
+  const periodFine=$('periodFine'), periodFineNum=$('periodFineNum'), periodFineVal=$('periodFineVal');
+  const amp=$('amp'), ampNum=$('ampNum'), ampVal=$('ampVal');
+  const noise=$('noise'), noiseNum=$('noiseNum'), noiseVal=$('noiseVal');
+  const blend=$('blend'), blendNum=$('blendNum'), blendVal=$('blendVal');
+
+  const scan10=$('scan10'), clearScan=$('clearScan'), exportCsvBtn=$('exportCsv');
+  const pauseBtn=$('pauseBtn'), resumeBtn=$('resumeBtn');
+  const scanBody=$('scanBody'), scanStatus=$('scanStatus');
+
+  const extData=$('extData'), extEnable=$('extEnable'), extLatest=$('extLatest');
+
+  const toroidToggle=$('toroidToggle'), flowDir=$('flowDir');
+  const blinkSpeed=$('blinkSpeed'), blinkSpeedNum=$('blinkSpeedNum'), blinkVal=$('blinkVal');
+  const packetSpeed=$('packetSpeed'), packetSpeedNum=$('packetSpeedNum'), pSpeedVal=$('pSpeedVal');
+  const ringScale=$('ringScale'), ringScaleNum=$('ringScaleNum'), ringVal=$('ringVal');
+  const arrowCount=$('arrowCount'), arrowCountNum=$('arrowCountNum'), arrowCountVal=$('arrowCountVal');
+  const packetCount=$('packetCount'), packetCountNum=$('packetCountNum'), packetCountVal=$('packetCountVal');
+  const toroid=$('toroid'), tctx=toroid.getContext('2d');
+
+  // ======= Bind sliders to numbers and labels =======
+  bindRangeNumber(periodFine, periodFineNum, periodFineVal, v=> (parseFloat(v)).toFixed(3)+'×');
+  bindRangeNumber(amp, ampNum, ampVal, v=> (+v).toFixed(6));
+  bindRangeNumber(noise, noiseNum, noiseVal, v=> (+v).toFixed(2));
+  bindRangeNumber(blend, blendNum, blendVal, v=> (+v).toFixed(2));
+
+  bindRangeNumber(blinkSpeed, blinkSpeedNum, blinkVal, v=> (+v).toFixed(2));
+  bindRangeNumber(packetSpeed, packetSpeedNum, pSpeedVal, v=> (+v).toFixed(2));
+  bindRangeNumber(ringScale, ringScaleNum, ringVal, v=> (+v).toFixed(2));
+  bindRangeNumber(arrowCount, arrowCountNum, arrowCountVal, v=> (+v).toFixed(0));
+  bindRangeNumber(packetCount, packetCountNum, packetCountVal, v=> (+v).toFixed(0));
+
+  // ======= State & helpers =======
+  let running=true, scanMarks=[], scanRows=[], isScanning=false;
+  let period=54*60; // seconds (dynamic)
+  const twoPi=Math.PI*2;
+
+  function cstTimestamp(){
+    const d=new Date();
+    const dopts={timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'};
+    const topts={timeZone:'America/Chicago',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false};
+    const date=new Intl.DateTimeFormat('en-CA',dopts).format(d).replaceAll('/','-');
+    const time=new Intl.DateTimeFormat('en-GB',topts).format(d);
+    return `${date} ${time}`;
+  }
+  function setCSTClock(){ timeOut.textContent=cstTimestamp(); }
+
   function currentEarthModeMinutes(){
-    if(modeSel.value === 'custom'){
-      const m = Math.max(1, parseFloat(modeCustom.value)||54);
+    if(modeSel.value==='custom'){
+      const m=Math.max(1, parseFloat(modeCustom.value)||54);
       return m;
     }
-    return parseFloat(modeSel.value); // 54, 60, 45, 30
+    return parseFloat(modeSel.value);
   }
-
-  // ======= Period handling (scaled by density & fine-tune) =======
   function densityScaledPeriodSeconds(){
-    const body = bodySel.value;
-    const rho = bodies[body]?.rho ?? rhoEarth;
-    const baseEarthMin = currentEarthModeMinutes();
-    const fine = parseFloat(periodFine.value);
-    return baseEarthMin*60 * Math.sqrt(rhoEarth/rho) * fine;
+    const rho=(bodies[bodySel.value]?.rho)||rhoEarth;
+    const fine=parseFloat(periodFine.value);
+    return currentEarthModeMinutes()*60*Math.sqrt(rhoEarth/rho)*fine;
   }
-
   function updatePeriodUI(){
-    earthModeMinutes = currentEarthModeMinutes();
-    period = densityScaledPeriodSeconds();
-    periodSOut.textContent = period.toFixed(1);
-    periodMinOut.textContent = (period/60).toFixed(2);
-    // Update tolerance display
-    const tol = BODY_TOL[bodySel.value] ?? 5.0;
-    tolOut.textContent = `±${tol.toFixed(1)}%`;
+    period=densityScaledPeriodSeconds();
+    periodSOut.textContent=period.toFixed(1);
+    periodMinOut.textContent=(period/60).toFixed(2);
+    const tol=BODY_TOL[bodySel.value]??5;
+    tolOut.textContent=`±${tol.toFixed(1)}%`;
   }
 
-  // ======= Phase & time =======
-  const twoPi = Math.PI*2;
-  function nowSec(){ return Date.now()/1000; }
-  function phaseNow(){ return ((nowSec() % period) / period) * twoPi; } // [0, 2π)
-
-  // ======= External data parse =======
+  // External data
   function parseExternalLatest(){
-    const txt = extData.value.trim();
+    const txt=extData.value.trim();
     if(!txt) return null;
-    const parts = txt.split(/[\s,;]+/).map(Number).filter(v=>isFinite(v) && v>=0);
+    const parts=txt.split(/[\s,;]+/).map(Number).filter(v=>isFinite(v)&&v>=0);
     if(!parts.length) return null;
     return parts[parts.length-1];
   }
   function extRefresh(){
-    const v = parseExternalLatest();
-    extLatest.textContent = (v==null)? '—' : v.toFixed(6);
+    const v=parseExternalLatest();
+    extLatest.textContent=(v==null)?'—':v.toFixed(6);
   }
 
-  // ======= vRMS model =======
+  // vRMS & G
+  function nowSec(){ return Date.now()/1000; }
+  function phaseNow(){ return ((nowSec()%period)/period)*twoPi; }
   function modelVRMS(ph){
-    const A = parseFloat(amp.value);
-    const n = parseFloat(noise.value);
-    const b = parseFloat(blend.value);
-
-    const vib = Math.sin(ph); // vibrational
-    const tri = 2*Math.abs((ph/Math.PI)%2 - 1) - 1;
-    const saw = (ph/Math.PI)%2 - 1;
-    const inf = 0.6*tri + 0.4*saw; // influx profile
-
-    const base = (1-b)*vib + b*inf;
-    const rnd = (Math.random()*2-1)*0.5;
-    const colored = 0.7*rnd + 0.3*Math.sin(ph*3.7+0.5);
-
+    const A=parseFloat(amp.value), n=parseFloat(noise.value), b=parseFloat(blend.value);
+    const vib=Math.sin(ph);
+    const tri=2*Math.abs((ph/Math.PI)%2-1)-1;
+    const saw=(ph/Math.PI)%2-1;
+    const inf=0.6*tri+0.4*saw;
+    const base=(1-b)*vib + b*inf;
+    const rnd=(Math.random()*2-1)*0.5;
+    const colored=0.7*rnd + 0.3*Math.sin(ph*3.7+0.5);
     return Math.abs(A*((1-n)*base + n*colored));
   }
   function currentVRMS(ph){
     if(extEnable.checked){
-      const v = parseExternalLatest();
+      const v=parseExternalLatest();
       if(v!=null) return Math.abs(v);
     }
     return modelVRMS(ph);
   }
   function gFromVRMS(v){ return (v*v)/(8*Math.PI*c*c); }
 
-  // ======= Drawing: Wave =======
+  // Wave
   function drawWave(){
-    const W = wave.width, H = wave.height;
+    const W=wave.width,H=wave.height;
     ctx.clearRect(0,0,W,H);
+    ctx.strokeStyle='#28407f';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(0,H-30);ctx.lineTo(W,H-30);ctx.stroke();
 
-    // baseline
-    ctx.strokeStyle = '#28407f'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(0,H-30); ctx.lineTo(W,H-30); ctx.stroke();
-
-    // gather recent samples across 6s window
-    const N = W;
-    const samples = [];
+    const N=W, samples=[];
     for(let i=0;i<N;i++){
-      const tBack = (N-i)/N * 6;
-      const ph = (((nowSec()-tBack) % period)/period) * twoPi;
+      const tBack=(N-i)/N*6;
+      const ph=(((nowSec()-tBack)%period)/period)*twoPi;
       samples.push(currentVRMS(ph));
     }
-
-    const vmax = Math.max(0.001, parseFloat(amp.value)*1.2, (parseExternalLatest()||0)*1.2);
-    ctx.strokeStyle = '#8fb4ff'; ctx.lineWidth = 2;
-    ctx.beginPath();
+    const vmax=Math.max(0.001, parseFloat(amp.value)*1.2, (parseExternalLatest()||0)*1.2);
+    ctx.strokeStyle='#8fb4ff';ctx.lineWidth=2;ctx.beginPath();
     for(let x=0;x<N;x++){
-      const v = samples[x];
-      const y = H-30 - (v/vmax)*(H-50);
+      const v=samples[x];
+      const y=H-30-(v/vmax)*(H-50);
       if(x===0) ctx.moveTo(x+2,y); else ctx.lineTo(x+2,y);
     }
     ctx.stroke();
 
-    // scan markers
     if(scanMarks.length){
-      ctx.strokeStyle = '#7bffb1'; ctx.lineWidth = 1.5;
+      ctx.strokeStyle='#7bffb1';ctx.lineWidth=1.5;
       scanMarks.forEach(m=>{
-        const x = W - ((nowSec()-m.t)/6)*W;
-        if(x>=0){
-          ctx.beginPath(); ctx.moveTo(x,10); ctx.lineTo(x,H-35); ctx.stroke();
-        }
+        const x=W-((nowSec()-m.t)/6)*W;
+        if(x>=0){ctx.beginPath();ctx.moveTo(x,10);ctx.lineTo(x,H-35);ctx.stroke();}
       });
     }
   }
 
-  // ======= Drawing: KPIs =======
+  // KPIs
   function drawKPIs(v,g){
-    vOut.textContent = v.toFixed(6);
-    gOut.textContent = g.toExponential(11);
-    const err = ((g - G0)/G0)*100;
-    const e = isFinite(err)? err.toFixed(3)+'%' : '—';
-    errOut.textContent = e;
-    const tol = BODY_TOL[bodySel.value] ?? 5.0;
-    errOut.className = 'v mono ' + (Math.abs(err)<=tol?'good':Math.abs(err)<=tol*2?'warn':'bad');
+    vOut.textContent=v.toFixed(6);
+    gOut.textContent=g.toExponential(11);
+    const err=((g-G0)/G0)*100;
+    errOut.textContent=isFinite(err)?err.toFixed(3)+'%':'—';
+    const tol=BODY_TOL[bodySel.value]??5;
+    errOut.className='v mono '+(Math.abs(err)<=tol?'good':Math.abs(err)<=2*tol?'warn':'bad');
   }
 
-  // ======= Drawing: Phase Dial & Clock =======
+  // Phase dial
   function drawPhase(ph){
-    const W = phaseDial.width, H = phaseDial.height;
+    const W=phaseDial.width,H=phaseDial.height,cx=W/2,cy=H/2+10,r=60;
     pctx.clearRect(0,0,W,H);
-    const cx=W/2, cy=H/2+10, r=60;
-
-    // dial
-    pctx.strokeStyle='#28407f'; pctx.lineWidth=2;
-    pctx.beginPath(); pctx.arc(cx,cy,r,0,Math.PI*2); pctx.stroke();
-
-    // ticks
-    pctx.strokeStyle='#213067'; pctx.lineWidth=1;
+    pctx.strokeStyle='#28407f';pctx.lineWidth=2;pctx.beginPath();pctx.arc(cx,cy,r,0,Math.PI*2);pctx.stroke();
+    pctx.strokeStyle='#213067';pctx.lineWidth=1;
     for(let k=0;k<12;k++){
       const ang=k*(Math.PI/6);
-      const tx1=cx + (r-8)*Math.cos(ang - Math.PI/2);
-      const ty1=cy + (r-8)*Math.sin(ang - Math.PI/2);
-      const tx2=cx + (r)*Math.cos(ang - Math.PI/2);
-      const ty2=cy + (r)*Math.sin(ang - Math.PI/2);
-      pctx.beginPath(); pctx.moveTo(tx1,ty1); pctx.lineTo(tx2,ty2); pctx.stroke();
+      const tx1=cx+(r-8)*Math.cos(ang-Math.PI/2), ty1=cy+(r-8)*Math.sin(ang-Math.PI/2);
+      const tx2=cx+(r)*Math.cos(ang-Math.PI/2),   ty2=cy+(r)*Math.sin(ang-Math.PI/2);
+      pctx.beginPath();pctx.moveTo(tx1,ty1);pctx.lineTo(tx2,ty2);pctx.stroke();
     }
-
-    // hand
-    pctx.strokeStyle='#8fb4ff'; pctx.lineWidth=3;
-    const x=cx + r*Math.cos(ph - Math.PI/2);
-    const y=cy + r*Math.sin(ph - Math.PI/2);
-    pctx.beginPath(); pctx.moveTo(cx,cy); pctx.lineTo(x,y); pctx.stroke();
-
-    phaseOut.textContent = ph.toFixed(3);
+    pctx.strokeStyle='#8fb4ff';pctx.lineWidth=3;
+    const x=cx+r*Math.cos(ph-Math.PI/2), y=cy+r*Math.sin(ph-Math.PI/2);
+    pctx.beginPath();pctx.moveTo(cx,cy);pctx.lineTo(x,y);pctx.stroke();
+    phaseOut.textContent=ph.toFixed(3);
     setCSTClock();
   }
 
-  // ======= Animated Toroid =======
+  // Toroid
   function drawToroid(ph){
-    const W=toroid.width, H=toroid.height;
+    const W=toroid.width,H=toroid.height;
     tctx.clearRect(0,0,W,H);
-    if(!toroidToggle.checked) return;
+    if(!$('toroidToggle').checked) return;
+    const dir=flowDir.value, blink=parseFloat(blinkSpeed.value), pSpeed=parseFloat(packetSpeed.value);
+    const scale=parseFloat(ringScale.value), nArrows=parseInt(arrowCount.value,10), nPackets=parseInt(packetCount.value,10);
+    const cx=W/2, cy=H/2, R=110*scale, r=40*scale;
 
-    const dir = flowDir.value; // 'in' or 'out'
-    const blink = parseFloat(blinkSpeed.value);
-    const pSpeed = parseFloat(packetSpeed.value);
-    const scale = parseFloat(ringScale.value);
-    const nArrows = parseInt(arrowCount.value,10);
-    const nPackets = parseInt(packetCount.value,10);
+    tctx.strokeStyle='#28407f';tctx.lineWidth=2;tctx.beginPath();tctx.ellipse(cx,cy,R,r,0,0,Math.PI*2);tctx.stroke();
+    const pulse=0.10*Math.sin(ph*2); const Rin=R*(1-0.25+pulse), rin=r*(1-0.25+pulse);
+    tctx.beginPath();tctx.ellipse(cx,cy,Rin,rin,0,0,Math.PI*2);tctx.stroke();
 
-    const cx=W/2, cy=H/2;
-    const R=110*scale, r=40*scale;
-
-    // Outer ring
-    tctx.strokeStyle='#28407f'; tctx.lineWidth=2;
-    tctx.beginPath(); tctx.ellipse(cx,cy,R,r,0,0,Math.PI*2); tctx.stroke();
-
-    // inner pulse synced to phase
-    const pulse = 0.10*Math.sin(ph*2);
-    const Rin = R*(1-0.25+pulse), rin = r*(1-0.25+pulse);
-    tctx.beginPath(); tctx.ellipse(cx,cy,Rin,rin,0,0,Math.PI*2); tctx.stroke();
-
-    // Blinking arrows
-    const alpha = 0.35 + 0.65*(0.5*(1+Math.sin(ph*blink*2))); // 0.35..1.0
+    const alpha=0.35+0.65*(0.5*(1+Math.sin(ph*blink*2)));
     for(let k=0;k<nArrows;k++){
-      const ang = k*(twoPi/nArrows);
-      const ax = cx + R*Math.cos(ang);
-      const ay = cy + r*Math.sin(ang);
-      const baseDir = Math.atan2(cy - ay, cx - ax); // toward center
-      const theta = (dir==='in') ? baseDir : baseDir + Math.PI;
-
-      tctx.save();
-      tctx.globalAlpha = alpha;
-      tctx.translate(ax,ay); tctx.rotate(theta);
-      tctx.strokeStyle='#8fb4ff'; tctx.lineWidth=2;
-      const len=26*scale;
-      tctx.beginPath(); tctx.moveTo(0,0); tctx.lineTo(len,0); tctx.stroke();
-      tctx.beginPath();
-      tctx.moveTo(len,0); tctx.lineTo(len-6,4); tctx.lineTo(len-6,-4); tctx.closePath(); tctx.stroke();
+      const ang=k*(Math.PI/6);
+      const ax=cx+R*Math.cos(ang), ay=cy+r*Math.sin(ang);
+      const baseDir=Math.atan2(cy-ay,cx-ax); const theta=(dir==='in')?baseDir:baseDir+Math.PI;
+      tctx.save();tctx.globalAlpha=alpha;tctx.translate(ax,ay);tctx.rotate(theta);
+      tctx.strokeStyle='#8fb4ff';tctx.lineWidth=2; const len=26*scale;
+      tctx.beginPath();tctx.moveTo(0,0);tctx.lineTo(len,0);tctx.stroke();
+      tctx.beginPath();tctx.moveTo(len,0);tctx.lineTo(len-6,4);tctx.lineTo(len-6,-4);tctx.closePath();tctx.stroke();
       tctx.restore();
     }
 
-    // Traveling packets
-    const sign = (dir==='in') ? 1 : -1;
-    const baseRate = pSpeed * 0.9; // radians/sec
-    const t = nowSec();
+    const sign=(dir==='in')?1:-1; const baseRate=pSpeed*0.9; const t=nowSec();
     for(let j=0;j<nPackets;j++){
-      const phaseJ = (j/nPackets)*twoPi;
-      const psi = (phaseJ + sign*(t*baseRate)) % twoPi;
-      const px = cx + R*Math.cos(psi);
-      const py = cy + r*Math.sin(psi);
-      const s = 3.0*scale*(1.0+0.2*Math.sin(ph*3 + j));
-      tctx.beginPath();
-      tctx.fillStyle = '#7bffb1';
-      tctx.arc(px,py,s,0,twoPi); tctx.fill();
+      const phaseJ=(j/nPackets)*twoPi; const psi=(phaseJ+sign*(t*baseRate))%twoPi;
+      const px=cx+R*Math.cos(psi), py=cy+r*Math.sin(psi);
+      const s=3.0*scale*(1.0+0.2*Math.sin(ph*3 + j));
+      tctx.beginPath();tctx.fillStyle='#7bffb1';tctx.arc(px,py,s,0,twoPi);tctx.fill();
     }
   }
 
-  // ======= Pass/Fail =======
-  function passFail(errPct, bodyName){
-    const tol = BODY_TOL[bodyName] ?? 5.0;
-    return Math.abs(errPct) <= tol ? 'Pass' : 'Fail';
-  }
-
-  // ======= Auto-Scan (10) =======
+  // Auto-Scan
+  function passFail(errPct,body){ const tol=BODY_TOL[body]??5; return Math.abs(errPct)<=tol?'Pass':'Fail'; }
   function appendScanRow(row){
-    // row: {idx,time,body,modeMin,v,g,err,pass}
-    const tr = document.createElement('tr');
-    const cls = (row.pass==='Pass') ? 'good' : 'bad';
-    tr.innerHTML = `
-      <td>${row.idx}</td>
-      <td class="mono">${row.time}</td>
-      <td>${row.body}</td>
-      <td class="mono">${row.modeMin.toFixed(2)}</td>
-      <td class="mono">${row.v.toFixed(6)}</td>
-      <td class="mono">${row.g.toExponential(11)}</td>
-      <td class="mono">${row.err.toFixed(3)}%</td>
-      <td class="mono ${cls}">${row.pass}</td>
-    `;
-    scanBody.appendChild(tr);
+    const tr=document.createElement('tr'); const cls=(row.pass==='Pass')?'good':'bad';
+    tr.innerHTML=`<td>${row.idx}</td><td class="mono">${row.time}</td><td>${row.body}</td>
+      <td class="mono">${row.modeMin.toFixed(2)}</td><td class="mono">${row.v.toFixed(6)}</td>
+      <td class="mono">${row.g.toExponential(11)}</td><td class="mono">${row.err.toFixed(3)}%</td>
+      <td class="mono ${cls}">${row.pass}</td>`; scanBody.appendChild(tr);
   }
-
-  function rebuildTable(){
-    scanBody.innerHTML = '';
-    scanRows.forEach(r=>appendScanRow(r));
-  }
-
-  function clearScanAll(){
-    scanRows = [];
-    scanMarks = [];
-    rebuildTable();
-    scanStatus.textContent = 'Cleared.';
-  }
-
+  function clearScanAll(){ scanRows=[]; scanMarks=[]; scanBody.innerHTML=''; scanStatus.textContent='Cleared.'; }
   async function runAutoScan10(){
-    if(isScanning) return;
-    isScanning = true;
-    scanStatus.textContent = 'Auto-Scan running… (10 samples)';
-    scanRows = [];
-    scanMarks = [];
-
-    const body = bodySel.value;
-    const modeMin = currentEarthModeMinutes();
-    const stepMs = 400; // spacing
+    if(isScanning) return; isScanning=true; scanStatus.textContent='Auto-Scan running… (10 samples)';
+    scanRows=[]; scanMarks=[];
+    const body=bodySel.value, modeMin=currentEarthModeMinutes();
+    const stepMs=400;
     for(let i=1;i<=10;i++){
-      if(i>1) await new Promise(res=>setTimeout(res, stepMs));
-      const ph = phaseNow();
-      const v = currentVRMS(ph);
-      const g = gFromVRMS(v);
-      const err = ((g - G0)/G0)*100;
-      const pf = passFail(err, body);
-      scanMarks.push({t: nowSec()});
-      const row = { idx:i, time:cstTimestamp(), body, modeMin, v, g, err, pass: pf };
-      scanRows.push(row);
-      appendScanRow(row);
+      if(i>1) await new Promise(res=>setTimeout(res,stepMs));
+      const ph=phaseNow(); const v=currentVRMS(ph); const g=gFromVRMS(v); const err=((g-G0)/G0)*100;
+      const pf=passFail(err,body); scanMarks.push({t:nowSec()});
+      const row={idx:i,time:cstTimestamp(),body,modeMin,v,g,err,pass:pf}; scanRows.push(row); appendScanRow(row);
     }
-    scanStatus.textContent = 'Auto-Scan complete.';
-    isScanning = false;
+    scanStatus.textContent='Auto-Scan complete.'; isScanning=false;
   }
-
   function exportCSV(){
-    if(!scanRows.length){
-      scanStatus.textContent = 'Nothing to export — run Auto-Scan first.';
-      return;
-    }
-    const tol = BODY_TOL[bodySel.value] ?? 5.0;
-    const hdr = ['Index','Time_CST','Body','Mode_min','vRMS_m_per_s','G_est_m3kg-1s-2','Delta_vs_G0_percent',`PassFail(|Δ|≤${tol}%)`];
-    const lines = [hdr.join(',')];
-    scanRows.forEach(r=>{
-      lines.push([r.idx, r.time, r.body, r.modeMin.toFixed(2), r.v.toFixed(6), r.g.toExponential(11), r.err.toFixed(3), r.pass].join(','));
-    });
-    const csv = lines.join('\r\n');
-    const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
-    const ts = cstTimestamp().replace(/[: ]/g,'-');
-    const fname = `vrms_autoscan_${bodySel.value}_${ts}.csv`;
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = fname;
-    a.click();
-    URL.revokeObjectURL(a.href);
-    scanStatus.textContent = `Exported ${fname}`;
+    if(!scanRows.length){ scanStatus.textContent='Nothing to export — run Auto-Scan first.'; return; }
+    const tol=BODY_TOL[bodySel.value]??5;
+    const hdr=['Index','Time_CST','Body','Mode_min','vRMS_m_per_s','G_est_m3kg-1s-2','Delta_vs_G0_percent',`PassFail(|Δ|≤${tol}%)`];
+    const lines=[hdr.join(',')];
+    scanRows.forEach(r=>lines.push([r.idx,r.time,r.body,r.modeMin.toFixed(2),r.v.toFixed(6),r.g.toExponential(11),r.err.toFixed(3),r.pass].join(',')));
+    const csv=lines.join('\r\n'); const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+    const ts=cstTimestamp().replace(/[: ]/g,'-'); const fname=`vrms_autoscan_${bodySel.value}_${ts}.csv`;
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fname; a.click(); URL.revokeObjectURL(a.href);
+    scanStatus.textContent=`Exported ${fname}`;
   }
 
-  // ======= Animation loop =======
+  // Loop
   let rafId=null, fallbackId=null;
   function loop(){
-    if(!running){ rafId = requestAnimationFrame(loop); return; }
-    const ph = phaseNow();
-    const v = currentVRMS(ph);
-    const g = gFromVRMS(v);
-
-    drawWave();
-    drawKPIs(v,g);
-    drawPhase(ph);
-    drawToroid(ph);
-
-    rafId = requestAnimationFrame(loop);
+    if(!running){ rafId=requestAnimationFrame(loop); return; }
+    const ph=phaseNow(); const v=currentVRMS(ph); const g=gFromVRMS(v);
+    drawWave(); drawKPIs(v,g); drawPhase(ph); drawToroid(ph);
+    rafId=requestAnimationFrame(loop);
   }
-  function start(){
-    if(rafId==null) rafId = requestAnimationFrame(loop);
-    if(fallbackId==null){
-      fallbackId = setInterval(()=>{/* keep UI alive if rAF throttles */}, 600);
-    }
-  }
+  function start(){ if(rafId==null) rafId=requestAnimationFrame(loop); if(fallbackId==null) fallbackId=setInterval(()=>{},600); }
 
-  // ======= Events =======
-  scan10.onclick = runAutoScan10;
-  clearScan.onclick = clearScanAll;
-  exportCsvBtn.onclick = exportCSV;
+  // Events
+  bodySel.addEventListener('input',updatePeriodUI);
+  modeSel.addEventListener('input',updatePeriodUI);
+  modeCustom.addEventListener('input',updatePeriodUI);
+  periodFine.addEventListener('input',updatePeriodUI);
+  periodFineNum.addEventListener('input',updatePeriodUI);
 
-  pauseBtn.onclick = ()=>{ running=false; pauseBtn.disabled=true; resumeBtn.disabled=false; };
-  resumeBtn.onclick = ()=>{ running=true; resumeBtn.disabled=true; pauseBtn.disabled=false; };
+  const extData=$('extData'), extEnable=$('extEnable');
+  extData.addEventListener('input',extRefresh);
+  extEnable.addEventListener('change',extRefresh);
 
-  [bodySel, modeSel, modeCustom].forEach(el=> el.addEventListener('input', updatePeriodUI));
-  periodFine.oninput = updatePeriodUI;
+  $('scan10').onclick=runAutoScan10; $('clearScan').onclick=clearScanAll; $('exportCsv').onclick=exportCSV;
+  $('pauseBtn').onclick=()=>{running=false;$('pauseBtn').disabled=true;$('resumeBtn').disabled=false;};
+  $('resumeBtn').onclick=()=>{running=true;$('resumeBtn').disabled=true;$('pauseBtn').disabled=false;};
 
-  extData.addEventListener('input', extRefresh);
-  extEnable.addEventListener('change', extRefresh);
-
-  // ======= Init =======
-  updatePeriodUI();
-  extRefresh();
-  setCSTClock();
+  // Init
+  updatePeriodUI(); extRefresh(); (function tickClock(){ setCSTClock(); setTimeout(tickClock,1000); })();
   start();
 })();
 </script>
