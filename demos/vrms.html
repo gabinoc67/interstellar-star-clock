@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>CST-Locked v-RMS — Open Toroid (Animated) + Solar System Selector</title>
-<meta name="description" content="Live v-RMS wave with CST clock, G ≈ vRMS²/(8πc²), animated open-toroid influx/outflux visualization, and planet/Sun selector (incl. Pluto) with density-scaled 54-minute period estimate. Includes Auto-Scan 10× log and Excel-compatible export." />
+<meta name="description" content="Live v-RMS wave with CST clock, G ≈ vRMS²/(8πc²), animated open-toroid influx/outflux visualization, body-specific tolerances, mode library, and data hooks. Includes Auto-Scan 10× log with Pass/Fail and Excel-compatible export." />
 <style>
   :root{
     /* Gabino site palette */
@@ -22,7 +22,7 @@
   .card h2{margin:0 0 8px;font-size:1.05rem}
   .row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
   .small{font-size:0.88rem;color:var(--muted)}
-  .kpi{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px}
+  .kpi{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:8px}
   .kpi div{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:8px}
   .kpi .v{font-size:1rem}
   .btns{display:flex;flex-wrap:wrap;gap:8px}
@@ -30,7 +30,7 @@
   button:hover{background:var(--btnHover)}
   button:disabled{opacity:.6;cursor:not-allowed}
   .toggle{display:flex;align-items:center;gap:8px;margin:6px 0}
-  input[type="range"], select{width:100%}
+  input[type="range"], select, input[type="number"], textarea{width:100%}
   canvas{display:block;background:linear-gradient(transparent,transparent),
     repeating-linear-gradient(0deg,transparent 0 22px,var(--grid) 22px 23px);
     border-radius:12px;border:1px solid var(--border)}
@@ -46,6 +46,10 @@
   tbody tr:hover{background:rgba(143,180,255,0.06)}
   .pill{display:inline-block;padding:2px 8px;border:1px solid var(--border);border-radius:999px;font-size:.8rem}
   .right{display:flex;justify-content:flex-end;gap:8px}
+  .legend{display:flex;gap:10px;flex-wrap:wrap}
+  .legend .item{display:flex;align-items:center;gap:6px}
+  .legend .dot{width:10px;height:10px;border-radius:999px;border:1px solid var(--border);background:#7bffb1}
+  .muted{opacity:.85}
 </style>
 </head>
 <body>
@@ -60,7 +64,7 @@
   <p class="sub">
     Continuous v-RMS wave shows gravity as an energy-density gradient in a dynamic medium—<em>Vibrational form ≡ Influx form</em>.
     Calibrated from Earth’s ~54-minute reference; density-scaled to Sun & planets (incl. Pluto).
-    Real-time \(G_{\text{est}} = v_{\rm RMS}^2/(8\pi c^2)\).
+    Real-time \(G_{\text{est}} = v_{\rm RMS}^2/(8\pi c^2)\). Includes body-specific tolerances, mode library, and external data hooks.
     <span class="badge">Always Running</span>
   </p>
 
@@ -73,15 +77,19 @@
       <div class="kpi">
         <div>
           <div class="small">v-RMS (m/s)</div>
-          <div id="vOut" class="v mono">0.000</div>
+          <div id="vOut" class="v mono">0.000000</div>
         </div>
         <div>
           <div class="small">G_est (m³·kg⁻¹·s⁻²)</div>
-          <div id="gOut" class="v mono">0.00000000000</div>
+          <div id="gOut" class="v mono">0.00000000000e+00</div>
         </div>
         <div>
           <div class="small">Δ vs G₀</div>
           <div id="errOut" class="v mono">0.00%</div>
+        </div>
+        <div>
+          <div class="small">Tolerance (auto)</div>
+          <div id="tolOut" class="v mono">±5.0%</div>
         </div>
       </div>
 
@@ -102,12 +110,27 @@
               <option>Pluto</option>
             </select>
           </label>
+
+          <label class="small">Mode library (Earth reference)
+            <select id="modeSel">
+              <option value="54">Reference: 54 min</option>
+              <option value="60">Alt: 60 min</option>
+              <option value="45">Alt: 45 min</option>
+              <option value="30">Alt: 30 min</option>
+              <option value="custom">Custom (minutes below)</option>
+            </select>
+          </label>
+          <label class="small">Custom mode (minutes)
+            <input id="modeCustom" type="number" min="1" step="0.1" value="54">
+          </label>
+
           <div class="small">
             Density-scaled period estimate:
             <span id="periodS" class="mono"></span> s
             (<span id="periodMin" class="mono"></span> min)
           </div>
-          <div class="small">Method: <span class="mono">T_body ≈ 54 min × √(ρ⊕ / ρ_body)</span> — heuristic for demo alignment.</div>
+          <div class="small">Method: <span class="mono">T_body = T_EarthMode × √(ρ⊕ / ρ_body) × fine-tune</span></div>
+
           <label class="small">Fine tune period (±20%)<br/>
             <input id="periodFine" type="range" min="0.8" max="1.2" step="0.005" value="1.000">
           </label>
@@ -124,7 +147,7 @@
 
         <div class="card">
           <h2 style="margin-bottom:6px">CST Phase / Clock</h2>
-          <div class="small">Local (browser) time is used as CST stamp/phase reference.</div>
+          <div class="small">All timestamps use America/Chicago (CST/CDT).</div>
           <canvas id="phaseDial" width="220" height="160" aria-label="CST phase dial"></canvas>
           <div class="small">Phase (rad): <span id="phaseOut" class="mono">0.000</span></div>
           <div class="small">CST Time: <span id="timeOut" class="mono">--:--:--</span></div>
@@ -152,7 +175,7 @@
         </div>
       </div>
 
-      <!-- NEW: Auto-Scan Panel (10 entries) -->
+      <!-- Auto-Scan Panel (10 entries) -->
       <div class="card" style="margin-top:12px">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
           <h2 style="margin-bottom:6px">Auto-Scan Log (10)</h2>
@@ -160,23 +183,50 @@
             <button id="exportCsv">Export CSV (Excel)</button>
           </div>
         </div>
-        <div class="small">Each Auto-Scan captures v-RMS, G_est, and Δ vs G₀ with a CST timestamp and body selection.</div>
+        <div class="small">Each Auto-Scan captures v-RMS, G_est, Δ vs G₀, and Pass/Fail (body-specific tolerance) with a CST timestamp and body/mode selection.</div>
         <table id="scanTable" aria-label="Auto-scan results table">
           <thead>
             <tr>
               <th>#</th>
               <th>Time (CST)</th>
               <th>Body</th>
+              <th>Mode (min)</th>
               <th>v-RMS (m/s)</th>
               <th>G_est (m³·kg⁻¹·s⁻²)</th>
               <th>Δ vs G₀</th>
+              <th>Pass/Fail</th>
             </tr>
           </thead>
-          <tbody id="scanBody">
-            <!-- rows injected here -->
-          </tbody>
+          <tbody id="scanBody"></tbody>
         </table>
         <div class="small" id="scanStatus"></div>
+      </div>
+
+      <!-- Data Hooks -->
+      <div class="card" style="margin-top:12px">
+        <h2 style="margin-bottom:6px">External Data Hook (optional)</h2>
+        <p class="small">
+          Paste external v-RMS values (m/s). Use commas, spaces, or new lines. When enabled, the **latest** value overrides the internal model for all readouts, scans, and Pass/Fail.
+        </p>
+        <label class="small">External v-RMS samples
+          <textarea id="extData" rows="4" placeholder="e.g. 0.024, 0.026, 0.0259"></textarea>
+        </label>
+        <div class="toggle">
+          <input id="extEnable" type="checkbox" />
+          <label for="extEnable" class="small">Use external v-RMS override (latest parsed value)</label>
+        </div>
+        <div class="small muted">Parsed latest value: <span id="extLatest" class="mono">—</span></div>
+      </div>
+
+      <!-- About -->
+      <div class="card" style="margin-top:12px">
+        <h2>About the 54-minute reference</h2>
+        <p class="small">
+          The ~54-minute period anchors the simulator to a plausible near-surface free-oscillation timescale.
+          Locking the phase to CST ensures repeatable comparisons. Selecting other periods in the mode library
+          tests robustness: if the mechanism is universal, both **Vibrational** and **Influx** forms should still
+          converge on the same gravity behavior via v-RMS, with differences reflected in Δ and Pass/Fail.
+        </p>
       </div>
     </div>
 
@@ -224,14 +274,14 @@
       </div>
 
       <canvas id="toroid" width="520" height="320" aria-label="Animated toroidal boundary"></canvas>
-      <p class="small">
-        The torus pulses and streams “packets” around its major circle. Blink = kinetic intensity; motion = net flux.
-        Arrows blink and point in the selected flow direction. All animation is CST-phase locked to match the v-RMS clock.
-      </p>
+      <div class="legend small" style="margin-top:6px">
+        <div class="item"><span class="dot"></span> Bubbles (packets)</div>
+        <div class="item"><span class="mono">→</span> Arrow direction = flow</div>
+      </div>
 
       <div class="footer">
         <strong>Safety &amp; Disclaimer:</strong> Conceptual research visualizer. Periods for non-Earth bodies use density-scaled estimates for demonstration;
-        replace with observed fundamental modes as data become available. Validate with independent instrumentation.
+        replace with observed free-oscillation modes as data become available. Validate with independent instrumentation.
       </div>
     </div>
   </div>
@@ -239,11 +289,19 @@
 
 <script>
 (()=>{
+  // ======= Config =======
+  // Body-specific pass tolerances (Δ vs G0 in percent)
+  const BODY_TOL = {
+    "Sun": 10.0,
+    "Mercury": 5.0, "Venus": 5.0, "Earth": 5.0, "Mars": 5.0,
+    "Jupiter": 8.0, "Saturn": 8.0, "Uranus": 8.0, "Neptune": 8.0,
+    "Pluto": 7.0
+  };
+
   // ======= Physical constants & body data =======
   const c = 299792458;                // m/s
   const G0 = 6.67430e-11;             // m^3 kg^-1 s^-2 (reference)
   const rhoEarth = 5514;              // kg/m^3
-  const basePeriodEarth = 54*60;      // 54 minutes in seconds
 
   // Mean densities (kg/m^3). Pluto included.
   const bodies = {
@@ -265,6 +323,7 @@
   const vOut = document.getElementById('vOut');
   const gOut = document.getElementById('gOut');
   const errOut = document.getElementById('errOut');
+  const tolOut = document.getElementById('tolOut');
 
   const phaseDial = document.getElementById('phaseDial');
   const pctx = phaseDial.getContext('2d');
@@ -272,6 +331,9 @@
   const phaseOut = document.getElementById('phaseOut');
 
   const bodySel = document.getElementById('bodySel');
+  const modeSel = document.getElementById('modeSel');
+  const modeCustom = document.getElementById('modeCustom');
+
   const periodSOut = document.getElementById('periodS');
   const periodMinOut = document.getElementById('periodMin');
   const periodFine = document.getElementById('periodFine');
@@ -300,37 +362,77 @@
   const scanStatus = document.getElementById('scanStatus');
   const exportCsvBtn = document.getElementById('exportCsv');
 
+  const extData = document.getElementById('extData');
+  const extEnable = document.getElementById('extEnable');
+  const extLatest = document.getElementById('extLatest');
+
   // ======= State =======
   let running = true;
   let scanMarks = [];
-  let period = basePeriodEarth; // dynamic, depends on body + fine-tune
-
-  // Auto-scan state
+  let period = 54*60; // seconds, dynamic via mode+body scaling
+  let earthModeMinutes = 54; // from mode library or custom
+  let scanRows = []; // {idx,time,body,modeMin,v,g,err,pass}
   let isScanning = false;
-  let scanRows = []; // {idx,time,body,v,g,err}
 
-  function densityScaledPeriod(bodyName){
-    const rho = bodies[bodyName]?.rho ?? rhoEarth;
-    return basePeriodEarth * Math.sqrt(rhoEarth / rho);
+  // ======= Helpers: CST clock =======
+  function cstTimestamp(){
+    const optsDate = { timeZone: 'America/Chicago', year:'numeric', month:'2-digit', day:'2-digit' };
+    const optsTime = { timeZone: 'America/Chicago', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false };
+    const d = new Date();
+    const df = new Intl.DateTimeFormat('en-CA', optsDate).format(d).replaceAll('/','-'); // YYYY-MM-DD
+    const tf = new Intl.DateTimeFormat('en-GB', optsTime).format(d); // HH:MM:SS
+    return `${df} ${tf}`;
+  }
+  function setCSTClock(){ timeOut.textContent = cstTimestamp(); }
+
+  // ======= Mode library handling =======
+  function currentEarthModeMinutes(){
+    if(modeSel.value === 'custom'){
+      const m = Math.max(1, parseFloat(modeCustom.value)||54);
+      return m;
+    }
+    return parseFloat(modeSel.value); // 54, 60, 45, 30
+  }
+
+  // ======= Period handling (scaled by density & fine-tune) =======
+  function densityScaledPeriodSeconds(){
+    const body = bodySel.value;
+    const rho = bodies[body]?.rho ?? rhoEarth;
+    const baseEarthMin = currentEarthModeMinutes();
+    const fine = parseFloat(periodFine.value);
+    return baseEarthMin*60 * Math.sqrt(rhoEarth/rho) * fine;
   }
 
   function updatePeriodUI(){
-    const base = densityScaledPeriod(bodySel.value);
-    period = base * parseFloat(periodFine.value);
+    earthModeMinutes = currentEarthModeMinutes();
+    period = densityScaledPeriodSeconds();
     periodSOut.textContent = period.toFixed(1);
     periodMinOut.textContent = (period/60).toFixed(2);
+    // Update tolerance display
+    const tol = BODY_TOL[bodySel.value] ?? 5.0;
+    tolOut.textContent = `±${tol.toFixed(1)}%`;
   }
 
-  // ======= Time & CST Phase =======
+  // ======= Phase & time =======
   const twoPi = Math.PI*2;
   function nowSec(){ return Date.now()/1000; }
-  function cstPhase(){
-    const t = nowSec();
-    return (t % period) / period * twoPi; // [0,2π)
+  function phaseNow(){ return ((nowSec() % period) / period) * twoPi; } // [0, 2π)
+
+  // ======= External data parse =======
+  function parseExternalLatest(){
+    const txt = extData.value.trim();
+    if(!txt) return null;
+    const parts = txt.split(/[\s,;]+/).map(Number).filter(v=>isFinite(v) && v>=0);
+    if(!parts.length) return null;
+    return parts[parts.length-1];
+  }
+  function extRefresh(){
+    const v = parseExternalLatest();
+    extLatest.textContent = (v==null)? '—' : v.toFixed(6);
   }
 
   // ======= vRMS model =======
-  function computeVRMS(ph){
+  function modelVRMS(ph){
     const A = parseFloat(amp.value);
     const n = parseFloat(noise.value);
     const b = parseFloat(blend.value);
@@ -346,7 +448,13 @@
 
     return Math.abs(A*((1-n)*base + n*colored));
   }
-
+  function currentVRMS(ph){
+    if(extEnable.checked){
+      const v = parseExternalLatest();
+      if(v!=null) return Math.abs(v);
+    }
+    return modelVRMS(ph);
+  }
   function gFromVRMS(v){ return (v*v)/(8*Math.PI*c*c); }
 
   // ======= Drawing: Wave =======
@@ -358,16 +466,16 @@
     ctx.strokeStyle = '#28407f'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0,H-30); ctx.lineTo(W,H-30); ctx.stroke();
 
-    // gather recent samples
+    // gather recent samples across 6s window
     const N = W;
     const samples = [];
     for(let i=0;i<N;i++){
-      const tBack = (N-i)/N * 6; // 6 s window
-      const ph = ((nowSec()-tBack) % period)/period * twoPi;
-      samples.push(computeVRMS(ph));
+      const tBack = (N-i)/N * 6;
+      const ph = (((nowSec()-tBack) % period)/period) * twoPi;
+      samples.push(currentVRMS(ph));
     }
 
-    const vmax = Math.max(0.001, parseFloat(amp.value)*1.2);
+    const vmax = Math.max(0.001, parseFloat(amp.value)*1.2, (parseExternalLatest()||0)*1.2);
     ctx.strokeStyle = '#8fb4ff'; ctx.lineWidth = 2;
     ctx.beginPath();
     for(let x=0;x<N;x++){
@@ -396,10 +504,11 @@
     const err = ((g - G0)/G0)*100;
     const e = isFinite(err)? err.toFixed(3)+'%' : '—';
     errOut.textContent = e;
-    errOut.className = 'v mono ' + (Math.abs(err)<5?'good':Math.abs(err)<20?'warn':'bad');
+    const tol = BODY_TOL[bodySel.value] ?? 5.0;
+    errOut.className = 'v mono ' + (Math.abs(err)<=tol?'good':Math.abs(err)<=tol*2?'warn':'bad');
   }
 
-  // ======= Drawing: Phase Dial =======
+  // ======= Drawing: Phase Dial & Clock =======
   function drawPhase(ph){
     const W = phaseDial.width, H = phaseDial.height;
     pctx.clearRect(0,0,W,H);
@@ -427,10 +536,10 @@
     pctx.beginPath(); pctx.moveTo(cx,cy); pctx.lineTo(x,y); pctx.stroke();
 
     phaseOut.textContent = ph.toFixed(3);
-    timeOut.textContent = (new Date()).toLocaleTimeString();
+    setCSTClock();
   }
 
-  // ======= Drawing: Animated Toroid =======
+  // ======= Animated Toroid =======
   function drawToroid(ph){
     const W=toroid.width, H=toroid.height;
     tctx.clearRect(0,0,W,H);
@@ -455,14 +564,12 @@
     const Rin = R*(1-0.25+pulse), rin = r*(1-0.25+pulse);
     tctx.beginPath(); tctx.ellipse(cx,cy,Rin,rin,0,0,Math.PI*2); tctx.stroke();
 
-    // Blinking arrows positioned evenly around ring, pointing in/out
+    // Blinking arrows
     const alpha = 0.35 + 0.65*(0.5*(1+Math.sin(ph*blink*2))); // 0.35..1.0
     for(let k=0;k<nArrows;k++){
       const ang = k*(twoPi/nArrows);
       const ax = cx + R*Math.cos(ang);
       const ay = cy + r*Math.sin(ang);
-
-      // inward/outward direction
       const baseDir = Math.atan2(cy - ay, cx - ax); // toward center
       const theta = (dir==='in') ? baseDir : baseDir + Math.PI;
 
@@ -478,15 +585,14 @@
     }
 
     // Traveling packets
-    const sign = (dir==='in') ? 1 : -1; // convention
-    const baseRate = pSpeed * 0.9; // radians/sec scale
+    const sign = (dir==='in') ? 1 : -1;
+    const baseRate = pSpeed * 0.9; // radians/sec
     const t = nowSec();
     for(let j=0;j<nPackets;j++){
       const phaseJ = (j/nPackets)*twoPi;
       const psi = (phaseJ + sign*(t*baseRate)) % twoPi;
       const px = cx + R*Math.cos(psi);
       const py = cy + r*Math.sin(psi);
-
       const s = 3.0*scale*(1.0+0.2*Math.sin(ph*3 + j));
       tctx.beginPath();
       tctx.fillStyle = '#7bffb1';
@@ -494,24 +600,26 @@
     }
   }
 
-  // ======= Auto-Scan: capture 10 sequential samples, show table, allow CSV export =======
-  function cstTimestamp(){
-    // Use local time (assumed CST for your site); if you host globally, you could adjust tz here.
-    const d = new Date();
-    const pad = n=>String(n).padStart(2,'0');
-    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  // ======= Pass/Fail =======
+  function passFail(errPct, bodyName){
+    const tol = BODY_TOL[bodyName] ?? 5.0;
+    return Math.abs(errPct) <= tol ? 'Pass' : 'Fail';
   }
 
+  // ======= Auto-Scan (10) =======
   function appendScanRow(row){
-    // row: {idx,time,body,v,g,err}
+    // row: {idx,time,body,modeMin,v,g,err,pass}
     const tr = document.createElement('tr');
+    const cls = (row.pass==='Pass') ? 'good' : 'bad';
     tr.innerHTML = `
       <td>${row.idx}</td>
       <td class="mono">${row.time}</td>
       <td>${row.body}</td>
+      <td class="mono">${row.modeMin.toFixed(2)}</td>
       <td class="mono">${row.v.toFixed(6)}</td>
       <td class="mono">${row.g.toExponential(11)}</td>
       <td class="mono">${row.err.toFixed(3)}%</td>
+      <td class="mono ${cls}">${row.pass}</td>
     `;
     scanBody.appendChild(tr);
   }
@@ -536,22 +644,17 @@
     scanMarks = [];
 
     const body = bodySel.value;
-    const stepMs = 400; // spacing between each capture
+    const modeMin = currentEarthModeMinutes();
+    const stepMs = 400; // spacing
     for(let i=1;i<=10;i++){
-      // Wait step (except immediate first capture)
       if(i>1) await new Promise(res=>setTimeout(res, stepMs));
-
-      // Capture current values
-      const ph = cstPhase();
-      const v = computeVRMS(ph);
+      const ph = phaseNow();
+      const v = currentVRMS(ph);
       const g = gFromVRMS(v);
       const err = ((g - G0)/G0)*100;
-
-      // Mark on wave
+      const pf = passFail(err, body);
       scanMarks.push({t: nowSec()});
-
-      // Store row
-      const row = { idx:i, time:cstTimestamp(), body, v, g, err };
+      const row = { idx:i, time:cstTimestamp(), body, modeMin, v, g, err, pass: pf };
       scanRows.push(row);
       appendScanRow(row);
     }
@@ -564,10 +667,11 @@
       scanStatus.textContent = 'Nothing to export — run Auto-Scan first.';
       return;
     }
-    const hdr = ['Index','Time_CST','Body','vRMS_m_per_s','G_est_m3kg-1s-2','Delta_vs_G0_percent'];
+    const tol = BODY_TOL[bodySel.value] ?? 5.0;
+    const hdr = ['Index','Time_CST','Body','Mode_min','vRMS_m_per_s','G_est_m3kg-1s-2','Delta_vs_G0_percent',`PassFail(|Δ|≤${tol}%)`];
     const lines = [hdr.join(',')];
     scanRows.forEach(r=>{
-      lines.push([r.idx, r.time, r.body, r.v.toFixed(6), r.g.toExponential(11), r.err.toFixed(3)].join(','));
+      lines.push([r.idx, r.time, r.body, r.modeMin.toFixed(2), r.v.toFixed(6), r.g.toExponential(11), r.err.toFixed(3), r.pass].join(','));
     });
     const csv = lines.join('\r\n');
     const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
@@ -585,8 +689,8 @@
   let rafId=null, fallbackId=null;
   function loop(){
     if(!running){ rafId = requestAnimationFrame(loop); return; }
-    const ph = cstPhase();
-    const v = computeVRMS(ph);
+    const ph = phaseNow();
+    const v = currentVRMS(ph);
     const g = gFromVRMS(v);
 
     drawWave();
@@ -599,11 +703,11 @@
   function start(){
     if(rafId==null) rafId = requestAnimationFrame(loop);
     if(fallbackId==null){
-      fallbackId = setInterval(()=>{/* minimal fallback tick to keep UI alive if rAF throttles */}, 600);
+      fallbackId = setInterval(()=>{/* keep UI alive if rAF throttles */}, 600);
     }
   }
 
-  // ======= Controls =======
+  // ======= Events =======
   scan10.onclick = runAutoScan10;
   clearScan.onclick = clearScanAll;
   exportCsvBtn.onclick = exportCSV;
@@ -611,12 +715,16 @@
   pauseBtn.onclick = ()=>{ running=false; pauseBtn.disabled=true; resumeBtn.disabled=false; };
   resumeBtn.onclick = ()=>{ running=true; resumeBtn.disabled=true; pauseBtn.disabled=false; };
 
-  // Body / period handlers
-  bodySel.onchange = updatePeriodUI;
+  [bodySel, modeSel, modeCustom].forEach(el=> el.addEventListener('input', updatePeriodUI));
   periodFine.oninput = updatePeriodUI;
 
-  // Init
+  extData.addEventListener('input', extRefresh);
+  extEnable.addEventListener('change', extRefresh);
+
+  // ======= Init =======
   updatePeriodUI();
+  extRefresh();
+  setCSTClock();
   start();
 })();
 </script>
