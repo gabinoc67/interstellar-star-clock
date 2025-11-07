@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>CST-Locked v-RMS — Open Toroid + Planet Presets + Stable Init</title>
-<meta name="description" content="Live v-RMS wave (visible noise), correct Auto-Calibrate (numeric RMS), CST clock, open-toroid animation, planet presets, Auto-Scan 10× with Pass/Fail and Excel export. Hard-refresh safe." />
+<title>CST-Locked v-RMS — Open Toroid + Planet Presets + Closed-Loop Auto-Cal</title>
+<meta name="description" content="Live v-RMS wave (visible noise), closed-loop Auto-Calibrate (hits G0), CST clock, open-toroid animation, planet presets, Auto-Scan 10× with Pass/Fail and Excel export. Hard-refresh safe." />
 <style>
   :root{--bg:#0b1222;--panel:#111a34;--ink:#eaf0ff;--muted:#a7b7e6;--accent:#8fb4ff;--grid:#1b2550;--ok:#7bffb1;--warn:#ffd37a;--bad:#ff8c8c;--card:#0e1740;--border:#213067;--btn:#162455;--btnHover:#1d2e6e}
   *{box-sizing:border-box}
@@ -54,7 +54,7 @@
   <h1>CST-Locked v-RMS Gravity Equivalence</h1>
   <p class="sub">
     v-RMS renders gravity as an energy-density gradient (Vibrational ≡ Influx). Earth’s ~54-min reference, density-scaled to Sun & planets (incl. Pluto).
-    Real-time \(G_{\text{est}} = v_{\rm RMS}^2/(8\pi c^2)\). Visible noise, numeric-only controls, Auto-Calibrate, open-toroid animation.
+    Real-time \(G_{\text{est}} = v_{\rm RMS}^2/(8\pi c^2)\). Visible noise, numeric-only controls, <strong>closed-loop Auto-Calibrate</strong>, open-toroid animation.Pick the Planet preset, 2) click Auto-Calibrate to G₀, 3) then run Auto-Scan 10×. You should see Pass on most rows (within the planet’s tolerance). If anything still fails, tell me which body and I’ll nudge the preset or tolerance.
     <span class="badge">Hard-refresh safe</span>
   </p>
 
@@ -73,7 +73,7 @@
 
       <div class="row" style="margin-top:12px">
         <div class="card">
-          <h2 style="margin-bottom:6px">Body & Calibration (numbers only)</h2>
+          <h2 style="margin-bottom:6px">Body &amp; Calibration (numbers only)</h2>
 
           <label class="small">Planet preset (fills all boxes)
             <select id="presetSel">
@@ -237,7 +237,7 @@
   const bodies={Sun:{rho:1408},Mercury:{rho:5427},Venus:{rho:5243},Earth:{rho:5514},Mars:{rho:3933},Jupiter:{rho:1326},Saturn:{rho:687},Uranus:{rho:1270},Neptune:{rho:1638},Pluto:{rho:1850}};
   const V_TARGET=Math.sqrt(8*Math.PI*c*c*G0); // ≈ 12278.45 m/s
 
-  // Planet presets (numbers only)
+  // Planet presets
   const PRESETS={
     Sun:{body:'Sun',mode:54,fine:1.00,A:14000,n:0.03,b:0.50,toro:{show:'on',dir:'out',blink:1.1,ps:1.8,ring:1.20,ar:13,pk:42}},
     Mercury:{body:'Mercury',mode:54,fine:1.00,A:12500,n:0.03,b:0.55,toro:{show:'on',dir:'in',blink:1.2,ps:1.3,ring:0.85,ar:8,pk:16}},
@@ -364,22 +364,46 @@
   }
   function gFromVRMS(v){ return (v*v)/(8*Math.PI*c*c); }
 
-  // ===== Correct Auto-Calibrate (numeric RMS at A=1) =====
-  function numericRMS_A1(){
-    const n=parseFloat(noiseNum.value), b=parseFloat(blendNum.value);
-    const N=4096; let s=0;
-    for(let i=0;i<N;i++){
-      const ph=i/N*twoPi;
-      const mix=(1-n)*baseWave(ph,b) + n*0.3*coloredTerm(ph); // deterministic portion for calibration
-      const v=Math.abs(mix); // A=1
-      s+=v*v;
+  // ===== Closed-loop Auto-Calibrate (measures live vRMS, rescales A) =====
+  async function measureVRMS(seconds=0.8){
+    // Collect samples for a short window
+    const end=performance.now()+seconds*1000;
+    let last=0;
+    while(performance.now()<end){
+      // wait for next animation pulse
+      await new Promise(r=>requestAnimationFrame(r));
+      // ensure we push at least once per frame
+      const ph=phaseNow();
+      const v=instantaneousV(ph);
+      pushRMS(v); pushDisp(v);
+      last=v; // not used directly; RMS buffer is used by currentVRMS()
     }
-    return Math.sqrt(s/N);
+    return currentVRMS();
   }
-  function autoCalibrateA(){
-    const K=numericRMS_A1();
-    const A = V_TARGET / Math.max(1e-12,K);
-    ampNum.value = A.toFixed(3);
+
+  async function autoCalibrateA(){
+    const wasExt=extEnable.checked;
+    if(wasExt){ extEnable.checked=false; extRefresh(); }
+
+    // First measurement with current A
+    let vr=await measureVRMS(0.8);
+    if(vr<=1e-9){ // guard
+      ampNum.value=(+ampNum.value||1)+1;
+      vr=await measureVRMS(0.4);
+    }
+    // Scale A to hit target
+    let A=parseFloat(ampNum.value);
+    const f1=V_TARGET/vr;
+    A=A*f1;
+    ampNum.value=A.toFixed(3);
+
+    // Quick refinement
+    const vr2=await measureVRMS(0.5);
+    const f2=V_TARGET/vr2;
+    A=A*f2;
+    ampNum.value=A.toFixed(3);
+
+    if(wasExt){ extEnable.checked=true; extRefresh(); }
   }
 
   // ===== Drawing: Wave =====
@@ -550,10 +574,9 @@
   autoCal.addEventListener('click',autoCalibrateA);
 
   // ===== Init (hard-refresh safe) =====
-  toroidShow.value='on'; flowDir.value='in';
+  (function tickClock(){ setCSTClock(); setTimeout(tickClock,1000); })();
   applyPlanetPreset('Earth');            // fill boxes
   updatePeriodUI(); extRefresh();
-  (function tickClock(){ setCSTClock(); setTimeout(tickClock,1000); })();
   start();
 })();
 </script>
