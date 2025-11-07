@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Audio → CSV (60s) — Analyzer + Panels A/B + Pace/Cadence + 32 Chairs + Smooth Engine</title>
+<title>Audio → CSV (60s) — Analyzer + Panels A/B + Pace/Cadence + 32 Chairs + Mix Modes + Conductors</title>
 <style>
   :root{
     --bg:#0b1222;--panel:#111a34;--ink:#eaf0ff;--muted:#a7b7e6;--border:#213067;
@@ -77,6 +77,7 @@
     <h1>Audio → CSV Notes (60s)</h1>
 
     <div class="grid">
+      <!-- LEFT and RIGHT columns start below -->
       <!-- ========== LEFT COLUMN ========== -->
       <div>
         <!-- Analyzer -->
@@ -191,7 +192,6 @@
           </div>
         </section>
       </div>
-
       <!-- ========== RIGHT COLUMN ========== -->
       <aside class="stage">
         <!-- Tempo -->
@@ -249,9 +249,49 @@
           <div class="hr"></div>
           <div class="row2">
             <div class="stat"><span>Engine</span><b id="engineStatus">Initializing…</b></div>
-            <div class="stat"><span>Output</span>
-              <select id="midiOut"></select>
-            </div>
+            <div class="stat"><span>Output</span><select id="midiOut"></select></div>
+          </div>
+        </section>
+
+        <!-- Transport, Tempo & Mix Modes -->
+        <section class="card">
+          <h2>Transport, Tempo & Song Mix</h2>
+          <div class="row2">
+            <label>Timing Mode
+              <select id="timingMode">
+                <option value="absolute" selected>Absolute seconds (use t)</option>
+                <option value="retime">Re-tempo from BPM (use bar/beat)</option>
+              </select>
+            </label>
+            <label>Global Tempo %
+              <input id="tempoMul" type="range" min="50" max="200" step="1" value="100"/>
+              <small class="hint"><b id="tempoMulVal">100%</b></small>
+            </label>
+          </div>
+
+          <div class="row2" style="margin-top:8px">
+            <label>Song Mix Mode
+              <select id="mixMode">
+                <option value="layer">Layered (A + B together)</option>
+                <option value="delay">Sequential (B starts after offset)</option>
+                <option value="auto">Auto-Sequential (B after A ends)</option>
+                <option value="crossfade">Crossfade (A then overlap into B)</option>
+              </select>
+            </label>
+            <label>B Offset (s)
+              <input id="bOffsetSec" type="number" min="0" step="0.1" value="4.0"/>
+            </label>
+          </div>
+
+          <div class="row2" style="margin-top:8px">
+            <label>Crossfade (s)
+              <input id="xfadeSec" type="number" min="0" step="0.1" value="6.0"/>
+            </label>
+            <label class="flex"><input id="metronome" type="checkbox"/> <span>Metronome click</span></label>
+          </div>
+
+          <div class="row2" style="margin-top:8px">
+            <button id="btnPanic" class="grow" title="Hard stop everything">Panic (All Notes Off)</button>
           </div>
         </section>
 
@@ -261,11 +301,7 @@
           <div class="flex" style="margin-bottom:8px">
             <label>Composer (Conductor)
               <select id="conductorSel">
-                <option value="mozart">Mozart — light swing, soft dynamics</option>
-                <option value="beethoven">Beethoven — bold accents, wider dynamics</option>
-                <option value="stravinsky">Stravinsky — tight, percussive, low swing</option>
-                <option value="debussy">Debussy — soft attack, wider timing blur</option>
-                <option value="williams" selected>John Williams — cinematic sheen, steady pulse</option>
+                <!-- filled by JS with many presets -->
               </select>
             </label>
             <span class="badge">Click = mute/unmute • Alt+Click = next instrument</span>
@@ -285,8 +321,8 @@
           <small class="mini">If WebMIDI isn’t available, an upgraded WebAudio synth runs with anti-click envelopes, filter, limiter, and reverb.</small>
         </section>
       </aside>
-    </div>
-  </div>
+    </div><!-- /.grid -->
+  </div><!-- /.wrap -->
 <script>
 /* ========= Core state ========= */
 let LAST_ANALYSIS = { events: [], meta: { bpm: 100, key: "C major" } };
@@ -350,7 +386,7 @@ function acPitch(frame,sr){
   for(let lag=minLag;lag<=Math.min(maxLag,N-2);lag++){let s=0;for(let i=0;i<N-lag;i++) s+=frame[i]*frame[i+lag]; if(s>best){best=s;bestLag=lag;}}
   return bestLag? sr/bestLag : 0;
 }
-function barsBeats(t,bpm){ const spb=60/Math.max(40,Math.min(220,bpm)); const beat=t/spb; return {bar:Math.floor(beat/4)+1, beat:(beat%4)+1}; }
+function barsBeatsToTime(bar,beat,bpm){ const spb=60/Math.max(40,Math.min(220,bpm)); return ((Math.max(1,bar)-1)*4 + (Math.max(0.01,beat)-1))*spb; }
 
 /* ========= Analyzer ========= */
 async function analyzeAudio(file){
@@ -380,7 +416,7 @@ async function analyzeAudio(file){
   const events=[]; const beatLen=60/Math.max(40,Math.min(220,bpm)); const grid=beatLen*4*0.125;
   for(const n of notes){
     const q=Math.max(0,Math.min(60,Math.round(n.t/grid)*grid));
-    const {bar,beat}=barsBeats(q,bpm);
+    const bar=Math.floor((q/beatLen)/4)+1; const beat=((q/beatLen)%4)+1;
     events.push({t:q,midi:n.midi,vel:0.7,dur:0.28,isBass:n.midi<=43,bar,beat});
   }
 
@@ -609,7 +645,7 @@ $("tagCadB").onclick=()=>{ B.cadences=[...cadenceSel]; renderCadTags(); statusVa
 $("clearCad").onclick=()=>{ cadenceSel.clear(); CADENCES.forEach(c=>{ const el=$("cad_"+c.id); if(el) el.checked=false; }); statusVal.textContent="Cadence selection cleared."; };
 
 /* ========= Instruments & seating ========= */
-const GM_NAMES=[/* 0..127 General MIDI names */"Acoustic Grand Piano","Bright Piano","Electric Grand","Honky-Tonk","Electric Piano 1","Electric Piano 2","Harpsichord","Clav","Celesta","Glockenspiel","Music Box","Vibraphone","Marimba","Xylophone","Tubular Bells","Dulcimer","Drawbar Organ","Percussive Organ","Rock Organ","Church Organ","Reed Organ","Accordion","Harmonica","Tango Accordion","Acoustic Guitar (nylon)","Acoustic Guitar (steel)","Electric Guitar (jazz)","Electric Guitar (clean)","Electric Guitar (muted)","Overdriven Guitar","Distortion Guitar","Guitar Harmonics","Acoustic Bass","Electric Bass (finger)","Electric Bass (pick)","Fretless Bass","Slap Bass 1","Slap Bass 2","Synth Bass 1","Synth Bass 2","Violin","Viola","Cello","Contrabass","Tremolo Strings","Pizzicato Strings","Orchestral Harp","Timpani","String Ensemble 1","String Ensemble 2","SynthStrings 1","SynthStrings 2","Choir Aahs","Voice Oohs","Synth Voice","Orchestra Hit","Trumpet","Trombone","Tuba","Muted Trumpet","French Horn","Brass Section","SynthBrass 1","SynthBrass 2","Soprano Sax","Alto Sax","Tenor Sax","Baritone Sax","Oboe","English Horn","Bassoon","Clarinet","Piccolo","Flute","Recorder","Pan Flute","Blown Bottle","Shakuhachi","Whistle","Ocarina","Lead 1 (square)","Lead 2 (sawtooth)","Lead 3 (calliope)","Lead 4 (chiff)","Lead 5 (charang)","Lead 6 (voice)","Lead 7 (fifths)","Lead 8 (bass+lead)","Pad 1 (new age)","Pad 2 (warm)","Pad 3 (polysynth)","Pad 4 (choir)","Pad 5 (bowed)","Pad 6 (metallic)","Pad 7 (halo)","Pad 8 (sweep)","FX 1 (rain)","FX 2 (soundtrack)","FX 3 (crystal)","FX 4 (atmosphere)","FX 5 (brightness)","FX 6 (goblins)","FX 7 (echoes)","FX 8 (sci-fi)","Sitar","Banjo","Shamisen","Koto","Kalimba","Bagpipe","Fiddle","Shanai","Tinkle Bell","Agogo","Steel Drums","Woodblock","Taiko Drum","Melodic Tom","Synth Drum","Reverse Cymbal","Guitar Fret Noise","Breath Noise","Seashore","Bird Tweet","Telephone Ring","Helicopter","Applause","Gunshot"];
+const GM_NAMES=[/* 0..127 */"Acoustic Grand Piano","Bright Piano","Electric Grand","Honky-Tonk","Electric Piano 1","Electric Piano 2","Harpsichord","Clav","Celesta","Glockenspiel","Music Box","Vibraphone","Marimba","Xylophone","Tubular Bells","Dulcimer","Drawbar Organ","Percussive Organ","Rock Organ","Church Organ","Reed Organ","Accordion","Harmonica","Tango Accordion","Acoustic Guitar (nylon)","Acoustic Guitar (steel)","Electric Guitar (jazz)","Electric Guitar (clean)","Electric Guitar (muted)","Overdriven Guitar","Distortion Guitar","Guitar Harmonics","Acoustic Bass","Electric Bass (finger)","Electric Bass (pick)","Fretless Bass","Slap Bass 1","Slap Bass 2","Synth Bass 1","Synth Bass 2","Violin","Viola","Cello","Contrabass","Tremolo Strings","Pizzicato Strings","Orchestral Harp","Timpani","String Ensemble 1","String Ensemble 2","SynthStrings 1","SynthStrings 2","Choir Aahs","Voice Oohs","Synth Voice","Orchestra Hit","Trumpet","Trombone","Tuba","Muted Trumpet","French Horn","Brass Section","SynthBrass 1","SynthBrass 2","Soprano Sax","Alto Sax","Tenor Sax","Baritone Sax","Oboe","English Horn","Bassoon","Clarinet","Piccolo","Flute","Recorder","Pan Flute","Blown Bottle","Shakuhachi","Whistle","Ocarina","Lead 1 (square)","Lead 2 (sawtooth)","Lead 3 (calliope)","Lead 4 (chiff)","Lead 5 (charang)","Lead 6 (voice)","Lead 7 (fifths)","Lead 8 (bass+lead)","Pad 1 (new age)","Pad 2 (warm)","Pad 3 (polysynth)","Pad 4 (choir)","Pad 5 (bowed)","Pad 6 (metallic)","Pad 7 (halo)","Pad 8 (sweep)","FX 1 (rain)","FX 2 (soundtrack)","FX 3 (crystal)","FX 4 (atmosphere)","FX 5 (brightness)","FX 6 (goblins)","FX 7 (echoes)","FX 8 (sci-fi)","Sitar","Banjo","Shamisen","Koto","Kalimba","Bagpipe","Fiddle","Shanai","Tinkle Bell","Agogo","Steel Drums","Woodblock","Taiko Drum","Melodic Tom","Synth Drum","Reverse Cymbal","Guitar Fret Noise","Breath Noise","Seashore","Bird Tweet","Telephone Ring","Helicopter","Applause","Gunshot"];
 const CHAIRS=[]; // 32
 function initSeating(){
   CHAIRS.length=0;
@@ -648,22 +684,53 @@ function randomizeSide(side){
 $("btnRandA").onclick=()=>{ randomizeSide('A'); renderSeating(); statusVal.textContent="Randomized A (16)."; };
 $("btnRandB").onclick=()=>{ randomizeSide('B'); renderSeating(); statusVal.textContent="Randomized B (16)."; };
 
-/* ========= Conductor (feel) ========= */
-const CONDUCTOR={ mozart:{swing:0.06,velCurve:0.85,jitterMs:10,accent:0.9},
-  beethoven:{swing:0.02,velCurve:1.10,jitterMs:6,accent:1.2},
-  stravinsky:{swing:0.00,velCurve:1.00,jitterMs:3,accent:1.15},
-  debussy:{swing:0.03,velCurve:0.95,jitterMs:16,accent:0.85},
-  williams:{swing:0.01,velCurve:1.05,jitterMs:5,accent:1.05} };
-function currentFeel(){ return CONDUCTOR[$("conductorSel").value]||CONDUCTOR.williams; }
+/* ========= Conductors (many, men & women) ========= */
+const CONDUCTORS = {
+  mozart:{label:"Mozart — light swing, soft dynamics", swing:0.06, velCurve:0.85, jitterMs:10, accent:0.90, legato:1.05},
+  bach:{label:"J.S. Bach — crisp articulation, steady time", swing:0.00, velCurve:1.00, jitterMs:4,  accent:1.00, legato:0.95},
+  beethoven:{label:"Beethoven — bold accents, wide dynamics", swing:0.02, velCurve:1.12, jitterMs:6,  accent:1.22, legato:0.98},
+  brahms:{label:"Brahms — warm phrasing, rounded attacks", swing:0.02, velCurve:0.96, jitterMs:8,  accent:0.95, legato:1.10},
+  tchaikovsky:{label:"Tchaikovsky — lyrical arcs, strong swells", swing:0.03, velCurve:1.05, jitterMs:10, accent:1.10, legato:1.12},
+  mahler:{label:"Mahler — elastic time, huge crescendos", swing:0.04, velCurve:1.15, jitterMs:14, accent:1.25, legato:1.15},
+  stravinsky:{label:"Stravinsky — tight, percussive, dry", swing:0.00, velCurve:1.00, jitterMs:3,  accent:1.15, legato:0.90},
+  debussy:{label:"Debussy — soft attack, diffuse time", swing:0.03, velCurve:0.95, jitterMs:16, accent:0.85, legato:1.20},
+  ravel:{label:"Ravel — clarity + sheen", swing:0.02, velCurve:1.00, jitterMs:8,  accent:0.98, legato:1.08},
+  shostakovich:{label:"Shostakovich — edgy pulse, stark contrasts", swing:0.00, velCurve:1.08, jitterMs:5, accent:1.18, legato:0.95},
+  bernstein:{label:"Bernstein — groove, buoyant phrasing", swing:0.05, velCurve:1.02, jitterMs:9, accent:1.10, legato:1.05},
+  williams:{label:"John Williams — cinematic, steady pulse", swing:0.01, velCurve:1.05, jitterMs:5, accent:1.05, legato:1.05},
+  zimmer:{label:"Hans Zimmer — broad swells, hybrid bite", swing:0.02, velCurve:1.10, jitterMs:8, accent:1.15, legato:1.10},
+  alsop:{label:"Marin Alsop — precise, lyrical clarity", swing:0.02, velCurve:1.00, jitterMs:7, accent:1.02, legato:1.06},
+  malkki:{label:"Susanna Mälkki — modern precision, focus", swing:0.00, velCurve:1.02, jitterMs:5, accent:1.08, legato:0.98},
+  mirga:{label:"Mirga Gražinytė-Tyla — agile, bright detail", swing:0.03, velCurve:0.98, jitterMs:9, accent:1.00, legato:1.02},
+  falletta:{label:"JoAnn Falletta — elegant balance, warmth", swing:0.02, velCurve:0.98, jitterMs:8, accent:0.98, legato:1.10},
+  stutzmann:{label:"Nathalie Stutzmann — rich depth, grounded pulse", swing:0.01, velCurve:1.06, jitterMs:7, accent:1.12, legato:1.12},
+  simoneyoung:{label:"Simone Young — architectural phrasing", swing:0.02, velCurve:1.02, jitterMs:6, accent:1.05, legato:1.08},
+  eunsunkim:{label:"Eun Sun Kim — clarity + drive", swing:0.01, velCurve:1.04, jitterMs:6, accent:1.07, legato:1.00},
+  alondra:{label:"Alondra de la Parra — rhythmic sparkle", swing:0.04, velCurve:0.98, jitterMs:8, accent:1.02, legato:1.00},
+  xianzhang:{label:"Xian Zhang — incisive energy", swing:0.01, velCurve:1.05, jitterMs:5, accent:1.12, legato:0.98},
+  noone:{label:"Eímear Noone — cinematic lift, crisp hits", swing:0.03, velCurve:1.06, jitterMs:8, accent:1.15, legato:1.04},
+  gubaidulina:{label:"Sofia Gubaidulina — austere, intense arcs", swing:0.00, velCurve:1.10, jitterMs:6, accent:1.18, legato:0.92},
+  annaclyne:{label:"Anna Clyne — shimmering textures", swing:0.03, velCurve:0.96, jitterMs:10, accent:0.95, legato:1.15}
+};
+function populateConductors(){
+  const sel=$("conductorSel"); sel.innerHTML="";
+  Object.entries(CONDUCTORS).forEach(([key,c])=>{
+    const opt=document.createElement('option'); opt.value=key; opt.textContent=c.label; sel.appendChild(opt);
+  });
+  sel.value="williams";
+}
+function currentFeel(){
+  const k=$("conductorSel").value; return CONDUCTORS[k] || CONDUCTORS.williams;
+}
 
 /* ========= Init small UIs ========= */
 function initSmall(){
   renderTempoList(); renderCadenceList();
   initSeating(); renderSeating();
+  populateConductors();
   $("conductorSel").onchange=()=>{ statusVal.textContent="Conductor feel updated."; };
 }
-</script>
-<script>
+
 /* ===================== MIXER / ENGINE ===================== */
 const ACtx = window.AudioContext || window.webkitAudioContext;
 let midiAccess=null, midiOutput=null, WA_ctx=null, masterGain=null, comp=null, revSend=null, revNode=null;
@@ -673,6 +740,9 @@ const volMaster=$("volMaster"), volMasterVal=$("volMasterVal");
 const reverbAmt=$("reverbAmt"), reverbAmtVal=$("reverbAmtVal");
 const toneLPF=$("toneLPF"), toneLPFVal=$("toneLPFVal");
 const polyCapEl=$("polyCap"), polyCapVal=$("polyCapVal");
+
+$("tempoMul").oninput=()=>{ $("tempoMulVal").textContent = $("tempoMul").value+"%"; };
+$("tempoMulVal").textContent = $("tempoMul").value+"%";
 
 function fmtK(v){ return (v/1000).toFixed(1)+'k'; }
 volMaster.oninput=()=>{ volMasterVal.textContent=Number(volMaster.value).toFixed(2); if(masterGain) masterGain.gain.setTargetAtTime(parseFloat(volMaster.value), WA_ctx.currentTime, 0.015); };
@@ -707,20 +777,18 @@ function ensureAudio(){
     revSend=ctx.createGain(); revSend.gain.value=parseFloat(reverbAmt.value);
     revNode=createSmallIR(ctx);
 
-    // Mix: dry → comp → master; reverb send → convolver → comp
     revSend.connect(revNode); revNode.connect(comp);
     masterGain.connect(comp); comp.connect(ctx.destination);
   }
 }
 function createSmallIR(ctx){
-  // Tiny room impulse (Schroeder-like noise burst)
   const len = Math.floor(ctx.sampleRate*1.6);
   const ir = ctx.createBuffer(2,len,ctx.sampleRate);
   for(let ch=0;ch<2;ch++){
     const d = ir.getChannelData(ch);
     for(let i=0;i<len;i++){
       const t=i/ctx.sampleRate;
-      d[i]=(Math.random()*2-1)*Math.pow(1-t/1.6, 3); // decaying noise
+      d[i]=(Math.random()*2-1)*Math.pow(1-t/1.6, 3);
     }
   }
   const con = ctx.createConvolver(); con.buffer=ir; return con;
@@ -740,35 +808,34 @@ const PER_CH_ACTIVE = Array.from({length:16}, ()=>new Set()); // track polyphony
 
 function midiToHz(n){ return 440*Math.pow(2,(n-69)/12); }
 function progToWave(p){
-  if(p>=40 && p<=51) return 'sawtooth';     // strings/pads
-  if(p>=56 && p<=63) return 'square';       // brass
-  if(p>=73 && p<=79) return 'sine';         // winds
-  if(p>=0 && p<=7)   return 'triangle';     // pianos
-  if(p>=32 && p<=39) return 'square';       // bass
+  if(p>=40 && p<=51) return 'sawtooth';
+  if(p>=56 && p<=63) return 'square';
+  if(p>=73 && p<=79) return 'sine';
+  if(p>=0 && p<=7)   return 'triangle';
+  if(p>=32 && p<=39) return 'square';
   return 'triangle';
 }
 function makeVoice(ch,key,vel,prog){
   ensureAudio();
   const ctx=WA_ctx;
   const voice = {};
-  // Per-voice chain: osc -> filter -> panner -> dryGain -> masterGain
   const osc=ctx.createOscillator(); osc.type=progToWave(prog);
-  const filter=ctx.createBiquadFilter(); filter.type='lowpass'; filter.Q.value=0.6; filter.frequency.value=parseFloat(toneLPF.value);
-  const pan=ctx.createStereoPanner(); pan.pan.value = ( (ch%8) - 3.5 ) * 0.14; // subtle stage width
+  const filter=ctx.createBiquadFilter(); filter.type='lowpass'; filter.Q.value=0.6; filter.frequency.value=parseInt(toneLPF.value,10);
+  const pan=ctx.createStereoPanner(); pan.pan.value = ( (ch%8) - 3.5 ) * 0.14;
   const dry=ctx.createGain(); const send=ctx.createGain();
 
-  // Gain staging with de-click envelope
   const now=ctx.currentTime;
   const v = Math.max(0.02, Math.min(1, vel/127));
+  // ADSR-ish envelope with anti-click
   dry.gain.setValueAtTime(0, now);
-  dry.gain.linearRampToValueAtTime(v*0.55, now+0.006);    // quick attack
-  dry.gain.exponentialRampToValueAtTime(0.0006, now+3.0); // auto-decay safety
+  dry.gain.linearRampToValueAtTime(v*0.55, now+0.006);
+  // release adjusted later by legato; here default long tail cut down by noteOff
+  dry.gain.exponentialRampToValueAtTime(0.0006, now+3.0);
 
-  send.gain.value = parseFloat(reverbAmt.value)*0.6; // send after master control
+  send.gain.value = parseFloat(reverbAmt.value)*0.6;
 
   osc.frequency.value=midiToHz(key);
   osc.connect(filter).connect(pan).connect(dry).connect(masterGain);
-  // Reverb send taps post filter, pre dry gain
   filter.connect(send); send.connect(revSend);
 
   voice.osc=osc; voice.filter=filter; voice.pan=pan; voice.dry=dry; voice.ch=ch; voice.key=key;
@@ -786,11 +853,9 @@ function stopVoice(voice, fast=false){
 }
 function wa_noteOn(ch,key,vel,prog){
   ensureAudio();
-  // Poly cap per channel
   const cap = parseInt(polyCapEl.value,10);
   const active = PER_CH_ACTIVE[ch];
   if(active.size >= cap){
-    // drop the oldest (FIFO)
     const oldestKey = active.values().next().value;
     const vo = WA_voices.get(`${ch}:${oldestKey}`);
     stopVoice(vo, true);
@@ -805,7 +870,6 @@ function wa_noteOff(ch,key){
   const k=`${ch}:${key}`; const v=WA_voices.get(k);
   if(v){ stopVoice(v); WA_voices.delete(k); PER_CH_ACTIVE[ch].delete(key); }
 }
-function ensureProgramWA(){ /* handled by progToWave at noteOn */ }
 
 /* Unified send */
 function ensureProgramUnified(ch,prog){ if(midiOutput) programChange(ch,prog); }
@@ -813,93 +877,170 @@ function U_noteOn(ch,key,vel,prog){ if(midiOutput) noteOn(ch,key,vel); else wa_n
 function U_noteOff(ch,key){ if(midiOutput) noteOff(ch,key); else wa_noteOff(ch,key); }
 function ensureProgram(ch,prog){ if(midiOutput) programChange(ch,prog); }
 
-/* ===================== Feel & scheduling ===================== */
-function humanize(ms){ return (Math.random()*2-1)*ms; }
-function applySwingSec(tSec,bpm,swing){ const spb=60/bpm, eighth=spb/2; const which=Math.round(tSec/eighth); return (which%2===1)? (tSec + swing*eighth) : tSec; }
-function velCurve(v0,curve){ const v=Math.max(1,Math.min(127,Math.round(Math.pow(v0/127,curve)*127))); return v; }
+/* ===================== Transport, Scheduler & Mix Modes ===================== */
+let playing=false;
+let timers=[];           // all timeouts for notes & metronome
+let playToken=0;         // invalidates old callbacks
+
+function clearTimers(){ for(const id of timers){ clearTimeout(id); } timers.length=0; }
+function allNotesOff(){
+  if(midiOutput){ for(let ch=0;ch<16;ch++){ try{ctrl(ch,123,0);}catch{} } }
+  WA_voices.forEach(v=>stopVoice(v,true));
+  WA_voices.clear(); PER_CH_ACTIVE.forEach(s=>s.clear());
+}
+
+function estDurationSecFromEvents(events,bpm,timingMode){
+  if(!events.length) return 0;
+  if(timingMode==='retime'){
+    const last = events.reduce((m,e)=>Math.max(m, barsBeatsToTime(e.bar||1,e.beat||1,bpm)),0);
+    return last + 1;
+  }else{
+    const last = events.reduce((m,e)=>Math.max(m, e.t||0),0);
+    return last + 1;
+  }
+}
 
 function buildQueue(){
   readPanel('A'); readPanel('B');
   const q=[];
-  const add=(side,events,bpm)=>{
+  const timingMode = $("timingMode").value; // 'absolute' | 'retime'
+  const mul = parseInt($("tempoMul").value,10)/100;
+
+  const mixMode = $("mixMode").value; // layer | delay | auto | crossfade
+  const bOffsetInput = parseFloat($("bOffsetSec").value||"0");
+  const xfadeSec = Math.max(0, parseFloat($("xfadeSec").value||"0"));
+
+  // compute A duration for auto/xfade
+  const durA = estDurationSecFromEvents(A.events, A.meta.bpm||100, timingMode);
+  let offsetB = 0;
+  if(mixMode==='layer'){ offsetB = 0; }
+  else if(mixMode==='delay'){ offsetB = bOffsetInput; }
+  else if(mixMode==='auto'){ offsetB = durA; }
+  else if(mixMode==='crossfade'){ offsetB = Math.max(0, durA - xfadeSec); }
+
+  const add=(side,events,bpm,sideOffset)=>{
     const base=(side==='A')?0:8;
     events.forEach(e=>{
-      const section=e.isBass?0:(Math.floor(e.midi%8));
-      const ch=base+(section%8);
+      const ch= base + ( (e.isBass?0:Math.floor(e.midi%8)) % 8 );
       const chairsHere=CHAIRS.filter(c=>c.side===side && c.channel===ch);
-      const anyOn=chairsHere.some(c=>c.on);
+      const audible=chairsHere.some(c=>c.on);
       const program=(chairsHere.find(c=>c.on)?.program) ?? ((side==='A')?48:56);
-      q.push({t:e.t, midi:e.midi, vel:Math.round((e.vel||0.7)*127), dur:e.dur||0.28, ch, bpm, program, audible:anyOn});
+
+      let whenSec, durSec;
+      if(timingMode==='retime'){
+        whenSec = barsBeatsToTime(e.bar||1, e.beat||1, bpm);
+        const durBeats = e.isBass ? 1.0 : 0.5;
+        durSec = durBeats * (60/Math.max(40,Math.min(220,bpm)));
+      }else{
+        whenSec = e.t||0;
+        durSec  = (e.dur || (e.isBass?0.45:0.28));
+      }
+      whenSec = (whenSec + (sideOffset||0)) / mul;
+
+      q.push({t:Math.max(0,whenSec), midi:e.midi, vel:Math.round((e.vel||0.7)*127), dur:Math.max(0.06,durSec), ch, bpm, program, audible, side});
     });
   };
-  add('A',A.events,A.meta.bpm||100);
-  add('B',B.events,B.meta.bpm||100);
+  add('A',A.events,A.meta.bpm||100, 0);
+  add('B',B.events,B.meta.bpm||100, offsetB);
+
   q.sort((a,b)=>a.t-b.t);
-  return q;
+  return {q, totalLen: Math.min(60, (q.at(-1)?.t || 60) + 2)};
 }
 
-/* Transport */
-let playing=false, playTimer=null;
-function allNotesOff(){
-  if(midiOutput){ for(let ch=0;ch<16;ch++){ try{ctrl(ch,123,0);}catch{} } }
-  // Stop WebAudio voices
-  WA_voices.forEach(v=>stopVoice(v,true));
-  WA_voices.clear(); PER_CH_ACTIVE.forEach(s=>s.clear());
+function startMetronome(token, lengthSec){
+  if(!$("metronome").checked) return;
+  const bpmA = A.meta.bpm||100;
+  const bpmB = B.meta.bpm||100;
+  const bpm = Math.round((bpmA + bpmB)/2);
+  const spb = 60/bpm;
+  const mul = parseInt($("tempoMul").value,10)/100;
+  const spbScaled = spb / mul;
+
+  const clickCh = 15; // channel 16
+  const prog = 11;    // vibraphone-ish
+  ensureProgramUnified(clickCh, prog);
+
+  for(let t=0; t<lengthSec; t+=spbScaled){
+    const isStrong = Math.round((t/spbScaled))%4===0;
+    const whenMs = Math.max(0, t*1000);
+    const vel = isStrong? 110:80;
+    const idOn = setTimeout(()=>{ if(token!==playToken || !playing) return; U_noteOn(clickCh, isStrong?84:81, vel, prog); }, whenMs);
+    const idOff= setTimeout(()=>{ if(token!==playToken || !playing) return; U_noteOff(clickCh, isStrong?84:81); }, whenMs+120);
+    timers.push(idOn,idOff);
+  }
 }
+
 function startPlay(){
-  // iOS/Chrome policy: resume audio on gesture
   if(WA_ctx && WA_ctx.state==='suspended'){ WA_ctx.resume(); }
   if(playing) return;
-  const feel=currentFeel(); const Q=buildQueue();
+
+  const feel=currentFeel();
+  const built=buildQueue();
+  const Q=built.q;
   if(!Q.length){ alert("Load CSV or Analyze first — no events to play."); return; }
 
-  // Ensure programs
+  // Ensure programs for audible chairs
   for(const c of CHAIRS){ if(c.on) ensureProgramUnified(c.channel,c.program); }
 
-  playing=true; statusVal.textContent="Playing… (60s)";
-  const t0=performance.now();
+  playing=true; playToken++; clearTimers(); statusVal.textContent="Playing…";
+  const token=playToken;
+
+  startMetronome(token, built.totalLen+1);
 
   Q.forEach(evt=>{
-    const whenSec = applySwingSec(evt.t, evt.bpm, feel.swing) + (humanize(feel.jitterMs)/1000);
-    const when = Math.max(0, whenSec*1000);
-    const vel = velCurve(evt.vel, feel.velCurve);
-    const durMs = Math.max(60, Math.min(4000, (evt.dur||0.28)*1000));
+    const swing = feel.swing;
+    const jitter = (Math.random()*2-1)*(feel.jitterMs/1000);
+    const spb = 60/(evt.bpm||100);
+    const eighth = spb/2;
+    const which = Math.round(evt.t/eighth);
+    const tSwing = (which%2===1)? (evt.t + swing*eighth) : evt.t;
 
-    setTimeout(()=>{
-      if(!playing) return;
-      if(evt.audible){ U_noteOn(evt.ch, evt.midi, Math.round(vel*feel.accent), evt.program); }
+    const whenSec = Math.max(0, tSwing + jitter);
+    const when = whenSec*1000;
+    // articulation/velocity shaping
+    const vel = Math.max(1,Math.min(127,Math.round(Math.pow((evt.vel||90)/127, feel.velCurve)*127*feel.accent)));
+    const durMs = Math.max(60, Math.min(4000, (evt.dur||0.28)*1000*feel.legato));
+
+    const idOn = setTimeout(()=>{ if(token!==playToken || !playing) return;
+      if(evt.audible){ U_noteOn(evt.ch, evt.midi, vel, evt.program); }
     }, when);
+    const idOff = setTimeout(()=>{ if(token!==playToken || !playing) return; U_noteOff(evt.ch, evt.midi); }, when + durMs);
 
-    setTimeout(()=>{
-      if(!playing) return;
-      U_noteOff(evt.ch, evt.midi);
-    }, when + durMs);
+    timers.push(idOn,idOff);
   });
 
-  playTimer=setTimeout(stopPlay, 62000);
+  const stopId = setTimeout(()=>stopPlay(), (built.totalLen+1)*1000);
+  timers.push(stopId);
 }
 function stopPlay(){
   if(!playing) return;
   playing=false;
-  clearTimeout(playTimer); playTimer=null;
+  playToken++;  // invalidate queued callbacks
+  clearTimers();
   allNotesOff();
   statusVal.textContent="Stopped.";
 }
-
-/* Buttons */
 $("btnPlay").onclick=startPlay;
 $("btnStop").onclick=stopPlay;
+$("btnPanic").onclick=()=>{ stopPlay(); };
+
 $("btnTestChord").onclick=()=>{
-  const t=[{ch:0,n:60},{ch:1,n:64},{ch:2,n:67},{ch:8,n:55},{ch:9,n:59},{ch:10,n:62}];
-  t.forEach(o=>{
+  const token = ++playToken;
+  const chords=[{ch:0,n:60},{ch:1,n:64},{ch:2,n:67},{ch:8,n:55},{ch:9,n:59},{ch:10,n:62}];
+  chords.forEach(o=>{
     const prog=(CHAIRS.find(c=>c.channel===o.ch && c.on)?.program) ?? 48;
-    U_noteOn(o.ch,o.n,96,prog); setTimeout(()=>U_noteOff(o.ch,o.n), 520);
+    const onId=setTimeout(()=>{ if(token!==playToken) return; U_noteOn(o.ch,o.n,96,prog); }, 0);
+    const offId=setTimeout(()=>{ if(token!==playToken) return; U_noteOff(o.ch,o.n); }, 520);
+    timers.push(onId,offId);
   });
 };
 
 /* Init */
-initMIDI().finally(()=>{ /* if MIDI not available, fallback stays */ });
-initSmall();
+async function init(){
+  await initMIDI();
+  initSmall();
+}
+init();
 </script>
 </body>
 </html>
