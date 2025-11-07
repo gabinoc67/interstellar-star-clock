@@ -20,6 +20,7 @@
   .panel h2{margin:0 0 8px 0;font-size:14px;color:#bcd3ff}
   .row{display:flex;gap:8px;flex-wrap:wrap}
   button{background:var(--btn);color:var(--ink);border:1px solid #2a3f86;border-radius:10px;padding:8px 12px;cursor:pointer}
+  button[disabled]{opacity:.55;cursor:not-allowed}
   button:hover{filter:brightness(1.08)}
   button:active{transform:translateY(1px)}
   .danger{background:#3a1620;border-color:#7e2438}
@@ -46,6 +47,10 @@
   .pass{color:#10b981}
   .fail{color:#ef9999}
   .soft{opacity:.85}
+  .statusbar{margin-top:8px;font-size:12px;color:#cfe1ff}
+  .statusbar strong{color:#8fd6ff}
+  .help{margin-top:10px;padding:10px;border-radius:10px;background:#0c1531;border:1px dashed #2a3f86}
+  .help button{width:100%;text-align:left;background:#101b3a}
 </style>
 </head>
 <body>
@@ -63,16 +68,16 @@
     <h2>Manual Inputs</h2>
 
     <div class="row" style="margin-bottom:6px;">
-      <button id="btnStart" class="ok">Start</button>
-      <button id="btnStop">Stop</button>
-      <button id="btnReset" class="warn">Reset</button>
-      <button id="btnFrame">Capture Frame (PNG)</button>
+      <button type="button" id="btnStart" class="ok" title="Begin animation loop">Start</button>
+      <button type="button" id="btnStop" title="Pause animation loop">Stop</button>
+      <button type="button" id="btnReset" class="warn" title="Reset time and re-apply inputs">Reset</button>
+      <button type="button" id="btnFrame" title="Save a PNG of the current frame">Capture Frame (PNG)</button>
     </div>
 
     <div class="row" style="margin-bottom:8px;">
-      <button id="btnLoadPass" title="Load a preset that typically passes the stability band">Load Example — PASS</button>
-      <button id="btnLoadFail" class="danger" title="Load a preset that typically fails">Load Example — FAIL</button>
-      <button id="btnApply" class="ok" title="Apply all numeric inputs & seeds">Apply Inputs</button>
+      <button type="button" id="btnLoadPass" title="Load a preset that typically passes the stability band">Load Example — PASS</button>
+      <button type="button" id="btnLoadFail" class="danger" title="Load a preset that typically fails">Load Example — FAIL</button>
+      <button type="button" id="btnApply" class="ok" title="Apply all numeric inputs & seeds">Apply Inputs</button>
     </div>
 
     <label>Simulation Speed (dimensionless time scale, e.g., 1.0)
@@ -123,11 +128,34 @@
     <label style="margin-top:12px;">Bubble Seeds (optional; overrides Bubble Count)
       <textarea id="seedBox" placeholder="Enter JSON array or CSV-like rows:
 x,y,r,f,phase,driftX,driftY,hue
-200,180,80,0.032,0.0,0.25,-0.10,210
+220,200,84,0.031,0.00,0.22,-0.10,210
 ... OR ...
-[{&quot;x&quot;:200,&quot;y&quot;:180,&quot;r&quot;:80,&quot;f&quot;:0.032,&quot;phase&quot;:0.0,&quot;driftX&quot;:0.25,&quot;driftY&quot;:-0.10,&quot;hue&quot;:210}, ...]"></textarea>
-      <div class="small">Fields: x,y in px; r in px; f (base frequency, 0.02–0.06 typical); phase (rad); driftX, driftY (px/step, small); hue (0–360).</div>
+[{&quot;x&quot;:220,&quot;y&quot;:200,&quot;r&quot;:84,&quot;f&quot;:0.031,&quot;phase&quot;:0.0,&quot;driftX&quot;:0.22,&quot;driftY&quot;:-0.10,&quot;hue&quot;:210}]"></textarea>
+      <div class="small">Fields: x,y in px; r in px; f (base frequency 0.02–0.06 typical); phase (rad); driftX, driftY (px/step); hue (0–360).</div>
     </label>
+
+    <!-- Collapsible Help -->
+    <div class="help">
+      <button type="button" id="helpToggle">❓ How to Use (click to expand/collapse)</button>
+      <div id="helpBody" style="display:none;margin-top:8px;font-size:12px;color:#cfe1ff;line-height:1.5">
+        <strong>Goal:</strong> test harmonic stability neutrally (no calibration constants). PASS if coherence fraction ∈ Stability Band.<br><br>
+        <strong>Steps:</strong>
+        <ol style="margin:6px 0 0 18px">
+          <li>Click <em>Load Example — PASS</em> to see a stable configuration.</li>
+          <li>Press <em>Start</em> to animate; <em>Stop</em> to pause; <em>Reset</em> to apply inputs anew.</li>
+          <li>Paste CSV or JSON seeds into <em>Bubble Seeds</em> and click <em>Apply Inputs</em>.</li>
+          <li>Tune σ (70–85) and Threshold (0.60–0.64) for coherent fields.</li>
+          <li>PASS occurs when the fraction of pixels ≥ threshold is within the Stability Band (default 0.22–0.38).</li>
+          <li>Use <em>Capture Frame</em> to export neutral frames (t₀, t₁, t₂).</li>
+        </ol>
+        <br>
+        <strong>CSV row format:</strong> <span class="mono">x,y,r,f,phase,driftX,driftY,hue</span><br>
+        Example: <span class="mono">220,200,84,0.031,0.00,0.22,-0.10,210</span><br><br>
+        <strong>Tips for PASS:</strong> cluster radii (±10%), narrow f band 0.028–0.034, small counter-drifts ≤ 0.25, Normalize ON.
+      </div>
+    </div>
+
+    <div id="status" class="statusbar">Status: <strong>Ready</strong></div>
 
     <div class="note">
       Patent/Framework Notice: The CST-Warp model (harmonic field integration + curvature synchronization + frequency–energy coherence)
@@ -171,7 +199,7 @@ x,y,r,f,phase,driftX,driftY,hue
           520,420,92,0.029,1.57,-0.18,0.14,260<br/>
           860,240,76,0.033,3.14,0.15,0.08,190
           <div class="soft" style="margin-top:6px;">JSON array (copy/paste from scripts):</div>
-          [{ "x":220,"y":200,"r":84,"f":0.031,"phase":0,"driftX":0.22,"driftY":-0.10,"hue":210 }, ...]
+          [{ "x":220,"y":200,"r":84,"f":0.031,"phase":0,"driftX":0.22,"driftY":-0.10,"hue":210 }]
         </div>
 
         <div class="note" style="margin-top:10px;">
@@ -224,6 +252,10 @@ x,y,r,f,phase,driftX,driftY,hue
   const statusVal = document.getElementById('statusVal');
 
   const seedBox = document.getElementById('seedBox');
+  const status = document.getElementById('status');
+
+  const helpToggle = document.getElementById('helpToggle');
+  const helpBody = document.getElementById('helpBody');
 
   // Offscreen buffer for heatmap
   let gridW = 180, gridH = 0;
@@ -234,13 +266,17 @@ x,y,r,f,phase,driftX,driftY,hue
   let t = 0, raf = null, running = false;
   let bubbles = [];
 
-  // Color maps
+  // Color maps (v ∈ [0,1])
   const palettes = {
     ice: v => `rgba(${(120+100*v)|0},${(170+80*v)|0},255,${Math.min(1,0.15+0.85*v)})`,
     magma: v => `rgba(${(30+225*v)|0},${(10+80*v)|0},${(30+50*v)|0},${Math.min(1,0.18+0.82*v)})`,
     viridis: v => `rgba(${(68+110*v)|0},${(1+190*v)|0},${(84+90*v)|0},${Math.min(1,0.18+0.82*v)})`,
     firefly: v => `rgba(${(120+100*v)|0},${(220+35*v)|0},${(60+180*v)|0},${Math.min(1,0.12+0.88*v)})`
   };
+
+  function setStatus(msg){
+    status.innerHTML = 'Status: <strong>'+ msg +'</strong>';
+  }
 
   function resizeGrid(){
     gridW = clampInt(parseInt(gridRes.value,10), 80, 400);
@@ -277,10 +313,10 @@ x,y,r,f,phase,driftX,driftY,hue
   function drawBubbles(){
     const trails = chkTrails.checked;
     for(const b of bubbles){
-      const pulse = Math.sin(t*(b.f||0.03) + (b.phase||0));
-      const radius = (b.r||60) + pulse*10;
+      const pulse = Math.sin(t*(b.f||0.03) + (b.phase||0)); // phase oscillator
+      const radius = (b.r||60) + pulse*10;                  // ring pulsation
       ctx.beginPath();
-      const hue = (b.hue==null? 200 : b.hue);
+      const hue = (b.hue == null ? 200 : +b.hue);
       ctx.strokeStyle = `hsla(${hue},100%,60%,${trails?0.5:0.9})`;
       ctx.lineWidth = 1.5 + (pulse+1)*1.0;
       ctx.arc(b.x||0, b.y||0, radius, 0, Math.PI*2);
@@ -296,7 +332,7 @@ x,y,r,f,phase,driftX,driftY,hue
     }
   }
 
-  // Heatmap compute: sum of Gaussian contributions with phase modulation
+  // Heatmap: Σ Gaussian envelopes × phase factor, normalized if chosen
   function drawHeatmap(){
     resizeGrid();
     const img = gridCtx.createImageData(gridW, gridH);
@@ -308,7 +344,7 @@ x,y,r,f,phase,driftX,driftY,hue
     const thr = clamp(parseFloat(resThresh.value)||0.62, 0, 1);
     const normalize = chkNormalize.checked;
 
-    // First pass: find peak (for normalization when enabled)
+    // Pass 1: find field peak for normalization
     for(let gy=0; gy<gridH; gy++){
       const y = gy / (gridH-1) * canvas.height;
       for(let gx=0; gx<gridW; gx++){
@@ -317,15 +353,15 @@ x,y,r,f,phase,driftX,driftY,hue
         for(const b of bubbles){
           const dx = x - (b.x||0), dy = y - (b.y||0);
           const d2 = dx*dx + dy*dy;
-          const env = Math.exp(-d2 / s2);
-          const ph = Math.sin(t*(b.f||0.03) + (b.phase||0));
-          F += env * (0.5 + 0.5*ph);
+          const env = Math.exp(-d2 / s2);                         // Gaussian
+          const ph = Math.sin(t*(b.f||0.03) + (b.phase||0));      // [-1,1]
+          F += env * (0.5 + 0.5*ph);                              // [0,1] factor
         }
         if(F>maxField) maxField = F;
       }
     }
 
-    // Second pass: render & metrics
+    // Pass 2: render & compute metrics
     for(let gy=0; gy<gridH; gy++){
       const y = gy / (gridH-1) * canvas.height;
       for(let gx=0; gx<gridW; gx++){
@@ -385,11 +421,11 @@ x,y,r,f,phase,driftX,driftY,hue
     const levels = 8;
     const s = clamp(parseFloat(sigma.value)||72, 4, 400);
     for(let i=0;i<levels;i++){
-      const L = (i+1)/ (levels+1);
+      const L = (i+1)/(levels+1);
       for(const b of bubbles){
         const pulse = Math.sin(t*(b.f||0.03) + (b.phase||0));
         const base = (b.r||60) + pulse*10;
-        const rr = base + L*s*0.9;
+        const rr = base + L*s*0.9; // proxy iso-curves
         ctx.beginPath();
         ctx.arc(b.x||0, b.y||0, rr, 0, Math.PI*2);
         ctx.stroke();
@@ -431,14 +467,23 @@ x,y,r,f,phase,driftX,driftY,hue
 
   // Capture
   function capturePNG(label='neutral_frame'){
-    const url = canvas.toDataURL('image/png');
-    const a = document.createElement('a');
-    const ts = new Date().toISOString().replace(/[:.]/g,'-');
-    a.href = url;
-    a.download = `${label}_${ts}.png`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    try{
+      const url = canvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      const ts = new Date().toISOString().replace(/[:.]/g,'-');
+      a.href = url;
+      a.download = `${label}_${ts}.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setStatus('Frame captured ✓');
+    }catch(e){
+      const win = window.open();
+      if (win && win.document){
+        win.document.write('<img src="'+canvas.toDataURL('image/png')+'">');
+        setStatus('Frame opened in new tab');
+      }
+    }
   }
 
   // Seeds: parsing helpers
@@ -451,7 +496,6 @@ x,y,r,f,phase,driftX,driftY,hue
     } catch(e){}
     // Fallback: CSV-like lines
     const lines = text.split(/\r?\n/).map(s=>s.trim()).filter(s=>s && !s.startsWith('#'));
-    // optional header?
     const hasHeader = /x\s*,\s*y\s*,\s*r\s*,\s*f/i.test(lines[0]||'');
     const start = hasHeader ? 1 : 0;
     const out = [];
@@ -459,7 +503,16 @@ x,y,r,f,phase,driftX,driftY,hue
       const parts = lines[i].split(/\s*,\s*/);
       if(parts.length < 3) continue;
       const [x,y,r,f,phase,driftX,driftY,hue] = parts.map(v=>Number(v));
-      out.push({ x:+x||0, y:+y||0, r:+r||60, f:(+f||0.03), phase:(+phase||0), driftX:(+driftX||0), driftY:(+driftY||0), hue:(isFinite(+hue)?+hue:200) });
+      out.push({
+        x: +x || 0,
+        y: +y || 0,
+        r: +r || 60,
+        f: (+f || 0.03),
+        phase: (+phase || 0),
+        driftX: (+driftX || 0),
+        driftY: (+driftY || 0),
+        hue: (isFinite(+hue) ? +hue : 200)
+      });
     }
     return sanitizeSeeds(out);
   }
@@ -467,14 +520,14 @@ x,y,r,f,phase,driftX,driftY,hue
   function sanitizeSeeds(arr){
     const W = canvas.width, H = canvas.height;
     return arr.map(b=>({
-      x: clamp(+b.x||0, 0, W),
-      y: clamp(+b.y||0, 0, H),
-      r: clamp(+b.r||60, 5, Math.max(W,H)),
-      f: clamp(+b.f||0.03, 0.005, 0.2),
-      phase: +b.phase||0,
-      driftX: clamp(+b.driftX||0, -2, 2),
-      driftY: clamp(+b.driftY||0, -2, 2),
-      hue: clamp(+b.hue??200, 0, 360)
+      x: clamp(+b.x || 0, 0, W),
+      y: clamp(+b.y || 0, 0, H),
+      r: clamp(+b.r || 60, 5, Math.max(W,H)),
+      f: clamp(+b.f || 0.03, 0.005, 0.2),
+      phase: +b.phase || 0,
+      driftX: clamp(+b.driftX || 0, -2, 2),
+      driftY: clamp(+b.driftY || 0, -2, 2),
+      hue: clamp((b.hue == null ? 200 : +b.hue), 0, 360)
     }));
   }
 
@@ -483,7 +536,7 @@ x,y,r,f,phase,driftX,driftY,hue
     for(let i=0;i<n;i++){
       const f = 0.028 + Math.random()*0.008; // narrow band helps stability
       const phase = Math.random()*Math.PI*2;
-      const r = 70 + (Math.random()*20-10);  // clustered radii
+      const r = 80 + (Math.random()*20-10);  // clustered radii
       const driftX = (Math.random()*2-1)*0.25;
       const driftY = (Math.random()*2-1)*0.25;
       arr.push({
@@ -501,9 +554,11 @@ x,y,r,f,phase,driftX,driftY,hue
     const seeds = parseSeeds(seedBox.value);
     if(seeds && seeds.length){
       bubbles = seeds;
+      setStatus('Applied manual seeds ('+seeds.length+')');
     } else {
       const n = clampInt(parseInt(bubbleCount.value,10)||48, 1, 400);
       bubbles = createRandomBubbles(n);
+      setStatus('Applied random seeds ('+n+')');
     }
     render(0.016);
   }
@@ -528,6 +583,7 @@ x,y,r,f,phase,driftX,driftY,hue
 940,460,85,0.029,1.70,-0.10,0.10,215
 120,520,83,0.032,0.60,0.12,0.08,255`;
     applyInputs();
+    setStatus('Loaded Example — PASS');
   }
 
   function loadFail(){
@@ -544,33 +600,51 @@ x,y,r,f,phase,driftX,driftY,hue
 400,500,160,0.090,0.50,-0.80,-0.40,30
 900,300,20,0.150,1.50,1.20,-1.20,300`;
     applyInputs();
+    setStatus('Loaded Example — FAIL');
   }
 
   // Controls
+  function updateButtons(){
+    btnStart.disabled = running;
+    btnStop.disabled  = !running;
+  }
+
   function start(){
     if(running) return;
     running = true;
     last = performance.now();
     raf = requestAnimationFrame(loop);
+    updateButtons();
+    setStatus('Running');
   }
   function stop(){
     running = false;
     if(raf){ cancelAnimationFrame(raf); raf = null; }
+    updateButtons();
+    setStatus('Stopped');
   }
   function reset(){
     stop();
     t = 0;
     applyInputs();
+    setStatus('Reset & applied inputs');
   }
 
-  btnStart.addEventListener('click', start);
-  btnStop.addEventListener('click', stop);
-  btnReset.addEventListener('click', reset);
-  btnFrame.addEventListener('click', ()=>capturePNG('neutral_frame'));
-  btnApply.addEventListener('click', ()=>{ applyInputs(); });
+  btnStart.addEventListener('click', e=>{ e.preventDefault(); start(); });
+  btnStop.addEventListener('click',  e=>{ e.preventDefault(); stop(); });
+  btnReset.addEventListener('click', e=>{ e.preventDefault(); reset(); });
+  btnFrame.addEventListener('click', e=>{ e.preventDefault(); capturePNG('neutral_frame'); });
+  btnApply.addEventListener('click', e=>{ e.preventDefault(); applyInputs(); });
 
-  btnLoadPass.addEventListener('click', loadPass);
-  btnLoadFail.addEventListener('click', loadFail);
+  btnLoadPass.addEventListener('click', e=>{ e.preventDefault(); loadPass(); });
+  btnLoadFail.addEventListener('click',  e=>{ e.preventDefault(); loadFail(); });
+
+  // Toggle help
+  if (helpToggle && helpBody){
+    helpToggle.addEventListener('click', ()=>{
+      helpBody.style.display = (helpBody.style.display === 'none') ? 'block' : 'none';
+    });
+  }
 
   // Immediate visual updates on toggles / minor options
   [paletteSel, chkHeat, chkContours, chkTrails, chkNormalize, chkStamp].forEach(el=>{
@@ -587,8 +661,9 @@ x,y,r,f,phase,driftX,driftY,hue
   // Init
   function init(){
     resizeGrid();
-    loadPass();        // start with a passing neutral example
+    loadPass();            // start with a passing neutral example (also applies)
     render(0.016);
+    updateButtons();
   }
   init();
 })();
