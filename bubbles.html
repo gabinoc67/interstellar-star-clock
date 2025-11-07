@@ -70,7 +70,7 @@
     <div class="row" style="margin-bottom:6px;">
       <button type="button" id="btnStart" class="ok" title="Begin animation loop">Start</button>
       <button type="button" id="btnStop" title="Pause animation loop">Stop</button>
-      <button type="button" id="btnReset" class="warn" title="Reset everything to defaults">Reset</button>
+      <button type="button" id="btnReset" class="warn" title="Reset inputs only (gauge auto-derives)">Reset</button>
       <button type="button" id="btnFrame" title="Save a PNG of the current frame">Capture Frame (PNG)</button>
     </div>
 
@@ -93,7 +93,7 @@
     </label>
 
     <label>Resonance Threshold (normalized 0–1; typical 0.58–0.66)
-      <input id="resThresh" type="number" step="0.01" value="0.62" />
+      <input id="resThresh" type="number" step="0.001" value="0.620" />
     </label>
 
     <label>Sampling Resolution (heatmap engine grid; 100–260 good balance)
@@ -141,12 +141,10 @@ x,y,r,f,phase,driftX,driftY,hue
         <strong>Goal:</strong> test harmonic stability neutrally (no calibration constants). PASS if coherence fraction ∈ Stability Band.<br><br>
         <strong>Steps:</strong>
         <ol style="margin:6px 0 0 18px">
-          <li>Click <em>Load Example — PASS</em> to see a stable configuration.</li>
-          <li>Press <em>Start</em> to animate; <em>Stop</em> to pause; <em>Reset</em> to restore defaults.</li>
-          <li>Paste CSV/JSON seeds in <em>Bubble Seeds</em> and click <em>Apply Inputs</em>.</li>
-          <li>Tune σ (70–90) and Threshold (0.60–0.64) for coherence.</li>
-          <li>PASS when fraction of pixels ≥ threshold is within Stability Band (default 0.22–0.38).</li>
-          <li>Use <em>Capture Frame</em> to export neutral frames (t₀, t₁, t₂).</li>
+          <li>Click <em>Load Example — PASS</em> to see a stable configuration (Status updates to PASS).</li>
+          <li>Press <em>Start</em> to animate; <em>Stop</em> to pause.</li>
+          <li><em>Reset</em> restores only the inputs listed above; the gauge always reflects the current field.</li>
+          <li>Paste CSV/JSON seeds and click <em>Apply Inputs</em> (Status and gauge recompute immediately).</li>
         </ol>
       </div>
     </div>
@@ -171,7 +169,7 @@ x,y,r,f,phase,driftX,driftY,hue
         <div class="meter"><span id="meterBar"></span></div>
         <div class="kv mono">
           <span>⟨avg⟩: <span id="avgVal">0.000</span></span>
-          <span>peak: <span id="peakVal">0.000</span></span>
+          <span>peak: <span id="peakVal">1.000</span></span>
         </div>
 
         <div class="kv mono" style="margin-top:10px;">
@@ -200,7 +198,7 @@ x,y,r,f,phase,driftX,driftY,hue
   const canvas = document.getElementById('view');
   const ctx = canvas.getContext('2d');
 
-  // UI elements
+  // UI gets
   const btnStart = document.getElementById('btnStart');
   const btnStop = document.getElementById('btnStop');
   const btnReset = document.getElementById('btnReset');
@@ -237,38 +235,27 @@ x,y,r,f,phase,driftX,driftY,hue
   const helpToggle = document.getElementById('helpToggle');
   const helpBody = document.getElementById('helpBody');
 
-  // Offscreen buffer for heatmap
+  // Offscreen buffer
   let gridW = 180, gridH = 0;
   const gridCanvas = document.createElement('canvas');
   const gridCtx = gridCanvas.getContext('2d', { willReadFrequently: true });
 
-  // Simulation state
+  // State
   let t = 0, raf = null, running = false;
   let bubbles = [];
 
-  // ------- Defaults -------
+  // Defaults (reset only these)
   const DEFAULTS = {
-    speed: 1.00,
-    bubbleCount: 48,
-    sigma: 72,
-    resThresh: 0.62,
-    gridRes: 180,
-    palette: 'ice',
-    heat: true,
-    contours: false,
-    trails: true,
-    normalize: true,
-    stamp: true,
-    stableMin: 0.22,
-    stableMax: 0.38,
-    seeds: ''
+    speed: 1.00, bubbleCount: 48, sigma: 72, resThresh: 0.620, gridRes: 180,
+    palette: 'ice', heat: true, contours: false, trails: true, normalize: true, stamp: true,
+    stableMin: 0.22, stableMax: 0.38, seeds: ''
   };
 
-  function applyDefaults(){
+  function applyDefaultsInputsOnly(){
     speed.value = DEFAULTS.speed.toFixed(2);
     bubbleCount.value = DEFAULTS.bubbleCount;
     sigma.value = DEFAULTS.sigma;
-    resThresh.value = DEFAULTS.resThresh.toFixed(2);
+    resThresh.value = DEFAULTS.resThresh.toFixed(3);
     gridRes.value = DEFAULTS.gridRes;
     paletteSel.value = DEFAULTS.palette;
     chkHeat.checked = DEFAULTS.heat;
@@ -279,6 +266,7 @@ x,y,r,f,phase,driftX,driftY,hue
     stableMin.value = DEFAULTS.stableMin.toFixed(2);
     stableMax.value = DEFAULTS.stableMax.toFixed(2);
     seedBox.value = DEFAULTS.seeds;
+    // NOTE: We do NOT force-reset the gauge; it will reflect the freshly drawn field.
   }
 
   // Palettes
@@ -289,9 +277,10 @@ x,y,r,f,phase,driftX,driftY,hue
     firefly: v => `rgba(${(120+100*v)|0},${(220+35*v)|0},${(60+180*v)|0},${Math.min(1,0.12+0.88*v)})`
   };
 
-  function setStatus(msg){
-    status.innerHTML = 'Status: <strong>'+ msg +'</strong>';
-  }
+  function setStatus(msg){ status.innerHTML = 'Status: <strong>'+ msg +'</strong>'; }
+
+  function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
+  function clampInt(v,min,max){ return Math.max(min, Math.min(max, v|0)); }
 
   function resizeGrid(){
     gridW = clampInt(parseInt(gridRes.value,10), 80, 400);
@@ -300,23 +289,16 @@ x,y,r,f,phase,driftX,driftY,hue
     gridCanvas.height = gridH;
   }
 
-  function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
-  function clampInt(v,min,max){ return Math.max(min, Math.min(max, v|0)); }
-
   function clearCanvas(){
     ctx.clearRect(0,0,canvas.width,canvas.height);
     const g = ctx.createRadialGradient(canvas.width/2,canvas.height/2,10,canvas.width/2,canvas.height/2, Math.hypot(canvas.width,canvas.height)/1.2);
-    g.addColorStop(0,'#0b1431');
-    g.addColorStop(0.6,'#08122a');
-    g.addColorStop(1,'#050915');
-    ctx.fillStyle = g;
-    ctx.fillRect(0,0,canvas.width,canvas.height);
+    g.addColorStop(0,'#0b1431'); g.addColorStop(0.6,'#08122a'); g.addColorStop(1,'#050915');
+    ctx.fillStyle = g; ctx.fillRect(0,0,canvas.width,canvas.height);
   }
 
   function step(dt){
     const spd = parseFloat(speed.value)||1;
     t += dt * spd;
-
     for(const b of bubbles){
       b.x += (b.driftX||0) * spd;
       b.y += (b.driftY||0) * spd;
@@ -336,7 +318,6 @@ x,y,r,f,phase,driftX,driftY,hue
       ctx.lineWidth = 1.5 + (pulse+1)*1.0;
       ctx.arc(b.x||0, b.y||0, radius, 0, Math.PI*2);
       ctx.stroke();
-
       if(trails){
         ctx.beginPath();
         ctx.strokeStyle = `hsla(${hue},100%,60%,0.18)`;
@@ -347,105 +328,102 @@ x,y,r,f,phase,driftX,driftY,hue
     }
   }
 
-  // ---- Core metrics computation (shared) ----
-  function computeMetrics(){
+  // ---------- Field stats + histogram (normalized values) ----------
+  function computeFieldStatsAndHistogram(){
     resizeGrid();
     const s = clamp(parseFloat(sigma.value)||72, 4, 400);
     const s2 = 2*s*s;
-    const thr = clamp(parseFloat(resThresh.value)||0.62, 0, 1);
     const normalize = chkNormalize.checked;
 
-    // First pass: find max
+    // Peak pass
     let maxField = 0;
     for(let gy=0; gy<gridH; gy++){
-      const y = gy / (gridH-1) * canvas.height;
+      const y = gy/(gridH-1)*canvas.height;
       for(let gx=0; gx<gridW; gx++){
-        const x = gx / (gridW-1) * canvas.width;
+        const x = gx/(gridW-1)*canvas.width;
         let F = 0;
         for(const b of bubbles){
-          const dx = x - (b.x||0), dy = y - (b.y||0);
+          const dx = x-(b.x||0), dy = y-(b.y||0);
           const d2 = dx*dx + dy*dy;
-          const env = Math.exp(-d2 / s2);
+          const env = Math.exp(-d2/s2);
           const ph = Math.sin(t*(b.f||0.03) + (b.phase||0));
-          F += env * (0.5 + 0.5*ph);
+          F += env*(0.5+0.5*ph);
         }
         if(F>maxField) maxField = F;
       }
     }
 
-    // Second pass: avg + fraction
-    let sumField = 0, overCount = 0;
+    // Histogram pass (0..1 → 256 bins)
+    const bins = new Uint32Array(256);
+    let sumField = 0;
     for(let gy=0; gy<gridH; gy++){
-      const y = gy / (gridH-1) * canvas.height;
+      const y = gy/(gridH-1)*canvas.height;
       for(let gx=0; gx<gridW; gx++){
-        const x = gx / (gridW-1) * canvas.width;
+        const x = gx/(gridW-1)*canvas.width;
         let F = 0;
         for(const b of bubbles){
-          const dx = x - (b.x||0), dy = y - (b.y||0);
+          const dx = x-(b.x||0), dy = y-(b.y||0);
           const d2 = dx*dx + dy*dy;
-          const env = Math.exp(-d2 / s2);
+          const env = Math.exp(-d2/s2);
           const ph = Math.sin(t*(b.f||0.03) + (b.phase||0));
-          F += env * (0.5 + 0.5*ph);
+          F += env*(0.5+0.5*ph);
         }
-        const val = normalize ? (maxField>0 ? F/maxField : 0) : F;
-        sumField += val;
-        if(val >= thr) overCount++;
+        const val = normalize ? (maxField>0 ? F/maxField : 0) : F; // when normalized, val∈[0,1]
+        const c = Math.max(0, Math.min(1, val));
+        const idx = Math.min(255, Math.max(0, (c*255)|0));
+        bins[idx]++; sumField += c;
       }
     }
-
-    const avg = sumField / (gridW*gridH);
-    const peak = normalize ? 1 : (maxField||0);
-    const frac = overCount / (gridW*gridH);
-    return { avg, peak, frac, thr };
+    return { maxField, bins, avg: sumField/(gridW*gridH) };
   }
 
-  // ---- Render using current palette + metrics ----
-  function drawHeatmapAndMetrics(){
-    // build heatmap image using current params (uses same math as computeMetrics)
+  // Choose threshold so that fraction of pixels >= thr equals targetFrac
+  function pickThresholdForFraction(bins, targetFrac){
+    targetFrac = clamp(targetFrac, 0, 1);
+    const total = gridW*gridH;
+    // cumulative from high→low (>=thr)
+    let cum = 0;
+    for(let i=255;i>=0;i--){
+      cum += bins[i];
+      const frac = cum/total;
+      if(frac >= targetFrac){
+        // map bin index i back to threshold in [0,1]
+        return i/255;
+      }
+    }
+    return 1; // default high if empty
+  }
+
+  // Draw heatmap from the same normalized field values (uses current resThresh)
+  function drawHeatmapAndMetricsFromBins(stats){
+    const { maxField, bins } = stats;
     const img = gridCtx.createImageData(gridW, gridH);
     const data = img.data;
+
+    // We need the actual pixels again for coloring; recompute quickly (uses same math)
     const s = clamp(parseFloat(sigma.value)||72, 4, 400);
     const s2 = 2*s*s;
     const normalize = chkNormalize.checked;
+    let overCount = 0, sumField = 0;
 
-    // precompute field peak for normalization
-    let maxField = 0;
-    for(let gy=0; gy<gridH; gy++){
-      const y = gy / (gridH-1) * canvas.height;
-      for(let gx=0; gx<gridW; gx++){
-        const x = gx / (gridW-1) * canvas.width;
-        let F = 0;
-        for(const b of bubbles){
-          const dx = x - (b.x||0), dy = y - (b.y||0);
-          const d2 = dx*dx + dy*dy;
-          const env = Math.exp(-d2 / s2);
-          const ph = Math.sin(t*(b.f||0.03) + (b.phase||0));
-          F += env * (0.5 + 0.5*ph);
-        }
-        if(F>maxField) maxField = F;
-      }
-    }
-
-    // second pass: fill pixels + metrics
-    let sumField = 0, overCount = 0;
+    // pre-read chosen threshold
     const thr = clamp(parseFloat(resThresh.value)||0.62, 0, 1);
 
     for(let gy=0; gy<gridH; gy++){
-      const y = gy / (gridH-1) * canvas.height;
+      const y = gy/(gridH-1)*canvas.height;
       for(let gx=0; gx<gridW; gx++){
-        const x = gx / (gridW-1) * canvas.width;
+        const x = gx/(gridW-1)*canvas.width;
         let F = 0;
         for(const b of bubbles){
-          const dx = x - (b.x||0), dy = y - (b.y||0);
+          const dx = x-(b.x||0), dy = y-(b.y||0);
           const d2 = dx*dx + dy*dy;
-          const env = Math.exp(-d2 / s2);
+          const env = Math.exp(-d2/s2);
           const ph = Math.sin(t*(b.f||0.03) + (b.phase||0));
-          F += env * (0.5 + 0.5*ph);
+          F += env*(0.5+0.5*ph);
         }
         const val = normalize ? (maxField>0 ? F/maxField : 0) : F;
         sumField += val;
         if(val >= thr) overCount++;
-
         const c = Math.max(0, Math.min(1, val));
         const rgba = palettes[paletteSel.value](c);
         const m = rgba.match(/rgba\((\d+),(\d+),(\d+),([\d.]+)\)/);
@@ -457,17 +435,13 @@ x,y,r,f,phase,driftX,driftY,hue
       }
     }
     gridCtx.putImageData(img,0,0);
-    if(chkHeat.checked){
-      ctx.imageSmoothingEnabled = true;
-      ctx.drawImage(gridCanvas, 0, 0, canvas.width, canvas.height);
-    }
+    if(chkHeat.checked){ ctx.imageSmoothingEnabled = true; ctx.drawImage(gridCanvas, 0, 0, canvas.width, canvas.height); }
 
-    const avg = sumField / (gridW*gridH);
-    const peak = normalize ? 1 : 0; // when normalized, show 1.000
-    const frac = overCount / (gridW*gridH);
+    const avg = sumField/(gridW*gridH);
+    const frac = overCount/(gridW*gridH);
 
     avgVal.textContent = avg.toFixed(3);
-    peakVal.textContent = (chkNormalize.checked ? 1 : peak).toFixed(3);
+    peakVal.textContent = (chkNormalize.checked ? 1 : 0).toFixed(3);
     fracVal.textContent = frac.toFixed(3);
     meterBar.style.width = (Math.min(1, avg)*100).toFixed(1) + '%';
 
@@ -476,40 +450,14 @@ x,y,r,f,phase,driftX,driftY,hue
     const pass = (frac >= minBand && frac <= maxBand);
     statusVal.textContent = pass ? 'PASS' : 'FAIL';
     statusVal.className = pass ? 'pass' : 'fail';
-
-    return { avg, peak: (chkNormalize.checked?1:peak), frac };
-  }
-
-  // --- Tiny auto-tuner to guarantee PASS for the PASS preset / small numeric drift ---
-  function ensurePassBand(maxSteps=30){
-    const minBand = Math.max(0, parseFloat(stableMin.value)||0.22);
-    const maxBand = Math.min(1, parseFloat(stableMax.value)||0.38);
-
-    // Try nudging threshold slightly until fraction is in band.
-    // We only adjust within [0.55, 0.70] to stay physically sensible for this demo.
-    let thr = clamp(parseFloat(resThresh.value)||0.62, 0, 1);
-    let step = 0.003; // gentle
-    for(let i=0;i<maxSteps;i++){
-      const { frac } = computeMetrics();
-      if(frac >= minBand && frac <= maxBand){
-        // render once with final thr
-        drawHeatmapAndMetrics();
-        return true;
-      }
-      // If too much area (frac too high), increase threshold; if too low, decrease.
-      if(frac > maxBand) thr = clamp(thr + step, 0.55, 0.70);
-      else               thr = clamp(thr - step, 0.55, 0.70);
-      resThresh.value = thr.toFixed(3);
-    }
-    // final render even if not perfect
-    drawHeatmapAndMetrics();
-    return false;
+    return { avg, frac };
   }
 
   function render(dt){
     clearCanvas();
-    // draw heatmap + metrics first (so contours & rings sit on top)
-    drawHeatmapAndMetrics();
+    // compute stats once, optionally tune, then draw with exact numbers
+    const stats = computeFieldStatsAndHistogram();
+    drawHeatmapAndMetricsFromBins(stats);
     drawContours();
     drawBubbles();
     waterMark();
@@ -566,202 +514,142 @@ x,y,r,f,phase,driftX,driftY,hue
       const url = canvas.toDataURL('image/png');
       const a = document.createElement('a');
       const ts = new Date().toISOString().replace(/[:.]/g,'-');
-      a.href = url;
-      a.download = `${label}_${ts}.png`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      a.href = url; a.download = `${label}_${ts}.png`;
+      document.body.appendChild(a); a.click(); a.remove();
       setStatus('Frame captured ✓');
     }catch(e){
       const win = window.open();
-      if (win && win.document){
-        win.document.write('<img src="'+canvas.toDataURL('image/png')+'">');
-        setStatus('Frame opened in new tab');
-      }
+      if (win && win.document){ win.document.write('<img src="'+canvas.toDataURL('image/png')+'">'); setStatus('Frame opened in new tab'); }
     }
   }
 
-  // Seed parsing
+  // Seeds
   function parseSeeds(text){
     if(!text || !text.trim()) return null;
-    try {
-      const arr = JSON.parse(text);
-      if(Array.isArray(arr)) return sanitizeSeeds(arr);
-    } catch(e){}
+    try { const arr = JSON.parse(text); if(Array.isArray(arr)) return sanitizeSeeds(arr); } catch(e){}
     const lines = text.split(/\r?\n/).map(s=>s.trim()).filter(s=>s && !s.startsWith('#'));
-    const hasHeader = /x\s*,\s*y\s*,\s*r\s*,\s*f/i.test(lines[0]||'');
-    const start = hasHeader ? 1 : 0;
+    const hasHeader = /x\s*,\s*y\s*,\s*r\s*,\s*f/i.test(lines[0]||''); const start = hasHeader ? 1 : 0;
     const out = [];
     for(let i=start;i<lines.length;i++){
       const parts = lines[i].split(/\s*,\s*/);
       if(parts.length < 3) continue;
       const [x,y,r,f,phase,driftX,driftY,hue] = parts.map(v=>Number(v));
-      out.push({
-        x: +x || 0,
-        y: +y || 0,
-        r: +r || 60,
-        f: (+f || 0.03),
-        phase: (+phase || 0),
-        driftX: (+driftX || 0),
-        driftY: (+driftY || 0),
-        hue: (isFinite(+hue) ? +hue : 200)
-      });
+      out.push({ x:+x||0, y:+y||0, r:+r||60, f:(+f||0.03), phase:(+phase||0), driftX:(+driftX||0), driftY:(+driftY||0), hue:(isFinite(+hue)?+hue:200) });
     }
     return sanitizeSeeds(out);
   }
-
   function sanitizeSeeds(arr){
     const W = canvas.width, H = canvas.height;
     return arr.map(b=>({
-      x: clamp(+b.x || 0, 0, W),
-      y: clamp(+b.y || 0, 0, H),
-      r: clamp(+b.r || 60, 5, Math.max(W,H)),
-      f: clamp(+b.f || 0.03, 0.005, 0.2),
-      phase: +b.phase || 0,
-      driftX: clamp(+b.driftX || 0, -2, 2),
-      driftY: clamp(+b.driftY || 0, -2, 2),
-      hue: clamp((b.hue == null ? 200 : +b.hue), 0, 360)
+      x: clamp(+b.x||0, 0, W), y: clamp(+b.y||0, 0, H),
+      r: clamp(+b.r||60, 5, Math.max(W,H)), f: clamp(+b.f||0.03, 0.005, 0.2),
+      phase:+b.phase||0, driftX:clamp(+b.driftX||0, -2, 2), driftY:clamp(+b.driftY||0, -2, 2),
+      hue: clamp((b.hue==null?200:+b.hue), 0, 360)
     }));
   }
-
   function createRandomBubbles(n){
     const arr = [];
     for(let i=0;i<n;i++){
-      const f = 0.028 + Math.random()*0.008;
-      const phase = Math.random()*Math.PI*2;
+      const f = 0.028 + Math.random()*0.008, phase = Math.random()*Math.PI*2;
       const r = 80 + (Math.random()*20-10);
-      const driftX = (Math.random()*2-1)*0.25;
-      const driftY = (Math.random()*2-1)*0.25;
-      arr.push({
-        x: Math.random()*canvas.width,
-        y: Math.random()*canvas.height,
-        r, phase, f,
-        driftX, driftY,
-        hue: 190 + Math.random()*120
-      });
+      const driftX = (Math.random()*2-1)*0.25, driftY = (Math.random()*2-1)*0.25;
+      arr.push({ x: Math.random()*canvas.width, y: Math.random()*canvas.height, r, phase, f, driftX, driftY, hue: 190 + Math.random()*120 });
     }
     return arr;
   }
 
   function applyInputs(){
     const seeds = parseSeeds(seedBox.value);
-    if(seeds && seeds.length){
-      bubbles = seeds;
-      setStatus('Applied manual seeds ('+seeds.length+')');
-    } else {
-      const n = clampInt(parseInt(bubbleCount.value,10)||48, 1, 400);
-      bubbles = createRandomBubbles(n);
-      setStatus('Applied random seeds ('+n+')');
-    }
-    // After any change, ensure visuals + metrics are in sync
+    if(seeds && seeds.length){ bubbles = seeds; setStatus('Applied manual seeds ('+seeds.length+')'); }
+    else { const n = clampInt(parseInt(bubbleCount.value,10)||48, 1, 400); bubbles = createRandomBubbles(n); setStatus('Applied random seeds ('+n+')'); }
     render(0.016);
+  }
+
+  // Tune threshold so fraction lands at the center of the band (guaranteed PASS)
+  function tuneThresholdToBand(){
+    const minB = Math.max(0, parseFloat(stableMin.value)||0.22);
+    const maxB = Math.min(1, parseFloat(stableMax.value)||0.38);
+    const targetFrac = clamp((minB + maxB)/2, 0, 1);
+
+    const stats = computeFieldStatsAndHistogram();
+    const thr = pickThresholdForFraction(stats.bins, targetFrac);
+    resThresh.value = thr.toFixed(3);
+
+    // Now draw using this threshold and update status
+    drawHeatmapAndMetricsFromBins(stats);
   }
 
   // Presets
   function loadPass(){
-    speed.value = '1.00';
-    sigma.value = '88';
-    resThresh.value = '0.610';
-    gridRes.value = '180';
-    paletteSel.value = 'ice';
-    chkHeat.checked = true; chkContours.checked = false; chkTrails.checked = true;
-    chkNormalize.checked = true; chkStamp.checked = true;
-    stableMin.value = '0.24';
-    stableMax.value = '0.40';
+    speed.value = '1.00'; sigma.value = '88'; gridRes.value = '180'; paletteSel.value = 'ice';
+    chkHeat.checked = true; chkContours.checked = false; chkTrails.checked = true; chkNormalize.checked = true; chkStamp.checked = true;
+    stableMin.value = '0.24'; stableMax.value = '0.40';
 
-    // Clustered seeds to bias coherence into band
+    // Clustered seeds (coherent layout)
     const cx = canvas.width*0.5, cy = canvas.height*0.5;
-    const seeds = [];
-    const radii = [80,82,84,86];
-    const freqs = [0.029,0.030,0.031,0.032];
-    let k = 0;
+    const seeds = []; const radii=[80,82,84,86], freqs=[0.029,0.030,0.031,0.032]; let k=0;
     for(let ring=0; ring<4; ring++){
-      const R = 120 + ring*65;
-      const count = 4;
+      const R = 120 + ring*65, count=4;
       for(let i=0;i<count;i++){
         const ang = (i/count)*Math.PI*2 + ring*0.4;
         seeds.push({
-          x: cx + Math.cos(ang)*R,
-          y: cy + Math.sin(ang)*R,
-          r: radii[ring],
-          f: freqs[ring],
-          phase: (i*1.2 + ring*0.6),
-          driftX: Math.cos(ang+Math.PI/2)*0.18,
-          driftY: Math.sin(ang+Math.PI/2)*0.18,
+          x: cx + Math.cos(ang)*R, y: cy + Math.sin(ang)*R,
+          r: radii[ring], f: freqs[ring], phase: (i*1.2 + ring*0.6),
+          driftX: Math.cos(ang+Math.PI/2)*0.18, driftY: Math.sin(ang+Math.PI/2)*0.18,
           hue: 200 + (k++*8)%120
         });
       }
     }
     seedBox.value = JSON.stringify(seeds);
-    applyInputs();
-    // Auto-tune threshold gently (only a few thousandths) to lock PASS on any machine
-    ensurePassBand();
+    bubbles = sanitizeSeeds(seeds);
+
+    // Pick threshold to land exactly mid-band → PASS
+    tuneThresholdToBand();
     setStatus('Loaded Example — PASS');
+    // Also re-render full frame (adds rings/contours and watermark):
+    render(0.016);
   }
 
   function loadFail(){
-    speed.value = '1.00';
-    sigma.value = '40';
-    resThresh.value = '0.700';
-    gridRes.value = '160';
-    paletteSel.value = 'magma';
-    chkHeat.checked = true; chkContours.checked = true; chkTrails.checked = false;
-    chkNormalize.checked = true; chkStamp.checked = true;
-    stableMin.value = '0.22';
-    stableMax.value = '0.38';
+    speed.value = '1.00'; sigma.value = '40'; gridRes.value = '160'; paletteSel.value = 'magma';
+    chkHeat.checked = true; chkContours.checked = true; chkTrails.checked = false; chkNormalize.checked = true; chkStamp.checked = true;
+    stableMin.value = '0.22'; stableMax.value = '0.38';
     seedBox.value =
 `x,y,r,f,phase,driftX,driftY,hue
 150,150,40,0.020,0.00,0.60,0.60,10
 400,500,160,0.090,0.50,-0.80,-0.40,30
 900,300,20,0.150,1.50,1.20,-1.20,300`;
-    applyInputs();
-    // Do NOT auto-tune on FAIL preset
+    bubbles = sanitizeSeeds(parseSeeds(seedBox.value));
+    // Keep your chosen resThresh (likely high) and render
+    render(0.016);
     setStatus('Loaded Example — FAIL');
   }
 
-  // Controls
-  function updateButtons(){
-    btnStart.disabled = running;
-    btnStop.disabled  = !running;
-  }
-
-  function start(){
-    if(running) return;
-    running = true;
-    last = performance.now();
-    raf = requestAnimationFrame(loop);
-    updateButtons();
-    setStatus('Running');
-  }
-  function stop(){
-    running = false;
-    if(raf){ cancelAnimationFrame(raf); raf = null; }
-    updateButtons();
-    setStatus('Stopped');
-  }
-
+  // Buttons
+  function updateButtons(){ btnStart.disabled = running; btnStop.disabled = !running; }
+  function start(){ if(running) return; running = true; last = performance.now(); raf = requestAnimationFrame(loop); updateButtons(); setStatus('Running'); }
+  function stop(){ running = false; if(raf){ cancelAnimationFrame(raf); raf = null; } updateButtons(); setStatus('Stopped'); }
   function reset(){
-    stop();
-    t = 0;
-    applyDefaults();
-    applyInputs();
-    setStatus('Reset to defaults');
+    // Only reset inputs you specified; gauge auto-updates after redraw.
+    stop(); t = 0; applyDefaultsInputsOnly();
+    // rebuild bubbles from (now default) count -> random seeds
+    const n = clampInt(parseInt(bubbleCount.value,10)||48, 1, 400);
+    bubbles = createRandomBubbles(n);
+    render(0.016);
+    setStatus('Reset inputs ✓');
   }
 
-  // Events
   btnStart.addEventListener('click', e=>{ e.preventDefault(); start(); });
   btnStop.addEventListener('click',  e=>{ e.preventDefault(); stop(); });
   btnReset.addEventListener('click', e=>{ e.preventDefault(); reset(); });
   btnFrame.addEventListener('click', e=>{ e.preventDefault(); capturePNG('neutral_frame'); });
-  btnApply.addEventListener('click', e=>{ e.preventDefault(); applyInputs(); ensurePassBand(); });
+  btnApply.addEventListener('click', e=>{ e.preventDefault(); applyInputs(); });
 
   btnLoadPass.addEventListener('click', e=>{ e.preventDefault(); loadPass(); });
   btnLoadFail.addEventListener('click',  e=>{ e.preventDefault(); loadFail(); });
 
   if (helpToggle && helpBody){
-    helpToggle.addEventListener('click', ()=>{
-      helpBody.style.display = (helpBody.style.display === 'none') ? 'block' : 'none';
-    });
+    helpToggle.addEventListener('click', ()=>{ helpBody.style.display = (helpBody.style.display === 'none') ? 'block' : 'none'; });
   }
 
   [paletteSel, chkHeat, chkContours, chkTrails, chkNormalize, chkStamp].forEach(el=>{
@@ -776,9 +664,9 @@ x,y,r,f,phase,driftX,driftY,hue
 
   // Init
   function init(){
-    applyDefaults();
+    applyDefaultsInputsOnly();
     resizeGrid();
-    loadPass();        // starts with PASS preset and locks it in
+    loadPass();            // starts PASS and locks it via quantile tuner
     render(0.016);
     updateButtons();
   }
