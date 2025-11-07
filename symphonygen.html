@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>CST — Audio→CSV • A:10–16 + B:6–16 (sum 32) • 60s Orchestrator • 32 Chairs</title>
+<title>CST — Audio→CSV • Enriched-Only • A/B 16+16 • 60s Orchestrator • 32 Chairs</title>
 <style>
   :root{
     --bg:#081122; --ink:#eaf1ff; --muted:#9fb2e4; --panel:#111b38; --grid:#1a2758; --accent:#3b82f6;
@@ -95,9 +95,10 @@
 </head>
 <body>
 <header>
-  <h1>CST — Audio→CSV • A:10–16 & B:6–16 (Total 32, Non-overlap) • 60s • 32 Chairs</h1>
-  <span style="font-size:12px;color:#9ad1ff">Randomize A & B now works; CSV notes drive all instruments.</span>
+  <h1>CST — Audio→CSV • Enriched-Only A/B • 60s • 32 Chairs</h1>
+  <span style="font-size:12px;color:#9ad1ff">Analyzer & CSV loaders now sync key/BPM & UI. Enriched CSV required.</span>
 </header>
+
 <main>
   <!-- LEFT: Controls -->
   <section class="card">
@@ -109,19 +110,19 @@
         <button id="btnAnalyze">2) Analyze 60s</button>
         <span id="dotAnalyze" class="statusDot" title="Analysis status"></span>
       </div>
-      <button id="btnExport">3) Export CSV</button>
+      <button id="btnExport">3) Export CSV (enriched)</button>
     </div>
     <input id="audioFile" type="file" accept=".mp3,.wav,.m4a,.aac,.ogg" style="display:none"/>
     <div class="row" style="margin-top:8px">
       <div class="stat"><span>Detected Key</span><b id="detKey">–</b></div>
       <div class="stat"><span>Detected BPM</span><b id="detBPM">–</b></div>
     </div>
-    <small class="hint">Enriched CSV headers: <b>t,midi,vel,dur,is_bass,bar,beat,bpm,key</b>.</small>
+    <small class="hint">Enriched CSV headers required: <b>t,midi,vel,dur,is_bass,bar,beat,bpm,key</b>.</small>
 
     <div class="hr"></div>
 
-    <!-- CSV LOADERS -->
-    <label style="font-weight:700">Load CSV Notes</label>
+    <!-- CSV LOADERS (enriched only) -->
+    <label style="font-weight:700">Load Enriched CSV Notes → A / B</label>
     <div class="row">
       <div>
         <input id="csvA" type="file" accept=".csv"/>
@@ -177,7 +178,10 @@
     <div class="row" style="margin-top:8px">
       <div>
         <label>Mode</label>
-        <select id="keyMode"><option value="major" selected>Major</option><option value="minor">Minor</option></select>
+        <select id="keyMode">
+          <option value="major" selected>Major</option>
+          <option value="minor">Minor</option>
+        </select>
       </div>
       <div>
         <label>BPM (Tempo)</label>
@@ -218,7 +222,7 @@
           <button id="btnExportAudio">Export WAV (60s)</button>
           <span id="dotExport" class="statusDot" title="Export ready"></span>
         </div>
-        <small class="hint">White square lights when a 60s score is ready to export.</small>
+        <small class="hint">Light turns on when a 60s score exists to export.</small>
       </div>
     </div>
 
@@ -317,7 +321,6 @@
     <button id="resetBtn" style="margin-top:8px">Reset</button>
     <div id="status">Ready.</div>
   </section>
-
   <!-- RIGHT: STAGE (32 chairs) -->
   <section class="card stage">
     <div class="stageHeader">
@@ -327,14 +330,14 @@
     <div class="guide">
       <b>How the 1-minute AI Symphony Orchestra works (HTML + Web Audio)</b>
       <ol>
-        <li><b>Load Audio</b> and <b>Analyze 60s</b> → auto-detected notes (optional).</li>
-        <li>Or <b>Load CSV</b> (enriched headers) into <b>A</b> and/or <b>B</b>.</li>
-        <li>Pick chairs: set <b>A (10–16)</b> and <b>B (6–16)</b>; total stays 32, no overlap.</li>
+        <li><b>Analyze 60s</b> from audio → auto-detected notes (optional), then <b>Export CSV (enriched)</b>.</li>
+        <li>Or choose an <b>Enriched CSV</b> and <b>Load A/B</b> — UI auto-fills Key/BPM.</li>
+        <li>Pick chairs: set <b>A 10–16</b> and <b>B 6–16</b>; total stays 32, non-overlap.</li>
         <li>Press <b>Randomize A</b> / <b>Randomize B</b> then <b>Play</b>. Lights blink on sounding chairs.</li>
       </ol>
     </div>
 
-    <!-- 32 Chairs (8 x 4). Each base section has A & B chairs -->
+    <!-- 32 Chairs (8 x 4). -->
     <div class="grid">
       <!-- Row 1: Brass/Perc back -->
       <div class="cell"><div class="section" data-sec="trumpetsa"><div class="title">Trumpets A</div><div class="meta">Back L</div><div class="lights"><div class="dot" id="dot-trumpetsa"></div><div class="check" id="chk-trumpetsa"></div></div><div class="mixRow"><button class="btnSmall" data-mute="trumpetsa">Mute</button><button class="btnSmall" data-solo="trumpetsa">Solo</button></div></div></div>
@@ -397,6 +400,7 @@
       </div>
     </div>
   </section>
+
 <script>
 /* ===== Helpers & scales ===== */
 const NOTE=["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
@@ -453,7 +457,7 @@ const LABEL={
   perca:'Percussion A', percb:'Percussion B',
   drumsa:'Drums A', drumsb:'Drums B'
 };
-function baseOf(id){ return id.slice(0,-1).replace(/(sa|sb)$/,'s'); }
+function baseOf(id){ return id.replace(/a|b$/,'').replace(/(sa|sb)$/,'s'); }
 function familyOfSection(sec){
   const b=baseOf(sec);
   if (['vln1','vln2','violas','cellos','basses','harp','piano'].includes(b)) return 'strings';
@@ -497,7 +501,8 @@ function markStage(){
     }
   });
 }
-
+</script>
+<script>
 /* ===== Flexible targets: A=10–16, B=6–16, sum=32 ===== */
 let TARGET_A = 16;
 let TARGET_B = 16;
@@ -505,24 +510,11 @@ function syncTargets(from){
   const a=clamp(parseInt(countAEl.value||'16',10),10,16);
   const b=clamp(parseInt(countBEl.value||'16',10), 6,16);
   if(from==='A'){
-    TARGET_A=a;
-    TARGET_B=32 - TARGET_A;
-    TARGET_B=clamp(TARGET_B,6,16);
-    TARGET_A=32 - TARGET_B;
-    countBEl.value=String(TARGET_B);
+    TARGET_A=a; TARGET_B=clamp(32 - TARGET_A,6,16); TARGET_A=32 - TARGET_B; countBEl.value=String(TARGET_B);
   }else if(from==='B'){
-    TARGET_B=b;
-    TARGET_A=32 - TARGET_B;
-    TARGET_A=clamp(TARGET_A,10,16);
-    TARGET_B=32 - TARGET_A;
-    countAEl.value=String(TARGET_A);
+    TARGET_B=b; TARGET_A=clamp(32 - TARGET_B,10,16); TARGET_B=32 - TARGET_A; countAEl.value=String(TARGET_A);
   }else{
-    TARGET_A=a; TARGET_B=b;
-    TARGET_B = 32 - TARGET_A;
-    TARGET_B = clamp(TARGET_B,6,16);
-    TARGET_A = 32 - TARGET_B;
-    countAEl.value=String(TARGET_A);
-    countBEl.value=String(TARGET_B);
+    TARGET_A=a; TARGET_B=clamp(32 - TARGET_A,6,16); TARGET_A=32 - TARGET_B; countAEl.value=String(TARGET_A); countBEl.value=String(TARGET_B);
   }
   btnRandomA.textContent = `Randomize A (${TARGET_A})`;
   btnRandomB.textContent = `Randomize B (${TARGET_B})`;
@@ -560,10 +552,9 @@ function enforceBExclusion(){
   PICK_B = PICK_B.filter(x=>!aSet.has(x.id) ? true : (changed=true,false));
   if(changed){
     const excl=new Set([...aSet, ...PICK_B.map(x=>x.id)]);
-    const all=SECTIONS;
     const need = TARGET_B - PICK_B.length;
     if(need>0){
-      const fill=pickN(all, need, excl).map(id=>({id,fam:famOf(id)}));
+      const fill=pickN(SECTIONS, need, excl).map(id=>({id,fam:famOf(id)}));
       PICK_B=[...PICK_B, ...fill].slice(0,TARGET_B).map(x=>({...x,locked:!!x.locked}));
     }
   }
@@ -577,21 +568,19 @@ function randomizeA(){
     const options=FAM[fam].filter(id=>!excl.has(id));
     if(options.length){ const take=pickN(options, perFam, excl); take.forEach(id=>{excl.add(id); p.push({id,fam});}); }
   }
-  const all=SECTIONS;
-  pickN(all, TARGET_A - (keep.length+p.length), excl).forEach(id=>{excl.add(id); p.push({id,fam:famOf(id)});});
+  pickN(SECTIONS, TARGET_A - (keep.length+p.length), excl).forEach(id=>{excl.add(id); p.push({id,fam:famOf(id)});});
   PICK_A=[...keep, ...p].slice(0,TARGET_A).map(x=>({...x,locked:!!x.locked}));
   enforceBExclusion(); renderSide('A'); renderSide('B'); markStage();
 }
 function randomizeB(){
   const keep=PICK_B.filter(x=>x.locked);
   const excl=new Set([...PICK_A.map(x=>x.id), ...keep.map(x=>x.id)]);
-  const all=SECTIONS;
-  const chosen=pickN(all, TARGET_B - keep.length, excl).map(id=>({id,fam:famOf(id)}));
+  const chosen=pickN(SECTIONS, TARGET_B - keep.length, excl).map(id=>({id,fam:famOf(id)}));
   PICK_B=[...keep, ...chosen].slice(0,TARGET_B).map(x=>({...x,locked:!!x.locked}));
   renderSide('B'); markStage();
 }
 
-/* Wire the buttons (BUG FIX) */
+/* Wire the buttons */
 btnRandomA.onclick=()=>{ syncTargets('A'); randomizeA(); setStatus(`Randomized A → ${TARGET_A}`); };
 btnRandomB.onclick=()=>{ syncTargets('B'); randomizeB(); setStatus(`Randomized B → ${TARGET_B}`); };
 
@@ -660,10 +649,11 @@ function checkExportReady(){
   const ready = (A.events && A.events.length) || (B.events && B.events.length) || (LAST_ANALYSIS.events && LAST_ANALYSIS.events.length);
   light(dotExport, !!ready);
 }
-</script>
-<script>
+
 /* ===== Analysis, enriched CSV, audio, transport ===== */
-let A={events:[]}, B={events:[]}, LAST_ANALYSIS={events:[],key:"C major",bpm:100};
+let A={events:[], meta:{bpm:100,key:"C major"}};
+let B={events:[], meta:{bpm:100,key:"C major"}};
+let LAST_ANALYSIS={events:[], meta:{bpm:100,key:"C major"}};
 
 function csvEscape(v){ const s=String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s; }
 function toEnrichedCSV(events, bpm, key){
@@ -681,25 +671,30 @@ function toEnrichedCSV(events, bpm, key){
   ].map(csvEscape).join(","));
   return [header, ...rows].join("\n");
 }
-function downloadCSV(name,text){ const blob=new Blob([text],{type:"text/csv"}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url;a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(url);a.remove();},0); }
-function parseCSV(text){
-  const lines=text.replace(/\r/g,'').trim().split('\n'); if(!lines.length) return [];
+
+/* Strict Enriched CSV parser */
+function parseEnrichedCSV(text){
+  const lines=text.replace(/\r/g,'').trim().split('\n');
+  if(!lines.length) throw new Error("Empty CSV.");
   const hdr=lines[0].split(',').map(s=>s.trim().toLowerCase());
-  const get=(row,key,def)=>{const i=hdr.indexOf(key); return i>=0? row[i] : def;}
-  if(hdr.indexOf('t')<0 || (hdr.indexOf('midi')<0 && hdr.indexOf('m')<0)) throw new Error("CSV must include headers t and midi (or m).");
-  const out=[];
+  const required=['t','midi','vel','dur','is_bass','bar','beat','bpm','key'];
+  for(const k of required){ if(hdr.indexOf(k)<0) throw new Error("CSV must include enriched headers: "+required.join(',')); }
+  const idxs=Object.fromEntries(hdr.map((h,i)=>[h,i]));
+  const out=[], meta={bpm:100,key:"C major"};
   for(let i=1;i<lines.length;i++){
     const r=lines[i].split(',');
-    const t=parseFloat(get(r,'t',"0"));
-    const midi=parseInt(get(r,'midi',get(r,'m',"0")),10);
-    const vel = parseFloat(get(r,'vel',"96"))/127;
-    const dur = parseFloat(get(r,'dur',"0.28"));
-    const isb = (parseInt(get(r,'is_bass',"0"),10)===1) || (midi<=55);
-    const bb  = parseInt(get(r,'bar',"1"),10);
-    const bt  = parseFloat(get(r,'beat',"1"));
-    if(Number.isFinite(t)&&t>=0&&t<=60 && Number.isFinite(midi) && midi>0) out.push({t,midi,vel,isBass:isb,dur,bar:bb,beat:bt});
+    if(r.length < hdr.length) continue;
+    const t=parseFloat(r[idxs.t]); const midi=parseInt(r[idxs.midi],10);
+    const vel=parseFloat(r[idxs.vel])/127; const dur=parseFloat(r[idxs.dur]);
+    const isb=parseInt(r[idxs.is_bass],10)===1; const bar=parseInt(r[idxs.bar],10); const beat=parseFloat(r[idxs.beat]);
+    const bpm=parseInt(r[idxs.bpm],10); const key=(r[idxs.key]||'C major').trim();
+    if(i===1){ if(Number.isFinite(bpm)) meta.bpm=bpm; meta.key=key; }
+    if(Number.isFinite(t)&&t>=0&&t<=60 && Number.isFinite(midi) && midi>0){
+      out.push({t,midi,vel:Number.isFinite(vel)?vel:(isb?0.85:0.70),dur:Number.isFinite(dur)?dur:(isb?0.45:0.28),isBass:isb,bar:Number.isFinite(bar)?bar:1,beat:Number.isFinite(beat)?beat:1});
+    }
   }
-  return out.sort((a,b)=>a.t-b.t);
+  out.sort((a,b)=>a.t-b.t);
+  return {events:out, meta};
 }
 
 /* Krumhansl key profiles (for Analyzer) */
@@ -717,7 +712,7 @@ function acPitch(frame,sr){
   return bestLag? sr/bestLag : 0;
 }
 
-/* ===== Analyzer: robust 60s pass ===== */
+/* ===== Analyzer: robust 60s pass → UI + exportable meta ===== */
 async function analyzeAudio(file){
   if(!file){ alert("Choose an audio file first."); return; }
   setStatus("Decoding…");
@@ -750,9 +745,6 @@ async function analyzeAudio(file){
     rawNotes.push({t:st/sr, m, b});
   }
 
-  const smooth=(list,key)=>{const half=2,a=list.map(e=>e[key]||0),sm=[]; for(let i=0;i<a.length;i++){const w=[]; for(let k=Math.max(0,i-half);k<=Math.min(a.length-1,i+half);k++) if(a[k]) w.push(a[k]); sm[i]=w.length?Math.round(median(w)):0;} for(let i=0;i<list.length;i++) list[i][key]=sm[i];};
-  smooth(rawNotes,'m'); smooth(rawNotes,'b');
-
   const keyName=correlate(Array.from(pc));
   const pcs=pcsFor(keyName.split(' ')[0], keyName.toLowerCase().includes('minor')?'minor':'major');
   for(const e of rawNotes){ if(e.m) e.m=snapToScale(e.m,pcs); if(e.b) e.b=snapToScale(e.b,pcs); }
@@ -767,37 +759,61 @@ async function analyzeAudio(file){
     return b;
   })();
 
-  LAST_ANALYSIS={events:rawNotes,key:keyName,bpm};
+  // Convert to enriched internal form for A by default (Analyzer source)
+  const events=[];
+  const beatLen = 60/Math.max(40,Math.min(220,bpm));
+  const qDiv=0.125, grid=beatLen*4*qDiv;
+  const swing=0.10, human=0.006;
+  for(const e of rawNotes){
+    const hasM = !!e.m, hasB = !!e.b;
+    const push=(midi,isBass)=>{
+      if(!midi) return;
+      let q=Math.round(e.t/grid)*grid; if(grid<=beatLen/2+1e-6){ const pos=Math.round(q/grid); if(pos%2===1) q+=swing*grid*0.5; }
+      q=Math.max(0,Math.min(60,q));
+      const barBeat = barsBeats(q,bpm);
+      events.push({t:q, midi:Math.round(midi), vel:isBass?0.85:0.70, dur:isBass?0.45:0.28, isBass, bar:barBeat.bar, beat:barBeat.beat});
+    };
+    if(hasM) push(e.m,false);
+    if(hasB) push(e.b,true);
+  }
+  LAST_ANALYSIS={events, meta:{bpm, key:keyName}};
+
+  // UI fill
   detKey.textContent=keyName; detBPM.textContent=String(bpm);
-  bpmEl.value=String(Math.round(bpm));
-  const [r,mo]=(keyName||'C major').split(' ');
-  keyRootEl.value=r; keyModeEl.value=(mo||'major').toLowerCase();
+  bpmEl.value=String(bpm);
+  const [root,mode]=(keyName||'C major').split(' ');
+  keyRootEl.value=root; keyModeEl.value=(mode||'major').toLowerCase();
 
   setStatus("Analysis complete → Export CSV.");
   light(dotAnalyze,true);
   checkExportReady();
 }
 
-/* ===== Bars/beats and scheduling ===== */
+/* Bars/beats (used by analyzer & musicalizer) */
 function barsBeats(t, bpm){
   const spb = 60/Math.max(40,Math.min(220,bpm));
   const beat = t / spb;
   const beatsPerBar = 4;
   const bar = Math.floor(beat / beatsPerBar) + 1;
   const beatInBar = (beat % beatsPerBar) + 1;
-  return {bar, beatInBar};
+  return {bar, beat:beatInBar};
 }
-function densityCap(){ return Math.max(4, Math.round(10*PRESETS_PACE[PAC].density)); }
-function cadenceBeats(BPM){
-  const beat=60/ Math.max(40, Math.min(220, BPM));
-  const pat=CADENCES[CAD].pattern;
-  const hits=[]; for(let t=0, i=0; t<=60; t+=beat, i++){ hits.push({t:Math.min(60,t), on:pat[i % pat.length]}); }
-  return {beat, hits};
-}
-function activeSet(side){ return new Set((side==='A'?PICK_A:PICK_B).map(x=>x.id)); }
 
+/* ===== Family Opening ===== */
 let FAMILY_OPEN = { strings: 0, winds: 8, brass: 16, perc: 24 };
 function summarizeOpenings(){ $('openSummary').textContent = `${FAMILY_OPEN.strings}, ${FAMILY_OPEN.winds}, ${FAMILY_OPEN.brass}, ${FAMILY_OPEN.perc}`; }
+function randomIn(min,max){ return Math.floor(Math.random()*(max-min+1))+min; }
+function randomizeFamilyOpening(){
+  const s0 = 0; const w0 = randomIn(6,14); const b0 = randomIn(w0+4, Math.min(26, w0+14)); const p0 = randomIn(b0+4, Math.min(36, b0+14));
+  FAMILY_OPEN = { strings: s0, winds: w0, brass: b0, perc: p0 };
+  summarizeOpenings(); setStatus(`Family Opening randomized → ${$('openSummary').textContent}`);
+}
+function resetFamilyOpening(){ FAMILY_OPEN = { strings: 0, winds: 8, brass: 16, perc: 24 }; summarizeOpenings(); setStatus('Family Opening reset.'); }
+btnOpenRandom.onclick = randomizeFamilyOpening;
+btnOpenReset.onclick  = resetFamilyOpening;
+
+/* ===== Routing helper ===== */
+function activeSet(side){ return new Set((side==='A'?PICK_A:PICK_B).map(x=>x.id)); }
 function sectionForSelected(midi,isBass,side,tSec){
   const chosen=activeSet(side);
   const family=(sec)=>FAMILY_OPEN[familyOfSection(sec)]??0;
@@ -818,8 +834,8 @@ function sectionForSelected(midi,isBass,side,tSec){
   return any[Math.floor(Math.random()*any.length)] || 'vln1a';
 }
 
-/* ===== CSV+Analyzer compatible musicalizer (BUG FIX) ===== */
-function musicalizeEnriched(raw, side){
+/* ===== Musicalizer (uses global UI key/bpm; accepts analyzer or enriched CSV) ===== */
+function musicalizeToSections(raw, side){
   if(!raw?.length) return [];
   const BPM = Math.round(parseFloat(bpmEl.value||"100") * PRESETS_PACE[PAC].bpmMul);
   const beatLen = 60/Math.max(40,Math.min(220,BPM));
@@ -827,24 +843,18 @@ function musicalizeEnriched(raw, side){
   const swing=parseFloat(swingEl.value||"0"), human=parseFloat(humanEl.value||"0")/1000;
   const pcs=pcsFor(keyRootEl.value, keyModeEl.value);
 
-  const lastBy=new Map(); const cap=densityCap(); let lastSec=-1, perSec=0;
+  const lastBy=new Map(); const cap=Math.max(4, Math.round(10*PRESETS_PACE[PAC].density)); let lastSec=-1, perSec=0;
   const out=[];
   for(const e of raw){
-    // Accept either analyzer format {m,b} or CSV format {midi,isBass,vel,dur,bar,beat}
     const hasMidi = Number.isFinite(e.midi);
-    let m = hasMidi ? e.midi : (e.m||0);
-    let b = hasMidi ? (e.isBass ? e.midi : 0) : (e.b||0);
-
-    // Skip if neither present
-    if(!m && !b) continue;
-
+    if(!hasMidi) continue;
+    let m = e.midi|0;
     let q=Math.round(e.t/grid)*grid;
     if(grid<=beatLen/2+1e-6){ const pos=Math.round(q/grid); if(pos%2===1) q+=swing*grid*0.5; }
     q=Math.max(0,Math.min(60,q)); const secT=Math.floor(q); if(secT!==lastSec){ perSec=0; lastSec=secT; }
 
-    const push = (midi,isBass)=>{
+    const push=(midi,isBass)=>{
       if(!midi) return;
-      // Scale-snap
       midi = snapToScale(midi, pcs);
       const last=lastBy.get(midi)||-999; if(q-last<0.08) return; if(perSec>=cap) return;
       lastBy.set(midi,q); perSec++;
@@ -852,57 +862,56 @@ function musicalizeEnriched(raw, side){
       const jitter=(Math.random()*2-1)*human;
       const dur = Number.isFinite(e.dur)? e.dur : (isBass?0.45:0.28);
       const vel = Number.isFinite(e.vel)? e.vel : (isBass?0.85:0.70);
-      const {bar, beatInBar} = barsBeats(q, BPM);
+      const {bar, beat} = barsBeats(q, BPM);
       out.push({
         t:Math.max(0,Math.min(60,q+jitter)),
         midi:Math.round(midi),
         dur, vel, isBass,
         bar: e.bar ?? bar,
-        beat: e.beat ?? beatInBar,
+        beat: e.beat ?? beat,
         sec:sectionForSelected(midi,isBass,side,q)
       });
     };
 
-    // For CSV rows: we either add one melodic OR a bass note
-    if(hasMidi){
-      if(e.isBass){ push(b||m,true); }
-      else        { push(m,true && false); } // melodic
-    }else{
-      // Analyzer rows can provide both m and b
-      push(m,false); push(b,true);
-    }
+    push(m, !!e.isBass && e.isBass===1);
   }
 
-  // Percussion pattern on top
+  // Percussion overlay by cadence (if selected)
   const chosen=activeSet(side);
-  const {beat:hbeat, hits}=cadenceBeats(BPM);
+  const comp=CADENCES[CAD]; const beat=hBeatLen(BPM); const hits=makeCadHits(BPM);
   if(chosen.has('perca') || chosen.has('percb') || chosen.has('drumsa') || chosen.has('drumsb')){
-    const comp=CADENCES[CAD], sync=comp.sync||0;
-    hits.forEach((h)=>{
+    hits.forEach(h=>{
       if(h.on){
         const sec = chosen.has('drumsa')? 'drumsa' : (chosen.has('drumsb')? 'drumsb' : (chosen.has('perca')? 'perca' : 'percb'));
-        const {bar, beatInBar} = barsBeats(h.t, BPM);
-        out.push({t:Math.max(0,Math.min(60,h.t + (Math.random()*2-1)*0.01)), midi:60, dur:0.09, vel:0.55, isBass:false, bar, beat:beatInBar, sec});
-      }else if(Math.random()<sync){
+        const {bar, beat} = barsBeats(h.t, BPM);
+        out.push({t:Math.min(60,h.t + (Math.random()*2-1)*0.01), midi:60, dur:0.09, vel:0.55, isBass:false, bar, beat, sec});
+      }else if(Math.random()<comp.sync){
         const sec = chosen.has('perca')? 'perca' : (chosen.has('percb')? 'percb' : (chosen.has('drumsa')? 'drumsa' : 'drumsb'));
-        const t2 = h.t + hbeat*0.5;
-        const {bar, beatInBar} = barsBeats(t2, BPM);
-        out.push({t:Math.max(0,Math.min(60,t2)), midi:67, dur:0.08, vel:0.45, isBass:false, bar, beat:beatInBar, sec});
+        const t2=h.t + beat*0.5; const {bar, beat:bt} = barsBeats(t2, BPM);
+        out.push({t:Math.min(60,t2), midi:67, dur:0.08, vel:0.45, isBass:false, bar, beat:bt, sec});
       }
     });
   }
   return out.sort((a,b)=>a.t-b.t);
 }
+function hBeatLen(BPM){ return 60/Math.max(40, Math.min(220, BPM)); }
+function makeCadHits(BPM){
+  const beat= hBeatLen(BPM);
+  const pat=CADENCES[CAD].pattern;
+  const hits=[]; for(let t=0, i=0; t<=60; t+=beat, i++){ hits.push({t:Math.min(60,t), on:pat[i % pat.length]}); }
+  return hits;
+}
 
-/* ===== Build schedule (BUG FIX: prefer CSV A first) ===== */
+/* Build schedule: prefer A then B (both use current UI bpm/key) */
 function buildSchedule(){
   const aSrc = (A.events && A.events.length) ? A.events
               : (LAST_ANALYSIS.events && LAST_ANALYSIS.events.length ? LAST_ANALYSIS.events : []);
-  const a=musicalizeEnriched(aSrc,'A');
-  const b=musicalizeEnriched(B.events||[],'B');
+  const a=musicalizeToSections(aSrc,'A');
+  const b=musicalizeToSections(B.events||[],'B');
   return [...a,...b].sort((x,y)=>x.t-y.t);
 }
-
+</script>
+<script>
 /* ===== Audio engine ===== */
 let AUDIO={ctx:null, master:null, comp:null, dry:null, wet:null, convolver:null, bus:{}};
 let idxTimer=null, t0=0, schArr=[], idx=0;
@@ -950,9 +959,9 @@ function buildBuses(){
     AUDIO.bus[id]=g;
   }
 }
-async function resumeAudio(){ const ctx=getAudio(); if(ctx.state==='suspended'){ try{ await ctx.resume(); }catch(_){ } } return ctx; }
 
-let GM_PROGRAM = parseInt(gmProgEl.value,10) || 48;
+/* Chair variants */
+let GM_PROGRAM = 48;
 gmProgEl.onchange=()=>{ GM_PROGRAM = clamp(parseInt(gmProgEl.value,10)||0,0,127); };
 
 function gmPresetFor(p){
@@ -1021,7 +1030,7 @@ function buildChairPanel(){
   });
 }
 
-/* Transport */
+/* Light & play helpers */
 function playSection(sec, midi, when, dur, gain){
   if(MUTE[sec] || (SOLO.on && SOLO.id!==sec)) return;
   const ctx=getAudio(), p=sectionPreset(sec);
@@ -1050,14 +1059,14 @@ function playSection(sec, midi, when, dur, gain){
   if(chk && !chk.classList.contains('checked')){ chk.classList.add('checked'); chk.textContent='✓'; }
 }
 
-let idxTimer=null, t0=0, schArr=[], idx=0;
-const LOOKAHEAD=0.25;
+/* Transport */
+async function resumeAudio(){ const ctx=getAudio(); if(ctx.state==='suspended'){ try{ await ctx.resume(); }catch(_){ } } return ctx; }
 
 async function doPlay(){
   await resumeAudio();
   if(PICK_A.length===0) randomizeA();
   if(PICK_B.length===0) randomizeB();
-  const sch=buildSchedule(); if(!sch.length){ alert("No notes in 0–60s. Load CSV or analyze audio first."); return; }
+  const sch=buildSchedule(); if(!sch.length){ alert("No notes in 0–60s. Load enriched CSV or analyze audio first."); return; }
   schArr=sch; idx=0; t0=AUDIO.ctx.currentTime+0.06;
   if(idxTimer) clearInterval(idxTimer);
   idxTimer=setInterval(tick,25);
@@ -1076,12 +1085,12 @@ function tick(){
 }
 function stopAll(){ if(idxTimer){clearInterval(idxTimer); idxTimer=null;} setStatus("Stopped."); conductor.style.animationPlayState='paused'; }
 
-/* Export WAV (offline) */
+/* Export WAV (offline render) */
 btnExportAudio.onclick=async()=>{
   if(PICK_A.length===0) randomizeA();
   if(PICK_B.length===0) randomizeB();
   const sched = buildSchedule();
-  if(!sched.length){ alert("No notes to export. Load CSV or analyze audio first."); return; }
+  if(!sched.length){ alert("No notes to export. Load enriched CSV or analyze audio first."); return; }
   light(dotExport,true);
 
   const sampleRate=44100, duration=61;
@@ -1090,7 +1099,7 @@ btnExportAudio.onclick=async()=>{
   function sectionPresetOffline(sec){ return sectionPreset(sec); }
   function playOffline(sec, midi, when, dur, gain){
     const p = sectionPresetOffline(sec);
-    const detCents = (CHAIR_DETUNE[sec]||0) + ({auto:0,bright:+4,warm:-4,mellow:-6,edgy:+6}[CHAIR_VARIANT[sec]]||0);
+    const detCents = (CHAIR_DETUNE[sec]||0) + ({auto:0,bright:+4,warm:-4,mellow:+0,edgy:+6}[CHAIR_VARIANT[sec]]||0);
     const freq = 440*Math.pow(2,(midi-69)/12) * Math.pow(2, detCents/1200);
     let src;
     if(p.wave==='noise'){
@@ -1122,14 +1131,12 @@ function bufferToWav(buffer){
   const length = buffer.length * numOfChan * 2 + 44;
   const ab = new ArrayBuffer(length);
   const view = new DataView(ab);
-  const channels = [];
-  let offset = 0;
   writeString(view, 0, 'RIFF'); view.setUint32(4, length - 8, true); writeString(view, 8, 'WAVE');
   writeString(view, 12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true);
   view.setUint16(22, numOfChan, true); view.setUint32(24, buffer.sampleRate, true);
   view.setUint32(28, buffer.sampleRate * numOfChan * 2, true); view.setUint16(32, numOfChan * 2, true); view.setUint16(34, 16, true);
   writeString(view, 36, 'data'); view.setUint32(40, length - 44, true);
-  offset = 44;
+  let offset = 44;
   for (let i = 0; i < buffer.length; i++){
     for (let ch = 0; ch < numOfChan; ch++){
       let s = Math.max(-1, Math.min(1, buffer.getChannelData(ch)[i]));
@@ -1141,49 +1148,55 @@ function bufferToWav(buffer){
 }
 function writeString(view, offset, string){ for (let i = 0; i < string.length; i++) view.setUint8(offset + i, string.charCodeAt(i)); }
 
-/* Wire up: load/analyze/export (CSV) */
+/* ===== Wire up: buttons ===== */
 btnLoadAudio.onclick=()=>audioFile.click();
 btnAnalyze.onclick=()=>analyzeAudio(audioFile.files?.[0]||null);
+
+/* Export CSV from Analyzer (enriched) */
 btnExport.onclick=()=>{
   const src = (LAST_ANALYSIS.events && LAST_ANALYSIS.events.length) ? LAST_ANALYSIS.events : A.events;
-  if(!src.length){ alert("Analyze audio or load CSV first."); return; }
-  const events = musicalizeEnriched(src,'A');
-  const csv = toEnrichedCSV(events, (LAST_ANALYSIS.bpm||parseInt(bpmEl.value,10)||100), (LAST_ANALYSIS.key||`${keyRootEl.value} ${keyModeEl.value}`));
-  downloadCSV("notes_60s_enriched.csv", csv);
+  const meta = (LAST_ANALYSIS.events && LAST_ANALYSIS.events.length) ? LAST_ANALYSIS.meta : A.meta;
+  if(!src.length){ alert("Analyze audio or load enriched CSV first."); return; }
+  const csv = toEnrichedCSV(src, (meta?.bpm ?? parseInt(bpmEl.value,10) || 100), (meta?.key ?? `${keyRootEl.value} ${keyModeEl.value}`));
+  const blob=new Blob([csv],{type:"text/csv"}); const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download='notes_60s_enriched.csv'; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(url); a.remove();},0);
 };
 
-/* Load CSV to A/B */
-btnLoadA.onclick=async()=>{ const f=csvA.files?.[0]; if(!f){alert("Select CSV for A");return;}
-  try{A.events=parseCSV(await f.text()); LAST_ANALYSIS.events=[];}catch(e){alert(e.message);return;}
-  if(PICK_A.length===0) randomizeA();
-  enforceBExclusion();
-  setStatus(`A loaded: ${A.events.length} rows`);
-  light(dotA,true);
-  checkExportReady();
-  markStage();
-};
-btnLoadB.onclick=async()=>{ const f=csvB.files?.[0]; if(!f){alert("Select CSV for B");return;}
-  try{B.events=parseCSV(await f.text());}catch(e){alert(e.message);return;}
-  if(PICK_B.length===0) randomizeB();
-  setStatus(`B loaded: ${B.events.length} rows`);
-  light(dotB,true);
-  checkExportReady();
-  markStage();
-};
+/* Load enriched CSV to A/B + sync UI meta */
+async function loadCSVto(side, fileInput, dotEl){
+  const f=fileInput.files?.[0]; if(!f){alert(`Select enriched CSV for ${side}`);return;}
+  try{
+    const {events, meta}=parseEnrichedCSV(await f.text());
+    if(side==='A'){ A={events, meta}; LAST_ANALYSIS={events:[], meta:{bpm:100,key:"C major"}}; }
+    else { B={events, meta}; }
+    // UI fill from CSV meta
+    const key=meta.key||'C major'; const bpm=meta.bpm||100;
+    detKey.textContent=key; detBPM.textContent=String(bpm);
+    bpmEl.value=String(bpm);
+    const [root,mode]=(key||'C major').split(' ');
+    if(NOTE.includes(root)) keyRootEl.value=root;
+    keyModeEl.value=((mode||'major').toLowerCase()==='minor'?'minor':'major');
 
-/* Openings controls */
-function randomIn(min,max){ return Math.floor(Math.random()*(max-min+1))+min; }
-function randomizeFamilyOpening(){
-  const s0 = 0; const w0 = randomIn(6,14); const b0 = randomIn(w0+4, Math.min(26, w0+14)); const p0 = randomIn(b0+4, Math.min(36, b0+14));
-  FAMILY_OPEN = { strings: s0, winds: w0, brass: b0, perc: p0 };
-  summarizeOpenings(); setStatus(`Family Opening randomized → ${$('openSummary').textContent} (S,W,B,P @ sec)`);
+    // Ensure picks exist
+    if(side==='A' && PICK_A.length===0) randomizeA();
+    if(side==='B' && PICK_B.length===0) randomizeB();
+
+    setStatus(`${side} loaded: ${events.length} rows`);
+    light(dotEl,true);
+    checkExportReady();
+    markStage();
+  }catch(e){
+    alert(e.message);
+  }
 }
-function resetFamilyOpening(){ FAMILY_OPEN = { strings: 0, winds: 8, brass: 16, perc: 24 }; summarizeOpenings(); setStatus('Family Opening reset.'); }
-btnOpenRandom.onclick = randomizeFamilyOpening;
-btnOpenReset.onclick  = resetFamilyOpening;
+btnLoadA.onclick=()=>loadCSVto('A', csvA, dotA);
+btnLoadB.onclick=()=>loadCSVto('B', csvB, dotB);
 
-/* Basic transport & volume/reverb wiring */
-playBtn.onclick=doPlay; stopBtn.onclick=stopAll;
+/* Openings controls already wired above */
+
+/* Transport & live controls */
+playBtn.onclick=doPlay; 
+stopBtn.onclick=stopAll;
 masterVolEl.oninput=()=>{ getAudio(); AUDIO.master.gain.value=parseFloat(masterVolEl.value); };
 reverbMixEl.oninput=()=>{ getAudio(); AUDIO.wet.gain.value=parseFloat(reverbMixEl.value); };
 spreadEl.oninput=()=>{ if(AUDIO.ctx){ try{AUDIO.ctx.close();}catch(_){ } AUDIO.ctx=null; } getAudio(); };
@@ -1191,7 +1204,9 @@ spreadEl.oninput=()=>{ if(AUDIO.ctx){ try{AUDIO.ctx.close();}catch(_){ } AUDIO.c
 /* FULL RESET */
 resetBtn.onclick=()=>{
   stopAll();
-  A={events:[]}; B={events:[]}; LAST_ANALYSIS={events:[],key:"C major",bpm:100};
+  A={events:[], meta:{bpm:100,key:"C major"}}; 
+  B={events:[], meta:{bpm:100,key:"C major"}};
+  LAST_ANALYSIS={events:[], meta:{bpm:100,key:"C major"}};
   detKey.textContent='–'; detBPM.textContent='–';
   csvA.value=""; csvB.value=""; audioFile.value="";
   composerEl.value='cinematic'; keyRootEl.value='C'; keyModeEl.value='major';
@@ -1199,7 +1214,8 @@ resetBtn.onclick=()=>{
   masterVolEl.value='0.85'; reverbMixEl.value='0.18'; spreadEl.value='0.55';
   gmProgEl.value='48'; GM_PROGRAM=48;
   applyConductorPreset();
-  if(AUDIO.ctx){ AUDIO.master.gain.value=parseFloat(masterVolEl.value); AUDIO.wet.gain.value=parseFloat(reverbMixEl.value); try{AUDIO.ctx.close();}catch{} AUDIO.ctx=null; getAudio(); }
+  if(AUDIO.ctx){ try{AUDIO.ctx.close();}catch{} AUDIO.ctx=null; }
+  getAudio();
   CAD='even'; PAC='andante'; $('cadName').textContent='Even'; $('paceName').textContent='Andante';
   PICK_A=[]; PICK_B=[]; renderSide('A'); renderSide('B'); markStage();
   FAMILY_OPEN = { strings: 0, winds: 8, brass: 16, perc: 24 }; summarizeOpenings();
