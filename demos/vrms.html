@@ -3,11 +3,12 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>CST-Locked v-RMS — Open Toroid + Planet Presets + Correct Auto-Calibrate (RMS)</title>
-<meta name="description" content="v-RMS live wave with CST phase, G ≈ vRMS²/(8πc²). Numeric-only controls, planet presets, correct Auto-Calibrate using true RMS, open-toroid animation, Auto-Scan 10× with Pass/Fail and Excel export.">
+<title>CST-Locked v-RMS — Open Toroid + Planet Presets + Stable Init</title>
+<meta name="description" content="Live v-RMS wave (visible noise), correct Auto-Calibrate (numeric RMS), CST clock, open-toroid animation, planet presets, Auto-Scan 10× with Pass/Fail and Excel export. Hard-refresh safe." />
 <style>
   :root{--bg:#0b1222;--panel:#111a34;--ink:#eaf0ff;--muted:#a7b7e6;--accent:#8fb4ff;--grid:#1b2550;--ok:#7bffb1;--warn:#ffd37a;--bad:#ff8c8c;--card:#0e1740;--border:#213067;--btn:#162455;--btnHover:#1d2e6e}
-  *{box-sizing:border-box} html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
   a{color:var(--accent);text-decoration:none}
   .wrap{max-width:1320px;margin:0 auto;padding:18px}
   h1{margin:0 0 8px;font-size:1.35rem}
@@ -35,7 +36,8 @@
   .topbar a.btn{background:var(--btn);border:1px solid var(--accent);padding:8px 12px;border-radius:10px}
   table{width:100%;border-collapse:collapse;font-size:.9rem}
   th,td{border-bottom:1px solid var(--border);padding:6px 8px;text-align:left}
-  th{color:var(--muted);font-weight:600} tbody tr:hover{background:rgba(143,180,255,0.06)}
+  th{color:var(--muted);font-weight:600}
+  tbody tr:hover{background:rgba(143,180,255,0.06)}
   .pill{display:inline-block;padding:2px 8px;border:1px solid var(--border);border-radius:999px;font-size:.8rem}
   .legend{display:flex;gap:10px;flex-wrap:wrap}
   .legend .item{display:flex;align-items:center;gap:6px}
@@ -52,8 +54,8 @@
   <h1>CST-Locked v-RMS Gravity Equivalence</h1>
   <p class="sub">
     v-RMS renders gravity as an energy-density gradient (Vibrational ≡ Influx). Earth’s ~54-min reference, density-scaled to Sun & planets (incl. Pluto).
-    Real-time \(G_{\text{est}} = v_{\rm RMS}^2/(8\pi c^2)\). Controls are numbers only. Toroid animation is ON by default.
-    <span class="badge">Always Running</span>
+    Real-time \(G_{\text{est}} = v_{\rm RMS}^2/(8\pi c^2)\). Visible noise, numeric-only controls, Auto-Calibrate, open-toroid animation.
+    <span class="badge">Hard-refresh safe</span>
   </p>
 
   <div class="grid">
@@ -130,7 +132,7 @@
 
         <div class="card">
           <h2 style="margin-bottom:6px">CST Phase / Clock</h2>
-          <div class="small">All timestamps use America/Chicago.</div>
+          <div class="small">All timestamps use America/Chicago (CST/CDT).</div>
           <canvas id="phaseDial" width="220" height="160" aria-label="CST phase dial"></canvas>
           <div class="small">Phase (rad): <span id="phaseOut" class="mono">0.000</span></div>
           <div class="small">CST Time: <span id="timeOut" class="mono">--:--:--</span></div>
@@ -152,7 +154,7 @@
         <div class="card">
           <h2 style="margin-bottom:6px">Equation</h2>
           <div class="small mono">G_est = vRMS² / (8·π·c²), c = 299,792,458 m/s, G₀ = 6.67430×10⁻¹¹</div>
-          <div class="small">Displayed v-RMS is the running RMS over the last ~2 s.</div>
+          <div class="small">Displayed v-RMS is a running RMS over ~2 s (stable under noise).</div>
         </div>
       </div>
 
@@ -228,25 +230,25 @@
 </div>
 
 <script>
-(()=>{
-  // ===== Constants & data =====
+(()=>{ 'use strict';
+  // ===== Constants & body data =====
   const c=299792458, G0=6.67430e-11, rhoEarth=5514;
   const BODY_TOL={Sun:10,Mercury:5,Venus:5,Earth:5,Mars:5,Jupiter:8,Saturn:8,Uranus:8,Neptune:8,Pluto:7};
   const bodies={Sun:{rho:1408},Mercury:{rho:5427},Venus:{rho:5243},Earth:{rho:5514},Mars:{rho:3933},Jupiter:{rho:1326},Saturn:{rho:687},Uranus:{rho:1270},Neptune:{rho:1638},Pluto:{rho:1850}};
   const V_TARGET=Math.sqrt(8*Math.PI*c*c*G0); // ≈ 12278.45 m/s
 
-  // Planet presets (numbers only; auto-cal will refine A)
+  // Planet presets (numbers only)
   const PRESETS={
     Sun:{body:'Sun',mode:54,fine:1.00,A:14000,n:0.03,b:0.50,toro:{show:'on',dir:'out',blink:1.1,ps:1.8,ring:1.20,ar:13,pk:42}},
     Mercury:{body:'Mercury',mode:54,fine:1.00,A:12500,n:0.03,b:0.55,toro:{show:'on',dir:'in',blink:1.2,ps:1.3,ring:0.85,ar:8,pk:16}},
     Venus:{body:'Venus',mode:54,fine:1.00,A:12300,n:0.04,b:0.45,toro:{show:'on',dir:'in',blink:1.2,ps:1.4,ring:0.95,ar:9,pk:20}},
-    Earth:{body:'Earth',mode:54,fine:1.00,A:12278.45,n:0.03,b:0.50,toro:{show:'on',dir:'in',blink:1.2,ps:1.4,ring:1.00,ar:9,pk:20}},
-    Mars:{body:'Mars',mode:54,fine:1.00,A:12400,n:0.04,b:0.55,toro:{show:'on',dir:'in',blink:1.3,ps:1.3,ring:0.90,ar:8,pk:18}},
-    Jupiter:{body:'Jupiter',mode:54,fine:1.00,A:13500,n:0.03,b:0.45,toro:{show:'on',dir:'in',blink:1.1,ps:2.0,ring:1.30,ar:14,pk:50}},
-    Saturn:{body:'Saturn',mode:54,fine:1.00,A:13300,n:0.04,b:0.45,toro:{show:'on',dir:'in',blink:1.2,ps:1.9,ring:1.25,ar:13,pk:44}},
-    Uranus:{body:'Uranus',mode:54,fine:1.00,A:13100,n:0.04,b:0.50,toro:{show:'on',dir:'in',blink:1.2,ps:1.8,ring:1.20,ar:11,pk:36}},
-    Neptune:{body:'Neptune',mode:54,fine:1.00,A:13200,n:0.04,b:0.50,toro:{show:'on',dir:'in',blink:1.25,ps:1.9,ring:1.20,ar:11,pk:40}},
-    Pluto:{body:'Pluto',mode:54,fine:1.00,A:12800,n:0.05,b:0.55,toro:{show:'on',dir:'in',blink:1.4,ps:1.1,ring:0.80,ar:7,pk:15}},
+    Earth:{body:'Earth',mode:54,fine:1.00,A:12278.45,n:0.30,b:0.50,toro:{show:'on',dir:'in',blink:1.2,ps:1.4,ring:1.00,ar:9,pk:20}},
+    Mars:{body:'Mars',mode:54,fine:1.00,A:12400,n:0.25,b:0.55,toro:{show:'on',dir:'in',blink:1.3,ps:1.3,ring:0.90,ar:8,pk:18}},
+    Jupiter:{body:'Jupiter',mode:54,fine:1.00,A:13500,n:0.20,b:0.45,toro:{show:'on',dir:'in',blink:1.1,ps:2.0,ring:1.30,ar:14,pk:50}},
+    Saturn:{body:'Saturn',mode:54,fine:1.00,A:13300,n:0.22,b:0.45,toro:{show:'on',dir:'in',blink:1.2,ps:1.9,ring:1.25,ar:13,pk:44}},
+    Uranus:{body:'Uranus',mode:54,fine:1.00,A:13100,n:0.24,b:0.50,toro:{show:'on',dir:'in',blink:1.2,ps:1.8,ring:1.20,ar:11,pk:36}},
+    Neptune:{body:'Neptune',mode:54,fine:1.00,A:13200,n:0.24,b:0.50,toro:{show:'on',dir:'in',blink:1.25,ps:1.9,ring:1.20,ar:11,pk:40}},
+    Pluto:{body:'Pluto',mode:54,fine:1.00,A:12800,n:0.28,b:0.55,toro:{show:'on',dir:'in',blink:1.4,ps:1.1,ring:0.80,ar:7,pk:15}},
   };
 
   // ===== DOM =====
@@ -266,15 +268,24 @@
   const extData=$('extData'), extEnable=$('extEnable'), extLatest=$('extLatest');
 
   const toroid=$('toroid'), tctx=toroid.getContext('2d');
-  const toroidShow=$('toroidShow'), flowDir=$('flowDir'), blinkSpeedNum=$('blinkSpeedNum'), packetSpeedNum=$('packetSpeedNum'), ringScaleNum=$('ringScaleNum'), arrowCountNum=$('arrowCountNum'), packetCountNum=$('packetCountNum');
+  const toroidShow=$('toroidShow'), flowDir=$('flowDir'),
+        blinkSpeedNum=$('blinkSpeedNum'), packetSpeedNum=$('packetSpeedNum'),
+        ringScaleNum=$('ringScaleNum'), arrowCountNum=$('arrowCountNum'), packetCountNum=$('packetCountNum');
 
   // ===== State =====
   let running=true, isScanning=false, scanRows=[], scanMarks=[];
   let period=54*60; const twoPi=Math.PI*2;
 
-  // Running RMS buffer (~2 seconds @ 120 Hz)
+  // Display buffer for wave
+  const DISP_LEN=wave.width; const dispBuf=new Float32Array(DISP_LEN); let dispIdx=0, dispFill=0;
+
+  // Running RMS buffer (~2 s @ 120 Hz)
   const RMS_HZ=120, RMS_SEC=2.0, RMS_LEN=Math.max(60, Math.floor(RMS_HZ*RMS_SEC));
   const rmsBuf=new Float32Array(RMS_LEN); let rmsIdx=0, rmsFilled=0;
+
+  // Seeded PRNG (visible noise)
+  let seed=Date.now()>>>0;
+  function rand(){ seed=(1664525*seed+1013904223)>>>0; return (seed/4294967296)-0.5; }
 
   // ===== Utilities =====
   function cstTimestamp(){
@@ -312,58 +323,61 @@
     if(!parts.length) return null;
     return parts[parts.length-1];
   }
-  function extRefresh(){ const v=parseExternalLatest(); extLatest.textContent=(v==null)?'—':v.toFixed(6); }
+  function extRefresh(){
+    const v=parseExternalLatest();
+    extLatest.textContent=(v==null)?'—':v.toFixed(6);
+  }
 
-  // ===== vRMS model (deterministic, no random) =====
+  // ===== Signal model =====
   function phaseNow(){ return ((nowSec()%period)/period)*twoPi; }
   function baseWave(ph, b){
-    // Vibrational sine blended with a shaped "influx" (triangle+saw) profile
     const vib=Math.sin(ph);
     const tri=2*Math.abs((ph/Math.PI)%2-1)-1;
     const saw=(ph/Math.PI)%2-1;
     const inf=0.6*tri+0.4*saw;
     return (1-b)*vib + b*inf;
   }
-  function coloredTerm(ph){ return Math.sin(ph*3.7+0.5); } // deterministic "color"
+  function coloredTerm(ph){ return Math.sin(ph*3.7+0.5) + 0.7*Math.sin(ph*2.3-0.9); }
   function instantaneousV(ph){
     const A=parseFloat(ampNum.value), n=parseFloat(noiseNum.value), b=parseFloat(blendNum.value);
-    const mix=((1-n)*baseWave(ph,b) + n*0.3*coloredTerm(ph)); // no random
+    const noiseVis = (rand()*0.9 + 0.5*coloredTerm(ph))*n*0.35; // visible noise
+    const mix = (1-n)*baseWave(ph,b) + n*0.3*coloredTerm(ph) + noiseVis; // measurement-like
     return Math.abs(A*mix);
   }
 
-  // Running RMS helpers
-  function pushRMS(v){
-    rmsBuf[rmsIdx]=v*v; rmsIdx=(rmsIdx+1)%RMS_LEN; if(rmsFilled<RMS_LEN) rmsFilled++;
-  }
-  function currentRMS(){
-    let s=0; const N=rmsFilled||1;
-    for(let i=0;i<N;i++) s+=rmsBuf[i];
-    return Math.sqrt(s/N);
+  // Running RMS
+  function pushRMS(v){ rmsBuf[rmsIdx]=v*v; rmsIdx=(rmsIdx+1)%RMS_LEN; if(rmsFilled<RMS_LEN) rmsFilled++; }
+  function currentRMS(){ let s=0,N=rmsFilled||1; for(let i=0;i<N;i++) s+=rmsBuf[i]; return Math.sqrt(s/N); }
+
+  // Display buffer helpers
+  function pushDisp(v){ dispBuf[dispIdx]=v; dispIdx=(dispIdx+1)%DISP_LEN; if(dispFill<DISP_LEN) dispFill++; }
+  function sampleDisp(x){
+    if(dispFill===0) return 0;
+    const start=(dispIdx - dispFill + DISP_LEN)%DISP_LEN;
+    const idx=(start + x)%DISP_LEN;
+    return dispBuf[idx];
   }
 
   function currentVRMS(){
-    if(extEnable.checked){
-      const v=parseExternalLatest(); if(v!=null) return Math.abs(v);
-    }
+    if(extEnable.checked){ const v=parseExternalLatest(); if(v!=null) return Math.abs(v); }
     return currentRMS();
   }
-
   function gFromVRMS(v){ return (v*v)/(8*Math.PI*c*c); }
 
-  // ===== Correct Auto-Calibrate (numeric RMS over one period) =====
+  // ===== Correct Auto-Calibrate (numeric RMS at A=1) =====
   function numericRMS_A1(){
     const n=parseFloat(noiseNum.value), b=parseFloat(blendNum.value);
-    const N=2048; let s=0;
+    const N=4096; let s=0;
     for(let i=0;i<N;i++){
       const ph=i/N*twoPi;
-      const mix=(1-n)*baseWave(ph,b) + n*0.3*coloredTerm(ph); // A=1
-      const v=Math.abs(mix);
+      const mix=(1-n)*baseWave(ph,b) + n*0.3*coloredTerm(ph); // deterministic portion for calibration
+      const v=Math.abs(mix); // A=1
       s+=v*v;
     }
-    return Math.sqrt(s/N); // RMS with A=1
+    return Math.sqrt(s/N);
   }
   function autoCalibrateA(){
-    const K=numericRMS_A1();             // RMS at A=1
+    const K=numericRMS_A1();
     const A = V_TARGET / Math.max(1e-12,K);
     ampNum.value = A.toFixed(3);
   }
@@ -374,27 +388,22 @@
     ctx.clearRect(0,0,W,H);
     ctx.strokeStyle='#28407f';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(0,H-30);ctx.lineTo(W,H-30);ctx.stroke();
 
-    // Use a 6 s history for picture only (independent of RMS buffer)
-    const N=W, samples=[];
-    for(let i=0;i<N;i++){
-      const tBack=(N-i)/N*6;
-      const ph=(((nowSec()-tBack)%period)/period)*twoPi;
-      samples.push(instantaneousV(ph));
-    }
-    const vmax=Math.max(1, parseFloat(ampNum.value)*1.2, (parseExternalLatest()||0)*1.2);
+    const vmax = Math.max(1, parseFloat(ampNum.value)*1.2, (parseExternalLatest()||0)*1.2);
     ctx.strokeStyle='#8fb4ff';ctx.lineWidth=2;ctx.beginPath();
-    for(let x=0;x<N;x++){
-      const v=samples[x];
-      const y=H-30-(v/vmax)*(H-50);
+    for(let x=0;x<W;x++){
+      const vv=sampleDisp(x);
+      const y=H-30-(vv/vmax)*(H-50);
       if(x===0) ctx.moveTo(x+2,y); else ctx.lineTo(x+2,y);
     }
     ctx.stroke();
 
     if(scanMarks.length){
       ctx.strokeStyle='#7bffb1';ctx.lineWidth=1.5;
+      const secondsShown=6;
       scanMarks.forEach(m=>{
-        const x=W-((nowSec()-m.t)/6)*W;
-        if(x>=0){ ctx.beginPath();ctx.moveTo(x,10);ctx.lineTo(x,H-35);ctx.stroke(); }
+        const dt=nowSec()-m.t;
+        const x=W - (dt/secondsShown)*W;
+        if(x>=0){ctx.beginPath();ctx.moveTo(x,10);ctx.lineTo(x,H-35);ctx.stroke();}
       });
     }
   }
@@ -410,8 +419,7 @@
     errOut.className='v mono '+(Math.abs(err)<=tol?'good':Math.abs(err)<=2*tol?'warn':'bad');
   }
 
-  // ===== Phase Dial =====
-  const pctx=phaseDial.getContext('2d');
+  // ===== Phase Dial (CST) =====
   function drawPhase(ph){
     const W=phaseDial.width,H=phaseDial.height,cx=W/2,cy=H/2+10,r=60;
     pctx.clearRect(0,0,W,H);
@@ -426,7 +434,8 @@
     pctx.strokeStyle='#8fb4ff';pctx.lineWidth=3;
     const x=cx+r*Math.cos(ph-Math.PI/2), y=cy+r*Math.sin(ph-Math.PI/2);
     pctx.beginPath();pctx.moveTo(cx,cy);pctx.lineTo(x,y);pctx.stroke();
-    phaseOut.textContent=ph.toFixed(3); setCSTClock();
+    phaseOut.textContent=ph.toFixed(3);
+    setCSTClock();
   }
 
   // ===== Toroid =====
@@ -445,7 +454,7 @@
 
     const alpha=0.35+0.65*(0.5*(1+Math.sin(ph*blink*2)));
     for(let k=0;k<nArrows;k++){
-      const ang=k*(twoPi/nArrows);
+      const ang=k*(2*Math.PI/nArrows);
       const ax=cx+R*Math.cos(ang), ay=cy+r*Math.sin(ang);
       const baseDir=Math.atan2(cy-ay,cx-ax); const theta=(dir==='in')?baseDir:baseDir+Math.PI;
       tctx.save(); tctx.globalAlpha=alpha; tctx.translate(ax,ay); tctx.rotate(theta);
@@ -457,10 +466,10 @@
 
     const sign=(dir==='in')?1:-1, baseRate=pSpeed*0.9, t=nowSec();
     for(let j=0;j<nPackets;j++){
-      const phaseJ=(j/nPackets)*twoPi, psi=(phaseJ+sign*(t*baseRate))%twoPi;
+      const phaseJ=(j/nPackets)*2*Math.PI, psi=(phaseJ+sign*(t*baseRate))%(2*Math.PI);
       const px=cx+R*Math.cos(psi), py=cy+r*Math.sin(psi);
       const s=3.0*scale*(1.0+0.2*Math.sin(ph*3 + j));
-      tctx.beginPath(); tctx.fillStyle='#7bffb1'; tctx.arc(px,py,s,0,twoPi); tctx.fill();
+      tctx.beginPath(); tctx.fillStyle='#7bffb1'; tctx.arc(px,py,s,0,2*Math.PI); tctx.fill();
     }
   }
 
@@ -501,19 +510,20 @@
 
   // ===== Periodic loop =====
   let rafId=null, fallbackId=null;
-  function loop(){
-    if(!running){ rafId=requestAnimationFrame(loop); return; }
+  function tick(){
+    if(!running){ rafId=requestAnimationFrame(tick); return; }
     const ph=phaseNow();
-    const vInst=instantaneousV(ph);
-    pushRMS(vInst); // update running RMS buffer
+    const vInst=instantaneousV(ph);     // contains visible noise
+    pushRMS(vInst);                     // feeds running RMS
+    pushDisp(vInst);                    // feeds visible wave
 
     const vrms=currentVRMS();
     drawWave(); drawKPIs(vrms); drawPhase(ph); drawToroid(ph);
-    rafId=requestAnimationFrame(loop);
+    rafId=requestAnimationFrame(tick);
   }
-  function start(){ if(rafId==null) rafId=requestAnimationFrame(loop); if(fallbackId==null) fallbackId=setInterval(()=>{},600); }
+  function start(){ if(rafId==null) rafId=requestAnimationFrame(tick); if(fallbackId==null) fallbackId=setInterval(()=>{},600); }
 
-  // ===== Preset apply =====
+  // ===== Presets =====
   function applyPlanetPreset(name){
     const p=PRESETS[name]; if(!p) return;
     bodySel.value=p.body; modeSel.value='54'; modeCustom.value=p.mode.toFixed(0);
@@ -525,8 +535,7 @@
   }
 
   // ===== Events =====
-  ;[bodySel,modeSel,modeCustom,periodFineNum].forEach(el=>el.addEventListener('input',updatePeriodUI));
-
+  [bodySel,modeSel,modeCustom,periodFineNum].forEach(el=>el.addEventListener('input',updatePeriodUI));
   extData.addEventListener('input',extRefresh);
   extEnable.addEventListener('change',extRefresh);
 
@@ -540,9 +549,9 @@
   applyPreset.addEventListener('click',()=>applyPlanetPreset(presetSel.value));
   autoCal.addEventListener('click',autoCalibrateA);
 
-  // Init
+  // ===== Init (hard-refresh safe) =====
   toroidShow.value='on'; flowDir.value='in';
-  applyPlanetPreset('Earth');
+  applyPlanetPreset('Earth');            // fill boxes
   updatePeriodUI(); extRefresh();
   (function tickClock(){ setCSTClock(); setTimeout(tickClock,1000); })();
   start();
