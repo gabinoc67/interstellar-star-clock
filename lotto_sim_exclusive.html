@@ -79,7 +79,7 @@
       <label>Sum range: <span id="recSumRange">-</span></label>
       <label>Distinct pairs: <span id="recPairs">0</span></label>
     </div>
-    <p class="note">These recent draws are blended into the winners with weight ρ (below) for numbers, pairs, and sums.</p>
+    <p class="note">These recent draws are blended into the winners with weight ρ (below) for numbers, pairs, and sums. The most recent draw also gets an optional penalty.</p>
   </div>
 
   <!-- PREVIOUS GENERATED — EVALUATION SET (UP TO ~180 TICKETS) -->
@@ -135,10 +135,11 @@
   <!-- CONTROLS -->
   <div class="card" style="margin-top:16px">
     <h3>Exclusion & Scoring Controls</h3>
-    <div class="grid" style="grid-template-columns:repeat(7,1fr);gap:8px">
+    <div class="grid" style="grid-template-columns:repeat(8,1fr);gap:8px">
       <div><label>λ (non-winner penalty)</label><input id="lambda" type="number" step="0.05" value="0.7"></div>
       <div><label>κ (sum penalty)</label><input id="kappa" type="number" step="0.05" value="0.7"></div>
       <div><label>ρ (recent weight)</label><input id="rho" type="number" step="0.1" value="0.6"></div>
+      <div><label>Recent-hit penalty % (last draw)</label><input id="recentPenaltyPct" type="number" step="1" value="20"></div>
       <div>
         <label>Exclusion mode</label>
         <select id="excludeMode">
@@ -152,11 +153,12 @@
     </div>
 
     <h4 style="margin-top:12px">Scoring Weights</h4>
-    <div class="grid" style="grid-template-columns:repeat(4,1fr);gap:8px">
+    <div class="grid" style="grid-template-columns:repeat(5,1fr);gap:8px">
       <div><label>β pair</label><input id="beta" type="number" step="0.05" value="0.15"></div>
       <div><label>γ balance</label><input id="gamma" type="number" step="0.05" value="0.10"></div>
       <div><label>δ sum-band</label><input id="delta" type="number" step="0.05" value="0.25"></div>
       <div><label>Tickets</label><input id="kTickets" type="number" value="10"></div>
+      <div><label>Anti-pair penalty</label><input id="antiPair" type="number" step="0.01" value="0.06"></div>
     </div>
 
     <div class="row" style="margin-top:10px">
@@ -230,7 +232,7 @@
       <div id="excludedNums" style="flex:1"></div>
       <div id="excludedSums" style="flex:1"></div>
     </div>
-    <p class="note" id="diagLine">Run “Analyze” to see a quick diagnostic about tight/loose settings.</p>
+    <p class="note" id="diagLine">Run “Analyze” to see a quick diagnostic about tight/loose settings and spread score (target 0.80–0.88).</p>
   </div>
 
   <!-- CROSS-PANEL FREQUENCIES -->
@@ -261,9 +263,9 @@
   <div class="card" style="margin-top:16px">
     <h3>Method (Equations)</h3>
     <p class="note">
-      Per-number (with recency): <code>w(n) ∝ (c_W(n)+ρ·c_R(n)+α)/(C_W+ρ·C_R+αN) − λ·(c_N(n)+α)/(C_N+αN)</code>, α=1, N=54.<br/>
+      Per-number (with recency): <code>w(n) ∝ (c_W(n)+ρ·c_R(n)+α)/(C_W+ρ·C_R+αN) − λ·(c_N(n)+α)/(C_N+αN)</code>, α=1, N=54, plus optional recent-hit penalty on the last draw.<br/>
       Sums: <code>W_sum(S) ∝ (H_W(S)+ρ·H_R(S)) − κ·H_N(S)</code>. Hard excludes ≤0; soft excludes bottom p%.<br/>
-      Pairs: mixed as <code>P = P_W + ρ·P_R</code> before normalization.<br/>
+      Pairs: mixed as <code>P = P_W + ρ·P_R</code> before normalization, with a mild anti-pair penalty for very hot clusters.<br/>
       Ticket score: <code>(1−β−γ−δ)·Σw(n) + β·Pair + γ·Balance + δ·Sum</code>.<br/>
       Previous/Upcoming sets are evaluation-only; they do not feed back into generation.
     </p>
@@ -435,6 +437,22 @@
       const pW=((wf.get(n)||0) + rho*(rf.get(n)||0) + alpha) / ((Cw + rho*Cr) + alpha*M);
       const pN=((nf.get(n)||0) + alpha) / ((Cn) + alpha*M);
       numScore.set(n, pW - lambda*pN);
+    }
+
+    // --- NEW: apply recent-hit penalty to the most recent official draw (from Last 20 panel) ---
+    const recentPenaltyPct = parseFloat($('#recentPenaltyPct')?.value || '0');
+    const recentPenalty = Math.max(0, Math.min(100, recentPenaltyPct)) / 100;
+    if(recentPenalty > 0 && R.length){
+      const lastDraw = R[R.length-1];
+      const lastSet = new Set(lastDraw);
+      for(const n of lastSet){
+        if(numScore.has(n)){
+          const v = numScore.get(n);
+          if(v > 0){
+            numScore.set(n, v * (1 - recentPenalty));
+          }
+        }
+      }
     }
 
     // pairs (W + ρ·R) — G/U only for evaluation
@@ -629,7 +647,7 @@
       (sumsSorted.length ? sumsSorted.map(S=>`<span class="numchip">${S}</span>`).join('') : '<span class="note">none</span>')+
       `</div>`;
 
-    // --- tiny diagnostic line (tight / medium / loose) ---
+    // --- tiny diagnostic line (tight / medium / loose + spread score) ---
     const allowedCount = (NMAX-NMIN+1) - excludedNums.size;
     let tightLabel, tip;
     if(allowedCount <= 18){
@@ -643,8 +661,19 @@
       tip = 'You are allowing many numbers. If tickets feel too random, gently increase λ or κ.';
     }
     const sumInfo = A.sumScore.size ? `, excluded sums: ${excludedSums.size}` : '';
+
+    // spread diagnostic: normalize mean spread of winners (fallback to recent) into [0,1]
+    let spreadScoreText = '';
+    const refBal = (A.wBal && A.wBal._count) ? A.wBal : ((A.rBal && A.rBal._count) ? A.rBal : null);
+    if(refBal && refBal.spread && isFinite(refBal.spread.mean)){
+      const meanSpread = refBal.spread.mean;
+      // For 6 numbers 1–54, approximate min spread≈5, max≈53
+      const norm = Math.max(0, Math.min(1, (meanSpread - 5) / (53 - 5)));
+      spreadScoreText = ` Spread score ≈ ${norm.toFixed(2)} (target 0.80–0.88).`;
+    }
+
     diagLine.textContent =
-      `Diagnostic: ${allowedCount} of 54 numbers are allowed (${tightLabel}). Mode: ${mode}, λ=${lambda.toFixed(2)}, κ=${kappa.toFixed(2)}, ρ=${rho.toFixed(2)}${sumInfo}. ${tip}`;
+      `Diagnostic: ${allowedCount} of 54 numbers are allowed (${tightLabel}). Mode: ${mode}, λ=${lambda.toFixed(2)}, κ=${kappa.toFixed(2)}, ρ=${rho.toFixed(2)}${sumInfo}. ${tip}${spreadScoreText}`;
 
     // cross-panel frequencies (W/N/R/G/U)
     const rows=[];
@@ -690,6 +719,7 @@
 
     const attempts=parseInt($('#attempts').value||'450',10);
     const kTickets=parseInt($('#kTickets').value||'10',10);
+    const antiPair=parseFloat($('#antiPair').value||'0.06');
 
     const A=analyze(lambda,kappa,rho);
     const {excludedNums,excludedSums}=excludeSets(A,mode,softPctNum,softPctSum);
@@ -733,16 +763,27 @@
       return sampleWithoutReplacement(weights,PICK);
     }
 
+    // NEW: identify very hot pairs (top 20) to apply anti-pair penalty
+    const hotPairsArr = [...A.pairCounts.entries()].sort((a,b)=>b[1]-a[1]).slice(0,20);
+    const hotPairSet = new Set(hotPairsArr.map(([k])=>k));
+
     function scoreTicket(nums){
       let base=0;
       for(const n of nums) base += Math.max(0, A.numScore.get(n)||0);
 
       let pairS=0;
+      let hotClusters=0;
       for(let i=0;i<nums.length;i++){
         for(let j=i+1;j<nums.length;j++){
           const pk=[nums[i],nums[j]].sort((a,b)=>a-b).join('-');
           const c=A.pairCounts.get(pk)||0;
-          if(A.totalPairs>0) pairS += c/A.totalPairs;
+          if(A.totalPairs>0){
+            const cNorm = c/A.totalPairs;
+            pairS += cNorm;
+            if(hotPairSet.has(pk)){
+              hotClusters += 1;
+            }
+          }
         }
       }
 
@@ -770,7 +811,9 @@
       }
 
       const baseW=Math.max(0,1-beta-gamma-delta);
-      return baseW*base + beta*pairS + gamma*balS + delta*sumS;
+      const antiPairPenalty = antiPair * hotClusters; // mild penalty if many very hot pairs in one ticket
+
+      return baseW*base + beta*(pairS - antiPairPenalty) + gamma*balS + delta*sumS;
     }
 
     const out=[];
