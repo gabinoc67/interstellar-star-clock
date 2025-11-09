@@ -113,7 +113,7 @@ small.hint{display:block;color:#a8b7e3;margin-top:6px}
 .miniHead{font-weight:800;color:#e4eeff;font-size:12px;margin-bottom:6px}
 </style>
 
-<!-- NEW: SoundFont Player library (for real instrument timbres) -->
+<!-- SoundFont Player (for real instrument timbres) -->
 <script src="https://unpkg.com/soundfont-player@0.15.2/dist/soundfont-player.js"></script>
 </head>
 <body>
@@ -125,7 +125,7 @@ small.hint{display:block;color:#a8b7e3;margin-top:6px}
 <main>
   <!-- LEFT: Controls -->
   <section class="card">
-    <!-- NEW: Clear Audio (sits above step 1) -->
+    <!-- Clear Audio -->
     <div class="row" style="margin-bottom:6px">
       <button id="btnClearAudio" class="danger">Clear Audio / Analysis / Export readiness</button>
       <div class="stat"><span>Audio file</span><b id="audioName">–</b></div>
@@ -494,7 +494,7 @@ small.hint{display:block;color:#a8b7e3;margin-top:6px}
         <li><b>Quantize & Swing:</b> snap to grid <code>q = round(t/grid)*grid</code>, odd positions get swing offset.</li>
         <li><b>Routing:</b> pitch range + family opening bias (Strings→Winds→Brass→Perc) to seats.</li>
         <li><b>Scheduling:</b> look-ahead event buffer streams notes to WebAudio buses.</li>
-        <li><b>Timbre:</b> simple subtractive synth per seat (LPF+ADS(R)) + hall IR reverb + compressor.</li>
+        <li><b>Timbre:</b> SoundFont playback per seat → panned buses → hall reverb + compressor.</li>
       </ul>
       <div class="hr" style="margin:10px 0"></div>
       <div class="mono" style="white-space:pre-wrap">
@@ -1142,7 +1142,7 @@ function writeString(view, offset, string){ for (let i = 0; i < string.length; i
     abStatus('Load two ~1-minute songs.');
   };
 })();
-/* === Clear buttons etc (existing wiring) === */
+/* === Clear buttons etc === */
 function clearAudioPipeline(){
   audioFile.value="";
   audioNameEl.textContent='–';
@@ -1239,13 +1239,12 @@ const SF_BASE = {
   perc: 'orchestral_kit',
   drums: 'standard_kit'
 };
-
 function sfNameForSection(sec){
   const base = baseOf(sec);
   return SF_BASE[base] || 'acoustic_grand_piano';
 }
 
-/* Audio engine cont. */
+/* Audio engine */
 function makeHallIR(ctx){
   const len=ctx.sampleRate*2.2, ir=ctx.createBuffer(2,len,ctx.sampleRate);
   for(let ch=0; ch<2; ch++){
@@ -1260,26 +1259,6 @@ function makeHallIR(ctx){
     }
   }
   return ir;
-}
-function getAudio(){
-  if(!AUDIO.ctx){
-    const ctx=new (window.AudioContext||window.webkitAudioContext)();
-    const comp=ctx.createDynamicsCompressor();
-    comp.threshold.value=-18; comp.ratio.value=3; comp.attack.value=0.004; comp.release.value=0.2;
-    const dry=ctx.createGain(), wet=ctx.createGain();
-    dry.gain.value=1; wet.gain.value=parseFloat(reverbMixEl.value||"0.18");
-    const conv=ctx.createConvolver();
-    conv.buffer=makeHallIR(ctx);
-    const master=ctx.createGain();
-    master.gain.value=parseFloat(masterVolEl.value||"0.85");
-    dry.connect(comp); conv.connect(wet); wet.connect(comp); comp.connect(master); master.connect(ctx.destination);
-    AUDIO={ctx,master,comp,dry,wet,convolver:conv,bus:{}, sf:{}};
-    buildBuses();
-    buildSFInstruments();  // NEW: load SoundFont instruments per chair, routed into buses
-  }
-  AUDIO.master.gain.value=parseFloat(masterVolEl.value||"0.85");
-  AUDIO.wet.gain.value=parseFloat(reverbMixEl.value||"0.18");
-  return AUDIO.ctx;
 }
 function buildBuses(){
   const ctx=AUDIO.ctx, spread=parseFloat(spreadEl.value||"0.55");
@@ -1305,17 +1284,41 @@ function buildBuses(){
   }
 }
 
-/* NEW: create per-chair SoundFont instruments routed into the buses */
+/* Build per-chair SoundFont instruments routed into buses */
 function buildSFInstruments(){
   if(!AUDIO.ctx || !AUDIO.bus) return;
-  if(typeof window.Soundfont === 'undefined') return; // library not loaded
+  if(typeof window.Soundfont === 'undefined') return;
   AUDIO.sf = AUDIO.sf || {};
   CHAIRS.forEach(id=>{
     const dest = AUDIO.bus[id];
     if(!dest) return;
     const name = sfNameForSection(id);
-    AUDIO.sf[id] = window.Soundfont.instrument(AUDIO.ctx, name, {destination: dest});
+    // load each chair’s instrument once; the instance outputs into its own panned bus
+    window.Soundfont.instrument(AUDIO.ctx, name, {destination: dest}).then(inst=>{
+      AUDIO.sf[id] = inst;
+    });
   });
+}
+
+function getAudio(){
+  if(!AUDIO.ctx){
+    const ctx=new (window.AudioContext||window.webkitAudioContext)();
+    const comp=ctx.createDynamicsCompressor();
+    comp.threshold.value=-18; comp.ratio.value=3; comp.attack.value=0.004; comp.release.value=0.2;
+    const dry=ctx.createGain(), wet=ctx.createGain();
+    dry.gain.value=1; wet.gain.value=parseFloat(reverbMixEl.value||"0.18");
+    const conv=ctx.createConvolver();
+    conv.buffer=makeHallIR(ctx);
+    const master=ctx.createGain();
+    master.gain.value=parseFloat(masterVolEl.value||"0.85");
+    dry.connect(comp); conv.connect(wet); wet.connect(comp); comp.connect(master); master.connect(ctx.destination);
+    AUDIO={ctx,master,comp,dry,wet,convolver:conv,bus:{}, sf:{}};
+    buildBuses();
+    buildSFInstruments();  // SoundFont instruments now feed into panned buses
+  }
+  AUDIO.master.gain.value=parseFloat(masterVolEl.value||"0.85");
+  AUDIO.wet.gain.value=parseFloat(reverbMixEl.value||"0.18");
+  return AUDIO.ctx;
 }
 
 async function resumeAudio(){
@@ -1369,6 +1372,7 @@ function buildChairPanel(){
   });
 }
 
+/* Simple synth preset helpers (used only for WAV export) */
 function gmPresetFor(p){
   if(p>=32 && p<=39) return {wave:'sine', lp:800, q:0.8, a:0.006, d:0.12, s:0.85, r:0.20};
   if(p<=7) return {wave:'triangle', lp:3200, q:0.7, a:0.003, d:0.12, s:0.0, r:0.2};
@@ -1406,82 +1410,47 @@ function sectionPreset(sec){
   if(p.wave!=='noise' && gm){
     p={...p, wave:gm.wave, lp:gm.lp, q:gm.q, a:gm.a, d:gm.d, s:gm.s, r:gm.r};
   }
-  const VARIANTS_TABLE = {
-    auto:{tone:1.00,attack:0.000,detuneCents:0},
-    bright:{tone:1.12,attack:-0.002,detuneCents:+4},
-    warm:{tone:0.88,attack:+0.003,detuneCents:-4},
-    mellow:{tone:0.78,attack:+0.004,detuneCents:-6},
-    edgy:{tone:1.22,attack:-0.003,detuneCents:+6}
-  };
-  const vKey = CHAIR_VARIANT[sec]||'auto', v=VARIANTS_TABLE[vKey]||VARIANTS_TABLE.auto;
-  p = {...p, lp: p.lp*v.tone, a: Math.max(0.0005, p.a + v.attack) };
   return p;
 }
 
-/* UPDATED: playSection now uses SoundFont first, then falls back to synth, all routed through buses */
+/* LIVE PLAY: use SoundFont only (fallback beep is very minimal) */
 function playSection(sec, midi, when, dur, gain){
   if(MUTE[sec] || (SOLO.on && SOLO.id!==sec)) return;
   const ctx = getAudio();
-  const bus = AUDIO.bus[sec];
   const detCents = (CHAIR_DETUNE[sec]||0) + ({auto:0,bright:+4,warm:-4,mellow:-6,edgy:+6}[CHAIR_VARIANT[sec]]||0);
   const midiNote = midi || 60;
-  const freq = midiHz(midiNote) * Math.pow(2, detCents/1200);
+  const freqFactor = Math.pow(2, detCents/1200);
 
-  let usedSF = false;
-
-  // Try SoundFont path (real instrument samples) routed through this chair's panned bus
-  if(window.Soundfont && AUDIO.sf && AUDIO.sf[sec] && bus){
-    try{
-      const absTime = when;
-      const offset = Math.max(0, absTime - ctx.currentTime);
-      AUDIO.sf[sec].then(inst=>{
-        inst.play(midiNote, ctx.currentTime + offset, {
-          duration: dur,
-          gain: gain
-        });
-      });
-      usedSF = true;
-    }catch(e){
-      usedSF = false;
-    }
-  }
-
-  // Fallback: original subtractive synth, also routed into the same bus
-  if(!usedSF){
+  // SoundFont path (real samples) → panned bus
+  if(window.Soundfont && AUDIO.sf && AUDIO.sf[sec]){
+    const inst = AUDIO.sf[sec];
+    const absTime = when;
+    const startAt = Math.max(ctx.currentTime, absTime);
+    const offset = Math.max(0, absTime - ctx.currentTime);
+    inst.play(midiNote, ctx.currentTime + offset, {
+      duration: dur,
+      gain: gain
+    });
+  } else {
+    // Very minimal fallback beep (quiet), still through bus
+    const ctx=getAudio();
     const p=sectionPreset(sec);
-    let src;
-    if(p.wave==='noise'){
-      const len=Math.max(1,Math.floor((dur+p.r)*ctx.sampleRate));
-      const buf=ctx.createBuffer(1,len,ctx.sampleRate);
-      const d=buf.getChannelData(0);
-      for(let i=0;i<len;i++){
-        d[i]=(Math.random()*2-1)*Math.exp(-i/(ctx.sampleRate*0.06));
-      }
-      src=ctx.createBufferSource();
-      src.buffer=buf;
-      src.start(when);
-      src.stop(when+dur+p.r+0.05);
-    }else{
-      src=ctx.createOscillator();
-      src.type=p.wave;
-      src.frequency.setValueAtTime(freq,when);
-      src.start(when);
-      src.stop(when+dur+p.r+0.05);
-    }
-    const biq=ctx.createBiquadFilter();
-    biq.type='lowpass';
-    biq.frequency.setValueAtTime(p.lp,when);
-    biq.Q.setValueAtTime(p.q,when);
+    const src=ctx.createOscillator();
+    src.type=p.wave;
+    const baseFreq = midiHz(midiNote);
+    src.frequency.setValueAtTime(baseFreq*freqFactor, when);
     const amp=ctx.createGain();
     amp.gain.setValueAtTime(0,when);
-    amp.gain.linearRampToValueAtTime(gain,when+p.a);
-    amp.gain.linearRampToValueAtTime(gain*p.s,when+p.a+p.d);
-    amp.gain.setValueAtTime(gain*p.s,when+dur);
-    amp.gain.linearRampToValueAtTime(0.0003,when+dur+p.r);
-    src.connect(biq); biq.connect(amp); amp.connect(bus||AUDIO.dry);
+    amp.gain.linearRampToValueAtTime(gain*0.4,when+0.01);
+    amp.gain.linearRampToValueAtTime(0,when+dur*0.4);
+    src.connect(amp);
+    (AUDIO.bus[sec]||AUDIO.dry).gain.value = 1;
+    amp.connect(AUDIO.bus[sec]||AUDIO.dry);
+    src.start(when);
+    src.stop(when+dur*0.6);
   }
 
-  // Visual feedback (unchanged)
+  // Visual feedback
   const dot=document.getElementById('dot-'+sec), chk=document.getElementById('chk-'+sec);
   if(dot){ dot.classList.remove('blink'); void dot.offsetWidth; dot.classList.add('blink'); }
   if(chk && !chk.classList.contains('checked')){ chk.classList.add('checked'); chk.textContent='✓'; }
@@ -1618,7 +1587,7 @@ async function doPlay(){
   if(idxTimer) clearInterval(idxTimer);
   idxTimer=setInterval(tick,25);
   conductor.style.animationPlayState='running';
-  setStatus("Playing…");
+  setStatus("Playing… (SoundFont through panned buses)");
   light(dotExport,true);
   light(dotExportAudio,true);
 }
@@ -1642,7 +1611,7 @@ function stopAll(){
   setStatus("Stopped.");
   conductor.style.animationPlayState='paused';
 }
-/* Export WAV */
+/* Export WAV (uses subtractive synth; live Play uses SoundFont) */
 function checkExportReady(){
   const ready = (A.events && A.events.length) || (B.events && B.events.length) || (LAST_ANALYSIS.events && LAST_ANALYSIS.events.length);
   light(dotExport, !!ready);
