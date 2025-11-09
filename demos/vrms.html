@@ -237,7 +237,7 @@
       </div>
     </div>
 
-    <!-- RIGHT column: Toroid + Animation controls -->
+    <!-- RIGHT column: Toroid + Animation controls + Panel 2 -->
     <div class="card">
       <h2>Open-Toroidal Boundary (Animated)</h2>
 
@@ -276,6 +276,37 @@
       <div class="legend small" style="margin-top:6px">
         <div class="item"><span class="dot" id="glowDot"></span> Toroid brightness (Harmony Glow)</div>
         <div class="item"><span class="mono">→</span> Arrows orbit & point with flow</div>
+      </div>
+
+      <!-- PANEL 2: Coil & Spring Structuring -->
+      <div class="card" style="margin-top:12px">
+        <h2>Coil &amp; Spring Structuring (Panel 2)</h2>
+        <div class="row" style="grid-template-columns:1.1fr 0.9fr;gap:10px;margin-top:6px">
+          <div class="card">
+            <div class="small">Number of coils N<sub>c</sub> (4–24)
+              <input id="coilNc" type="range" min="4" max="24" step="1" value="12" />
+              <span id="coilNcOut" class="mono">12</span>
+            </div>
+            <div class="small">Coil tightness τ<sub>c</sub> (0.20–1.50)
+              <input id="coilTau" type="range" min="0.2" max="1.5" step="0.01" value="0.90" />
+              <span id="coilTauOut" class="mono">0.90</span>
+            </div>
+            <div class="small">Spring stiffness k<sub>s</sub> (0.20–2.00)
+              <input id="coilKs" type="range" min="0.2" max="2.0" step="0.01" value="1.00" />
+              <span id="coilKsOut" class="mono">1.00</span>
+            </div>
+            <div class="small">Damping / loss γ (0–1)
+              <input id="coilGamma" type="range" min="0" max="1" step="0.01" value="0.30" />
+              <span id="coilGammaOut" class="mono">0.30</span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="small">Assembly Index A (0–1): <span id="assemblyOut" class="mono">—</span></div>
+            <div class="small" id="assemblyLabel">—</div>
+            <div class="small" id="assemblyNote">Adjust N<sub>c</sub>, τ<sub>c</sub>, k<sub>s</sub>, and γ to see how condensed energy organizes into a framework.</div>
+          </div>
+        </div>
+        <canvas id="coilCanvas" width="520" height="220" aria-label="Coil and spring lattice"></canvas>
       </div>
 
       <div class="card" style="margin-top:12px">
@@ -353,6 +384,12 @@
   const derivedBody=$('derivedBody');
   const explain=$('explain');
 
+  // Panel 2: Coil & Spring DOM
+  const coilCanvas = $('coilCanvas'), cc = coilCanvas.getContext('2d');
+  const coilNc = $('coilNc'), coilTau = $('coilTau'), coilKs = $('coilKs'), coilGamma = $('coilGamma');
+  const coilNcOut = $('coilNcOut'), coilTauOut = $('coilTauOut'), coilKsOut = $('coilKsOut'), coilGammaOut = $('coilGammaOut');
+  const assemblyOut = $('assemblyOut'), assemblyLabel = $('assemblyLabel'), assemblyNote = $('assemblyNote');
+
   // ===== Runtime state =====
   let running=true, isScanning=false, scanRows=[], scanMarks=[];
   let period = 54*60; // seconds
@@ -397,6 +434,17 @@
   }
   function extRefresh(){ const v=parseExternalLatest(); extLatest.textContent=(v==null)?'—':v.toFixed(6); }
 
+  function lerp(a,b,t){ return a + (b-a)*t; }
+  function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
+  function nowSec(){ return Date.now()/1000; }
+
+  // ===== Toroid-only Glow State =====
+  let torGlow = {
+    alpha: 0.7,        // global alpha for arrows/packets
+    ring:  0.7,        // ring brightness factor
+    warm:  0.0         // 0 cool-blue … 1 warm-green/teal
+  };
+
   // Triad & coherence → effective params; also compute toroid-only glow state
   function triad(){
     let dc=parseFloat(dcRange.value), de=parseFloat(deRange.value), dm=parseFloat(dmRange.value);
@@ -416,9 +464,7 @@
     tolOut.textContent = `±${tolBase.toFixed(1)}% (base)`;
     return { dc, de, dm, Hn, kappa_eff, b_eff, tolEff };
   }
-  function lerp(a,b,t){ return a + (b-a)*t; }
-  function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
-  function nowSec(){ return Date.now()/1000; }
+
   function phaseNow(){
     if(!cstSync.checked){ return ((nowSec()%period)/period)*TWO_PI; }
     const t = new Date(); const ms = t.getTime(); const sec = (ms/1000)|0; const frac = (ms/1000 - sec);
@@ -490,12 +536,6 @@
     phaseOut.textContent = ph.toFixed(3); setCSTClock();
   }
 
-  // ===== Toroid-only Glow State =====
-  let torGlow = {
-    alpha: 0.7,        // global alpha for arrows/packets
-    ring:  0.7,        // ring brightness factor
-    warm:  0.0         // 0 cool-blue … 1 warm-green/teal
-  };
   function setToroidGlow(Hn){
     // Map coherence to toroid visuals only
     const intensity = glowEnable.checked ? parseFloat(glowIntensity.value||0.85) : 0;
@@ -554,6 +594,137 @@
     }
   }
 
+  // ===== Panel 2: Coil & Spring helpers =====
+  function updateCoilUI(){
+    coilNcOut.textContent = parseInt(coilNc.value,10);
+    coilTauOut.textContent = parseFloat(coilTau.value).toFixed(2);
+    coilKsOut.textContent = parseFloat(coilKs.value).toFixed(2);
+    coilGammaOut.textContent = parseFloat(coilGamma.value).toFixed(2);
+  }
+
+  function assemblyFromParams(Hn){
+    const Nc = parseInt(coilNc.value,10)||8;
+    const tau = parseFloat(coilTau.value)||0.9;
+    const ks = parseFloat(coilKs.value)||1.0;
+    const gamma = parseFloat(coilGamma.value)||0.3;
+    function gauss(x,mu,sig){ const z=(x-mu)/sig; return Math.exp(-z*z); }
+    const NcTerm = gauss(Nc,12,4.5);
+    const tauTerm= gauss(tau,0.9,0.32);
+    const ksTerm = gauss(ks,1.0,0.65);
+    const gTerm  = gauss(gamma,0.35,0.25);
+    let A = Hn * (0.25*NcTerm + 0.25*tauTerm + 0.25*ksTerm + 0.25*gTerm);
+    return clamp(A,0,1);
+  }
+
+  function updateAssemblyReadout(Hn){
+    const A = assemblyFromParams(Hn);
+    assemblyOut.textContent = A.toFixed(3);
+    let label, note;
+    if(A>0.8){
+      label='High structural coherence';
+      note='Coils lock into a stable lattice; springs share load smoothly.';
+    }else if(A>0.45){
+      label='Moderate structuring';
+      note='Framework forms but some modes are still loose or over-damped.';
+    }else{
+      label='Low structuring';
+      note='Energy is condensed but not yet organized into a stable framework.';
+    }
+    assemblyLabel.textContent = label;
+    assemblyNote.textContent = note;
+    return A;
+  }
+
+  function drawCoil(ph, tri){
+    const W=coilCanvas.width,H=coilCanvas.height;
+    cc.clearRect(0,0,W,H);
+
+    const Nc = parseInt(coilNc.value,10)||8;
+    const tau = parseFloat(coilTau.value)||0.9;
+    const ks = parseFloat(coilKs.value)||1.0;
+    const gamma = parseFloat(coilGamma.value)||0.3;
+    const A = assemblyFromParams(tri.Hn);
+
+    // Colors based on assembly level
+    const baseColor = {r:143,g:180,b:255}; // cool
+    const strongColor = {r:123,g:255,b:177}; // coherent/green
+    const mix = A;
+    const col = {
+      r:Math.round(baseColor.r + (strongColor.r-baseColor.r)*mix),
+      g:Math.round(baseColor.g + (strongColor.g-baseColor.g)*mix),
+      b:Math.round(baseColor.b + (strongColor.b-baseColor.b)*mix)
+    };
+    const filamentStroke = `rgba(${col.r},${col.g},${col.b},${0.35+0.55*A})`;
+    const springStroke   = `rgba(${col.r},${col.g},${col.b},${0.25+0.50*A})`;
+
+    const midY = H*0.52;
+
+    // Baseline / rail
+    cc.strokeStyle='rgba(33,48,103,0.8)';
+    cc.lineWidth=1;
+    cc.beginPath();
+    cc.moveTo(20,midY);
+    cc.lineTo(W-20,midY);
+    cc.stroke();
+
+    // Vertical posts (matter anchor points) – depend on ks
+    const nPosts = 4;
+    const span = (W-80)/(nPosts-1);
+    for(let i=0;i<nPosts;i++){
+      const x = 40 + i*span;
+      const h = 40 + 35*ks;
+      cc.beginPath();
+      cc.moveTo(x,midY-h/2);
+      cc.lineTo(x,midY+h/2);
+      cc.stroke();
+    }
+
+    // Coils as multiple sinusoidal filaments
+    cc.strokeStyle=filamentStroke;
+    cc.lineWidth=1.5;
+    const amp = 10 + 18*tau;
+    const nCoils = Math.max(1,Nc);
+    for(let k=0;k<nCoils;k++){
+      const tNorm = k/Math.max(1,nCoils-1);
+      const y0 = midY - 30 + 60*tNorm;
+      cc.beginPath();
+      for(let x=30;x<=W-30;x+=4){
+        const u=(x-30)/(W-60);
+        const phase = ph*0.8 + tNorm*TWO_PI;
+        const y = y0 + amp*Math.sin(2*Math.PI*u*tau*1.2 + phase);
+        if(x===30) cc.moveTo(x,y); else cc.lineTo(x,y);
+      }
+      cc.stroke();
+    }
+
+    // Springs between posts as zig-zags: ks & γ tune sag/rigidity
+    cc.strokeStyle=springStroke;
+    cc.lineWidth=1.2;
+    const baseSag = 12+24*gamma;
+    for(let i=0;i<nPosts-1;i++){
+      const x1 = 40 + i*span;
+      const x2 = 40 + (i+1)*span;
+      const steps = 14;
+      const yTop = midY - 6;
+      const yBottom = midY + 6 + baseSag*(1-0.4*A);
+      cc.beginPath();
+      for(let s=0;s<=steps;s++){
+        const t = s/steps;
+        const x = x1 + (x2-x1)*t;
+        const y = (s%2===0)?yTop:yBottom;
+        if(s===0) cc.moveTo(x,y); else cc.lineTo(x,y);
+      }
+      cc.stroke();
+    }
+
+    // Highlight box when A is high (robust lattice)
+    if(A>0.75){
+      cc.strokeStyle=`rgba(${col.r},${col.g},${col.b},0.35)`;
+      cc.lineWidth=2;
+      cc.strokeRect(24,midY-52, W-48, 104);
+    }
+  }
+
   // Derived VT↔CIT table
   function fillDerived(vrms, tri){
     const b = BODY[bodySel.value] || BODY.Earth; const kappa = tri.kappa_eff; const R=b.R, rho=b.rho, g=b.g;
@@ -586,6 +757,7 @@
       <ul>
         <li><b>Harmony Glow (canvas-only):</b> Color & brightness respond to coherence <i>inside</i> the torus. Page background never changes.</li>
         <li><b>Arrows & Dots Orbit:</b> Continuous clockwise motion around the ring; arrows point with Influx/Outflux.</li>
+        <li><b>Coil & Spring Panel (2):</b> N<sub>c</sub>, τ<sub>c</sub>, k<sub>s</sub>, and γ shape how condensed VT↔CIT modes organize into a filament + lattice framework.</li>
         <li><b>Δ vs G₀:</b> Effective tolerance tightens as triad coherence increases.</li>
       </ul>`;
   }
@@ -629,9 +801,12 @@
   let rafId=null;
   function tick(){
     if(!running){ rafId=requestAnimationFrame(tick); return; }
-    const tri = triad(); const ph=phaseNow(); const vInst=instantaneousV(ph, tri.b_eff); pushRMS(vInst); pushDisp(vInst);
+    const tri = triad();
+    const ph=phaseNow();
+    const vInst=instantaneousV(ph, tri.b_eff); pushRMS(vInst); pushDisp(vInst);
     const vrms=currentVRMS(); const vmax=Math.max(1, parseFloat(ampNum.value)*1.2, (parseExternalLatest()||0)*1.2);
-    drawWave(vmax); drawKPIs(vrms, tri.tolEff); drawPhase(ph); drawToroid(ph); fillDerived(vrms, tri);
+    drawWave(vmax); drawKPIs(vrms, tri.tolEff); drawPhase(ph); drawToroid(ph); drawCoil(ph, tri); fillDerived(vrms, tri);
+    updateAssemblyReadout(tri.Hn);
     rafId=requestAnimationFrame(tick);
   }
   function start(){ if(rafId==null) rafId=requestAnimationFrame(tick); }
@@ -658,9 +833,12 @@
   applyPreset.addEventListener('click',()=>applyPlanetPreset(presetSel.value));
   autoCal.addEventListener('click',()=>{ const t=triad(); autoCalibrateA(t.b_eff); });
 
+  // Coil panel sliders
+  [coilNc,coilTau,coilKs,coilGamma].forEach(el=>el.addEventListener('input',()=>{updateCoilUI();}));
+
   // Init
   (function tickClock(){ setCSTClock(); setTimeout(tickClock,1000); })();
-  applyPlanetPreset('Earth'); updatePeriodUI(); extRefresh(); fillExplain(); start();
+  applyPlanetPreset('Earth'); updatePeriodUI(); extRefresh(); fillExplain(); updateCoilUI(); start();
 })();
 </script>
 </body>
