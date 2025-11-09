@@ -17,6 +17,7 @@
   textarea{width:100%;min-height:160px;background:#0e1530;color:var(--ink);border:1px solid var(--grid);border-radius:10px;padding:10px;font-family:ui-monospace,Menlo,Consolas}
   label{font-size:0.9rem;color:var(--muted)}
   input[type="number"],select{width:100%;background:#0e1530;color:var(--ink);border:1px solid var(--grid);border-radius:10px;padding:8px}
+  input[type="text"]{width:100%;background:#0e1530;color:var(--ink);border:1px solid var(--grid);border-radius:10px;padding:8px}
   button{background:linear-gradient(180deg,#96b8ff,#6c96ff);color:#06102e;border:0;border-radius:12px;padding:10px 14px;font-weight:700;cursor:pointer}
   button.secondary{background:#1f2a57;color:var(--ink);border:1px solid var(--grid)}
   .pill{display:inline-block;background:var(--chip);border:1px solid var(--grid);padding:4px 8px;border-radius:999px;color:var(--muted);font-size:0.8rem}
@@ -96,6 +97,19 @@
       <label>Distinct pairs: <span id="genPairs">0</span></label>
     </div>
     <p class="note">Use this to measure how your 40 picks align with winner-like regions and recent trends.</p>
+
+    <!-- NEW: DRAWN NUMBERS + EVALUATION FOR HITS ≥ 3 -->
+    <div class="row" style="margin-top:10px;align-items:flex-end">
+      <div style="flex:1;min-width:220px">
+        <label>Drawn 6 numbers for this set (evaluation)</label>
+        <input id="genWinInput" type="text" placeholder="e.g. 03 12 25 31 44 52" />
+      </div>
+      <div>
+        <button id="genEvalBtn" class="secondary">Evaluate Hits ≥ 3</button>
+      </div>
+    </div>
+    <p class="note" id="genEvalSummary">No evaluation yet. Paste tickets above, enter the drawn 6 numbers, then click “Evaluate Hits ≥ 3”.</p>
+    <div class="note" id="genEvalDetails"></div>
   </div>
 
   <!-- UPCOMING GENERATED 40 — EVALUATION PANEL (NEW) -->
@@ -313,6 +327,10 @@
   const winTxt = $('#winTxt'), nonTxt = $('#nonTxt'), recTxt = $('#recTxt');
   const genTxt = $('#genTxt'); // previous generated (evaluation)
   const upTxt  = $('#upTxt');  // upcoming generated (evaluation)
+
+  const genWinInput = $('#genWinInput');
+  const genEvalSummary = $('#genEvalSummary');
+  const genEvalDetails = $('#genEvalDetails');
 
   const winCount = $('#winCount'), nonCount = $('#nonCount'), recCount = $('#recCount');
   const genCount = $('#genCount'), upCount = $('#upCount');
@@ -716,10 +734,69 @@
     </div>`).join('');
   }
 
+  // -------- NEW: evaluate previous generated tickets vs drawn 6 numbers --------
+  function evaluatePrevTickets(){
+    const tickets = parseText(genTxt.value);
+    const winDraws = parseText(genWinInput.value);
+
+    if(!tickets.length){
+      genEvalSummary.textContent = 'No tickets to evaluate. Paste one or more tickets in the textarea above.';
+      genEvalDetails.textContent = '';
+      return;
+    }
+    if(!winDraws.length){
+      genEvalSummary.textContent = 'No drawn numbers. Paste the 6 winning numbers in the field above.';
+      genEvalDetails.textContent = '';
+      return;
+    }
+
+    const win = winDraws[0];
+    if(win.length < PICK){
+      genEvalSummary.textContent = 'The drawn numbers field must contain at least 6 valid numbers between 1 and 54.';
+      genEvalDetails.textContent = '';
+      return;
+    }
+
+    const winSet = new Set(win);
+    const results = [];
+    let c3=0,c4=0,c5=0,c6=0;
+
+    tickets.forEach((t,idx)=>{
+      const hits = t.filter(x=>winSet.has(x));
+      const c = hits.length;
+      if(c>=3){
+        results.push({idx:idx+1, ticket:t, hits, c});
+        if(c===3)c3++; else if(c===4)c4++; else if(c===5)c5++; else if(c>=6)c6++;
+      }
+    });
+
+    genEvalSummary.textContent =
+      `Tickets evaluated: ${tickets.length}. Tickets with ≥3 hits: ${results.length}. ` +
+      `(3 hits: ${c3}, 4 hits: ${c4}, 5 hits: ${c5}, 6 hits: ${c6})`;
+
+    if(!results.length){
+      genEvalDetails.textContent = 'No tickets with 3 or more matching numbers for this draw.';
+      return;
+    }
+
+    const maxShow = 100;
+    const lines = results.slice(0,maxShow).map(r=>{
+      const tStr = r.ticket.map(n=>String(n).padStart(2,'0')).join(' ');
+      const hStr = r.hits.map(n=>String(n).padStart(2,'0')).join(' ');
+      return `Ticket #${r.idx}: [${tStr}] — hits ${r.c}: ${hStr}`;
+    });
+    let extra = '';
+    if(results.length > maxShow){
+      extra = `<br>… plus ${results.length-maxShow} more tickets with ≥3 hits.`;
+    }
+    genEvalDetails.innerHTML = lines.join('<br>') + extra;
+  }
+
   // wire buttons
   document.getElementById('analyzeBtn').addEventListener('click', analyzeUI);
   document.getElementById('genBtn').addEventListener('click', generateTicketsUI);
   document.getElementById('sampBtn').addEventListener('click', generateSamplesUI);
+  document.getElementById('genEvalBtn').addEventListener('click', evaluatePrevTickets);
 
   // initial counters
   function init(){ refreshCounts(); }
