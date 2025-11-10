@@ -67,9 +67,9 @@
       <h2>Live Wave & Results</h2>
       <canvas id="wave" width="1000" height="260" aria-label="v-RMS live wave"></canvas>
 
-      <!-- Download Wave PNG button -->
+      <!-- Download Wave PNG button (with data overlay) -->
       <div class="btns" style="margin-top:8px">
-        <button id="saveWavePng">Download Wave PNG</button>
+        <button id="saveWavePng">Download Wave + Data PNG</button>
       </div>
 
       <div class="kpi">
@@ -188,6 +188,11 @@
             <button id="pauseBtn">Pause</button>
             <button id="resumeBtn" disabled>Resume</button>
             <button id="exportCsv">Export CSV</button>
+            <!-- Open Word document with explanations/instructions -->
+            <a href="https://gabinoc67.github.io/interstellar-star-clock/demos/Coil_Theory_vRMS_VT_CIT_Guide - Copy.docx"
+               target="_blank" rel="noopener">
+              <button type="button">Open Word Guide</button>
+            </a>
           </div>
           <div class="small">Pause stops drawing only; CST phase & timing continue.</div>
         </div>
@@ -283,9 +288,10 @@
         <div class="item"><span class="mono">→</span> Arrows orbit & point with flow</div>
       </div>
 
-      <!-- Download Toroid & Coils PNG button -->
+      <!-- Separate PNG buttons for toroid and strings (coils), with data overlays -->
       <div class="btns" style="margin-top:8px">
-        <button id="saveToroidCoilPng">Download Toroid &amp; Coils PNG</button>
+        <button id="saveToroidPng">Download Toroid + Data PNG</button>
+        <button id="saveCoilPng">Download Strings (Coils) + Data PNG</button>
       </div>
 
       <!-- PANEL 2: Coil & Spring Structuring -->
@@ -402,7 +408,8 @@
 
   // PNG buttons
   const saveWavePng = $('saveWavePng');
-  const saveToroidCoilPng = $('saveToroidCoilPng');
+  const saveToroidPng = $('saveToroidPng');
+  const saveCoilPng = $('saveCoilPng');
 
   // ===== Runtime state =====
   let running=true, isScanning=false, scanRows=[], scanMarks=[];
@@ -482,10 +489,10 @@
   function phaseNow(){
     if(!cstSync.checked){ return ((nowSec()%period)/period)*TWO_PI; }
     const t = new Date(); const ms = t.getTime(); const sec = (ms/1000)|0; const frac = (ms/1000 - sec);
-    const base = (sec % Math.floor(period)) / period; return ((base + frac/period) % 1) *TWO_PI;
+    const base = (sec % Math.floor(period)) / period; return ((base + frac/period) % 1) * TWO_PI;
   }
 
-  // Wave model (independent of glow now)
+  // Wave model
   function baseWave(ph, beff){
     const vib = Math.sin(ph);
     const tri = 2*Math.abs((ph/Math.PI)%2 - 1)-1;
@@ -544,20 +551,17 @@
   }
   function drawPhase(ph){
     const W=phaseDial.width,H=phaseDial.height,cx=W/2,cy=H/2+10,r=60; pctx.clearRect(0,0,W,H);
-    pctx.strokeStyle='#28407f'; pctx.lineWidth=2; pctx.beginPath(); pctx.arc(cx,cy,r,0,Math.PI*2); pctx.stroke();
+    pctx.strokeStyle='#28407f'; pctx.lineWidth=2; pctx.beginPath(); pctx.arc(cx,cy,r,0,TWO_PI); pctx.stroke();
     pctx.strokeStyle='#213067'; pctx.lineWidth=1; for(let k=0;k<12;k++){ const ang=k*(Math.PI/6); const tx1=cx+(r-8)*Math.cos(ang-Math.PI/2), ty1=cy+(r-8)*Math.sin(ang-Math.PI/2); const tx2=cx+(r)*Math.cos(ang-Math.PI/2), ty2=cy+(r)*Math.sin(ang-Math.PI/2); pctx.beginPath(); pctx.moveTo(tx1,ty1); pctx.lineTo(tx2,ty2); pctx.stroke(); }
     pctx.strokeStyle='#8fb4ff'; pctx.lineWidth=3; const x=cx+r*Math.cos(ph-Math.PI/2), y=cy+r*Math.sin(ph-Math.PI/2); pctx.beginPath(); pctx.moveTo(cx,cy); pctx.lineTo(x,y); pctx.stroke();
     phaseOut.textContent = ph.toFixed(3); setCSTClock();
   }
 
   function setToroidGlow(Hn){
-    // Map coherence to toroid visuals only
     const intensity = glowEnable.checked ? parseFloat(glowIntensity.value||0.85) : 0;
-    // Brighter when coherent
     torGlow.alpha = 0.3 + 0.7*Hn*intensity;
     torGlow.ring  = 0.35 + 0.65*Hn;
-    // Slight hue warm shift as H rises (visual pop); stays subtle
-    torGlow.warm  = 0.15 + 0.55*Hn*intensity; // 0.15..0.70
+    torGlow.warm  = 0.15 + 0.55*Hn*intensity;
     glowDot.style.backgroundColor = `rgba(123,255,177,${0.35+0.65*Hn*intensity})`;
   }
 
@@ -568,9 +572,8 @@
     const scale=parseFloat(ringScaleNum.value), nArrows=parseInt(arrowCountNum.value,10), nPackets=parseInt(packetCountNum.value,10);
     const cx=W/2, cy=H/2, R=110*scale, r=40*scale;
 
-    // Colors: blend between cool blue and teal/green inside the toroid only
-    const cool = {r:143,g:180,b:255}; // #8fb4ff
-    const warm = {r:123,g:255,b:177}; // #7bffb1
+    const cool = {r:143,g:180,b:255};
+    const warm = {r:123,g:255,b:177};
     const mix = torGlow.warm;
     const col = { r:Math.round(cool.r+(warm.r-cool.r)*mix),
                   g:Math.round(cool.g+(warm.g-cool.g)*mix),
@@ -579,14 +582,12 @@
     const arrowStroke= `rgba(${col.r},${col.g},${col.b},${torGlow.alpha})`;
     const dotFill    = `rgba(${Math.round(0.9*warm.r)},${warm.g},${warm.b},${0.35+0.65*torGlow.alpha})`;
 
-    // Base ring + inner pulse
-    tctx.strokeStyle=ringStroke; tctx.lineWidth=2; tctx.beginPath(); tctx.ellipse(cx,cy,R,r,0,0,Math.PI*2); tctx.stroke();
-    const pulse=(glowEnable.checked?0.08*Math.sin(ph*2):0); const Rin=R*(1-0.25+pulse), rin=r*(1-0.25+pulse); tctx.beginPath(); tctx.ellipse(cx,cy,Rin,rin,0,0,Math.PI*2); tctx.stroke();
+    tctx.strokeStyle=ringStroke; tctx.lineWidth=2; tctx.beginPath(); tctx.ellipse(cx,cy,R,r,0,0,TWO_PI); tctx.stroke();
+    const pulse=(glowEnable.checked?0.08*Math.sin(ph*2):0); const Rin=R*(1-0.25+pulse), rin=r*(1-0.25+pulse); tctx.beginPath(); tctx.ellipse(cx,cy,Rin,rin,0,0,TWO_PI); tctx.stroke();
 
-    // Orbiting arrows (clockwise)
-    const t = nowSec(); const spin = parseFloat(orbitSpeedNum.value||0.6); const angOffset = -t * spin; // negative = clockwise
+    const t = nowSec(); const spin = parseFloat(orbitSpeedNum.value||0.6); const angOffset = -t * spin;
     for(let k=0;k<nArrows;k++){
-      const baseAng = k*(Math.PI*2/nArrows); const ang = baseAng + angOffset;
+      const baseAng = k*(TWO_PI/nArrows); const ang = baseAng + angOffset;
       const ax=cx+R*Math.cos(ang), ay=cy+r*Math.sin(ang);
       const baseDir=Math.atan2(cy-ay,cx-ax); const theta=(dir==='in')?baseDir:baseDir+Math.PI;
       tctx.save();
@@ -599,12 +600,11 @@
       tctx.restore();
     }
 
-    // Orbiting packets (dots), directional travel along ring
     const sign=(dir==='in')?1:-1, baseRate=(parseFloat(packetSpeedNum.value)||1.4)*0.9;
     for(let j=0;j<nPackets;j++){
-      const phaseJ=(j/nPackets)*Math.PI*2, psi=(phaseJ+sign*(t*baseRate))% (Math.PI*2); const px=cx+R*Math.cos(psi), py=cy+r*Math.sin(psi);
+      const phaseJ=(j/nPackets)*TWO_PI, psi=(phaseJ+sign*(t*baseRate))%TWO_PI; const px=cx+R*Math.cos(psi), py=cy+r*Math.sin(psi);
       const s=3.0*scale*(1.0+0.18*Math.sin(ph*3 + j));
-      tctx.beginPath(); tctx.fillStyle=dotFill; tctx.arc(px,py,s,0,Math.PI*2); tctx.fill();
+      tctx.beginPath(); tctx.fillStyle=dotFill; tctx.arc(px,py,s,0,TWO_PI); tctx.fill();
     }
   }
 
@@ -659,9 +659,8 @@
     const gamma = parseFloat(coilGamma.value)||0.3;
     const A = assemblyFromParams(tri.Hn);
 
-    // Colors based on assembly level
-    const baseColor = {r:143,g:180,b:255}; // cool
-    const strongColor = {r:123,g:255,b:177}; // coherent/green
+    const baseColor = {r:143,g:180,b:255};
+    const strongColor = {r:123,g:255,b:177};
     const mix = A;
     const col = {
       r:Math.round(baseColor.r + (strongColor.r-baseColor.r)*mix),
@@ -673,7 +672,6 @@
 
     const midY = H*0.52;
 
-    // Baseline / rail
     cc.strokeStyle='rgba(33,48,103,0.8)';
     cc.lineWidth=1;
     cc.beginPath();
@@ -681,7 +679,6 @@
     cc.lineTo(W-20,midY);
     cc.stroke();
 
-    // Vertical posts (matter anchor points) – depend on ks
     const nPosts = 4;
     const span = (W-80)/(nPosts-1);
     for(let i=0;i<nPosts;i++){
@@ -693,7 +690,6 @@
       cc.stroke();
     }
 
-    // Coils as multiple sinusoidal filaments
     cc.strokeStyle=filamentStroke;
     cc.lineWidth=1.5;
     const amp = 10 + 18*tau;
@@ -704,14 +700,13 @@
       cc.beginPath();
       for(let x=30;x<=W-30;x+=4){
         const u=(x-30)/(W-60);
-        const phase = ph*0.8 + tNorm*Math.PI*2;
+        const phase = ph*0.8 + tNorm*TWO_PI;
         const y = y0 + amp*Math.sin(2*Math.PI*u*tau*1.2 + phase);
         if(x===30) cc.moveTo(x,y); else cc.lineTo(x,y);
       }
       cc.stroke();
     }
 
-    // Springs between posts as zig-zags: ks & γ tune sag/rigidity
     cc.strokeStyle=springStroke;
     cc.lineWidth=1.2;
     const baseSag = 12+24*gamma;
@@ -731,7 +726,6 @@
       cc.stroke();
     }
 
-    // Highlight box when A is high (robust lattice)
     if(A>0.75){
       cc.strokeStyle=`rgba(${col.r},${col.g},${col.b},0.35)`;
       cc.lineWidth=2;
@@ -745,7 +739,7 @@
     const rho_v = (g * rho * R) / (2*Math.PI * kappa * c * c);
     const u_v = rho_v * c * c;
     const rho_influx = u_v / (vrms*vrms);
-    const T = period; const omega = 2*Math.PI / T; const vchar = omega * R; const f = vrms/(2*Math.PI*R);
+    const T = period; const omega = TWO_PI / T; const vchar = omega * R; const f = vrms/(TWO_PI*R);
     const rows = [
       ['R', 'Radius (m)', fmt(R)],
       ['ρ_mat', 'Mean density (kg/m³)', fmt(rho)],
@@ -765,7 +759,7 @@
   function fmt(x, d=0){ return Number(x).toLocaleString(undefined,{maximumFractionDigits:d}); }
   function sci(x, d=3){ return Number(x).toExponential(d); }
 
-  // Explanations (now includes the formulas for collaborators)
+  // Explanations
   function fillExplain(){
     explain.innerHTML = `
       <ul>
@@ -777,7 +771,7 @@
         <li><b>VT↔CIT v-RMS equivalence (for Ruud &amp; Carl):</b> each scan applies
           <span class="mono">G_est = v² / (8π c²)</span> and compares it to G₀ = 6.67430×10⁻¹¹ m³·kg⁻¹·s⁻². The Auto-Scan log plus
           <b>Export CSV</b> give the full dataset (v_RMS, G_est, Δ vs G₀, Pass/Fail, body, mode, CST time).</li>
-        <li><b>Exports for external teams:</b> use <b>Download Wave PNG</b> for the live v-RMS waveform, <b>Download Toroid &amp; Coils PNG</b> for the toroidal flow + lattice panel, and <b>Export CSV</b> for the corresponding numeric run. Together these provide Steven Henderson, Ruud Loeffen, and Carl Grimes with reproducible frames plus data.</li>
+        <li><b>Exports for external teams:</b> use <b>Download Wave + Data PNG</b> for the live v-RMS waveform, <b>Download Toroid + Data PNG</b> for the toroidal flow, <b>Download Strings (Coils) + Data PNG</b> for the coil/lattice, and <b>Export CSV</b> for the corresponding numeric run.</li>
         <li><b>Coil &amp; Spring Panel (2):</b> N<sub>c</sub>, τ<sub>c</sub>, k<sub>s</sub>, and γ show how condensed VT↔CIT modes organize into a filament + lattice framework as assembly index A → 1.</li>
       </ul>`;
   }
@@ -817,7 +811,7 @@
     scanStatus.textContent=`Exported ${fname}`;
   }
 
-  // canvas→PNG helper
+  // canvas→PNG helpers
   function downloadCanvasPng(canvas, filename){
     try{
       const link=document.createElement('a');
@@ -826,6 +820,46 @@
       link.click();
     }catch(e){
       console.warn('PNG download failed', e);
+    }
+  }
+
+  function downloadCanvasWithData(canvas, filename){
+    try{
+      const off=document.createElement('canvas');
+      off.width=canvas.width;
+      off.height=canvas.height;
+      const octx=off.getContext('2d');
+      octx.drawImage(canvas,0,0);
+
+      const lines = [
+        `Time: ${cstTimestamp()} CST`,
+        `Body: ${bodySel.value} | Mode: ${periodMinOut.textContent} min`,
+        `v_RMS: ${vOut.textContent} m/s`,
+        `G_est: ${gOut.textContent}`,
+        `Δ vs G0: ${errOut.textContent}`
+      ];
+
+      const pad=8, lineH=14;
+      const boxHeight = lines.length*lineH + pad*2;
+      octx.fillStyle='rgba(11,18,34,0.88)';
+      octx.fillRect(0, off.height-boxHeight, off.width, boxHeight);
+
+      octx.fillStyle='#eaf0ff';
+      octx.font='11px ui-monospace, SFMono-Regular, Menlo, monospace';
+      octx.textBaseline='top';
+      let y = off.height - boxHeight + pad;
+      const x = pad;
+      lines.forEach(str=>{
+        octx.fillText(str,x,y);
+        y += lineH;
+      });
+
+      const link=document.createElement('a');
+      link.download=filename;
+      link.href=off.toDataURL('image/png');
+      link.click();
+    }catch(e){
+      console.warn('PNG+data download failed', e);
     }
   }
 
@@ -869,14 +903,19 @@
   if(saveWavePng){
     saveWavePng.addEventListener('click',()=>{
       const ts=cstTimestamp().replace(/[: ]/g,'-');
-      downloadCanvasPng(wave, `vrms_wave_${bodySel.value}_${ts}.png`);
+      downloadCanvasWithData(wave, `vrms_wave_${bodySel.value}_${ts}.png`);
     });
   }
-  if(saveToroidCoilPng){
-    saveToroidCoilPng.addEventListener('click',()=>{
+  if(saveToroidPng){
+    saveToroidPng.addEventListener('click',()=>{
       const ts=cstTimestamp().replace(/[: ]/g,'-');
-      downloadCanvasPng(toroid, `vrms_toroid_${bodySel.value}_${ts}.png`);
-      downloadCanvasPng(coilCanvas, `vrms_coils_${bodySel.value}_${ts}.png`);
+      downloadCanvasWithData(toroid, `vrms_toroid_${bodySel.value}_${ts}.png`);
+    });
+  }
+  if(saveCoilPng){
+    saveCoilPng.addEventListener('click',()=>{
+      const ts=cstTimestamp().replace(/[: ]/g,'-');
+      downloadCanvasWithData(coilCanvas, `vrms_strings_${bodySel.value}_${ts}.png`);
     });
   }
 
