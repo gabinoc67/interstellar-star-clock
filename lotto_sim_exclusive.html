@@ -85,7 +85,7 @@
   <!-- PREVIOUS GENERATED — EVALUATION SET (TARGET 250–400 TICKETS) -->
   <div class="card" style="margin-top:16px">
     <div class="row" style="justify-content:space-between;align-items:baseline">
-      <h3>Previous Generated Tickets — <em>evaluation set</em></h3>
+      <h3>Paste 250–400 Previous Generated Tickets — <em>evaluation set</em></h3>
       <span class="pill">evaluation set</span>
     </div>
     <textarea id="genTxt" placeholder="Paste your previous generated tickets here (aim for 250–400 lines per algorithm version)...
@@ -116,6 +116,15 @@
     <div class="note" id="genEvalDetails"></div>
     <h4 style="margin-top:10px">Tickets with ≥3 hits at least once (shortlist)</h4>
     <div class="note" id="genEvalTopTickets">No shortlist yet. After running the test, tickets that ever hit 3+ will appear here with their best hit.</div>
+
+    <!-- 3+ HIT REFERENCE BANK -->
+    <h4 style="margin-top:12px">3+ Hit Reference Bank (auto-used by Analyze & Generate)</h4>
+    <textarea id="hitBank" style="min-height:120px" placeholder="After running History Test, any ticket that hits 3+ at least once will be added here.
+You can also paste your own favorite 3+ tickets manually (one line = 6 numbers)."></textarea>
+    <div class="row" style="margin-top:6px">
+      <button id="exportHitBankBtn" class="secondary">Export 3+ Hits to CSV</button>
+      <span class="note">This bank is auto-saved in your browser and treated as extra winners in the math.</span>
+    </div>
   </div>
 
   <!-- CONTROLS -->
@@ -150,7 +159,7 @@
     <div class="row" style="margin-top:10px">
       <button id="analyzeBtn">Analyze</button>
       <button id="genBtn" class="secondary">Generate Tickets</button>
-      <span class="note">Analyze shows hot/cold, exclusions, top pairs, balance, and cross-panel frequencies. Generate makes tickets from allowed pools.</span>
+      <span class="note">Analyze shows hot/cold, exclusions, top pairs, balance, and cross-panel frequencies. Generate makes tickets from allowed pools (plus your 3+ hit reference bank).</span>
     </div>
   </div>
 
@@ -230,18 +239,18 @@
   <div class="card" style="margin-top:16px">
     <h3>Suggested Tickets</h3>
     <div id="tickets"></div>
-    <p class="note" style="margin-top:8px">Lotteries are random by design; this narrows to winner-like regions but can’t guarantee profit.</p>
+    <p class="note" style="margin-top:8px">Lotteries are random by design; this narrows to winner-like regions (plus your own 3+ bank) but can’t guarantee profit.</p>
   </div>
 
   <!-- METHOD -->
   <div class="card" style="margin-top:16px">
     <h3>Method (Equations)</h3>
     <p class="note">
-      Per-number (with recency): <code>w(n) ∝ (c_W(n)+ρ·c_R(n)+α)/(C_W+ρ·C_R+αN) − λ·(c_N(n)+α)/(C_N+αN)</code>, α=1, N=54, plus optional recent-hit penalty on the last draw.<br/>
-      Sums: <code>W_sum(S) ∝ (H_W(S)+ρ·H_R(S)) − κ·H_N(S)</code>. Hard excludes ≤0; soft excludes bottom p%.<br/>
-      Pairs: mixed as <code>P = P_W + ρ·P_R</code> before normalization, with a mild anti-pair penalty for very hot clusters.<br/>
+      Per-number (with recency + reference bank): <code>w(n) ∝ (c_W(n)+c_H(n)+ρ·c_R(n)+α)/(C_W+C_H+ρ·C_R+αN) − λ·(c_N(n)+α)/(C_N+αN)</code>, α=1, N=54, plus optional recent-hit penalty on the last draw.<br/>
+      Sums: <code>W_sum(S) ∝ (H_W(S)+H_H(S)+ρ·H_R(S)) − κ·H_N(S)</code>. Hard excludes ≤0; soft excludes bottom p%.<br/>
+      Pairs: mixed as <code>P = (P_W+P_H) + ρ·P_R</code> before normalization, with a mild anti-pair penalty for very hot clusters.<br/>
       Ticket score: <code>(1−β−γ−δ)·Σw(n) + β·Pair + γ·Balance + δ·Sum</code>.<br/>
-      Previous set is evaluation-only; it does not feed back into generation.
+      Previous set is evaluation-only; its tickets that reach ≥3 hits can be promoted into the 3+ Hit Reference Bank, which then feeds back into generation.
     </p>
   </div>
 </div>
@@ -319,6 +328,9 @@
   const genEvalDetails = $('#genEvalDetails');
   const genEvalTopTickets = $('#genEvalTopTickets');
 
+  const hitBank = $('#hitBank');
+  const exportHitBankBtn = $('#exportHitBankBtn');
+
   const winCount = $('#winCount'), nonCount = $('#nonCount'), recCount = $('#recCount');
   const genCount = $('#genCount');
 
@@ -376,31 +388,80 @@
   recTxt.addEventListener('input', refreshCounts);
   genTxt.addEventListener('input', refreshCounts);
 
-  // -------- core analysis (W,N,R,G=previous) --------
+  // -------- Hit Bank localStorage --------
+  const HIT_BANK_KEY = 'lottoHitBank_v1';
+  function loadHitBank(){
+    try{
+      const txt = localStorage.getItem(HIT_BANK_KEY);
+      if(txt != null && hitBank){
+        hitBank.value = txt;
+      }
+    }catch(e){}
+  }
+  function saveHitBank(){
+    try{
+      if(hitBank){
+        localStorage.setItem(HIT_BANK_KEY, hitBank.value);
+      }
+    }catch(e){}
+  }
+  if(hitBank){
+    hitBank.addEventListener('input', saveHitBank);
+  }
+
+  // helper to append good tickets into hit bank
+  function appendGoodTicketsToBank(goodTicketsMap){
+    if(!hitBank || !goodTicketsMap || goodTicketsMap.size===0) return;
+
+    const existingDraws = parseText(hitBank.value);
+    const existingKeys = new Set(existingDraws.map(d=>d.join('-')));
+
+    const addLines = [];
+    for(const v of goodTicketsMap.values()){
+      const nums = v.nums.slice().sort((a,b)=>a-b);
+      const key = nums.join('-');
+      if(!existingKeys.has(key)){
+        existingKeys.add(key);
+        addLines.push(nums.join(' '));
+      }
+    }
+    if(addLines.length){
+      const current = hitBank.value.trim();
+      hitBank.value = current
+        ? current + '\n' + addLines.join('\n')
+        : addLines.join('\n');
+      saveHitBank();
+    }
+  }
+
+  // -------- core analysis (W,N,R,G=previous, H=hit bank) --------
   function analyze(lambda=0.7,kappa=0.7,rho=0.6){
     const W=parseText(winTxt.value),
           N=parseText(nonTxt.value),
           R=parseText(recTxt.value),
-          G=parseText(genTxt.value);
+          G=parseText(genTxt.value),
+          H=hitBank ? parseText(hitBank.value) : [];
 
     // number freqs
-    const wf=new Map(), nf=new Map(), rf=new Map(), gf=new Map();
+    const wf=new Map(), nf=new Map(), rf=new Map(), gf=new Map(), hf=new Map();
     for(let n=NMIN;n<=NMAX;n++){
-      wf.set(n,0); nf.set(n,0); rf.set(n,0); gf.set(n,0);
+      wf.set(n,0); nf.set(n,0); rf.set(n,0); gf.set(n,0); hf.set(n,0);
     }
     for(const d of W) for(const x of d) wf.set(x, wf.get(x)+1);
     for(const d of N) for(const x of d) nf.set(x, nf.get(x)+1);
     for(const d of R) for(const x of d) rf.set(x, rf.get(x)+1);
     for(const d of G) for(const x of d) gf.set(x, gf.get(x)+1);
+    for(const d of H) for(const x of d) hf.set(x, hf.get(x)+1);
 
     const Cw=[...wf.values()].reduce((s,x)=>s+x,0);
     const Cn=[...nf.values()].reduce((s,x)=>s+x,0);
     const Cr=[...rf.values()].reduce((s,x)=>s+x,0);
+    const Ch=[...hf.values()].reduce((s,x)=>s+x,0);
 
     const alpha=1, M=(NMAX-NMIN+1);
     const numScore=new Map();
     for(let n=NMIN;n<=NMAX;n++){
-      const pW=((wf.get(n)||0) + rho*(rf.get(n)||0) + alpha) / ((Cw + rho*Cr) + alpha*M);
+      const pW=((wf.get(n)||0) + (hf.get(n)||0) + rho*(rf.get(n)||0) + alpha) / ((Cw+Ch + rho*Cr) + alpha*M);
       const pN=((nf.get(n)||0) + alpha) / ((Cn) + alpha*M);
       numScore.set(n, pW - lambda*pN);
     }
@@ -421,13 +482,15 @@
       }
     }
 
-    // pairs (W + ρ·R); G only for evaluation
-    const pairCountsW=new Map(), pairCountsR=new Map();
+    // pairs (W + H + ρ·R); G only for evaluation
+    const pairCountsW=new Map(), pairCountsR=new Map(), pairCountsH=new Map();
     for(const d of W) for(const pk of pairsOf(d)) pairCountsW.set(pk,(pairCountsW.get(pk)||0)+1);
     for(const d of R) for(const pk of pairsOf(d)) pairCountsR.set(pk,(pairCountsR.get(pk)||0)+1);
+    for(const d of H) for(const pk of pairsOf(d)) pairCountsH.set(pk,(pairCountsH.get(pk)||0)+1);
 
     const pairCounts=new Map();
     for(const [k,v] of pairCountsW.entries()) pairCounts.set(k,(pairCounts.get(k)||0)+v);
+    for(const [k,v] of pairCountsH.entries()) pairCounts.set(k,(pairCounts.get(k)||0)+v);
     for(const [k,v] of pairCountsR.entries()) pairCounts.set(k,(pairCounts.get(k)||0)+rho*v);
     const totalPairs=[...pairCounts.values()].reduce((s,x)=>s+x,0);
 
@@ -436,13 +499,13 @@
     for(const d of G) for(const pk of pairsOf(d)) pairCountsG.set(pk,(pairCountsG.get(pk)||0)+1);
 
     // balances
-    const wBal=describeBalance(W),
+    const wBal=describeBalance(W.concat(H)),
           nBal=describeBalance(N),
           rBal=describeBalance(R),
           gBal=describeBalance(G);
 
-    // sums (W + ρ·R) vs Non-Winners, with gentle smoothing
-    const sumsW=W.map(d=>d.reduce((s,x)=>s+x,0)),
+    // sums (W + H + ρ·R) vs Non-Winners, with gentle smoothing
+    const sumsW=W.concat(H).map(d=>d.reduce((s,x)=>s+x,0)),
           sumsN=N.map(d=>d.reduce((s,x)=>s+x,0)),
           sumsR=R.map(d=>d.reduce((s,x)=>s+x,0)),
           sumsG=G.map(d=>d.reduce((s,x)=>s+x,0));
@@ -461,8 +524,8 @@
     }
 
     return {
-      W,N,R,G,
-      wf,nf,rf,gf,
+      W,N,R,G,H,
+      wf,nf,rf,gf,hf,
       numScore,
       pairCounts,totalPairs,
       pairCountsG,pairCountsR,
@@ -515,21 +578,6 @@
   }
 
   // -------- ticket generation helpers --------
-  function weightedPool(A, excludedNums){
-    const weights=new Map();
-    let sum=0;
-    for(let n=NMIN;n<=NMAX;n++){
-      if(excludedNums.has(n)) continue;
-      const sc=Math.max(0, A.numScore.get(n)||0);
-      if(sc>0){ weights.set(n,sc); sum+=sc; }
-    }
-    if(weights.size===0){
-      for(let n=NMIN;n<=NMAX;n++) if(!excludedNums.has(n)) weights.set(n,1);
-      sum=[...weights.values()].reduce((a,b)=>a+b,0);
-    }
-    for(const [n,w] of [...weights.entries()]) weights.set(n,w/sum);
-    return weights;
-  }
   function sampleWithoutReplacement(weightsMap,k){
     const entries=[...weightsMap.entries()].filter(([n,w])=>w>0);
     if(entries.length<k){
@@ -619,7 +667,7 @@
     }
     const sumInfo = A.sumScore.size ? `, excluded sums: ${excludedSums.size}` : '';
 
-    // spread diagnostic: normalize mean spread of winners (fallback to recent) into [0,1]
+    // spread diagnostic: normalize mean spread of winners+bank (fallback to recent) into [0,1]
     let spreadScoreText = '';
     const refBal = (A.wBal && A.wBal._count) ? A.wBal : ((A.rBal && A.rBal._count) ? A.rBal : null);
     if(refBal && refBal.spread && isFinite(refBal.spread.mean)){
@@ -930,15 +978,45 @@
       }).join('');
       genEvalTopTickets.innerHTML = html;
     }
+
+    // promote all 3+ hit tickets into the reference bank
+    appendGoodTicketsToBank(goodTickets);
+  }
+
+  // -------- EXPORT HIT BANK TO CSV --------
+  function exportHitBankCSV(){
+    if(!hitBank) return;
+    const draws = parseText(hitBank.value);
+    if(!draws.length){
+      alert('No 3+ hit tickets in the reference bank to export.');
+      return;
+    }
+    const lines = draws.map(d => d.join(','));
+    const csv = lines.join('\n');
+    const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'lotto_3plus_reference.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   // wire buttons
   document.getElementById('analyzeBtn').addEventListener('click', analyzeUI);
   document.getElementById('genBtn').addEventListener('click', generateTicketsUI);
   document.getElementById('genEvalBtn').addEventListener('click', evaluatePrevTickets);
+  if(exportHitBankBtn){
+    exportHitBankBtn.addEventListener('click', exportHitBankCSV);
+  }
 
-  // initial counters
-  function init(){ refreshCounts(); }
+  // initial counters + load bank
+  function init(){
+    loadHitBank();
+    refreshCounts();
+  }
   init();
 })();
 </script>
