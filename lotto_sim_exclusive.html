@@ -82,13 +82,13 @@
     <p class="note">These recent draws are blended into the winners with weight ρ (below) for numbers, pairs, and sums. The most recent draw also gets an optional penalty.</p>
   </div>
 
-  <!-- PREVIOUS GENERATED — EVALUATION SET (UP TO ~180 TICKETS) -->
+  <!-- PREVIOUS GENERATED — EVALUATION SET (TARGET 250–400 TICKETS) -->
   <div class="card" style="margin-top:16px">
     <div class="row" style="justify-content:space-between;align-items:baseline">
       <h3>Previous Generated Tickets — <em>evaluation set</em></h3>
       <span class="pill">evaluation set</span>
     </div>
-    <textarea id="genTxt" placeholder="Paste your previous generated tickets here (up to ~180 lines)...
+    <textarea id="genTxt" placeholder="Paste your previous generated tickets here (aim for 250–400 lines per algorithm version)...
 04 10 14 23 34 52
 ..."></textarea>
     <div class="row">
@@ -96,23 +96,26 @@
       <label>Sum range: <span id="genSumRange">-</span></label>
       <label>Distinct pairs: <span id="genPairs">0</span></label>
     </div>
-    <p class="note">Use this to measure how your generated picks aligned with the last 1–3 official draws.</p>
+    <p class="note">Use this to measure how your generated picks aligned with the last 10–20 official draws.</p>
 
-    <!-- MULTI-DRAW EVALUATION (UP TO 3 DRAWS) -->
+    <!-- MULTI-DRAW EVALUATION (UP TO 20 DRAWS) -->
     <div class="row" style="margin-top:10px;align-items:flex-start">
       <div style="flex:1;min-width:260px">
-        <label>Last official draws (1–3 lines, 6 numbers each)</label>
+        <label>Last official draws (1–20 lines, 6 numbers each)</label>
         <textarea id="genWinInput" style="min-height:80px" placeholder="Example:
 03 12 25 31 44 52
 05 09 27 42 48 53
-11 18 23 37 46 54"></textarea>
+11 18 23 37 46 54
+... up to 20 draws"></textarea>
       </div>
       <div>
-        <button id="genEvalBtn" class="secondary">Evaluate Last 3 Draws (Hits ≥ 3)</button>
+        <button id="genEvalBtn" class="secondary">Run History Test (Hits, Avg, 3+ Shortlist)</button>
       </div>
     </div>
-    <p class="note" id="genEvalSummary">No evaluation yet. Paste tickets above, paste 1–3 winning draws, then click “Evaluate Last 3 Draws (Hits ≥ 3)”.</p>
+    <p class="note" id="genEvalSummary">No evaluation yet. Paste tickets above, paste 10–20 winning draws, then click “Run History Test (Hits, Avg, 3+ Shortlist)”.</p>
     <div class="note" id="genEvalDetails"></div>
+    <h4 style="margin-top:10px">Tickets with ≥3 hits at least once (shortlist)</h4>
+    <div class="note" id="genEvalTopTickets">No shortlist yet. After running the test, tickets that ever hit 3+ will appear here with their best hit.</div>
   </div>
 
   <!-- CONTROLS -->
@@ -314,6 +317,7 @@
   const genWinInput = $('#genWinInput');
   const genEvalSummary = $('#genEvalSummary');
   const genEvalDetails = $('#genEvalDetails');
+  const genEvalTopTickets = $('#genEvalTopTickets');
 
   const winCount = $('#winCount'), nonCount = $('#nonCount'), recCount = $('#recCount');
   const genCount = $('#genCount');
@@ -798,65 +802,134 @@
     </div>`).join('');
   }
 
-  // -------- evaluate previous generated tickets vs up to 3 draws --------
+  // -------- HISTORY TEST: evaluate previous generated tickets vs up to 20 draws --------
   function evaluatePrevTickets(){
     const tickets = parseText(genTxt.value);
     const winDraws = parseText(genWinInput.value);
 
     if(!tickets.length){
-      genEvalSummary.textContent = 'No tickets to evaluate. Paste your previous generated tickets in the panel above.';
+      genEvalSummary.textContent = 'No tickets to evaluate. Paste your previous generated tickets in the panel above (aim for 250–400 lines per algorithm version).';
       genEvalDetails.textContent = '';
+      genEvalTopTickets.textContent = 'No shortlist yet.';
       return;
     }
     if(!winDraws.length){
-      genEvalSummary.textContent = 'No winning draws. Paste 1–3 lines with 6 winning numbers each.';
+      genEvalSummary.textContent = 'No winning draws. Paste 1–20 lines with 6 winning numbers each.';
       genEvalDetails.textContent = '';
+      genEvalTopTickets.textContent = 'No shortlist yet.';
       return;
     }
 
-    const draws = winDraws.slice(0,3); // limit to last 3
-    let summaryLines=[];
-    let detailLines=[];
-    const maxDetails = 200; // total lines we show
+    const draws = winDraws.slice(0,20); // use up to last 20 official draws
+
+    const hitDist = [0,0,0,0,0,0,0]; // index = hits 0..6
+    let bestHit = 0;
+    const totalTickets = tickets.length;
+    const totalDraws = draws.length;
+    const totalComparisons = totalTickets * totalDraws;
+
+    let summaryPerDraw = [];
+    let detailLines = [];
+    const maxDetails = 250;
     let detailCount = 0;
+
+    // map of unique tickets that ever had ≥3 hits:
+    // key -> {nums, bestHit, times3plus}
+    const goodTickets = new Map();
 
     draws.forEach((win,dIdx)=>{
       const winSet = new Set(win);
-      let c3=0,c4=0,c5=0,c6=0;
-      const localDetails=[];
+      let c0=0,c1=0,c2=0,c3=0,c4=0,c5=0,c6=0;
+
       tickets.forEach((t,idx)=>{
         const hits = t.filter(x=>winSet.has(x));
-        const c = hits.length;
+        let c = hits.length;
+        if(c<0) c=0;
+        if(c>6) c=6;
+        hitDist[c]++;
+
+        if(c===0)c0++;
+        else if(c===1)c1++;
+        else if(c===2)c2++;
+        else if(c===3)c3++;
+        else if(c===4)c4++;
+        else if(c===5)c5++;
+        else if(c>=6)c6++;
+
+        if(c > bestHit) bestHit = c;
+
         if(c>=3){
-          if(c===3)c3++; else if(c===4)c4++; else if(c===5)c5++; else if(c>=6)c6++;
+          const key = t.join('-');
+          const existing = goodTickets.get(key) || {nums:t, bestHit:0, times3plus:0};
+          existing.bestHit = Math.max(existing.bestHit, c);
+          existing.times3plus += 1;
+          goodTickets.set(key, existing);
+
           if(detailCount < maxDetails){
             const tStr = t.map(n=>String(n).padStart(2,'0')).join(' ');
             const hStr = hits.map(n=>String(n).padStart(2,'0')).join(' ');
-            localDetails.push(`Draw ${dIdx+1} — Ticket #${idx+1}: [${tStr}] — hits ${c}: ${hStr}`);
+            detailLines.push(`Draw ${dIdx+1} — Ticket #${idx+1}: [${tStr}] — hits ${c}: ${hStr}`);
             detailCount++;
           }
         }
       });
-      const totalHits = c3+c4+c5+c6;
-      summaryLines.push(
-        `Draw ${dIdx+1}: tickets with ≥3 hits: ${totalHits} (3: ${c3}, 4: ${c4}, 5: ${c5}, 6: ${c6})`
+
+      summaryPerDraw.push(
+        `Draw ${dIdx+1}: 0-hits=${c0}, 1-hits=${c1}, 2-hits=${c2}, 3-hits=${c3}, 4-hits=${c4}, 5-hits=${c5}, 6-hits=${c6}`
       );
-      detailLines.push(...localDetails);
     });
 
+    // average hits per comparison
+    let hitSum = 0;
+    for(let h=0; h<=6; h++){
+      hitSum += h * hitDist[h];
+    }
+    const avgHits = totalComparisons > 0 ? (hitSum / totalComparisons) : 0;
+
+    const any4plus = bestHit >= 4;
+    const ticketsWith3plus = goodTickets.size;
+
+    const distText = hitDist
+      .map((cnt,h)=>`${h}: ${cnt}`)
+      .join(', ');
+
     genEvalSummary.textContent =
-      `Tickets evaluated: ${tickets.length}. ` +
-      summaryLines.join(' — ');
+      `Tickets: ${totalTickets}, Draws: ${totalDraws}, Comparisons: ${totalComparisons}. ` +
+      `Hit distribution (0–6): ${distText}. ` +
+      `Average hits per comparison: ${avgHits.toFixed(3)}. ` +
+      `Best hit on any comparison: ${bestHit}. ` +
+      `Any ticket ever hit 4+? ${any4plus ? 'Yes' : 'No'}. ` +
+      `Tickets that hit ≥3 at least once: ${ticketsWith3plus}.`;
 
     if(!detailLines.length){
       genEvalDetails.textContent = 'No tickets with 3 or more matching numbers for the supplied draws.';
-      return;
+    } else {
+      let extra='';
+      if(detailCount >= maxDetails){
+        extra = '<br>… truncated: only showing first '+maxDetails+' matching tickets across all draws.';
+      }
+      genEvalDetails.innerHTML =
+        summaryPerDraw.join('<br>') +
+        '<br><br><strong>Sample of tickets with ≥3 hits (per draw):</strong><br>' +
+        detailLines.join('<br>') +
+        extra;
     }
-    let extra='';
-    if(detailCount >= maxDetails){
-      extra = '<br>… truncated: only showing first '+maxDetails+' matching tickets across all draws.';
+
+    // render shortlist of good tickets with ≥3 hits at least once
+    if(!goodTickets.size){
+      genEvalTopTickets.textContent = 'No tickets reached 3 or more hits across the tested draws.';
+    } else {
+      const items = [...goodTickets.values()]
+        .sort((a,b)=> b.bestHit - a.bestHit || b.times3plus - a.times3plus);
+      const html = items.map(tObj=>{
+        const numsHtml = tObj.nums.map(n=>`<span class="numchip">${String(n).padStart(2,'0')}</span>`).join('');
+        return `<div style="margin-bottom:4px">
+          <div class="ticket">${numsHtml}</div>
+          <div class="note">best hits: ${tObj.bestHit}, times with ≥3 hits: ${tObj.times3plus}</div>
+        </div>`;
+      }).join('');
+      genEvalTopTickets.innerHTML = html;
     }
-    genEvalDetails.innerHTML = detailLines.join('<br>') + extra;
   }
 
   // wire buttons
