@@ -188,6 +188,7 @@
             <button id="pauseBtn">Pause</button>
             <button id="resumeBtn" disabled>Resume</button>
             <button id="exportCsv">Export CSV</button>
+            <button id="exportNeutralCsv">Export Neutral CSV (10 rows)</button>
             <!-- Open Word document with explanations/instructions -->
             <a href="https://gabinoc67.github.io/interstellar-star-clock/demos/Coil_Theory_vRMS_VT_CIT_Guide - Copy.docx"
                target="_blank" rel="noopener">
@@ -343,6 +344,11 @@
   const TWO_PI = Math.PI * 2;
   const V_TARGET = Math.sqrt(8*Math.PI*c*c*G0); // ≈ 12278.45 m/s
 
+  // ===== Neutral sampling buffer for external CSV (UTC, vRMS, coherence_norm) =====
+  const neutralLog = [];
+  function clamp01(x){ return x < 0 ? 0 : x > 1 ? 1 : x; }
+  function utcTimestamp(){ return new Date().toISOString(); }
+
   // ===== Body data =====
   const BODY = {
     Sun:     { R: 6.9634e8, rho: 1408, g: 274.0, tolBase:10 },
@@ -381,6 +387,7 @@
   const presetSel=$('presetSel'), applyPreset=$('applyPreset'), autoCal=$('autoCal');
 
   const scan10=$('scan10'), clearScan=$('clearScan'), exportCsvBtn=$('exportCsv'), scanBody=$('scanBody'), scanStatus=$('scanStatus');
+  const exportNeutralCsvBtn = $('exportNeutralCsv');
   const pauseBtn=$('pauseBtn'), resumeBtn=$('resumeBtn');
 
   const phaseDial=$('phaseDial'), pctx=phaseDial.getContext('2d'), timeOut=$('timeOut'), phaseOut=$('phaseOut'), cstSync=$('cstSync');
@@ -811,6 +818,36 @@
     scanStatus.textContent=`Exported ${fname}`;
   }
 
+  // ===== Neutral CSV export (10 rows, UTC, vRMS, coherence_norm) =====
+  function logNeutralSample(vrms, Hn){
+    const entry = {
+      ts: utcTimestamp(),
+      v: vrms,
+      h: clamp01(Hn)
+    };
+    neutralLog.push(entry);
+    if(neutralLog.length > 100) neutralLog.shift();
+  }
+
+  function exportNeutralCSV(){
+    if(!neutralLog.length){
+      alert('No neutral samples yet. Let the simulation run a few seconds first.');
+      return;
+    }
+    const rows = neutralLog.slice(-10);
+    let csv = 'timestamp_utc,vRMS,coherence_norm\n';
+    rows.forEach(r=>{
+      csv += `${r.ts},${r.v.toFixed(6)},${r.h.toFixed(3)}\n`;
+    });
+    const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+    const ts = utcTimestamp().replace(/[:.]/g,'-');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `vrms_neutral_${ts}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
   // canvas→PNG helpers
   function downloadCanvasPng(canvas, filename){
     try{
@@ -823,11 +860,12 @@
     }
   }
 
-  // UPDATED: draw data in an extra panel UNDER the original canvas (no overlap)
+  // UPDATED: draw data in an extra panel UNDER the original canvas (no overlap),
+  // now with extra lines: UTC time + Coherence H (0–1).
   function downloadCanvasWithData(canvas, filename){
     try{
       // Add extra vertical space for the data panel
-      const extraH = 110; // room for lines with comfortable spacing
+      const extraH = 130; // room for more lines
       const off=document.createElement('canvas');
       off.width = canvas.width;
       off.height = canvas.height + extraH;
@@ -841,13 +879,18 @@
       // Original canvas at the top
       octx.drawImage(canvas,0,0);
 
-      // Data lines
+      const utcNow = utcTimestamp();
+      const coherenceText = HOut ? HOut.textContent : '—';
+
+      // Data lines (CST + UTC + vRMS + G + Δ + H)
       const lines = [
-        `Time: ${cstTimestamp()} CST`,
+        `Time CST (local): ${cstTimestamp()}`,
+        `Time UTC: ${utcNow}`,
         `Body: ${bodySel.value} | Mode: ${periodMinOut.textContent} min`,
         `v_RMS: ${vOut.textContent} m/s`,
         `G_est: ${gOut.textContent}`,
-        `Δ vs G0: ${errOut.textContent}`
+        `Δ vs G0: ${errOut.textContent}`,
+        `Coherence H (0–1): ${coherenceText}`
       ];
 
       const padX = 10;
@@ -892,7 +935,11 @@
     const vInst=instantaneousV(ph, tri.b_eff); pushRMS(vInst); pushDisp(vInst);
     const vrms=currentVRMS(); const vmax=Math.max(1, parseFloat(ampNum.value)*1.2, (parseExternalLatest()||0)*1.2);
     drawWave(vmax); drawKPIs(vrms, tri.tolEff); drawPhase(ph); drawToroid(ph); drawCoil(ph, tri); fillDerived(vrms, tri);
-    updateAssemblyReadout(tri.Hn);
+    const A = updateAssemblyReadout(tri.Hn);
+
+    // Log neutral sample for external reviewer: UTC, vRMS, coherence_norm (Hn)
+    logNeutralSample(vrms, tri.Hn);
+
     rafId=requestAnimationFrame(tick);
   }
   function start(){ if(rafId==null) rafId=requestAnimationFrame(tick); }
@@ -913,6 +960,7 @@
   [dcRange,deRange,dmRange,glowEnable,glowIntensity].forEach(el=>el.addEventListener('input',()=>triad()));
   extData.addEventListener('input',extRefresh); extEnable.addEventListener('change',extRefresh);
   scan10.addEventListener('click',runAutoScan10); clearScan.addEventListener('click',clearScanAll); exportCsvBtn.addEventListener('click',exportCSV);
+  if(exportNeutralCsvBtn){ exportNeutralCsvBtn.addEventListener('click',exportNeutralCSV); }
   pauseBtn.addEventListener('click',()=>{running=false;pauseBtn.disabled=true;resumeBtn.disabled=false;});
   resumeBtn.addEventListener('click',()=>{running=true;resumeBtn.disabled=true;pauseBtn.disabled=false;});
   applyPreset.addEventListener('click',()=>applyPlanetPreset(presetSel.value));
