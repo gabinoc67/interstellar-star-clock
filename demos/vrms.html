@@ -235,6 +235,40 @@
         </table>
       </div>
 
+      <!-- NEW: Real data CSV upload panel -->
+      <div class="card" style="margin-top:12px">
+        <h2>Real Data • CSV Upload (USGS / INTERMAGNET)</h2>
+        <p class="small" style="margin-bottom:8px;">
+          Upload a geomagnetic CSV file with columns like
+          <span class="mono">UTC_time,CST_time,H,D,Z,F</span> (1-minute or 1-second data).
+          H,D,Z,F in nT or similar. |B| is computed as F or √(H²+D²+Z²) if F is missing.
+        </p>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+          <input type="file" id="csvFileInput" accept=".csv,text/csv" />
+          <button type="button" id="csvClearBtn">Clear</button>
+        </div>
+        <div id="csvSummary" class="small" style="min-height:18px;margin-bottom:8px;"></div>
+        <canvas id="csvPlotCanvas" width="1000" height="220"
+                aria-label="Geomagnetic |B| from CSV"
+                style="width:100%;max-width:1000px;"></canvas>
+        <details class="small" style="margin-top:8px;">
+          <summary>Sample CSV template (5 rows)</summary>
+          <pre class="small mono" style="white-space:pre;">
+UTC_time,CST_time,H,D,Z,F
+2025-11-01T00:00:00Z,2025-10-31T18:00:00-06:00,12345.1,-44.2,48567.8,49876.3
+2025-11-01T00:01:00Z,2025-10-31T18:01:00-06:00,12346.2,-44.0,48566.9,49877.0
+2025-11-01T00:02:00Z,2025-10-31T18:02:00-06:00,12347.0,-43.9,48565.5,49878.1
+2025-11-01T00:03:00Z,2025-10-31T18:03:00-06:00,12346.5,-44.1,48566.2,49877.5
+2025-11-01T00:04:00Z,2025-10-31T18:04:00-06:00,12345.8,-44.3,48567.0,49876.9
+          </pre>
+        </details>
+        <p class="small" style="margin-top:6px;">
+          The upload panel parses the file, plots |B|, and converts it into a neutral
+          CST dataset. A derived v-RMS series is written into the “Pasted samples (m/s)”
+          box; tick “Use pasted data” to let real data drive v-RMS.
+        </p>
+      </div>
+
       <!-- Notes -->
       <div class="card" style="margin-top:12px">
         <h2>Quick Start</h2>
@@ -244,6 +278,7 @@
           <li>Adjust <b>Harmony Glow</b> (toroid only) to taste.</li>
           <li>Tune DC/DE/DM; higher coherence tightens tolerance.</li>
           <li>Run <b>Auto-Scan 10×</b>; inspect Pass/Fail within tolerance.</li>
+          <li>Upload a CSV and optionally tick <b>Use pasted data</b> to let real |B| modulate v-RMS.</li>
         </ol>
       </div>
     </div>
@@ -335,7 +370,6 @@
     </div>
   </div>
 </div>
-
 <script>
 (()=>{ 'use strict';
   // ===== Physical constants =====
@@ -417,6 +451,13 @@
   const saveWavePng = $('saveWavePng');
   const saveToroidPng = $('saveToroidPng');
   const saveCoilPng = $('saveCoilPng');
+
+  // NEW: CSV upload DOM
+  const csvFileInput   = $('csvFileInput');
+  const csvClearBtn    = $('csvClearBtn');
+  const csvSummary     = $('csvSummary');
+  const csvPlotCanvas  = $('csvPlotCanvas');
+  const csvPlotCtx     = csvPlotCanvas ? csvPlotCanvas.getContext('2d') : null;
 
   // ===== Runtime state =====
   let running=true, isScanning=false, scanRows=[], scanMarks=[];
@@ -780,6 +821,7 @@
           <b>Export CSV</b> give the full dataset (v_RMS, G_est, Δ vs G₀, Pass/Fail, body, mode, CST time).</li>
         <li><b>Exports for external teams:</b> use <b>Download Wave + Data PNG</b> for the live v-RMS waveform, <b>Download Toroid + Data PNG</b> for the toroidal flow, <b>Download Strings (Coils) + Data PNG</b> for the coil/lattice, and <b>Export CSV</b> for the corresponding numeric run.</li>
         <li><b>Coil &amp; Spring Panel (2):</b> N<sub>c</sub>, τ<sub>c</sub>, k<sub>s</sub>, and γ show how condensed VT↔CIT modes organize into a filament + lattice framework as assembly index A → 1.</li>
+        <li><b>CSV Upload (USGS/INTERMAGNET):</b> real geomagnetic time series with UTC and CST stamps are ingested, plotted as |B|, then mapped into a neutral v-RMS series written into the External v-RMS buffer.</li>
       </ul>`;
   }
 
@@ -926,6 +968,240 @@
     }
   }
 
+  // ===== CSV Upload → Parse → Plot → Feed =====
+  function clearCsvPanel(){
+    if(!csvPlotCtx) return;
+    if(csvFileInput) csvFileInput.value = '';
+    if(csvSummary) csvSummary.textContent = '';
+    csvPlotCtx.clearRect(0,0,csvPlotCanvas.width,csvPlotCanvas.height);
+  }
+
+  function handleCsvUpload(evt){
+    const file = evt.target.files && evt.target.files[0];
+    if(!file || !csvPlotCtx) return;
+    const reader = new FileReader();
+    reader.onload = e=>{
+      try{
+        const text = e.target.result;
+        const parsed = parseGeomagCsv(text);
+        if(!parsed.rows.length){
+          csvSummary.textContent = 'No valid data rows found in CSV.';
+          csvPlotCtx.clearRect(0,0,csvPlotCanvas.width,csvPlotCanvas.height);
+          return;
+        }
+        renderCsvSummary(parsed);
+        drawCsvPlot(parsed);
+        feedDerivedToVrmsLogic(parsed);
+      }catch(err){
+        console.error('[CST CSV] Error parsing CSV:', err);
+        csvSummary.textContent = 'Error parsing CSV file. Check headers and numeric values.';
+        csvPlotCtx.clearRect(0,0,csvPlotCanvas.width,csvPlotCanvas.height);
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  function parseGeomagCsv(text){
+    const lines = text.split(/\r?\n/).filter(l=>l.trim().length);
+    if(!lines.length) return {headers:[],rows:[]};
+    const headers = lines[0].split(',').map(h=>h.trim());
+    const idxUTC  = headers.findIndex(h => /^utc[_ ]?time$/i.test(h) || /^time$/i.test(h));
+    const idxCST  = headers.findIndex(h => /^cst[_ ]?time$/i.test(h));
+    const idxH    = headers.findIndex(h => /^h$/i.test(h));
+    const idxD    = headers.findIndex(h => /^d$/i.test(h));
+    const idxZ    = headers.findIndex(h => /^z$/i.test(h));
+    const idxF    = headers.findIndex(h => /^f$/i.test(h));
+
+    const rows = [];
+
+    for(let i=1;i<lines.length;i++){
+      const line = lines[i].trim();
+      if(!line) continue;
+      const parts = line.split(',');
+
+      function getNum(idx){
+        if(idx<0 || idx>=parts.length) return NaN;
+        const v = parseFloat(parts[idx]);
+        return Number.isFinite(v)?v:NaN;
+      }
+
+      const H = getNum(idxH);
+      const D = getNum(idxD);
+      const Z = getNum(idxZ);
+      let   F = getNum(idxF);
+
+      if(!Number.isFinite(F) && (Number.isFinite(H) || Number.isFinite(Z))){
+        const hVal = Number.isFinite(H)?H:0;
+        const dVal = Number.isFinite(D)?D:0;
+        const zVal = Number.isFinite(Z)?Z:0;
+        F = Math.sqrt(hVal*hVal + dVal*dVal + zVal*zVal);
+      }
+
+      if(!Number.isFinite(H) && !Number.isFinite(F)) continue;
+
+      const utc = (idxUTC>=0 && idxUTC<parts.length) ? parts[idxUTC].trim() : '';
+      const cst = (idxCST>=0 && idxCST<parts.length) ? parts[idxCST].trim() : '';
+
+      rows.push({utc,cst,H,D,Z,F});
+    }
+
+    return {headers,rows};
+  }
+
+  function renderCsvSummary(parsed){
+    const rows = parsed.rows;
+    if(!rows.length){
+      csvSummary.textContent = 'No valid rows in CSV.';
+      return;
+    }
+    const n = rows.length;
+    const firstUTC = rows[0].utc || '(n/a)';
+    const lastUTC  = rows[n-1].utc || '(n/a)';
+
+    let minF = +Infinity, maxF = -Infinity;
+    rows.forEach(r=>{
+      if(!Number.isFinite(r.F)) return;
+      if(r.F<minF) minF=r.F;
+      if(r.F>maxF) maxF=r.F;
+    });
+
+    const fStr = (Number.isFinite(minF)&&Number.isFinite(maxF))
+      ? `|B|/F range ≈ ${minF.toFixed(1)} to ${maxF.toFixed(1)}`
+      : 'No F/|B| values detected.';
+
+    csvSummary.textContent = `Loaded ${n} rows. UTC range: ${firstUTC} → ${lastUTC}. ${fStr}`;
+  }
+
+  function drawCsvPlot(parsed){
+    const rows = parsed.rows;
+    if(!rows.length || !csvPlotCtx) return;
+    const W = csvPlotCanvas.width;
+    const H = csvPlotCanvas.height;
+    csvPlotCtx.clearRect(0,0,W,H);
+
+    const margin = 32;
+    const w = W - 2*margin;
+    const h = H - 2*margin;
+
+    const Bs = rows.map(r => Number.isFinite(r.F)?r.F:NaN).filter(v=>Number.isFinite(v));
+    if(!Bs.length) return;
+
+    const minB = Math.min.apply(null,Bs);
+    const maxB = Math.max.apply(null,Bs);
+    const span = (maxB-minB)||1;
+
+    const maxPoints = 600;
+    const step = Math.max(1, Math.floor(rows.length/maxPoints));
+
+    csvPlotCtx.save();
+    csvPlotCtx.translate(margin,margin);
+
+    // axes
+    csvPlotCtx.strokeStyle = 'rgba(40,64,127,0.9)';
+    csvPlotCtx.lineWidth = 1;
+    csvPlotCtx.beginPath();
+    csvPlotCtx.moveTo(0,h);
+    csvPlotCtx.lineTo(w,h);
+    csvPlotCtx.moveTo(0,0);
+    csvPlotCtx.lineTo(0,h);
+    csvPlotCtx.stroke();
+
+    csvPlotCtx.fillStyle = 'rgba(234,240,255,0.9)';
+    csvPlotCtx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
+    csvPlotCtx.fillText('|B| / F (relative units)',4,4);
+
+    csvPlotCtx.beginPath();
+    csvPlotCtx.strokeStyle = 'rgba(143,180,255,0.9)';
+    csvPlotCtx.lineWidth = 1.2;
+
+    let first = true;
+    for(let i=0;i<rows.length;i+=step){
+      const r = rows[i];
+      const B = Number.isFinite(r.F)?r.F:NaN;
+      if(!Number.isFinite(B)) continue;
+      const t = i / (rows.length-1 || 1);
+      const x = t*w;
+      const y = h - ((B - minB)/span)*h;
+      if(first){ csvPlotCtx.moveTo(x,y); first=false; }
+      else csvPlotCtx.lineTo(x,y);
+    }
+    csvPlotCtx.stroke();
+    csvPlotCtx.restore();
+  }
+
+  function feedDerivedToVrmsLogic(parsed){
+    const rows = parsed.rows;
+    if(!rows.length) return;
+
+    const derived = [];
+
+    for(let i=0;i<rows.length;i++){
+      const r  = rows[i];
+      const r0 = rows[i-1];
+
+      const B  = Number.isFinite(r.F)
+        ? r.F
+        : Math.sqrt(
+            (Number.isFinite(r.H)?r.H:0)**2 +
+            (Number.isFinite(r.D)?r.D:0)**2 +
+            (Number.isFinite(r.Z)?r.Z:0)**2
+          );
+      let dBdt = 0;
+      if(i>0 && r0){
+        const B0 = Number.isFinite(r0.F)
+          ? r0.F
+          : Math.sqrt(
+              (Number.isFinite(r0.H)?r0.H:0)**2 +
+              (Number.isFinite(r0.D)?r0.D:0)**2 +
+              (Number.isFinite(r0.Z)?r0.Z:0)**2
+            );
+        dBdt = B - B0; // per sample step (e.g. per minute)
+      }
+
+      derived.push({
+        utc: r.utc,
+        cst: r.cst,
+        B,
+        dBdt
+      });
+    }
+
+    if(typeof window.handleCstCsvData === 'function'){
+      try{
+        window.handleCstCsvData(derived);
+      }catch(err){
+        console.error('[CST CSV] Error in handleCstCsvData:', err);
+      }
+    }else{
+      console.log('[CST CSV] Derived data ready (first 5 rows):', derived.slice(0,5));
+    }
+  }
+
+  // Default mapping from |B| → suggested v-RMS samples written into extData
+  window.handleCstCsvData = function(derived){
+    if(!derived || !derived.length) return;
+    let minB = +Infinity, maxB = -Infinity;
+    derived.forEach(r=>{
+      if(!Number.isFinite(r.B)) return;
+      if(r.B<minB) minB=r.B;
+      if(r.B>maxB) maxB=r.B;
+    });
+    if(!Number.isFinite(minB) || !Number.isFinite(maxB)) return;
+    const span = (maxB-minB)||1;
+
+    const values = [];
+    const step = Math.max(1, Math.floor(derived.length/40)); // keep list reasonable
+    for(let i=0;i<derived.length;i+=step){
+      const r = derived[i];
+      if(!Number.isFinite(r.B)) continue;
+      const norm = (r.B - minB)/span; // 0–1
+      const v = V_TARGET * (0.9 + 0.2*norm); // map to ~±10% band around 12,278
+      values.push(v.toFixed(3));
+    }
+    extData.value = values.join(', ');
+    extRefresh();
+  };
+
   // Main loop
   let rafId=null;
   function tick(){
@@ -985,6 +1261,12 @@
       const ts=cstTimestamp().replace(/[: ]/g,'-');
       downloadCanvasWithData(coilCanvas, `vrms_strings_${bodySel.value}_${ts}.png`);
     });
+  }
+
+  // CSV events
+  if(csvFileInput && csvClearBtn && csvSummary && csvPlotCanvas && csvPlotCtx){
+    csvFileInput.addEventListener('change', handleCsvUpload);
+    csvClearBtn.addEventListener('click', clearCsvPanel);
   }
 
   (function tickClock(){ setCSTClock(); setTimeout(tickClock,1000); })();
