@@ -167,6 +167,15 @@
     font-size:0.72rem;
     color:var(--muted);
   }
+  .footer-link{
+    margin-top:16px;
+    text-align:center;
+  }
+  .footer-link button{
+    background:var(--accent);
+    color:#050816;
+    font-weight:600;
+  }
 </style>
 </head>
 <body>
@@ -242,6 +251,13 @@
       </div>
     </section>
   </div>
+
+  <!-- CASH FIVE SIMULATION BUTTON -->
+  <div class="footer-link">
+    <button onclick="window.location.href='https://gabinoc67.github.io/interstellar-star-clock/cash.html'">
+      💰 Cash Five Simulation
+    </button>
+  </div>
 </div>
 
 <script>
@@ -249,23 +265,17 @@
   const NUM_PER_TICKET = 6;
   const TICKETS_TO_GEN = 10;
 
-  let lastScores = null;      // score[1..54]
-  let lastAnalyzeInfo = null; // summary data (for future debugging if needed)
+  let lastScores = null;
+  let lastAnalyzeInfo = null;
 
   function parseTickets(raw){
     const lines = raw.split(/[\r\n]+/).map(l=>l.trim()).filter(l=>l.length>0);
     const tickets = [];
     for(const line of lines){
-      const nums = line
-        .replace(/,/g,' ')
-        .split(/\s+/)
-        .map(x=>parseInt(x,10))
-        .filter(n=>Number.isFinite(n) && n>=1 && n<=MAX_N);
+      const nums = line.replace(/,/g,' ').split(/\s+/).map(x=>parseInt(x,10)).filter(n=>Number.isFinite(n) && n>=1 && n<=MAX_N);
       if(nums.length === NUM_PER_TICKET){
         const uniq = Array.from(new Set(nums)).sort((a,b)=>a-b);
-        if(uniq.length === NUM_PER_TICKET){
-          tickets.push(uniq);
-        }
+        if(uniq.length === NUM_PER_TICKET) tickets.push(uniq);
       }
     }
     return tickets;
@@ -274,325 +284,73 @@
   function countMatches(a,b){
     let i=0,j=0,hit=0;
     while(i<a.length && j<b.length){
-      if(a[i] === b[j]){ hit++; i++; j++; }
-      else if(a[i]<b[j]) i++;
-      else j++;
+      if(a[i]===b[j]){hit++;i++;j++;}
+      else if(a[i]<b[j])i++;else j++;
     }
     return hit;
   }
 
   function analyzeHistory(){
-    const allDrawsRaw    = document.getElementById('allDraws').value;
-    const recentDrawsRaw = document.getElementById('recentDraws').value;
-    const ticketsRaw     = document.getElementById('ticketsIn').value;
-
-    const summaryEl = document.getElementById('summary');
-    const safeDiagEl= document.getElementById('safeDiag');
-
-    const allDraws    = parseTickets(allDrawsRaw);
-    const recentDraws = parseTickets(recentDrawsRaw);
-    const tickets     = parseTickets(ticketsRaw);
-
-    // REQUIRE: allDraws and tickets must exist
-    if(allDraws.length === 0 || tickets.length === 0){
-      summaryEl.innerHTML =
-        'You must paste <strong>all historical winning draws</strong> ' +
-        'and your <strong>played tickets</strong> to analyze. ' +
-        'Each line must have exactly 6 numbers between 1 and 54.';
-      safeDiagEl.className = 'tiny-diag';
-      safeDiagEl.textContent =
-        'Safe zone target: ~8–20% of your tickets reaching ≥3 matches (3, 4, 5, or 6 hits).';
-      lastScores = null;
-      lastAnalyzeInfo = null;
-      updateScoreBands(null);
-      return;
+    const allDraws=parseTickets(allDraws.value);
+    const recentDraws=parseTickets(recentDraws.value);
+    const tickets=parseTickets(ticketsIn.value);
+    const summaryEl=document.getElementById('summary');
+    const safeDiagEl=document.getElementById('safeDiag');
+    if(allDraws.length===0||tickets.length===0){
+      summaryEl.innerHTML='You must paste <strong>all historical winning draws</strong> and your <strong>played tickets</strong> to analyze.';
+      safeDiagEl.className='tiny-diag';
+      safeDiagEl.textContent='Safe zone target: ~8–20% reaching ≥3 matches.';
+      lastScores=null;updateScoreBands(null);return;
     }
-
-    // Reference draws for hit-testing = all history + recent (recent = extra examples, not required)
-    const refDraws = allDraws.concat(recentDraws);
-
-    // Frequency arrays
-    const freqAllDraws    = Array(MAX_N+1).fill(0);
-    const freqRecent20    = Array(MAX_N+1).fill(0);
-    const freqGoodTickets = Array(MAX_N+1).fill(0);
-    const freqBadTickets  = Array(MAX_N+1).fill(0);
-
-    // Fill freqAllDraws from all historical draws
-    for(const d of allDraws){
-      for(const n of d) freqAllDraws[n]++;
-    }
-
-    // Fill freqRecent20 from recent draws (optional)
-    for(const d of recentDraws){
-      for(const n of d) freqRecent20[n]++;
-    }
-
-    // Classify tickets as good/bad based on best hit vs any refDraw
-    let goodTickets = 0;
-    let badTickets  = 0;
-    const hitHist = [0,0,0,0,0,0,0]; // index = hits (0..6)
-    const goodRows = []; // store rows that hit 3+ (for reference if needed)
-
+    const refDraws=allDraws.concat(recentDraws);
+    const freqAll=Array(MAX_N+1).fill(0),freqRecent=Array(MAX_N+1).fill(0),
+          freqGood=Array(MAX_N+1).fill(0),freqBad=Array(MAX_N+1).fill(0);
+    for(const d of allDraws)for(const n of d)freqAll[n]++;
+    for(const d of recentDraws)for(const n of d)freqRecent[n]++;
+    let good=0,bad=0,hitHist=[0,0,0,0,0,0,0];
     for(const t of tickets){
-      let bestHit = 0;
-      for(const d of refDraws){
-        const h = countMatches(t,d);
-        if(h>bestHit) bestHit = h;
-        if(bestHit === NUM_PER_TICKET) break;
-      }
-      hitHist[bestHit]++;
-
-      if(bestHit>=3){
-        goodTickets++;
-        goodRows.push(t);
-        for(const n of t) freqGoodTickets[n]++;
-      }else{
-        badTickets++;
-        for(const n of t) freqBadTickets[n]++;
-      }
-    }
-
-    const totalTickets = tickets.length;
-    const threePlus = goodTickets;
-    const threePlusPct = totalTickets>0 ? (threePlus*100/totalTickets) : 0;
-
-    // Build scores using formula:
-    // score[n] = 2.0*freqAllDraws[n] + 1.5*freqRecent20[n]
-    //          + 1.5*freqGoodTickets[n] - 0.5*freqBadTickets[n]
-    const scores = Array(MAX_N+1).fill(0);
-    let anyPos = false;
-    for(let n=1;n<=MAX_N;n++){
-      let s =
-        2.0 * freqAllDraws[n] +
-        1.5 * freqRecent20[n] +
-        1.5 * freqGoodTickets[n] -
-        0.5 * freqBadTickets[n];
-      if(s<0) s = 0;
-      if(s>0) anyPos = true;
-      scores[n] = s;
-    }
-
-    if(!anyPos){
-      // History too thin or all flat → fallback to 1 each
-      for(let n=1;n<=MAX_N;n++) scores[n] = 1;
-    }
-
-    lastScores = scores;
-    lastAnalyzeInfo = {
-      allDrawsCount: allDraws.length,
-      recentDrawsCount: recentDraws.length,
-      totalTickets,
-      hitHist,
-      threePlus,
-      threePlusPct,
-      goodTickets,
-      badTickets,
-      goodRowsCount: goodRows.length
-    };
-
-    updateScoreBands(scores);
-
-    // Build summary text
-    const lines = [];
-    lines.push(
-      `Analyzed <strong>${allDraws.length}</strong> all-time draws, ` +
-      `<strong>${recentDraws.length}</strong> recent draws, and ` +
-      `<strong>${totalTickets}</strong> of your tickets.`
-    );
-
-    lines.push(
-      `Tickets by best match vs any draw: ` +
-      `${hitHist[0]}×0, ${hitHist[1]}×1, ${hitHist[2]}×2, ` +
-      `${hitHist[3]}×3, ${hitHist[4]}×4, ${hitHist[5]}×5, ${hitHist[6]}×6.`
-    );
-
-    lines.push(
-      `You had <strong>${threePlus}</strong> tickets reaching ` +
-      `<strong>3 or more</strong> matches (~${threePlusPct.toFixed(1)}% of your tickets).`
-    );
-
-    let zoneText = '';
-    let diagClass = 'tiny-diag';
-    if(threePlusPct < 8){
-      zoneText = 'You are in the <strong>cold / risky zone</strong> (&lt;8% 3+-hit rate). ' +
-        'Your pattern is not producing many 3+ hit tickets. ' +
-        'Consider mixing in more under-used numbers and checking spacing.';
-      diagClass += ' risky';
-    }else if(threePlusPct <= 20){
-      zoneText = 'You are in the <strong>safe zone</strong> (8–20% 3+-hit rate). ' +
-        'You are getting some 3+ activity without it looking like a pure fluke.';
-      diagClass += ' safe';
-    }else{
-      zoneText = 'You are in a <strong>hot / suspicious zone</strong> (&gt;20% 3+-hit rate). ' +
-        'This may be short-term luck; do not assume it will continue.';
-      diagClass += ' hot';
-    }
-    lines.push(zoneText);
-
-    summaryEl.innerHTML = lines.join('<br>');
-
-    safeDiagEl.className = diagClass;
-    safeDiagEl.innerHTML =
-      `3+ hit rate: <strong>${threePlusPct.toFixed(1)}%</strong> — ` +
-      (threePlusPct < 8
-        ? 'Below safe zone (pattern too cold).'
-        : threePlusPct <= 20
-          ? 'Inside safe zone.'
-          : 'Above safe zone (likely just luck / overfit).');
+      let best=0;for(const d of refDraws){const h=countMatches(t,d);if(h>best)best=h;if(best===NUM_PER_TICKET)break;}
+      hitHist[best]++;if(best>=3){good++;for(const n of t)freqGood[n]++;}else{bad++;for(const n of t)freqBad[n]++;}}
+    const total=tickets.length,pct=(good*100/total)||0;
+    const scores=Array(MAX_N+1).fill(0);
+    for(let n=1;n<=MAX_N;n++){let s=2*freqAll[n]+1.5*freqRecent[n]+1.5*freqGood[n]-0.5*freqBad[n];if(s<0)s=0;scores[n]=s||1;}
+    lastScores=scores;updateScoreBands(scores);
+    summaryEl.innerHTML=`Analyzed <strong>${allDraws.length}</strong> draws and <strong>${total}</strong> tickets.<br>`+
+    `Hits: ${hitHist.join(', ')}<br>`+
+    `<strong>${good}</strong> tickets (≥3 hits) = ${pct.toFixed(1)}%.`;
+    let zone='';let cls='tiny-diag';
+    if(pct<8){zone='cold / risky zone (<8%)';cls+=' risky';}
+    else if(pct<=20){zone='safe zone (8–20%)';cls+=' safe';}
+    else{zone='hot / suspicious zone (>20%)';cls+=' hot';}
+    safeDiagEl.className=cls;
+    safeDiagEl.innerHTML=`3+ hit rate: <strong>${pct.toFixed(1)}%</strong> — ${zone}`;
   }
 
   function updateScoreBands(scores){
-    const el = document.getElementById('scoreBands');
-    el.innerHTML = '';
-    if(!scores){
-      el.innerHTML = '<span class="pill">No scores yet — run Analyze first.</span>';
-      return;
-    }
-    const vals = scores.slice(1);
-    const max = Math.max(...vals);
-    const min = Math.min(...vals);
-    const span = max - min || 1;
-
-    const bands = { low:0, mid:0, high:0 };
-    for(let n=1;n<=MAX_N;n++){
-      const norm = (scores[n]-min)/span; // 0..1
-      if(norm < 0.33) bands.low++;
-      else if(norm < 0.66) bands.mid++;
-      else bands.high++;
-    }
-
-    const low = document.createElement('span');
-    low.className = 'pill bad';
-    low.textContent = `Low-score numbers: ${bands.low}`;
-
-    const mid = document.createElement('span');
-    mid.className = 'pill';
-    mid.textContent = `Mid-score numbers: ${bands.mid}`;
-
-    const high = document.createElement('span');
-    high.className = 'pill good';
-    high.textContent = `High-score numbers: ${bands.high}`;
-
-    el.appendChild(low);
-    el.appendChild(mid);
-    el.appendChild(high);
+    const el=document.getElementById('scoreBands');el.innerHTML='';
+    if(!scores){el.innerHTML='<span class="pill">No scores yet — run Analyze first.</span>';return;}
+    const vals=scores.slice(1);const max=Math.max(...vals),min=Math.min(...vals),span=max-min||1;
+    const bands={low:0,mid:0,high:0};
+    for(let n=1;n<=MAX_N;n++){const norm=(scores[n]-min)/span;if(norm<0.33)bands.low++;else if(norm<0.66)bands.mid++;else bands.high++;}
+    el.innerHTML=`<span class='pill bad'>Low-score: ${bands.low}</span>
+      <span class='pill'>Mid-score: ${bands.mid}</span>
+      <span class='pill good'>High-score: ${bands.high}</span>`;
   }
 
-  function weightedPick(scores, usedSet){
-    let total = 0;
-    for(let n=1;n<=MAX_N;n++){
-      if(usedSet.has(n)) continue;
-      total += scores[n];
-    }
-    if(total <= 0){
-      // flat fallback
-      while(true){
-        const r = 1 + Math.floor(Math.random()*MAX_N);
-        if(!usedSet.has(r)) return r;
-      }
-    }
-    let r = Math.random()*total;
-    for(let n=1;n<=MAX_N;n++){
-      if(usedSet.has(n)) continue;
-      r -= scores[n];
-      if(r<=0) return n;
-    }
-    // safety fallback
-    for(let n=1;n<=MAX_N;n++){
-      if(!usedSet.has(n)) return n;
-    }
-    return 1;
-  }
-
+  function weightedPick(scores,used){let total=0;for(let n=1;n<=MAX_N;n++){if(!used.has(n))total+=scores[n];}
+    if(total<=0){while(true){const r=1+Math.floor(Math.random()*MAX_N);if(!used.has(r))return r;}}
+    let r=Math.random()*total;for(let n=1;n<=MAX_N;n++){if(used.has(n))continue;r-=scores[n];if(r<=0)return n;}for(let n=1;n<=MAX_N;n++)if(!used.has(n))return n;return 1;}
   function generateTickets(){
-    const ticketsOutEl = document.getElementById('ticketsOut');
-    const spreadDiagEl = document.getElementById('spreadDiag');
-
-    if(!lastScores){
-      alert('Please run "Analyze" first with your draws and tickets.');
-      return;
-    }
-
-    const scores = lastScores;
-    const out = [];
-    const allTicketsNums = []; // for spread check
-
-    for(let t=0;t<TICKETS_TO_GEN;t++){
-      const used = new Set();
-      while(used.size < NUM_PER_TICKET){
-        const n = weightedPick(scores, used);
-        used.add(n);
-      }
-      const ticket = Array.from(used).sort((a,b)=>a-b);
-      out.push(ticket.map(n=>String(n).padStart(2,'0')).join(' '));
-      allTicketsNums.push(ticket);
-    }
-
-    ticketsOutEl.value = out.join('\n');
-
-    // Simple spread diagnostic on generated tickets
-    let totalGap = 0;
-    let gapsCount = 0;
-    let minGapAll = Infinity;
-    let maxGapAll = -Infinity;
-    for(const t of allTicketsNums){
-      for(let i=1;i<t.length;i++){
-        const g = t[i]-t[i-1];
-        totalGap += g;
-        gapsCount++;
-        if(g<minGapAll) minGapAll = g;
-        if(g>maxGapAll) maxGapAll = g;
-      }
-    }
-    const avgGap = gapsCount>0 ? (totalGap/gapsCount) : 0;
-    let spreadClass = 'spread';
-    let label = '';
-    if(avgGap < 6){
-      spreadClass += ' tight';
-      label = 'tight (numbers are bunched together more)';
-    }else if(avgGap > 10){
-      spreadClass += ' loose';
-      label = 'loose (numbers are very spread out)';
-    }else{
-      spreadClass += ' balanced';
-      label = 'balanced (mix of near and far gaps)';
-    }
-    spreadDiagEl.className = spreadClass;
-    spreadDiagEl.textContent =
-      `Spread: avg gap ~ ${avgGap.toFixed(2)} (min gap ${minGapAll}, max gap ${maxGapAll}) → ${label}.`;
+    const outEl=document.getElementById('ticketsOut'),spreadEl=document.getElementById('spreadDiag');
+    if(!lastScores){alert('Run Analyze first');return;}
+    const out=[],nums=[];
+    for(let t=0;t<TICKETS_TO_GEN;t++){const used=new Set();while(used.size<NUM_PER_TICKET){const n=weightedPick(lastScores,used);used.add(n);}const ticket=Array.from(used).sort((a,b)=>a-b);out.push(ticket.map(n=>String(n).padStart(2,'0')).join(' '));nums.push(ticket);}
+    outEl.value=out.join('\n');
+    let tot=0,c=0,minG=Infinity,maxG=-Infinity;for(const t of nums){for(let i=1;i<t.length;i++){const g=t[i]-t[i-1];tot+=g;c++;if(g<minG)minG=g;if(g>maxG)maxG=g;}}
+    const avg=tot/c,label=avg<6?'tight':avg>10?'loose':'balanced';spreadEl.className='spread '+label;spreadEl.textContent=`Spread avg gap ${avg.toFixed(2)} (${minG}-${maxG}) → ${label}`;
   }
-
-  function copyTickets(){
-    const ta = document.getElementById('ticketsOut');
-    if(!ta.value.trim()){
-      alert('No tickets to copy yet. Generate first.');
-      return;
-    }
-    ta.select();
-    ta.setSelectionRange(0, ta.value.length);
-    document.execCommand('copy');
-    alert('Generated tickets copied to clipboard.');
-  }
-
-  function clearAll(){
-    document.getElementById('allDraws').value = '';
-    document.getElementById('recentDraws').value = '';
-    document.getElementById('ticketsIn').value = '';
-    document.getElementById('ticketsOut').value = '';
-    document.getElementById('summary').innerHTML =
-      'Paste your history, then click <strong>Analyze</strong> to see 3+ hit rate and number scores.';
-    const safeDiagEl = document.getElementById('safeDiag');
-    safeDiagEl.className = 'tiny-diag';
-    safeDiagEl.textContent =
-      'Safe zone target: ~8–20% of your tickets reaching ≥3 matches (3, 4, 5, or 6 hits) across your history.';
-    const spreadDiagEl = document.getElementById('spreadDiag');
-    spreadDiagEl.className = 'spread';
-    spreadDiagEl.textContent =
-      'Spread diagnostic will appear here (tight / balanced / loose) after generation.';
-    lastScores = null;
-    lastAnalyzeInfo = null;
-    updateScoreBands(null);
-  }
+  function copyTickets(){const ta=ticketsOut;if(!ta.value.trim()){alert('No tickets yet');return;}ta.select();document.execCommand('copy');alert('Copied');}
+  function clearAll(){allDraws.value='';recentDraws.value='';ticketsIn.value='';ticketsOut.value='';summary.innerHTML='Paste and Analyze.';safeDiag.className='tiny-diag';safeDiag.textContent='Safe zone target: 8–20%';spreadDiag.className='spread';spreadDiag.textContent='Spread diagnostic will appear here.';updateScoreBands(null);}
 </script>
 </body>
 </html>
