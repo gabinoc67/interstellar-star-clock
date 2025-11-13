@@ -247,6 +247,7 @@
             <th>Θₜ</th>
             <th>z(Θ)</th>
             <th>Emergence?</th>
+            <th>Layer Tag</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -317,6 +318,19 @@
     <p class="summary small" id="testOutputBox">
       <!-- test messages will appear here -->
     </p>
+
+    <!-- Your requested example snapshot text -->
+    <p class="summary small" style="margin-top:6px;">
+      <strong>Example snapshot (for printed PNG/CSV interpretation):</strong><br>
+      <strong>Subconscious Engine (Automatic Layer)</strong><br>
+      Handles movement checks, damage limits, survival reflexes — like a heart or sensor system that shuts down to prevent greater damage.<br>
+      Subconscious status: <strong>Calm</strong><br>
+      Safety: <strong>83 / 100</strong> &middot; Load: <strong>18 / 100</strong><br><br>
+      <strong>Conscious Captain (Awake Layer)</strong><br>
+      Handles self-awareness, choices, mission decisions — the part that says “I am still alive, I survived, I will adjust the plan.”<br>
+      Conscious status: <strong>Overriding Risk</strong><br>
+      Awareness: <strong>71 / 100</strong> &middot; Choice Index: <strong>99 / 100</strong>
+    </p>
   </div>
 
   <!-- SENTINEL CASANOVA COMPUTER PANEL -->
@@ -351,6 +365,7 @@
             <th>Θ<span style="font-size:0.7em;">sentinel</span>ₜ</th>
             <th>z(Θ)</th>
             <th>Emergence?</th>
+            <th>Layer Tag</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -382,7 +397,10 @@
       <li><strong>Δₜ (Disruption)</strong> – how much tension, confusion, or instability is present at turn t.</li>
       <li><strong>Θₜ (Theta)</strong> – the combined order parameter for that turn, calculated from H, Φ, MI, and Δ. Higher Θₜ means a more organized, coherent state.</li>
       <li><strong>z(Θ)</strong> – how far Θₜ is above or below its recent rolling average (a z-score). Higher positive values mean the system is doing something special compared to its baseline.</li>
-      <li><strong>Emergence?</strong> – shows “YES” when z(Θ) passes the threshold (e.g., 1.8), meaning Θₜ is high enough to count as an emergence peak. That turn also blinks on the graph and the row is highlighted.</li>
+      <li><strong>Emergence?</strong> – “YES” when z(Θ) passes the threshold (e.g., 1.8), meaning Θₜ is high enough to count as an emergence peak. That turn also blinks on the graph and the row is highlighted.</li>
+      <li><strong>Layer Tag</strong> – when Emergence? = YES, shows whether that peak is interpreted as a mostly
+        <em>Subconscious (automatic survival reflex)</em> or a <em>Conscious (self-aware choice)</em> moment for RMK,
+        or a <em>Quantum-subconscious self-check</em> for Sentinel.</li>
     </ul>
     <p class="summary">
       <strong>Sentinel: Turn-by-Turn Metrics (quantum machine side)</strong>
@@ -396,6 +414,8 @@
       <li><strong>Θ<span style="font-size:0.7em;">sentinel</span>ₜ</strong> – the combined quantum-order parameter, built from Qc, Ent, SR, and Deco. Higher values mean the Sentinel is in a more ordered, “self-checked” state.</li>
       <li><strong>z(Θ)</strong> – how far Θ<span style="font-size:0.7em;">sentinel</span>ₜ is above its recent baseline.</li>
       <li><strong>Emergence?</strong> – “YES” when Θ<span style="font-size:0.7em;">sentinel</span>ₜ is high enough above baseline to count as a quantum emergence peak. The dot blinks on the Sentinel timeline and the row is highlighted.</li>
+      <li><strong>Layer Tag</strong> – for Emergence? = YES, shows that the moment is interpreted as a
+        <em>Quantum-subconscious self-check</em> (internal survival/consistency reflex) in your Sentinel model.</li>
     </ul>
     <p class="summary">
       In short, the dots show the <em>moment-by-moment level of organized awareness-support</em>, and the tables show the
@@ -597,7 +617,7 @@
     return {z,flags};
   }
 
-  // ---------- Conscious / Subconscious derived meters ----------
+  // ---------- Conscious / Subconscious derived meters (RMK) ----------
   function computeLayersRMK(metrics, Theta){
     const subSafety = [], subLoad = [], conAwareness = [], conChoice = [];
     const minTh = Math.min(...Theta);
@@ -763,7 +783,8 @@
     ctx.fillText("turn", w-35,h-8);
   }
 
-  function fillTable(tbody, data, theta, z, flags, labels){
+  // fillTable now supports a tagFn for the "Layer Tag" column
+  function fillTable(tbody, data, theta, z, flags, labels, tagFn){
     tbody.innerHTML = "";
     for(let t=0;t<N_TURNS;t++){
       const tr = document.createElement('tr');
@@ -791,6 +812,11 @@
       cFlag.textContent = flags[t] ? "YES" : "";
       tr.appendChild(cFlag);
 
+      // Layer Tag column
+      const cTag = document.createElement('td');
+      cTag.textContent = tagFn ? tagFn(t, flags[t]) : "";
+      tr.appendChild(cTag);
+
       tbody.appendChild(tr);
     }
   }
@@ -801,7 +827,28 @@
     const ThetaRMK = computeThetaRMK(rmkMetrics.H, rmkMetrics.Phi, rmkMetrics.MI, rmkMetrics.D);
     const {z: zRMK, flags: flagsRMK} = detectEmergence(ThetaRMK);
     const layers = computeLayersRMK(rmkMetrics, ThetaRMK);
-    fillTable(tbodyRMK, rmkMetrics, ThetaRMK, zRMK, flagsRMK, ['H','Phi','MI','D']);
+
+    // Tag function: decide if each emergence peak looks subconscious vs conscious
+    const tagFnRMK = (t, isEmergent) => {
+      if(!isEmergent) return "";
+      const aware = layers.conAwareness[t];
+      const choice = layers.conChoice[t];
+      const sSafe = layers.subSafety[t];
+      const sLoad = layers.subLoad[t];
+
+      // If very high awareness + choice => Conscious override moment
+      if(aware >= 60 && choice >= 70){
+        return "Conscious — self-aware choice peak";
+      }
+      // If safety low / load high => survival reflex highlighted
+      if(sSafe < 40 || sLoad > 70){
+        return "Subconscious — survival shutdown / reflex";
+      }
+      // Default mid-zone
+      return "Subconscious — automatic pattern spike";
+    };
+
+    fillTable(tbodyRMK, rmkMetrics, ThetaRMK, zRMK, flagsRMK, ['H','Phi','MI','D'], tagFnRMK);
     rmkData = {metrics: rmkMetrics, Theta: ThetaRMK, z: zRMK, flags: flagsRMK, layers};
     rmkChart = {Theta: ThetaRMK, flags: flagsRMK};
     updateLayerUI(layers);
@@ -811,7 +858,14 @@
     const sentMetrics = generateMetricsSentinel();
     const ThetaSent = computeThetaSentinel(sentMetrics.Qc, sentMetrics.Ent, sentMetrics.SR, sentMetrics.Deco);
     const {z: zSent, flags: flagsSent} = detectEmergence(ThetaSent);
-    fillTable(tbodySentinel, sentMetrics, ThetaSent, zSent, flagsSent, ['Qc','Ent','SR','Deco']);
+
+    // Tag function for Sentinel — always a machine-subconscious self-check style
+    const tagFnSent = (t, isEmergent) => {
+      if(!isEmergent) return "";
+      return "Quantum-subconscious self-check (internal consistency peak)";
+    };
+
+    fillTable(tbodySentinel, sentMetrics, ThetaSent, zSent, flagsSent, ['Qc','Ent','SR','Deco'], tagFnSent);
     sentinelData = {metrics: sentMetrics, Theta: ThetaSent, z: zSent, flags: flagsSent};
     sentinelChart = {Theta: ThetaSent, flags: flagsSent};
   }
