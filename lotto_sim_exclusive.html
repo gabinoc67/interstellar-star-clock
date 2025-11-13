@@ -152,7 +152,7 @@
 <div class="wrap">
   <h1>Lotto 60-Draw Probability Coach</h1>
   <p class="tagline">
-    Analyze last 60 official draws → generate 1,200 sample tickets → compare your 60-play set → generate 10 tickets at a time
+    Analyze last 60 official draws → generate 1,200 sample tickets → compare your 60-play set → generate 10 tickets at a time,
     staying inside the odds and probabilities of those 60 draws.
   </p>
 
@@ -173,7 +173,7 @@
       <button onclick="clearAll()">Reset everything</button>
     </div>
 
-    <label for="bulkTickets">1,200 generated tickets (1 ticket per line)</label>
+    <label for="bulkTickets">1,200 generated sample tickets (1 ticket per line)</label>
     <textarea id="bulkTickets" class="small" placeholder="Click &quot;Analyze 60 draws &amp; generate 1,200 sample tickets&quot; to see the list here."></textarea>
 
     <div id="bulkStats" class="summary">
@@ -198,7 +198,7 @@
     <div class="hint">
       The simulator will compute how your 60 tickets line up with:
       (a) the official 60-draw frequencies, and (b) the 1,200-sample frequencies.
-      This shows how far your play deviates from the pure 60-draw probabilities.
+      This shows how far your play deviates from the 60-draw probabilities.
     </div>
 
     <div class="btn-row">
@@ -211,18 +211,18 @@
     </div>
   </section>
 
-  <!-- PANEL 3: 10-TICKET GENERATOR USING PROBABILITY WEIGHTS -->
+  <!-- PANEL 3: 10-TICKET GENERATOR USING PROBABILITY WEIGHTS + ANTI-OVERUSE MEMORY -->
   <section>
     <h2>3. Generate 10 tickets at a time (inside 60-draw probabilities)</h2>
 
     <div class="hint">
-      Uses combined weights from: official 60 draws + 1,200-sample frequencies.
-      Only numbers that came out in the 60 official draws are allowed.
-      You can highlight these 10 tickets and print them.
+      Uses probability weights from the official 60 draws. A memory system tracks how often each number has been used in
+      past generations and penalizes over-used numbers, so under-used numbers get a boost and the shape stays closer
+      to the real distribution (fixing overweight/underweight and reducing “never appears” problems).
     </div>
 
     <div class="btn-row">
-      <button class="primary" onclick="generate10()">Generate 10 tickets (probability-weighted)</button>
+      <button class="primary" onclick="generate10()">Generate 10 tickets (probability-weighted with correction)</button>
     </div>
 
     <label for="tenTicketsOut">10-ticket output (play candidates)</label>
@@ -234,8 +234,8 @@
 
     <div class="footer-note">
       ⚠️ This simulator cannot defeat true lottery randomness. It only keeps your 10-ticket patterns inside the
-      statistical shape of: 60 official draws + 1,200 simulated tickets (odds, probabilities, and weights). Numbers that
-      appear more often in that universe will tend to show up more across many runs.
+      statistical shape of the 60 official draws (odds, probabilities, and weights), while automatically reducing
+      extreme over-weight / under-weight of individual numbers across many runs.
     </div>
   </section>
 <script>
@@ -244,10 +244,11 @@
   const SAMPLE_TICKETS = 1200; // 1,200 sample tickets
 
   // Global state
-  let poolNumbers = [];                // numbers that appear in the 60 official draws
-  let officialFreq = Array(MAX_N+1).fill(0); // frequency in official 60 draws
-  let sampleFreq   = Array(MAX_N+1).fill(0); // frequency in 1,200 generated tickets
-  let combinedScores = null;                // weights for 10-ticket generator
+  let poolNumbers = [];                        // numbers that appear in the 60 official draws
+  let officialFreq = Array(MAX_N+1).fill(0);   // frequency in official 60 draws
+  let sampleFreq   = Array(MAX_N+1).fill(0);   // frequency in 1,200 generated tickets
+  let combinedScores = null;                   // probability weights based on official draws
+  let usageCounts = Array(MAX_N+1).fill(0);    // how many times each number has been used in generated 10-ticket sets
 
   function parseTickets(raw){
     const lines = raw.split(/[\r\n]+/).map(l=>l.trim()).filter(l=>l.length>0);
@@ -264,16 +265,6 @@
       }
     }
     return tickets;
-  }
-
-  function countMatches(a,b){
-    let i=0,j=0,hit=0;
-    while(i<a.length && j<b.length){
-      if(a[i]===b[j]){hit++;i++;j++;}
-      else if(a[i]<b[j]) i++;
-      else j++;
-    }
-    return hit;
   }
 
   function weightedPickFromPool(scores,pool,used){
@@ -325,20 +316,21 @@
       return;
     }
 
-    // Initial weights from official frequencies
-    const scores = Array(MAX_N+1).fill(0);
+    // Official probabilities p_off
+    const totalOfficialNums = draws.length * NUM_PER_TICKET;
+    const pOff = Array(MAX_N+1).fill(0);
     for(let n=1;n<=MAX_N;n++){
-      // At least 1, plus extra weight for frequent official numbers
-      scores[n] = 1 + officialFreq[n];
+      pOff[n] = officialFreq[n] > 0 ? officialFreq[n]/totalOfficialNums : 0;
     }
 
-    // Generate 1,200 sample tickets from pool using these weights
-    sampleFreq = Array(MAX_N+1).fill(0);
+    // Generate 1,200 sample tickets from pool using p_off as weights
     const lines = [];
+    sampleFreq = Array(MAX_N+1).fill(0);
+
     for(let t=0;t<SAMPLE_TICKETS;t++){
       const used = new Set();
       while(used.size < NUM_PER_TICKET){
-        const num = weightedPickFromPool(scores,poolNumbers,used);
+        const num = weightedPickFromPool(pOff,poolNumbers,used);
         used.add(num);
         sampleFreq[num]++;
       }
@@ -347,21 +339,15 @@
     }
     bulkEl.value = lines.join('\n');
 
-    // Combined scores for 10-ticket generator: official + smoothed sample
+    // Combined scores for 10-ticket generator based ONLY on official probabilities (ground truth)
     combinedScores = Array(MAX_N+1).fill(0);
-    const totalOfficial = draws.length * NUM_PER_TICKET;
-    const totalSample   = SAMPLE_TICKETS * NUM_PER_TICKET;
+    const EPS = 0.000001;
     for(let n=1;n<=MAX_N;n++){
-      const pOff   = totalOfficial ? officialFreq[n]/totalOfficial : 0;
-      const pSamp  = totalSample   ? sampleFreq[n]/totalSample   : 0;
-      // Blend: 40% weight official, 60% weight 1,200 sample (can be tuned)
-      const blended = 0.4*pOff + 0.6*pSamp;
-      combinedScores[n] = blended>0 ? blended : 0.0001; // small floor to avoid zeros
+      combinedScores[n] = pOff[n] > 0 ? pOff[n] : 0;
     }
 
-    // Stats & probability bands
-    const totalNums60  = draws.length * NUM_PER_TICKET;
-    const totalNums1200 = SAMPLE_TICKETS * NUM_PER_TICKET;
+    // Stats
+    const totalSampleNums = SAMPLE_TICKETS * NUM_PER_TICKET;
 
     let minOff=Infinity,maxOff=-Infinity,minSamp=Infinity,maxSamp=-Infinity;
     for(const n of poolNumbers){
@@ -372,27 +358,27 @@
       if(fSamp<minSamp) minSamp=fSamp;
       if(fSamp>maxSamp) maxSamp=fSamp;
     }
-    const avgOff  = totalNums60  / poolNumbers.length;
-    const avgSamp = totalNums1200 / poolNumbers.length;
+    const avgOff  = totalOfficialNums / poolNumbers.length;
+    const avgSamp = totalSampleNums / poolNumbers.length;
 
     statsEl.innerHTML =
       `Pool size: <strong>${poolNumbers.length}</strong> unique numbers from your 60 draws.<br>` +
-      `Official 60 draws: total numbers = ${totalNums60}, average per pool number ≈ ${avgOff.toFixed(2)} ` +
+      `Official 60 draws: total numbers = ${totalOfficialNums}, average per pool number ≈ ${avgOff.toFixed(2)} ` +
       `(min ${minOff}, max ${maxOff}).<br>` +
-      `1,200 sample tickets: total numbers = ${totalNums1200}, average per pool number ≈ ${avgSamp.toFixed(2)} ` +
+      `1,200 sample tickets: total numbers = ${totalSampleNums}, average per pool number ≈ ${avgSamp.toFixed(2)} ` +
       `(min ${minSamp}, max ${maxSamp}).<br>` +
-      `<em>10-ticket generator will now use a blend of these two distributions.</em>`;
+      `<em>10-ticket generator will now use the official 60-draw probabilities, with an automatic correction memory to avoid extreme over/under-use over time.</em>`;
 
-    // Probability bands based on blended scores
+    // Probability bands based on p_off
     scoreBandsEl.innerHTML = '';
-    const vals = poolNumbers.map(n=>combinedScores[n]);
+    const vals = poolNumbers.map(n=>pOff[n]);
     const maxVal = Math.max(...vals);
     const minVal = Math.min(...vals);
     const span = maxVal - minVal || 1;
     const bands = {low:0,mid:0,high:0};
 
     for(const n of poolNumbers){
-      const norm = (combinedScores[n]-minVal)/span;
+      const norm = (pOff[n]-minVal)/span;
       if(norm < 0.33) bands.low++;
       else if(norm < 0.66) bands.mid++;
       else bands.high++;
@@ -402,6 +388,9 @@
       `<span class="pill bad">Low-prob: ${bands.low}</span>
        <span class="pill">Mid-prob: ${bands.mid}</span>
        <span class="pill good">High-prob: ${bands.high}</span>`;
+
+    // Reset usage memory so new runs start fresh
+    usageCounts = Array(MAX_N+1).fill(0);
   }
 
   function compare60(){
@@ -503,11 +492,22 @@
     const tickets = [];
     const gapsAll = [];
 
+    // Build effective scores with anti-overuse correction:
+    // effectiveScore = baseProb / (1 + usageCounts[n]/K)
+    const K = 10; // controls strength of correction: higher K = softer penalty
+    const effectiveScores = Array(MAX_N+1).fill(0);
+    for(const n of poolNumbers){
+      const base = combinedScores[n] || 0.000001;
+      const penalty = 1 + (usageCounts[n] / K);
+      effectiveScores[n] = base / penalty;
+    }
+
     for(let t=0;t<10;t++){
       const used = new Set();
       while(used.size < NUM_PER_TICKET){
-        const n = weightedPickFromPool(combinedScores,poolNumbers,used);
+        const n = weightedPickFromPool(effectiveScores,poolNumbers,used);
         used.add(n);
+        usageCounts[n]++; // memory: penalize this number in future generations
       }
       const ticket = Array.from(used).sort((a,b)=>a-b);
       tickets.push(ticket);
@@ -561,6 +561,7 @@
     officialFreq = Array(MAX_N+1).fill(0);
     sampleFreq   = Array(MAX_N+1).fill(0);
     combinedScores = null;
+    usageCounts = Array(MAX_N+1).fill(0);
   }
 </script>
 </body>
