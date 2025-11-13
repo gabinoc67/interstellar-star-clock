@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Lotto 300-Draw Streak & Probability Coach — 1,200 Samples + 10-Ticket Generator</title>
+<title>Lotto 300-Draw Streak & Probability Coach — 1,200 Samples + 10 & 60-Ticket Generators</title>
 <style>
   :root{
     --bg:#0b1222;
@@ -189,7 +189,7 @@
   <h1>Lotto 300-Draw Streak &amp; Probability Coach</h1>
   <p class="tagline">
     Paste up to 300 official draws → build frequency, gap/recency &amp; streak model → generate 1,200 sample tickets →
-    see top-weight numbers → generate 10 final tickets using the best weights.
+    test 360 internal draws with your 6 machine tests → generate 10 model tickets and one final 60-ticket batch.
   </p>
 
   <!-- PANEL 1: OFFICIAL DRAWS (UP TO 300) + 1,200-SAMPLE ENGINE + STREAK/GAP MODEL -->
@@ -241,7 +241,7 @@
     <div class="hint">
       For each number 1–54:
       frequency in the window, last seen (draw index), recency (gap since last hit),
-      max streak in a row, number of runs ≥ 3, and the combined score used by the 10-ticket generator.
+      max streak in a row, number of runs ≥ 3, and the combined score used by the generators.
     </div>
     <div class="scroll-table">
       <table id="statsTable">
@@ -311,10 +311,52 @@
       extreme over-weight / under-weight of individual numbers across many runs.
     </div>
   </section>
+
+  <!-- PANEL 4: 6 TEST DRAWS → 360 INTERNAL DRAWS → FINAL 60-TICKET BATCH -->
+  <section>
+    <h2>4. 6 test draws → 360-draw analyzer → final 60-ticket batch</h2>
+    <div class="hint">
+      Step 1: Paste the last 6 (or so) machine test draws from the lotto terminal (like your Test #1–#6).<br>
+      Step 2: The engine will generate 360 internal tickets (6 × 60) using the streak/gap model from Panel 1.<br>
+      Step 3: It compares test-draw hot numbers &amp; pairs vs the 360 and the 1,200 samples.<br>
+      Step 4: Use the adjusted weights to generate ONE final batch of 60 tickets to consider for purchase.
+    </div>
+
+    <label for="testDrawsInput">Last machine test draws (example: 6 test lines, 6 numbers per line)</label>
+    <textarea id="testDrawsInput" class="small" placeholder="Example (one line per test draw, 6 numbers):&#10;19 08 10 40 20 13&#10;03 30 02 41 51 43&#10;01 37 12 29 04 21&#10;11 44 28 04 10 14&#10;08 18 38 23 28 41&#10;41 19 10 42 21 14"></textarea>
+
+    <div class="btn-row">
+      <button class="primary" onclick="analyzeTestsAnd360()">Analyze tests &amp; generate 360 internal tickets</button>
+    </div>
+
+    <label for="test360Out">360 internal tickets (6 × 60) — analysis only</label>
+    <textarea id="test360Out" class="small" placeholder="After analyzing tests, the 360 internal tickets will appear here (not for buying, for pattern checking)."></textarea>
+
+    <div id="test360Stats" class="summary">
+      After you paste the 6 test draws and run the analysis, you will see:
+      (1) hot numbers in tests, (2) how often they appear in 360 draws and 1,200 samples, and
+      (3) repeated test pairs like (10,19), (21,14), (28,41).
+    </div>
+
+    <div class="btn-row">
+      <button class="primary" onclick="generateFinal60()">Generate final 60 official tickets</button>
+      <button onclick="printFinal60()">Print final 60 (browser print)</button>
+    </div>
+
+    <label for="final60Out">Final 60-ticket batch (model + tests + 360 analysis)</label>
+    <textarea id="final60Out" class="small" placeholder="After running Panel 1 and Panel 4, click &quot;Generate final 60 official tickets&quot; to see them here."></textarea>
+
+    <div class="footer-note">
+      ⚠️ The 60-ticket batch still follows true lottery randomness. This panel only tunes weights based on:
+      official draws → streak/gap model → 1,200 samples → your 6 machine tests → 360 internal draws.
+      It does NOT guarantee wins; it only organizes your 60 numbers around the patterns you care about (hot numbers and pairs).
+    </div>
+  </section>
 <script>
   const MAX_N = 54;
   const NUM_PER_TICKET = 6;
   const SAMPLE_TICKETS = 1200; // 1,200 sample tickets
+  const TEST360_TICKETS = 360; // 6 × 60 internal analysis tickets
 
   // Global state
   let poolNumbers = [];                        // numbers that appear in the official draws window
@@ -329,6 +371,12 @@
   let maxRun     = Array(MAX_N+1).fill(0);
   let runs3Plus  = Array(MAX_N+1).fill(0);
   let modelScore = Array(MAX_N+1).fill(0);
+
+  // Extra state for 6 tests + 360 internal draws + final 60
+  let freqTest   = Array(MAX_N+1).fill(0);     // frequency in the pasted test draws
+  let freq360    = Array(MAX_N+1).fill(0);     // frequency in the 360 internal tickets
+  let testPairs  = {};                         // repeated pairs from test draws
+  let lastFinal60Tickets = [];                 // last generated batch of 60 tickets
 
   function parseTickets(raw){
     const lines = raw.split(/[\r\n]+/).map(l=>l.trim()).filter(l=>l.length>0);
@@ -366,6 +414,30 @@
     }
     const candidates = pool.filter(n=>!used.has(n));
     return candidates[0];
+  }
+
+  // Generic ticket generator with uniqueness protection
+  function generateTickets(numTickets, scores){
+    const tickets = [];
+    const seen = new Set();
+    let attempts = 0;
+    const maxAttempts = numTickets * 40;
+
+    while(tickets.length < numTickets && attempts < maxAttempts){
+      attempts++;
+      const used = new Set();
+      while(used.size < NUM_PER_TICKET){
+        const n = weightedPickFromPool(scores, poolNumbers, used);
+        used.add(n);
+      }
+      const ticket = Array.from(used).sort((a,b)=>a-b);
+      const key = ticket.join('-');
+      if(!seen.has(key)){
+        seen.add(key);
+        tickets.push(ticket);
+      }
+    }
+    return tickets;
   }
 
   function analyzeAndSample(){
@@ -453,7 +525,7 @@
       `(min ${minOff}, max ${maxOff}).<br>` +
       `1,200 sample tickets: total numbers = ${totalSampleNums}, average per pool number ≈ ${avgSamp.toFixed(2)} ` +
       `(min ${minSamp}, max ${maxSamp}).<br>` +
-      `<em>Streak/gap model and 10-ticket generator now use the combined score (frequency + gap/recency + streaks).</em>`;
+      `<em>Streak/gap model and generators now use the combined score (frequency + gap/recency + streaks).</em>`;
 
     // Probability bands based on p_off
     scoreBandsEl.innerHTML = '';
@@ -757,11 +829,169 @@
     }
   }
 
+  // PANEL 4: tests → 360 → final 60
+
+  function analyzeTestsAnd360(){
+    const testsRaw = document.getElementById('testDrawsInput').value;
+    const out360 = document.getElementById('test360Out');
+    const statsEl = document.getElementById('test360Stats');
+
+    if(poolNumbers.length === 0 || !combinedScores){
+      statsEl.innerHTML = 'Run Panel 1 first (official draws → 1,200-sample engine) before analyzing tests.';
+      return;
+    }
+
+    const testDraws = parseTickets(testsRaw);
+    if(testDraws.length === 0){
+      statsEl.innerHTML = 'Paste the last machine test draws (e.g., 6 lines) and try again.';
+      out360.value = '';
+      return;
+    }
+
+    // Count test frequencies
+    freqTest = Array(MAX_N+1).fill(0);
+    for(const d of testDraws){
+      for(const n of d){
+        freqTest[n]++;
+      }
+    }
+
+    // Find hot test numbers (appear ≥ 2 times)
+    const hotTestNums = [];
+    for(let n=1;n<=MAX_N;n++){
+      if(freqTest[n] >= 2) hotTestNums.push({n,count:freqTest[n]});
+    }
+
+    // Find repeated test pairs (appear ≥ 2 times)
+    testPairs = {};
+    const pairCounts = {};
+    for(const d of testDraws){
+      const arr = d.slice().sort((a,b)=>a-b);
+      for(let i=0;i<arr.length;i++){
+        for(let j=i+1;j<arr.length;j++){
+          const key = arr[i]+'-'+arr[j];
+          pairCounts[key] = (pairCounts[key] || 0) + 1;
+        }
+      }
+    }
+    for(const key in pairCounts){
+      if(pairCounts[key] >= 2){
+        testPairs[key] = pairCounts[key];
+      }
+    }
+
+    // Generate 360 internal tickets using combinedScores (no self-feedback)
+    freq360 = Array(MAX_N+1).fill(0);
+    const tickets360 = generateTickets(TEST360_TICKETS, combinedScores);
+
+    const lines = tickets360.map(t=>t.map(n=>String(n).padStart(2,'0')).join(' '));
+    out360.value = lines.join('\n');
+
+    for(const t of tickets360){
+      for(const n of t){
+        freq360[n]++;
+      }
+    }
+
+    // Stats: how do hot test numbers look in 360 and 1,200 samples?
+    const total360Nums = TEST360_TICKETS * NUM_PER_TICKET;
+    const total1200Nums = SAMPLE_TICKETS * NUM_PER_TICKET;
+
+    function fmtPercent(x){ return (x*100).toFixed(2)+'%'; }
+
+    let hotNumsText = hotTestNums.length
+      ? hotTestNums.map(h=>{
+          const n = h.n;
+          const cTest = h.count;
+          const pTest = cTest / (testDraws.length*NUM_PER_TICKET);
+          const p360  = total360Nums ? freq360[n]/total360Nums : 0;
+          const p1200 = total1200Nums ? sampleFreq[n]/total1200Nums : 0;
+          return `#${String(n).padStart(2,'0')} → tests: ${cTest}× (${fmtPercent(pTest)}), 360: ${fmtPercent(p360)}, 1,200: ${fmtPercent(p1200)}`;
+        }).join('<br>')
+      : 'No numbers appeared 2× or more in the test draws.';
+
+    let pairText = Object.keys(testPairs).length
+      ? Object.keys(testPairs).map(k=>{
+          const c = testPairs[k];
+          return `${k.replace('-', ' & ')} → repeats in tests: ${c}×`;
+        }).join('<br>')
+      : 'No pairs repeated 2× or more in the test draws.';
+
+    statsEl.innerHTML =
+      `Test draws loaded: <strong>${testDraws.length}</strong> lines.<br>` +
+      `<strong>Hot test numbers (appear ≥ 2× in tests):</strong><br>${hotNumsText}<br><br>` +
+      `<strong>Repeated pairs in tests (appear ≥ 2×):</strong><br>${pairText}<br><br>` +
+      `<em>360 internal tickets were generated using the streak/gap model. These are for pattern checking only, not direct play.</em>`;
+  }
+
+  function generateFinal60(){
+    const finalOut = document.getElementById('final60Out');
+    const statsEl = document.getElementById('test360Stats');
+
+    if(poolNumbers.length === 0 || !combinedScores){
+      finalOut.value = '';
+      statsEl.innerHTML = 'Run Panel 1 first (official draws → 1,200-sample engine) before generating the final 60.';
+      return;
+    }
+
+    // Build adjusted scores:
+    // base = combinedScores (freq + gap + streak from official draws)
+    // small boost if:
+    //  - number is hot in tests (freqTest[n] ≥ 2)
+    //  - number appears often in 360 internal draws
+    const adjusted = Array(MAX_N+1).fill(0);
+
+    const max360 = Math.max(...freq360.slice(1));
+    for(let n=1;n<=MAX_N;n++){
+      if(!poolNumbers.includes(n)){
+        adjusted[n] = 0;
+        continue;
+      }
+      let s = combinedScores[n] || 0.000001;
+
+      // Boost for hot test numbers
+      if(freqTest[n] >= 2){
+        // 15% boost if it appears at least 2× in tests
+        s *= 1.15;
+      }
+
+      // Boost for overlap with 360 analysis distribution
+      if(max360 > 0 && freq360[n] > 0){
+        const ratio360 = freq360[n] / max360; // 0..1
+        // Up to +10% additional boost if it is strong in 360 distribution
+        s *= (1 + 0.10 * ratio360);
+      }
+
+      adjusted[n] = s;
+    }
+
+    // Generate one batch of 60 tickets using adjusted scores
+    const tickets60 = generateTickets(60, adjusted);
+    lastFinal60Tickets = tickets60;
+
+    finalOut.value = tickets60
+      .map(t=>t.map(n=>String(n).padStart(2,'0')).join(' '))
+      .join('\n');
+
+    statsEl.innerHTML +=
+      `<br><strong>Final 60-ticket batch generated.</strong> ` +
+      `Weights used: official streak/gap model + test hot numbers (like 10, 19, 21, 28, 41, 14, 8, 4) ` +
+      `+ 360 internal distribution. This does <em>not</em> change true lotto odds, but lines up your 60 tickets with your chosen patterns.`;
+  }
+
+  function printFinal60(){
+    // Simple browser print hook; user can print the page and cut the 60-ticket block.
+    window.print();
+  }
+
   function clearAll(){
     document.getElementById('lastDraws60').value = '';
     document.getElementById('bulkTickets').value = '';
     document.getElementById('simTickets').value = '';
     document.getElementById('tenTicketsOut').value = '';
+    document.getElementById('testDrawsInput').value = '';
+    document.getElementById('test360Out').value = '';
+    document.getElementById('final60Out').value = '';
 
     document.getElementById('bulkStats').innerHTML =
       'Waiting for data: paste your official draws and run the analysis to see pool size, frequency statistics, ' +
@@ -777,6 +1007,10 @@
     document.getElementById('spreadDiag').className = 'spread';
     document.getElementById('spreadDiag').textContent =
       'Spread diagnostic will appear here (tight / balanced / loose) after generation.';
+    document.getElementById('test360Stats').innerHTML =
+      'After you paste the 6 test draws and run the analysis, you will see: ' +
+      '(1) hot numbers in tests, (2) how often they appear in 360 draws and 1,200 samples, and ' +
+      '(3) repeated test pairs like (10,19), (21,14), (28,41).';
 
     poolNumbers = [];
     officialFreq = Array(MAX_N+1).fill(0);
@@ -789,6 +1023,11 @@
     maxRun     = Array(MAX_N+1).fill(0);
     runs3Plus  = Array(MAX_N+1).fill(0);
     modelScore = Array(MAX_N+1).fill(0);
+
+    freqTest   = Array(MAX_N+1).fill(0);
+    freq360    = Array(MAX_N+1).fill(0);
+    testPairs  = {};
+    lastFinal60Tickets = [];
   }
 </script>
 </body>
