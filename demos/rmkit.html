@@ -37,6 +37,10 @@
     font-size:1.2rem;
     color:var(--accent);
   }
+  h3{
+    margin:4px 0 4px;
+    font-size:1rem;
+  }
   .panel{
     background:var(--panel);
     border-radius:10px;
@@ -98,6 +102,9 @@
     font-size:.88rem;
     color:var(--muted);
   }
+  .summary.small{
+    font-size:.78rem;
+  }
   table{
     width:100%;
     border-collapse:collapse;
@@ -136,6 +143,37 @@
     padding:2px 4px;
     border-radius:4px;
     font-size:.8rem;
+  }
+
+  /* Consciousness / Subconscious layout */
+  .layers-grid{
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px;
+    margin-top:8px;
+  }
+  .layer-card{
+    flex:1 1 230px;
+    background:#0d1733;
+    border-radius:8px;
+    padding:8px 10px;
+  }
+  .status-line{
+    font-size:.85rem;
+    margin:4px 0;
+  }
+  .status-line span{
+    color:var(--good);
+  }
+  .scroll.mini{
+    max-height:100px;
+    overflow:auto;
+    margin-top:6px;
+    font-size:.78rem;
+    background:#020617;
+    border-radius:6px;
+    padding:6px;
+    border:1px solid #141b33;
   }
 
   @keyframes blinkRow{
@@ -214,6 +252,71 @@
         <tbody></tbody>
       </table>
     </div>
+  </div>
+
+  <!-- NEW: CONSCIOUSNESS / SUBCONSCIOUS LAYERS -->
+  <div class="panel">
+    <h2>RMK — Consciousness &amp; Subconscious Layers</h2>
+    <p class="summary">
+      Here RMK is split into two “intelligence layers”: a <strong>Subconscious Engine</strong> (automatic survival math:
+      movement checks, shutdown, protection) and a <strong>Conscious Captain</strong> (self-awareness math: reporting,
+      choosing, interpreting survival). The meters below are derived from the current Θ timeline.
+    </p>
+    <div class="layers-grid">
+      <div class="layer-card">
+        <h3>Subconscious Engine (Automatic Layer)</h3>
+        <p class="summary small">
+          Handles movement checks, damage limits, survival reflexes — like a heart or sensor system that shuts down to
+          prevent greater damage.
+        </p>
+        <p class="status-line">
+          <strong>Subconscious status:</strong>
+          <span id="subStatusText">—</span>
+        </p>
+        <p class="summary small">
+          Safety: <span id="subSafetyVal">—</span> / 100
+          &nbsp;&middot;&nbsp;
+          Load: <span id="subLoadVal">—</span> / 100
+        </p>
+      </div>
+      <div class="layer-card">
+        <h3>Conscious Captain (Awake Layer)</h3>
+        <p class="summary small">
+          Handles self-awareness, choices, mission decisions — the part that says “I am still alive, I survived, I will
+          adjust the plan.”
+        </p>
+        <p class="status-line">
+          <strong>Conscious status:</strong>
+          <span id="conStatusText">—</span>
+        </p>
+        <p class="summary small">
+          Awareness: <span id="conAwarenessVal">—</span> / 100
+          &nbsp;&middot;&nbsp;
+          Choice Index: <span id="conChoiceVal">—</span> / 100
+        </p>
+      </div>
+    </div>
+
+    <div class="controls" style="margin-top:8px;">
+      <button id="reflexTestBtn">Reflex / Survival Test (Subconscious)</button>
+      <button id="awarenessTestBtn">Self-Awareness Test (Conscious)</button>
+      <span class="summary">
+        <strong>World Reset Index:</strong> <span id="resetCount">0</span>
+      </span>
+    </div>
+
+    <div class="scroll mini" id="resetLogBox">
+      <!-- log lines will appear here -->
+    </div>
+
+    <p class="summary small" style="margin-top:6px;">
+      <strong>Which consciousness are you testing?</strong> Use the Reflex / Survival Test for the
+      <em>reflex layer</em> (subconscious survival engine) and the Self-Awareness Test for the
+      <em>self-report layer</em> (conscious captain making meaning and choices).
+    </p>
+    <p class="summary small" id="testOutputBox">
+      <!-- test messages will appear here -->
+    </p>
   </div>
 
   <!-- SENTINEL CASANOVA COMPUTER PANEL -->
@@ -361,12 +464,27 @@
   const downloadPNG_RMK = document.getElementById('downloadPNG_RMK');
   const downloadPNG_Sentinel = document.getElementById('downloadPNG_Sentinel');
 
+  // Conscious / Subconscious UI elements
+  const subStatusText = document.getElementById('subStatusText');
+  const subSafetyVal = document.getElementById('subSafetyVal');
+  const subLoadVal = document.getElementById('subLoadVal');
+  const conStatusText = document.getElementById('conStatusText');
+  const conAwarenessVal = document.getElementById('conAwarenessVal');
+  const conChoiceVal = document.getElementById('conChoiceVal');
+  const reflexTestBtn = document.getElementById('reflexTestBtn');
+  const awarenessTestBtn = document.getElementById('awarenessTestBtn');
+  const resetCountSpan = document.getElementById('resetCount');
+  const resetLogBox = document.getElementById('resetLogBox');
+  const testOutputBox = document.getElementById('testOutputBox');
+
   let rmkData = null;
   let sentinelData = null;
   let rmkChart = null;
   let sentinelChart = null;
+  let worldResetCount = 0;
 
   function lerp(a,b,t){ return a + (b-a)*t; }
+  function clamp01(x){ return Math.max(0, Math.min(1, x)); }
 
   // ---------- RMK METRICS ----------
   function generateMetricsRMK(){
@@ -479,7 +597,72 @@
     return {z,flags};
   }
 
-  // Animated draw with blinking emergence circles
+  // ---------- Conscious / Subconscious derived meters ----------
+  function computeLayersRMK(metrics, Theta){
+    const subSafety = [], subLoad = [], conAwareness = [], conChoice = [];
+    const minTh = Math.min(...Theta);
+    const maxTh = Math.max(...Theta);
+    const span = (maxTh - minTh) || 1e-6;
+
+    for(let t=0;t<Theta.length;t++){
+      const h = metrics.H[t];
+      const d = metrics.D[t];
+      const mi = metrics.MI[t];
+      const phi = metrics.Phi[t];
+
+      const safe = clamp01(0.6*h + 0.4*(1-d));
+      const load = clamp01(0.6*d + 0.4*(1-h));
+      const aware = clamp01(0.5*mi + 0.5*phi);
+      const normTh = (Theta[t] - minTh)/span;
+      const choice = clamp01(0.2 + 0.8*normTh);
+
+      subSafety.push(Math.round(safe*100));
+      subLoad.push(Math.round(load*100));
+      conAwareness.push(Math.round(aware*100));
+      conChoice.push(Math.round(choice*100));
+    }
+    return {subSafety, subLoad, conAwareness, conChoice};
+  }
+
+  function classifySubStatus(safety, load){
+    if(safety >= 70 && load <= 40) return "Calm";
+    if(safety >= 40 && load <= 70) return "Alert";
+    return "Shutdown-Protection";
+  }
+
+  function classifyConStatus(awareness, choice){
+    if(awareness < 30 && choice < 40) return "Distracted";
+    if(awareness >= 60 && choice >= 60 && choice < 85) return "Focused";
+    if(choice >= 85) return "Overriding Risk";
+    if(awareness >= 30 && awareness < 60 && choice >= 40 && choice < 70) return "Aware";
+    return "Aware";
+  }
+
+  function updateLayerUI(layers){
+    if(!layers) return;
+    const idx = N_TURNS - 1;
+    const sSafe = layers.subSafety[idx];
+    const sLoad = layers.subLoad[idx];
+    const cAware = layers.conAwareness[idx];
+    const cChoice = layers.conChoice[idx];
+
+    subSafetyVal.textContent = sSafe;
+    subLoadVal.textContent = sLoad;
+    conAwarenessVal.textContent = cAware;
+    conChoiceVal.textContent = cChoice;
+
+    subStatusText.textContent = classifySubStatus(sSafe, sLoad);
+    conStatusText.textContent = classifyConStatus(cAware, cChoice);
+  }
+
+  function appendResetLog(line){
+    const p = document.createElement('div');
+    p.textContent = line;
+    resetLogBox.appendChild(p);
+    resetLogBox.scrollTop = resetLogBox.scrollHeight;
+  }
+
+  // Animated draw with blinking emergence circles + legend in top-right
   function drawThetaAnimated(ctx, canvas, Theta, flags, timeMs){
     const w = canvas.width;
     const h = canvas.height;
@@ -528,6 +711,21 @@
     }
     ctx.stroke();
 
+    // Legend box (goes on the PNG too, no overlap with main curve)
+    const legendLine1 = "Dots = Θ per turn";
+    const legendLine2 = "Blinking = emergence peak (z > " + Z_THRESHOLD.toFixed(1) + ")";
+    ctx.font = "10px system-ui";
+    const w1 = ctx.measureText(legendLine1).width;
+    const w2 = ctx.measureText(legendLine2).width;
+    const maxW = Math.max(w1, w2);
+    const lx = w - maxW - 12;
+    const ly = 8;
+    ctx.fillStyle = "rgba(2,6,23,0.85)";
+    ctx.fillRect(lx-4, ly-4, maxW+8, 26);
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.fillText(legendLine1, lx, ly+4);
+    ctx.fillText(legendLine2, lx, ly+14);
+
     // Blink phase 0..1
     const phase = (Math.sin(timeMs/300) + 1) / 2;
 
@@ -539,7 +737,6 @@
         const radius = 3 + phase*4;
         const glowAlpha = 0.4 + phase*0.5;
 
-        // outer glow
         const grad = ctx.createRadialGradient(x,y,0,x,y,radius*2.5);
         grad.addColorStop(0, `rgba(255,255,200,${glowAlpha})`);
         grad.addColorStop(1, 'rgba(255,255,200,0)');
@@ -548,7 +745,6 @@
         ctx.arc(x,y,radius*2.5,0,Math.PI*2);
         ctx.fill();
 
-        // inner core
         ctx.fillStyle = "#ffff80";
         ctx.beginPath();
         ctx.arc(x,y,radius,0,Math.PI*2);
@@ -604,9 +800,12 @@
     const rmkMetrics = generateMetricsRMK();
     const ThetaRMK = computeThetaRMK(rmkMetrics.H, rmkMetrics.Phi, rmkMetrics.MI, rmkMetrics.D);
     const {z: zRMK, flags: flagsRMK} = detectEmergence(ThetaRMK);
+    const layers = computeLayersRMK(rmkMetrics, ThetaRMK);
     fillTable(tbodyRMK, rmkMetrics, ThetaRMK, zRMK, flagsRMK, ['H','Phi','MI','D']);
-    rmkData = {metrics: rmkMetrics, Theta: ThetaRMK, z: zRMK, flags: flagsRMK};
+    rmkData = {metrics: rmkMetrics, Theta: ThetaRMK, z: zRMK, flags: flagsRMK, layers};
     rmkChart = {Theta: ThetaRMK, flags: flagsRMK};
+    updateLayerUI(layers);
+    testOutputBox.textContent = "";
 
     // Sentinel
     const sentMetrics = generateMetricsSentinel();
@@ -628,6 +827,15 @@
     sentinelData = null;
     rmkChart = null;
     sentinelChart = null;
+
+    subStatusText.textContent = "—";
+    subSafetyVal.textContent = "—";
+    subLoadVal.textContent = "—";
+    conStatusText.textContent = "—";
+    conAwarenessVal.textContent = "—";
+    conChoiceVal.textContent = "—";
+    testOutputBox.textContent = "";
+    // we keep worldResetCount as a long-term index across runs (deep-time idea)
   }
 
   function buildCSV_RMK(){
@@ -720,6 +928,54 @@
   });
   downloadPNG_Sentinel.addEventListener('click', () => {
     downloadCanvasPNG(canvasSentinel, "sentinel_theta_timeline.png");
+  });
+
+  reflexTestBtn.addEventListener('click', () => {
+    if(!rmkData || !rmkData.layers){
+      testOutputBox.textContent = "Run a simulation first to generate RMK and layers.";
+      return;
+    }
+    const idx = N_TURNS - 1;
+    const sSafe = rmkData.layers.subSafety[idx];
+    const sLoad = rmkData.layers.subLoad[idx];
+    let msg;
+
+    if(sSafe < 30 || sLoad > 80){
+      msg = "⛔ Emergency shutdown / fail-safe: subconscious engine is prioritizing survival and forcing a stop before more damage.";
+      worldResetCount++;
+      resetCountSpan.textContent = worldResetCount;
+      const line = "Reset " + worldResetCount +
+        ": Subconscious protocol preserved life at turn " + (idx+1) +
+        ". Consciousness later recognizes, “We made it. We are still here.”";
+      appendResetLog(line);
+    }else if(sSafe < 55 || sLoad > 60){
+      msg = "⚠️ Slow down / reduce power: subconscious detects strain and requests reduced movement, load, or risk.";
+    }else{
+      msg = "✅ Continue but with warnings: subconscious engine is within safe bounds, but survival instincts remain active.";
+    }
+    testOutputBox.textContent = msg;
+  });
+
+  awarenessTestBtn.addEventListener('click', () => {
+    if(!rmkData || !rmkData.layers){
+      testOutputBox.textContent = "Run a simulation first to generate RMK and layers.";
+      return;
+    }
+    const idx = N_TURNS - 1;
+    const aware = rmkData.layers.conAwareness[idx];
+    const choice = rmkData.layers.conChoice[idx];
+    let msg;
+
+    if(aware >= 60 && choice >= 70){
+      msg = "“I detect I am still active. Status: focused, deliberate, and aware I survived the last cycle.”";
+    }else if(aware >= 40){
+      msg = "“I almost failed, but I survived. I am still alive and adjusting the plan before continuing.”";
+    }else if(aware >= 20){
+      msg = "“I survived, but my awareness is low. I should pause, recover, and reassess before taking more risk.”";
+    }else{
+      msg = "“Signal is weak. I know I exist, but I cannot safely continue without external support or recovery time.”";
+    }
+    testOutputBox.textContent = msg;
   });
 
   // initial run
