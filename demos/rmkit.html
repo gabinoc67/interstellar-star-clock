@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Relational Metrics Kit — Mini Theta Simulation</title>
+<style>
+  :root{
+    --bg:#0b1222;
+    --panel:#121a33;
+    --ink:#edf2ff;
+    --muted:#a9b7e3;
+    --accent:#8fb4ff;
+    --good:#7bffb1;
+    --warn:#ffd37a;
+    --bad:#ff8c8c;
+    --grid:#1b2550;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;
+  }
+  .wrap{
+    max-width:1100px;
+    margin:0 auto;
+    padding:16px;
+  }
+  h1{
+    margin:4px 0 8px;
+    font-size:1.6rem;
+  }
+  h2{
+    margin:12px 0 4px;
+    font-size:1.2rem;
+    color:var(--accent);
+  }
+  .panel{
+    background:var(--panel);
+    border-radius:10px;
+    padding:12px 14px;
+    box-shadow:0 0 0 1px rgba(0,0,0,.4);
+    margin-bottom:16px;
+  }
+  .controls{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    align-items:center;
+    font-size:.9rem;
+  }
+  button{
+    border:none;
+    border-radius:999px;
+    padding:6px 14px;
+    background:var(--accent);
+    color:#020617;
+    font-weight:600;
+    cursor:pointer;
+  }
+  button:hover{
+    filter:brightness(1.1);
+  }
+  canvas{
+    width:100%;
+    max-width:100%;
+    border-radius:8px;
+    background:#050816;
+    display:block;
+  }
+  .legend{
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px;
+    font-size:.8rem;
+    color:var(--muted);
+    margin-top:6px;
+  }
+  .pill{
+    display:inline-flex;
+    align-items:center;
+    gap:4px;
+    padding:2px 8px;
+    border-radius:999px;
+    background:#0d1733;
+  }
+  .dot{
+    width:8px;
+    height:8px;
+    border-radius:50%;
+    background:var(--accent);
+  }
+  .dot.theta{background:var(--good);}
+  .dot.emerge{background:var(--bad);}
+  .summary{
+    font-size:.88rem;
+    color:var(--muted);
+  }
+  table{
+    width:100%;
+    border-collapse:collapse;
+    font-size:.78rem;
+    margin-top:8px;
+  }
+  th,td{
+    padding:4px 6px;
+    text-align:right;
+    border-bottom:1px solid rgba(255,255,255,.04);
+  }
+  th{
+    text-align:center;
+    color:var(--muted);
+    background:#0d1733;
+    position:sticky;
+    top:0;
+    z-index:1;
+  }
+  td.turn{
+    text-align:center;
+    color:var(--accent);
+  }
+  tr.emerge-row{
+    background:rgba(255,140,140,0.08);
+  }
+  .scroll{
+    max-height:260px;
+    overflow:auto;
+    border-radius:8px;
+    border:1px solid #141b33;
+  }
+  code{
+    background:#020617;
+    padding:2px 4px;
+    border-radius:4px;
+    font-size:.8rem;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="panel">
+    <h1>Relational Metrics Kit — Mini Theta Simulation</h1>
+    <p class="summary">
+      This page simulates a simplified version of the <strong>Relational Metrics Kit (RMK)</strong> order
+      parameter Θ over a 40-turn conversation. It uses toy values for Harmony (H), Philosophical
+      Flexibility (Φ), Mutual Information (MI), and Disruption (Δ), then computes:
+      <br><code>Θₜ = 0.5·Hₜ + 0.2·Φₜ + 0.3·MIₜ − 0.25·Δₜ</code>
+      <br>We then highlight sustained peaks in Θ as possible “emergence” moments.
+    </p>
+    <div class="controls">
+      <button id="runBtn">Run New Simulation</button>
+      <span>Turns: <strong>40</strong> &middot; Window for baseline: <strong>8</strong> turns</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Theta Timeline</h2>
+    <canvas id="thetaCanvas" width="1000" height="260"></canvas>
+    <div class="legend">
+      <span class="pill"><span class="dot theta"></span> Θ (order parameter)</span>
+      <span class="pill"><span class="dot emerge"></span> Emergence peak (above baseline)</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Turn-by-Turn Metrics</h2>
+    <div class="scroll">
+      <table id="metricsTable">
+        <thead>
+          <tr>
+            <th>t</th>
+            <th>Hₜ</th>
+            <th>Φₜ</th>
+            <th>MIₜ</th>
+            <th>Δₜ</th>
+            <th>Θₜ</th>
+            <th>z(Θ)</th>
+            <th>Emergence?</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const N_TURNS = 40;
+  const LAMBDA = {H:0.5, Phi:0.2, MI:0.3, D:0.25};
+  const BASELINE_WINDOW = 8;
+  const Z_THRESHOLD = 1.8; // toy z-score gate similar to RMK idea
+
+  const canvas = document.getElementById('thetaCanvas');
+  const ctx = canvas.getContext('2d');
+  const tbody = document.querySelector('#metricsTable tbody');
+  const runBtn = document.getElementById('runBtn');
+
+  function lerp(a,b,t){ return a + (b-a)*t; }
+
+  // Generate synthetic metrics with 3 phases: Exploration -> Emergence buildup -> Stabilization
+  function generateMetrics(){
+    const H = [], Phi = [], MI = [], D = [];
+    for(let t=0;t<N_TURNS;t++){
+      const x = t/(N_TURNS-1);
+
+      // Phase regions
+      // 0-0.25: exploration, 0.25-0.65: integration/emergence, 0.65-1: stabilization
+      let h, phi, mi, d;
+
+      if(x < 0.25){
+        // Exploration: medium harmony, low MI, moderate disruption
+        h   = 0.3 + Math.random()*0.15;
+        mi  = 0.15 + Math.random()*0.15;
+        phi = 0.25 + Math.random()*0.2;
+        d   = 0.45 + Math.random()*0.15;
+      }else if(x < 0.65){
+        // Integration / build-up: rising harmony, higher MI, still some disruption
+        const u = (x-0.25)/(0.65-0.25); // 0..1
+        h   = lerp(0.45, 0.85, u) + (Math.random()*0.06-0.03);
+        mi  = lerp(0.3, 0.8, u)   + (Math.random()*0.06-0.03);
+        phi = lerp(0.3, 0.8, u)   + (Math.random()*0.06-0.03);
+        d   = lerp(0.45,0.3,u)    + (Math.random()*0.08-0.04);
+      }else{
+        // Stabilization: high harmony, high MI, low disruption, moderate Phi
+        h   = 0.8  + Math.random()*0.05;
+        mi  = 0.75 + Math.random()*0.05;
+        phi = 0.6  + Math.random()*0.1;
+        d   = 0.15 + Math.random()*0.08;
+      }
+
+      // clamp 0..1
+      H.push(Math.max(0,Math.min(1,h)));
+      Phi.push(Math.max(0,Math.min(1,phi)));
+      MI.push(Math.max(0,Math.min(1,mi)));
+      D.push(Math.max(0,Math.min(1,d)));
+    }
+    return {H,Phi,MI,D};
+  }
+
+  function computeTheta(H,Phi,MI,D){
+    const Theta = [];
+    for(let t=0;t<N_TURNS;t++){
+      const th = LAMBDA.H*H[t] + LAMBDA.Phi*Phi[t] + LAMBDA.MI*MI[t] - LAMBDA.D*D[t];
+      Theta.push(th);
+    }
+    return Theta;
+  }
+
+  function rollingStats(arr, win){
+    const mean = new Array(arr.length).fill(null);
+    const std  = new Array(arr.length).fill(null);
+    for(let i=0;i<arr.length;i++){
+      const start = Math.max(0, i-win+1);
+      const slice = arr.slice(start, i+1);
+      const m = slice.reduce((s,v)=>s+v,0)/slice.length;
+      const v = slice.reduce((s,v)=>s+(v-m)*(v-m),0)/slice.length;
+      mean[i] = m;
+      std[i]  = Math.sqrt(v) || 0.0001;
+    }
+    return {mean,std};
+  }
+
+  function detectEmergence(Theta){
+    const {mean,std} = rollingStats(Theta, BASELINE_WINDOW);
+    const z = [];
+    const flags = [];
+    for(let i=0;i<Theta.length;i++){
+      const zi = (Theta[i]-mean[i]) / std[i];
+      z.push(zi);
+      flags.push(zi > Z_THRESHOLD);
+    }
+    return {z,flags};
+  }
+
+  function drawTheta(Theta, flags){
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0,0,w,h);
+
+    // background
+    ctx.fillStyle = "#020617";
+    ctx.fillRect(0,0,w,h);
+
+    // grid
+    ctx.strokeStyle = "rgba(255,255,255,0.05)";
+    ctx.lineWidth = 1;
+    const rows = 4;
+    for(let i=0;i<=rows;i++){
+      const y = h * i/rows;
+      ctx.beginPath();
+      ctx.moveTo(0,y);
+      ctx.lineTo(w,y);
+      ctx.stroke();
+    }
+
+    // axes labels minimal
+    ctx.fillStyle = "rgba(255,255,255,0.4)";
+    ctx.font = "10px system-ui";
+    ctx.fillText("Θ", 4, 10);
+    ctx.fillText("0", 4, h-4);
+    ctx.fillText("1.0", 4, 12);
+
+    const maxTheta = Math.max(...Theta,1);
+    const minTheta = Math.min(...Theta,0);
+
+    function xPos(i){
+      return (w-40) * (i/(Theta.length-1)) + 30;
+    }
+    function yPos(val){
+      const norm = (val - minTheta)/(maxTheta-minTheta || 1);
+      return h - 20 - norm*(h-40);
+    }
+
+    // Theta line
+    ctx.strokeStyle = "#7bffb1";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for(let i=0;i<Theta.length;i++){
+      const x = xPos(i);
+      const y = yPos(Theta[i]);
+      if(i===0) ctx.moveTo(x,y);
+      else ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+
+    // Emergence points
+    for(let i=0;i<Theta.length;i++){
+      if(flags[i]){
+        const x = xPos(i);
+        const y = yPos(Theta[i]);
+        ctx.fillStyle = "#ff8c8c";
+        ctx.beginPath();
+        ctx.arc(x,y,4,0,Math.PI*2);
+        ctx.fill();
+      }
+    }
+
+    // x-axis
+    ctx.strokeStyle = "rgba(255,255,255,0.25)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(30,h-20);
+    ctx.lineTo(w-10,h-20);
+    ctx.stroke();
+
+    ctx.fillStyle = "rgba(255,255,255,0.5)";
+    ctx.fillText("turn", w-35,h-8);
+  }
+
+  function fillTable(H,Phi,MI,D,Theta,z,flags){
+    tbody.innerHTML = "";
+    for(let t=0;t<N_TURNS;t++){
+      const tr = document.createElement('tr');
+      if(flags[t]) tr.classList.add('emerge-row');
+
+      const cTurn = document.createElement('td');
+      cTurn.className = 'turn';
+      cTurn.textContent = t+1;
+
+      function numCell(v, digits=3){
+        const td = document.createElement('td');
+        td.textContent = (v===null || v===undefined || isNaN(v)) ? "" : v.toFixed(digits);
+        return td;
+      }
+
+      const cFlag = document.createElement('td');
+      cFlag.textContent = flags[t] ? "YES" : "";
+
+      tr.appendChild(cTurn);
+      tr.appendChild(numCell(H[t]));
+      tr.appendChild(numCell(Phi[t]));
+      tr.appendChild(numCell(MI[t]));
+      tr.appendChild(numCell(D[t]));
+      tr.appendChild(numCell(Theta[t]));
+      tr.appendChild(numCell(z[t]));
+      tr.appendChild(cFlag);
+      tbody.appendChild(tr);
+    }
+  }
+
+  function runSimulation(){
+    const {H,Phi,MI,D} = generateMetrics();
+    const Theta = computeTheta(H,Phi,MI,D);
+    const {z,flags} = detectEmergence(Theta);
+    drawTheta(Theta, flags);
+    fillTable(H,Phi,MI,D,Theta,z,flags);
+  }
+
+  runBtn.addEventListener('click', runSimulation);
+
+  // initial run
+  runSimulation();
+})();
+</script>
+</body>
+</html>
