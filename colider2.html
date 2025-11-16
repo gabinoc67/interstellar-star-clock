@@ -1,0 +1,1680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Warp Engine + Earth–Mars 4D Navigation</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{
+    margin:0;
+    background:#0b1020;
+    color:#eaf0ff;
+    font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;
+  }
+  a{color:#9bb4ff}
+
+  /* ===== Warp Engine Layout & Style ===== */
+  .wrap{max-width:1800px;margin:0 auto;padding:16px}
+  .grid{display:grid;grid-template-columns:380px 1fr;gap:16px;align-items:start}
+  .panel{background:#12183a;border:1px solid #22305c;border-radius:16px;padding:14px;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+  h1{margin:.2rem 0 .4rem;font-size:26px}
+  h2{margin:.4rem 0 .3rem;font-size:16px;color:#b8c4ff}
+  label{display:block;margin:.4rem 0 .25rem;color:#b8c4ff}
+  input[type=range]{width:100%}
+  .row{display:flex;gap:8px;flex-wrap:wrap}
+  .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:8px}
+  .stat{background:#0e1536;border:1px solid #22305c;border-radius:12px;padding:8px}
+  .big{font-size:22px;font-weight:600}
+
+  /* BIGGER engine canvas */
+  canvas{
+    width:100%;
+    height:900px;
+    background:radial-gradient(1600px 900px at 50% 50%, #0f1740 0%, #0b1020 60%)
+  }
+
+  .legend{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:8px}
+  .legend div{display:flex;align-items:center;gap:8px;color:#b8c4ff}
+  .dot{width:12px;height:12px;border-radius:50%}
+  .note{color:#b8c4ff;font-size:12px;margin-top:8px}
+  button{background:#1a245a;color:#eaf0ff;border:1px solid #22305c;border-radius:10px;padding:8px 10px;cursor:pointer}
+  button:hover{filter:brightness(1.1)}
+  .tests{margin-top:10px;font-size:12px;color:#b8c4ff}
+  .steps ol{margin:.4rem 0 .2rem;padding-left:1.1rem}
+
+  /* Telemetry grid */
+  .telemetry{margin-top:10px;border-top:1px solid #22305c;padding-top:10px}
+  .trow{display:grid;grid-template-columns:170px 1fr 88px;gap:8px;align-items:center;margin:6px 0}
+  .tname{color:#b8c4ff;font-size:13px}
+  .tval{font-variant-numeric:tabular-nums;font-size:13px;text-align:right}
+  .gauge{height:8px;background:#0e1536;border:1px solid #22305c;border-radius:16px;overflow:hidden}
+  .gauge>span{display:block;height:100%;width:0%;background:linear-gradient(90deg,#6bd1ff,#9bb4ff)}
+  .subgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .clockbox{background:#0e1536;border:1px solid #22305c;border-radius:10px;padding:8px;font-size:12px}
+
+  /* Data table + layout */
+  .datatable{width:100%;border-collapse:separate;border-spacing:0;overflow:hidden;border-radius:12px;border:1px solid #22305c;background:#0e1536}
+  .datatable caption{caption-side:top;text-align:left;padding:8px 10px;color:#b8c4ff;font-weight:600}
+  .datatable th,.datatable td{padding:10px 12px;border-bottom:1px solid #1b2852;font-size:13px;vertical-align:top}
+  .datatable th{color:#cfe2ff;text-align:left;background:#101c47;font-weight:600;position:sticky;top:0}
+  .datatable tr:last-child td{border-bottom:0}
+  .datatable tbody tr:hover{background:#0f1a3d}
+  .two-col{display:grid;grid-template-columns:1.1fr .9fr;gap:16px}
+  @media (max-width: 1200px){ .grid{grid-template-columns:1fr} .two-col{grid-template-columns:1fr} }
+  .badge{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid #2a3a78;font-size:11px;color:#a9b6ff;background:#0d1540}
+  .list{margin:.25rem 0 .5rem;padding-left:1.1rem}
+  .list li{margin:.25rem 0}
+
+  /* ===== 4D Navigation Panel Styles (separate namespace) ===== */
+  .nav-wrap{max-width:1200px;margin:18px auto 0;}
+  .nav-grid{
+    display:grid;
+    grid-template-columns:minmax(0,1.1fr) minmax(0,1.3fr);
+    gap:16px;
+    margin-top:10px;
+  }
+  .nav-card{
+    background:#121a33;
+    border-radius:14px;
+    padding:12px 14px;
+    box-shadow:0 0 0 1px #141c3a,0 14px 30px rgba(0,0,0,.5);
+  }
+  .nav-card h3{
+    margin:0 0 6px;
+    font-size:1rem;
+  }
+  .nav-label{
+    display:block;
+    font-size:.8rem;
+    color:#a9b7e3;
+    margin:6px 0 3px;
+  }
+  .nav-input-range,
+  .nav-input-number{
+    width:100%;
+    margin:0 0 6px;
+    font-size:.85rem;
+    padding:4px 6px;
+    border-radius:8px;
+    border:1px solid #27305a;
+    background:#070b18;
+    color:#edf2ff;
+  }
+  .nav-input-range{padding:0;height:6px;}
+  .nav-inline-row{
+    display:flex;
+    gap:8px;
+    align-items:center;
+  }
+  .nav-inline-row > *{flex:1;}
+  .nav-metric-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    margin:4px 0;
+    font-size:.9rem;
+  }
+  .nav-metric-label{color:#a9b7e3;}
+  .nav-metric-value{font-variant-numeric:tabular-nums;}
+  .nav-metric-value strong{font-size:1rem;}
+  .nav-status-row{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin:4px 0;
+    font-size:.85rem;
+  }
+  .nav-status-dot{
+    width:11px;
+    height:11px;
+    border-radius:50%;
+    box-shadow:0 0 8px rgba(0,0,0,.6);
+  }
+  .status-ok{background:#7bffb1;}
+  .status-warn{background:#ffd37a;}
+  .status-bad{background:#ff8c8c;}
+  .nav-chip{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:3px 8px;
+    border-radius:999px;
+    background:#1e2a59;
+    font-size:.75rem;
+    color:#a9b7e3;
+  }
+  .nav-big-go{
+    margin-top:6px;
+    padding:10px 12px;
+    border-radius:999px;
+    font-size:.95rem;
+    font-weight:600;
+    text-align:center;
+  }
+  .nav-big-go.go{
+    background:rgba(123,255,177,.12);
+    color:#7bffb1;
+    border:1px solid rgba(123,255,177,.5);
+    box-shadow:0 0 18px rgba(123,255,177,.4);
+  }
+  .nav-big-go.nogo{
+    background:rgba(255,140,140,.08);
+    color:#ff8c8c;
+    border:1px solid rgba(255,140,140,.5);
+    box-shadow:0 0 18px rgba(255,140,140,.2);
+  }
+  .nav-small{font-size:.75rem;color:#a9b7e3;}
+  .nav-xy-plot{
+    position:relative;
+    width:100%;
+    padding-top:100%;
+    background:#070b18;
+    border-radius:12px;
+    border:1px solid #202749;
+    overflow:hidden;
+  }
+  .nav-xy-inner{
+    position:absolute;
+    inset:10px;
+  }
+  .nav-xy-center{
+    position:absolute;
+    left:50%;
+    top:50%;
+    width:4px;
+    height:4px;
+    margin:-2px 0 0 -2px;
+    border-radius:50%;
+    background:#ffffff55;
+  }
+  .planet-dot{
+    position:absolute;
+    width:10px;
+    height:10px;
+    margin:-5px 0 0 -5px;
+    border-radius:50%;
+    box-shadow:0 0 10px rgba(0,0,0,.8);
+  }
+  .planet-earth{background:#7bffb1;}
+  .planet-mars{background:#ff8c8c;}
+  .planet-ship{background:#9bb4ff;}
+  .orbit-circle{
+    position:absolute;
+    border-radius:50%;
+    border:1px dashed #2a3564;
+    left:50%;
+    top:50%;
+    transform:translate(-50%,-50%);
+  }
+  .vector-line{
+    position:absolute;
+    height:2px;
+    background:linear-gradient(90deg,#7bffb1,#ff8c8c);
+    transform-origin:left center;
+    opacity:0.9;
+  }
+  .nav-legend{
+    display:flex;
+    gap:8px;
+    margin-top:6px;
+    font-size:.8rem;
+    color:#a9b7e3;
+  }
+  .nav-legend-item{display:flex;align-items:center;gap:4px;}
+  .nav-legend-swatch{
+    width:10px;
+    height:10px;
+    border-radius:50%;
+  }
+  .text-mono{
+    font-family:ui-monospace,Menlo,Consolas,monospace;
+    font-size:.8rem;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Warp Engine + Earth–Mars 4D Navigation Demo</h1>
+    <p class="note">
+      Engine panel stays live and stable. The 4D navigation panel runs a backup Earth–Mars vector check,
+      verifies 3–4 channels, and then hands control to the warp engine for the simulated trip.
+    </p>
+
+    <div class="grid">
+      <div class="panel">
+        <h2>Warp Engine Controls</h2>
+        <label for="warp">Warp Factor (1 to 10)</label>
+        <input id="warp" type="range" min="1" max="10" step="1" value="3"/>
+        <div class="row">
+          <button id="play">Play</button>
+          <button id="pause">Pause</button>
+          <button id="reset">Reset</button>
+          <label style="margin-left:auto;display:flex;align-items:center;gap:6px">
+            <input id="colliderToggle" type="checkbox" checked/> Collider On
+          </label>
+          <label style="display:flex;align-items:center;gap:6px">
+            <input id="labels" type="checkbox" checked/> Show labels
+          </label>
+        </div>
+        <div class="stats">
+          <div class="stat"><div class="big" id="speed">x3.0</div><div class="muted">Animation speed</div></div>
+          <div class="stat"><div class="big" id="field">1.6 x D</div><div class="muted">Field radius vs engine</div></div>
+          <div class="stat"><div class="big" id="temp">Warm</div><div class="muted">Heat/Cool balance</div></div>
+          <div class="stat"><div class="big" id="time">1.00 x</div><div class="muted">Clock rate (visual)</div></div>
+        </div>
+        <div class="legend">
+          <div><span class="dot" style="background:#9bb4ff"></span> Photon/ion stream</div>
+          <div><span class="dot" style="background:#33e1b5"></span> Magnetic field lines</div>
+          <div><span class="dot" style="background:#ffcc66"></span> Heat tracers</div>
+          <div><span class="dot" style="background:#6bd1ff"></span> Coolant (water) tracers</div>
+          <div><span class="dot" style="background:#b26bff"></span> Entanglement particles</div>
+          <div><span class="dot" style="background:#ffdca8"></span> Plasma light cone</div>
+          <div><span class="dot" style="background:#8aff9b"></span> Detection lasers</div>
+        </div>
+        <div id="tests" class="tests">Self-tests running…</div>
+        <!-- Real-time Telemetry -->
+        <div class="telemetry">
+          <h2>Real-time Telemetry</h2>
+          <div class="trow"><div class="tname">Animation Speed</div><div class="gauge"><span id="g_speed"></span></div><div id="v_speed" class="tval">x1.0</div></div>
+          <div class="trow"><div class="tname">Field Radius (×D)</div><div class="gauge"><span id="g_field"></span></div><div id="v_field" class="tval">1.20</div></div>
+          <div class="trow"><div class="tname">Field Shield (%)</div><div class="gauge"><span id="g_fshield"></span></div><div id="v_fshield" class="tval">0%</div></div>
+          <div class="trow"><div class="tname">Field Stretch (rx/ry)</div><div class="gauge"><span id="g_fstretch"></span></div><div id="v_fstretch" class="tval">0/0</div></div>
+
+          <div class="trow"><div class="tname">Clock Rate (warp)</div><div class="gauge"><span id="g_clock"></span></div><div id="v_clock" class="tval">1.00×</div></div>
+
+          <div class="trow"><div class="tname">Photon/Ion Rate</div><div class="gauge"><span id="g_phot"></span></div><div id="v_phot" class="tval">0/s</div></div>
+          <div class="trow"><div class="tname">Collider Beam Flux</div><div class="gauge"><span id="g_collider"></span></div><div id="v_collider" class="tval">0/s</div></div>
+          <div class="trow"><div class="tname">Mag Field Strength</div><div class="gauge"><span id="g_mag"></span></div><div id="v_mag" class="tval">0.0</div></div>
+
+          <div class="trow"><div class="tname">Core Temp (°C)</div><div class="gauge"><span id="g_tcore"></span></div><div id="v_tcore" class="tval">0°C</div></div>
+          <div class="trow"><div class="tname">Coolant Temp (°C)</div><div class="gauge"><span id="g_tcool"></span></div><div id="v_tcool" class="tval">0°C</div></div>
+
+          <div class="trow"><div class="tname">Entangle Particles</div><div class="gauge"><span id="g_ent"></span></div><div id="v_ent" class="tval">0 M/s</div></div>
+          <div class="trow"><div class="tname">Plasma Cone Len</div><div class="gauge"><span id="g_plen"></span></div><div id="v_plen" class="tval">0 u</div></div>
+          <div class="trow"><div class="tname">Plasma Cone Rad</div><div class="gauge"><span id="g_prad"></span></div><div id="v_prad" class="tval">0 u</div></div>
+          <div class="trow"><div class="tname">Plasma Wave Intensity</div><div class="gauge"><span id="g_pwave"></span></div><div id="v_pwave" class="tval">0.0</div></div>
+
+          <div class="trow"><div class="tname">Effective FTL Gain (sim)</div><div class="gauge"><span id="g_ftl"></span></div><div id="v_ftl" class="tval">1.00×</div></div>
+
+          <div class="subgrid">
+            <div class="clockbox"><div><strong>Outside Time (UTC)</strong></div><div id="clk_utc">--:--:--</div></div>
+            <div class="clockbox"><div><strong>Engine Sync (CST)</strong></div><div id="clk_cst">--:--:--</div></div>
+            <div class="clockbox" style="grid-column:1 / span 2"><div><strong>Warp-Adjusted Time</strong> (scaled by clock rate)</div><div id="clk_warp">--:--:--</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bigger engine canvas panel -->
+      <div class="panel">
+        <canvas id="view" width="1600" height="900"></canvas>
+      </div>
+    </div>
+
+    <div class="panel steps">
+      <h2>How this engine operates (conceptual sequence, no exotic matter)</h2>
+      <ol>
+        <li><strong>Intake & Magnetic Fan + Fusion Starter</strong> modulate vacuum-air circulation, ignite ions, and seed flow to the collider.</li>
+        <li><strong>Particle Collider Ring</strong> accelerates ions and mixes them with photons to spectrally “clean” the beam before compression.</li>
+        <li><strong>Compression Stages</strong> raise density/pressure via staged EM shaping and piping.</li>
+        <li><strong>Reactors</strong> supply power; <strong>Electro-plasma</strong> is generated and routed.</li>
+        <li><strong>Warp coils / Field shapers</strong> modulate vacuum fluctuation and form the field bubble.</li>
+        <li><strong>Entangled feedback + Atomic clocks (CST sync)</strong> stabilize timing; sensors/lasers regulate pulses.</li>
+        <li><strong>Nozzle & Thermal management</strong> direct exhaust; water cooling maintains safe operation.</li>
+      </ol>
+      <p class="note">Labels include: Fusion Ignition / Pre-Heat, Particle Collider Ring (photon+ion), Negative-energy <em>modulator</em>, Pulse Control, AFT Power Ramp / Gradually, Gravitational Stabilization Panel, Quantum Vertex Dampers (F/R/U/D/L/R), Detection Lasers, plus the new components (ZPO rings, Casimir arrays, Tachyon node, CTC Guard, Positron port, Limestone–granite resonator, Exotic-matter bypass). Visualization only.</p>
+    </div>
+
+    <!-- === Engine Layer Table + Theory Notes === -->
+    <div class="panel">
+      <div class="two-col">
+        <div>
+          <table class="datatable" aria-label="Engine Layer mapping">
+            <caption>Engine Layer ↔ Physics Basis ↔ Function</caption>
+            <thead>
+              <tr>
+                <th scope="col">Layer</th>
+                <th scope="col">Physics Basis</th>
+                <th scope="col">Function in Warp Engine</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Zero-Point Field</td>
+                <td>Quantum vacuum energy</td>
+                <td>Energy substrate for spacetime curvature</td>
+              </tr>
+              <tr>
+                <td>Casimir / Lamb Shift</td>
+                <td>Quantum fluctuation sensing</td>
+                <td>Field stabilization and feedback</td>
+              </tr>
+              <tr>
+                <td>Tachyon Domain</td>
+                <td>Superluminal mirror frame</td>
+                <td>Temporal symmetry &amp; feedback channel</td>
+              </tr>
+              <tr>
+                <td>Zero-Point Oscillators</td>
+                <td>Vacuum resonance</td>
+                <td>Field propulsion and bubble maintenance</td>
+              </tr>
+              <tr>
+                <td>CST Time</td>
+                <td>Universal synchronization</td>
+                <td>Navigation stability across spacetime frames</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="note" style="margin-top:8px"><span class="badge">Live Link</span> These layers correspond to the animated telemetry (field radius, clock rate, plasma vectors) and can be used to tune the demo’s parameters.</p>
+        </div>
+
+        <div>
+          <h2>Warp-Drive Energy Symmetry — Technical Notes</h2>
+          <ul class="list">
+            <li><strong>Engine core theory:</strong> Warp bubble arises from phased <em>vacuum-energy gradients</em> driven by ZPO rings with CST-locked timing.</li>
+            <li><strong>Fusion starter + collider:</strong> A compact fusion pre-ignition feeds a particle collider ring; mixed ion–photon streams enter compression with cleaner spectra, increasing effective warp-bubble drive efficiency.</li>
+            <li><strong>Vacuum field &amp; CST synchronization:</strong> Atomic clocks phase-lock ZPF oscillators; CST anchors re-entry to target frame.</li>
+            <li><strong>Positron roles:</strong> Pair-production channels act as <em>plasma charge balancers</em> and diagnostic beacons in high-field regimes.</li>
+            <li><strong>Exotic-matter bypass:</strong> Effective negative pressure via <em>Casimir cavities</em> and phase-shifted EM stress—no exotic matter assumed.</li>
+            <li><strong>Limestone–granite resonance:</strong> Piezoelectric &amp; acoustic coupling prototypes (granite/quartz) for low-frequency field seeding.</li>
+            <li><strong>Temporal vs. spatial warp distinction:</strong> <em>rx/ry</em> stretch controls spatial lensing; clock-rate slider visualizes temporal dilation.</li>
+            <li><strong>Closed Timelike Curves (CTC):</strong> CTCs can arise if temporal curvature exceeds stability; demo caps the range to avoid loop formation.</li>
+            <li><strong>CST-based stabilization of time loops (Hawking override):</strong> Active damping via entangled feedback + CST clocks suppresses runaway loops.</li>
+          </ul>
+          <p class="note">Use the <em>Warp Factor</em> control and <em>Collider On</em> toggle to see how field stretch, collider flux, and FTL Gain (sim) respond. Notice the stronger FTL Gain ramp above warp ≈4 when the collider is active.</p>
+        </div>
+      </div>
+    </div>
+    <!-- === /Table + Notes === -->
+
+    <!-- ===== 4D EARTH–MARS NAVIGATION PANEL ===== -->
+    <div class="nav-wrap">
+      <h2>Earth–Mars 4D Backup Navigation Check</h2>
+      <p class="note">
+        This panel treats Earth, Mars, and the ship as points in a 4D Hilbert space
+        <span class="text-mono">X = (x, y, z, χ)</span>. It verifies 3D vs 4D distance, energy, and phase alignment.
+        If all channels are green, you can hand over to the warp engine and start the trip.
+      </p>
+
+      <div class="nav-grid">
+        <!-- Controls -->
+        <div class="nav-card">
+          <h3>Mission Controls</h3>
+
+          <label class="nav-label" for="timeDays">
+            Mission Time <span class="text-mono">(t, days from epoch)</span>
+          </label>
+          <input id="timeDays" class="nav-input-range" type="range" min="0" max="1200" value="200" step="1">
+          <div class="nav-inline-row nav-small">
+            <span>0</span>
+            <span style="text-align:center;">t = <span id="timeDaysLabel">200</span> days</span>
+            <span>1200</span>
+          </div>
+
+          <label class="nav-label" for="phaseWeight">
+            Phase Weight in 4D Distance <span class="text-mono">(kχ)</span>
+          </label>
+          <input id="phaseWeight" class="nav-input-range" type="range" min="0" max="5" value="1.5" step="0.1">
+          <div class="nav-inline-row nav-small">
+            <span>0 = ignore phase</span>
+            <span style="text-align:right;">kχ = <span id="phaseWeightLabel">1.5</span></span>
+          </div>
+
+          <label class="nav-label" for="warpEnergy">
+            Selected Warp Energy Budget (arbitrary units)
+          </label>
+          <input id="warpEnergy" class="nav-input-range" type="range" min="0" max="5" value="2" step="0.05">
+          <div class="nav-inline-row nav-small">
+            <span>0</span>
+            <span style="text-align:right;">E<sub>warp</sub> = <span id="warpEnergyLabel">2.00</span></span>
+          </div>
+
+          <div class="nav-inline-row">
+            <div>
+              <label class="nav-label" for="distTolerance">Distance Match Tol. (%)</label>
+              <input id="distTolerance" class="nav-input-number" type="number" value="2" min="0.1" max="20" step="0.1">
+            </div>
+            <div>
+              <label class="nav-label" for="energyTolerance">Energy Match Tol. (%)</label>
+              <input id="energyTolerance" class="nav-input-number" type="number" value="5" min="0.5" max="50" step="0.5">
+            </div>
+          </div>
+
+          <div class="nav-inline-row">
+            <div>
+              <label class="nav-label" for="phaseTolerance">Phase Align Tol. (rad)</label>
+              <input id="phaseTolerance" class="nav-input-number" type="number" value="0.4" min="0.05" max="3" step="0.05">
+            </div>
+            <div>
+              <label class="nav-label">Epoch Model</label>
+              <div class="nav-chip">
+                Circular orbits · demo only
+              </div>
+            </div>
+          </div>
+
+          <div class="nav-inline-row" style="margin-top:8px;">
+            <button id="analyzeTripBtn">Analyze Trip (4D Vector Check)</button>
+            <button id="warpTripBtn">Warp Engine: Start Trip</button>
+          </div>
+
+          <div id="goBanner" class="nav-big-go nogo">
+            NO-GO: Verification conditions not all satisfied
+          </div>
+          <p class="nav-small">
+            Real system: replace circular-orbit demo with high-precision ephemerides + your CST core.
+          </p>
+        </div>
+        <!-- Data & Visualization -->
+        <div class="nav-card">
+          <h3>State Vectors & 4D Metrics</h3>
+
+          <div class="nav-metric-row">
+            <div class="nav-metric-label">Earth position (AU, ecliptic plane)</div>
+            <div class="nav-metric-value text-mono">
+              ( <span id="earthX">0.000</span>,
+                <span id="earthY">0.000</span>,
+                <span id="earthZ">0.000</span> )
+            </div>
+          </div>
+          <div class="nav-metric-row">
+            <div class="nav-metric-label">Mars position (AU, ecliptic plane)</div>
+            <div class="nav-metric-value text-mono">
+              ( <span id="marsX">0.000</span>,
+                <span id="marsY">0.000</span>,
+                <span id="marsZ">0.000</span> )
+            </div>
+          </div>
+
+          <div class="nav-metric-row">
+            <div class="nav-metric-label">4th component χ (phase channel, rad)</div>
+            <div class="nav-metric-value text-mono">
+              χ<sub>⊕</sub> = <span id="earthChi">0.000</span>,
+              χ<sub>♂</sub> = <span id="marsChi">0.000</span>
+            </div>
+          </div>
+
+          <div class="nav-metric-row">
+            <div class="nav-metric-label">4D vector ΔX (Δx, Δy, Δz, Δχ)</div>
+            <div class="nav-metric-value text-mono">
+              [ <span id="dx4d">0.000</span>,
+                <span id="dy4d">0.000</span>,
+                <span id="dz4d">0.000</span>,
+                <span id="dchi4d">0.000</span> ]
+            </div>
+          </div>
+
+          <hr style="border:none;border-top:1px solid #252f5a;margin:8px 0;">
+
+          <div class="nav-metric-row">
+            <div class="nav-metric-label">3D distance |r<sub>♂</sub> − r<sub>⊕</sub>|</div>
+            <div class="nav-metric-value"><strong><span id="dist3D">0.000</span></strong> AU</div>
+          </div>
+          <div class="nav-metric-row">
+            <div class="nav-metric-label">4D distance ‖ΔX‖ (with χ &amp; kχ)</div>
+            <div class="nav-metric-value"><strong><span id="dist4D">0.000</span></strong> AU*</div>
+          </div>
+          <p class="nav-small">
+            *Scaled 4D metric: spatial components in AU, phase axis weighted by kχ slider.
+          </p>
+
+          <div class="nav-metric-row">
+            <div class="nav-metric-label">Phase gap |Δχ| (wrapped, rad)</div>
+            <div class="nav-metric-value"><strong><span id="phaseGap">0.000</span></strong></div>
+          </div>
+
+          <div class="nav-metric-row">
+            <div class="nav-metric-label">Curvature factor κ (demo)</div>
+            <div class="nav-metric-value text-mono"><span id="curvatureK">0.000</span></div>
+          </div>
+
+          <hr style="border:none;border-top:1px solid #252f5a;margin:8px 0;">
+
+          <div class="nav-metric-row">
+            <div class="nav-metric-label">Expected energy ∝ 3D distance</div>
+            <div class="nav-metric-value text-mono">
+              E<sub>exp</sub> = <span id="expectedEnergy">0.000</span>
+            </div>
+          </div>
+          <div class="nav-metric-row">
+            <div class="nav-metric-label">Warp energy selection</div>
+            <div class="nav-metric-value text-mono">
+              E<sub>warp</sub> = <span id="warpEnergyEcho">0.000</span>
+            </div>
+          </div>
+
+          <div class="nav-metric-row">
+            <div class="nav-metric-label">Effective FTL Gain (from engine)</div>
+            <div class="nav-metric-value text-mono">
+              γ<sub>FTL</sub> = <span id="ftlGainNav">1.00</span>×
+            </div>
+          </div>
+
+          <div class="nav-metric-row">
+            <div class="nav-metric-label">Estimated trip time</div>
+            <div class="nav-metric-value text-mono">
+              <span id="tripTime">0.0</span> days ( <span id="tripTimeHours">0.0</span> h )
+            </div>
+          </div>
+
+          <div class="nav-metric-row">
+            <div class="nav-metric-label">Engine core temp prediction</div>
+            <div class="nav-metric-value text-mono">
+              <span id="engineTempPred">0</span> °C
+            </div>
+          </div>
+
+          <div class="nav-metric-row">
+            <div class="nav-metric-label">Field shield at warp</div>
+            <div class="nav-metric-value text-mono">
+              <span id="shieldPercentNav">0</span> %
+              &nbsp;| Impact index: <span id="impactIndex">0.00</span>
+            </div>
+          </div>
+
+          <hr style="border:none;border-top:1px solid #252f5a;margin:8px 0;">
+
+          <h3>Verification Channels</h3>
+
+          <div class="nav-status-row">
+            <div id="statusDistDot" class="nav-status-dot status-bad"></div>
+            <div>
+              1. 3D vs 4D distance consistency
+              <div class="nav-small">
+                |d<sub>4D</sub> − d<sub>3D</sub>| / d<sub>3D</sub> &lt; tol?
+                &nbsp;→ &nbsp;<span id="statusDistText" class="text-mono">NO</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="nav-status-row">
+            <div id="statusEnergyDot" class="nav-status-dot status-bad"></div>
+            <div>
+              2. Energy profile consistency
+              <div class="nav-small">
+                |E<sub>warp</sub> − E<sub>exp</sub>| / E<sub>exp</sub> &lt; tol?
+                &nbsp;→ &nbsp;<span id="statusEnergyText" class="text-mono">NO</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="nav-status-row">
+            <div id="statusPhaseDot" class="nav-status-dot status-bad"></div>
+            <div>
+              3. Phase alignment window
+              <div class="nav-small">
+                |Δχ| &lt; phase tolerance?
+                &nbsp;→ &nbsp;<span id="statusPhaseText" class="text-mono">NO</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="nav-status-row">
+            <div id="statusOverallDot" class="nav-status-dot status-bad"></div>
+            <div>
+              4. Overall GO/NO-GO
+              <div class="nav-small">
+                All three channels green?
+                &nbsp;→ &nbsp;<span id="statusOverallText" class="text-mono">NO-GO</span>
+              </div>
+            </div>
+          </div>
+
+          <hr style="border:none;border-top:1px solid #252f5a;margin:8px 0;">
+
+          <div class="nav-xy-plot">
+            <div class="nav-xy-inner" id="xyInner">
+              <div class="nav-xy-center"></div>
+              <div id="orbitEarth" class="orbit-circle"></div>
+              <div id="orbitMars" class="orbit-circle"></div>
+              <div id="vectorLine" class="vector-line"></div>
+              <div id="dotEarth" class="planet-dot planet-earth"></div>
+              <div id="dotMars" class="planet-dot planet-mars"></div>
+              <div id="dotShip" class="planet-dot planet-ship"></div>
+            </div>
+          </div>
+          <div class="nav-legend">
+            <div class="nav-legend-item">
+              <span class="nav-legend-swatch" style="background:#7bffb1;"></span> Earth
+            </div>
+            <div class="nav-legend-item">
+              <span class="nav-legend-swatch" style="background:#ff8c8c;"></span> Mars
+            </div>
+            <div class="nav-legend-item">
+              <span class="nav-legend-swatch" style="background:#9bb4ff;"></span> Ship (warp path)
+            </div>
+            <div class="nav-legend-item nav-small">
+              2D projection of the 4D Earth→Mars vector. χ (phase) is shown numerically.
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div> <!-- /nav-wrap -->
+
+  </div> <!-- /wrap -->
+<script>
+// ===== Warp Engine Script (unchanged visuals, tuned FTL gain and globals) =====
+const TAU = Math.PI*2;
+const lerp = (a,b,t)=>a+(b-a)*t;
+function drawText(ctx, s, x, y, align){
+  ctx.fillStyle='#eaf0ff';
+  ctx.textAlign=align||'left';
+  ctx.textBaseline='middle';
+  ctx.font='12px system-ui,Segoe UI,Roboto,Arial';
+  ctx.fillText(s,x,y);
+}
+function clamp(v,a,b){ return Math.max(a, Math.min(b,v)); }
+function fmt(n,dec){ return n.toFixed(dec||0); }
+function fmtLarge(n){
+  var a=Math.abs(n);
+  if(a>=1e12) return (n/1e12).toFixed(2)+' T';
+  if(a>=1e9)  return (n/1e9).toFixed(2)+' G';
+  if(a>=1e6)  return (n/1e6).toFixed(2)+' M';
+  if(a>=1e3)  return (n/1e3).toFixed(1)+' K';
+  return n.toFixed(0);
+}
+
+// Helpers
+function computeSpeedMult(w){ return lerp(1, 6, (w-1)/9); }
+function computeFieldRadius(w){ return lerp(1.2, 2.6, (w-1)/9); }
+function computeClockRate(w){ return 1/lerp(1, 1.6, (w-1)/9); }
+function computeHeatLevel(w){ return lerp(0.35, 1.0, (w-1)/9); }
+function computeCoolLevel(w){ return 1 - computeHeatLevel(w)*0.5; }
+function computePlasmaLength(w){ return Math.round( lerp(90, 260, (w-1)/9) ); }
+function computePlasmaRadius(w){ return Math.round( lerp(10, 36, (w-1)/9) ); }
+function computeEntangleRate(w){ return lerp(0.6, 3.2, (w-1)/9); }
+function computeFieldAspectX(w){ return lerp(1.0, 1.9, (w-1)/9); }
+function computeFieldAspectY(w){ return lerp(0.9, 0.6, (w-1)/9); }
+function computeStability(w){ var s = 1 - (w-1)/12; if(s<0.55) s=0.55; return s; }
+function computeCoreTempC(w,fps){ return Math.round( 200 + computeHeatLevel(w)*1000 + computeSpeedMult(w)*40 ); }
+function computeCoolantTempC(w,fps){ return Math.round( 25 + computeCoolLevel(w)*300 ); }
+
+// Layout
+const layout = {
+  centerY: 450,
+  startX: 110,
+  length: 900,
+  bodyR: 120,
+  fanX: 85,
+  stages: [
+    {len:160, r:120, name:'Intake / Pre-Compression'},
+    {len:120, r:112, name:'Compression Stage A'},
+    {len:100, r:104, name:'Compression Stage B'},
+    {len: 80, r: 96, name:'Compression Stage C'},
+    {len: 70, r: 88, name:'Warp Coils / Field Shapers'},
+    {len: 70, r: 80, name:'Reactors (Electro-Plasma)'},
+    {len: 60, r: 72, name:'Photon/Plasma Mixer'},
+    {len: 50, r: 64, name:'Nozzle Coupler'}
+  ],
+  nozzle:{len:160, r0:60, r1:14, name:'Exhaust Nozzle'},
+  coils:[{xOff:-18, name:'Field Coil L'},{xOff:36, name:'Field Coil R'}]
+};
+let xLayout = layout.startX;
+layout.stages = layout.stages.map(function(s){
+  var out={x0:xLayout,x1:xLayout+s.len,len:s.len,r:s.r,name:s.name};
+  xLayout+=s.len;
+  return out;
+});
+layout.nozzle.x0 = xLayout;
+layout.nozzle.x1 = xLayout + layout.nozzle.len;
+
+// State
+const canvas = document.getElementById('view');
+const ctx = canvas.getContext('2d');
+let running = true;
+let t0 = performance.now();
+let fanAngle = 0;
+let fps = 60;
+let warpClock = Date.now();
+let particles = [], heat = [], cool = [], entangle = [], pipes = [];
+
+const warpEl = document.getElementById('warp');
+const colliderEl = document.getElementById('colliderToggle');
+const speedEl = document.getElementById('speed');
+const fieldEl = document.getElementById('field');
+const tempEl = document.getElementById('temp');
+const timeEl = document.getElementById('time');
+const labelsEl = document.getElementById('labels');
+
+// Telemetry DOM
+const v_speed=document.getElementById('v_speed'), g_speed=document.getElementById('g_speed');
+const v_field=document.getElementById('v_field'), g_field=document.getElementById('g_field');
+const v_fshield=document.getElementById('v_fshield'), g_fshield=document.getElementById('g_fshield');
+const v_fstretch=document.getElementById('v_fstretch'), g_fstretch=document.getElementById('g_fstretch');
+const v_clock=document.getElementById('v_clock'), g_clock=document.getElementById('g_clock');
+const v_phot=document.getElementById('v_phot'), g_phot=document.getElementById('g_phot');
+const v_collider=document.getElementById('v_collider'), g_collider=document.getElementById('g_collider');
+const v_mag=document.getElementById('v_mag'), g_mag=document.getElementById('g_mag');
+const v_heat=document.getElementById('v_heat'), g_heat=document.getElementById('g_heat');
+const v_cool=document.getElementById('v_cool'), g_cool=document.getElementById('g_cool');
+const v_ent=document.getElementById('v_ent'), g_ent=document.getElementById('g_ent');
+const v_plen=document.getElementById('v_plen'), g_plen=document.getElementById('g_plen');
+const v_prad=document.getElementById('v_prad'), g_prad=document.getElementById('g_prad');
+const v_pwave=document.getElementById('v_pwave'), g_pwave=document.getElementById('g_pwave');
+const v_tcore=document.getElementById('v_tcore'), g_tcore=document.getElementById('g_tcore');
+const v_tcool=document.getElementById('v_tcool'), g_tcool=document.getElementById('g_tcool');
+const v_ftl=document.getElementById('v_ftl'), g_ftl=document.getElementById('g_ftl');
+const clkUTC=document.getElementById('clk_utc');
+const clkCST=document.getElementById('clk_cst');
+const clkWarp=document.getElementById('clk_warp');
+
+function warpFactor(){ return parseInt(warpEl.value,10); }
+function speedMult(){ return computeSpeedMult(warpFactor()); }
+function fieldRadius(){ return computeFieldRadius(warpFactor()); }
+function clockRate(){ return computeClockRate(warpFactor()); }
+function heatLevel(){ return computeHeatLevel(warpFactor()); }
+function coolLevel(){ return computeCoolLevel(warpFactor()); }
+function colliderEnabled(){ return colliderEl ? colliderEl.checked : true; }
+
+function updateHUD(){
+  speedEl.textContent = 'x'+speedMult().toFixed(1);
+  fieldEl.textContent = fieldRadius().toFixed(1)+' x D';
+  tempEl.textContent = heatLevel()>0.7? 'Hot' : (heatLevel()>0.5? 'Warm' : 'Cool');
+  timeEl.textContent = clockRate().toFixed(2)+' x';
+}
+updateHUD();
+warpEl.addEventListener('input', updateHUD);
+
+document.getElementById('pause').onclick=function(){running=false;};
+document.getElementById('play').onclick=function(){
+  if(!running){
+    running=true;
+    t0=performance.now();
+    loop();
+  }
+};
+document.getElementById('reset').onclick=function(){
+  particles.length=0;
+  heat.length=0;
+  cool.length=0;
+  entangle.length=0;
+  pipes.length=0;
+  fanAngle=0;
+  initPipes();
+};
+
+function spawnParticle(){
+  var y = layout.centerY + (Math.random()*2-1)*layout.bodyR*0.6;
+  var x0 = layout.startX+10;
+  var v = 0.6 + Math.random()*0.7;
+  particles.push({x:x0,y:y,v:v,life:0});
+}
+function spawnHeat(){
+  var y = layout.centerY + (Math.random()*2-1)*layout.bodyR*0.4;
+  var xh = layout.stages[4].x0 + Math.random()*(layout.nozzle.x1 - layout.stages[4].x0);
+  heat.push({x:xh,y:y,life:0});
+}
+function spawnCool(){
+  var y = layout.centerY + (Math.random()*2-1)*layout.bodyR*0.7;
+  var xc = layout.stages[0].x0 + Math.random()*(layout.stages[2].x1-layout.stages[0].x0);
+  cool.push({x:xc,y:y,life:0});
+}
+function spawnEntangle(){
+  var baseX = layout.stages[5].x0 + Math.random()*40;
+  var phase = Math.random()*TAU;
+  entangle.push({x:baseX, y:layout.centerY, phase:phase, life:0});
+}
+function initPipes(){
+  pipes = [];
+  for(var i=0;i<layout.stages.length-1;i++){
+    var s = layout.stages[i];
+    var nx = s.x1;
+    pipes.push({x0:nx-6,y0:layout.centerY+28,x1:nx+6,y1:layout.centerY+28,phase:Math.random()*TAU});
+  }
+}
+initPipes();
+
+function drawCylinder(x0,x1,rTop,rBot){
+  var grd = ctx.createLinearGradient(0, layout.centerY-rTop, 0, layout.centerY+rBot);
+  grd.addColorStop(0, '#2a334d');
+  grd.addColorStop(0.5,'#9fb1ff22');
+  grd.addColorStop(1, '#0e132b');
+  ctx.fillStyle = grd;
+  ctx.beginPath();
+  ctx.moveTo(x0, layout.centerY - rTop);
+  ctx.lineTo(x1, layout.centerY - rTop);
+  ctx.lineTo(x1, layout.centerY + rBot);
+  ctx.lineTo(x0, layout.centerY + rBot);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle='#22305c';
+  ctx.lineWidth=1;
+  ctx.stroke();
+  ctx.strokeStyle = '#cfe2ff33';
+  ctx.lineWidth=2;
+  ctx.beginPath();
+  ctx.moveTo(x1, layout.centerY-rTop);
+  ctx.lineTo(x1, layout.centerY+rBot);
+  ctx.stroke();
+}
+function drawNozzle(nz){
+  var x0=nz.x0,x1=nz.x1,r0=nz.r0,r1=nz.r1;
+  var grd = ctx.createLinearGradient(x0,layout.centerY,x1,layout.centerY);
+  grd.addColorStop(0,'#2a334d');
+  grd.addColorStop(1,'#9bb4ff');
+  ctx.fillStyle=grd;
+  ctx.beginPath();
+  ctx.moveTo(x0, layout.centerY - r0);
+  ctx.lineTo(x1, layout.centerY - r1);
+  ctx.lineTo(x1, layout.centerY + r1);
+  ctx.lineTo(x0, layout.centerY + r0);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle='#22305c';
+  ctx.lineWidth=1;
+  ctx.stroke();
+}
+function drawCoil(xOff){
+  var x = layout.startX + xOff;
+  ctx.strokeStyle='#a6b8ffaa';
+  ctx.lineWidth=8;
+  ctx.beginPath();
+  ctx.moveTo(x, layout.centerY-48);
+  ctx.lineTo(x, layout.centerY+48);
+  ctx.stroke();
+  ctx.lineWidth=3;
+  ctx.strokeStyle='#5ea8ffaa';
+  for(var i=-3;i<=3;i++){
+    ctx.beginPath();
+    ctx.arc(x, layout.centerY + i*12, 22+Math.abs(i)*2, 0, TAU);
+    ctx.stroke();
+  }
+}
+function drawFan(angle){
+  var cx = layout.fanX, cy = layout.centerY;
+  ctx.fillStyle='#a4b2d8';
+  ctx.beginPath();
+  ctx.arc(cx, cy, 30, 0, TAU);
+  ctx.fill();
+  for(var i=0;i<6;i++){
+    var a = angle + i*TAU/6;
+    var r1=14, r2=52;
+    ctx.fillStyle='#c7d4ff';
+    ctx.beginPath();
+    ctx.moveTo(cx+Math.cos(a)*r1, cy+Math.sin(a)*r1);
+    ctx.lineTo(cx+Math.cos(a+0.18)*r2, cy+Math.sin(a+0.18)*r2);
+    ctx.lineTo(cx+Math.cos(a+0.36)*r1, cy+Math.sin(a+0.36)*r1);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+function drawField(){
+  var D = layout.bodyR*2;
+  var base = fieldRadius()*D*0.35;
+  var ax = computeFieldAspectX(warpFactor());
+  var ay = computeFieldAspectY(warpFactor());
+  ctx.strokeStyle='#33e1b588';
+  ctx.lineWidth=2;
+  var cx = layout.startX+layout.length*0.65;
+  for(var i=0;i<6;i++){
+    var rx = base*ax + i*22;
+    var ry = base*ay + i*10;
+    ctx.beginPath();
+    ctx.ellipse(cx, layout.centerY, rx, ry, 0, 0, TAU);
+    ctx.stroke();
+  }
+}
+function drawTimeLegendLeft(){
+  var x=40;
+  var y=120;
+  var lines=['UTC','CST (engine sync)','Interstellar Time','Universal Time','UTA'];
+  for(var i=0;i<lines.length;i++){
+    drawText(ctx, lines[i], x, y+i*20, 'left');
+  }
+}
+function drawCSTClock(){
+  var x = layout.stages[3].x0+12;
+  var y = layout.centerY-22;
+  ctx.fillStyle='#0e1536';
+  ctx.strokeStyle='#22305c';
+  ctx.lineWidth=1;
+  ctx.fillRect(x,y,150,32);
+  ctx.strokeRect(x,y,150,32);
+  drawText(ctx,'Atomic Clock (CST)', x+6, y+16, 'left');
+}
+function drawStatusLabel(){
+  var x = layout.nozzle.x0-40;
+  var y = layout.centerY- layout.bodyR - 58;
+  var warp = warpFactor();
+  var stab = computeStability(warp);
+  var s = 'Warp '+warp+' | Stability '+stab.toFixed(2);
+  drawText(ctx, s, x, y, 'left');
+}
+function labelFromTo(text, ax, ay, tx, ty){
+  ctx.strokeStyle='#9bb4ff66';
+  ctx.lineWidth=1.5;
+  ctx.beginPath();
+  ctx.moveTo(ax,ay);
+  ctx.lineTo(tx,ty);
+  ctx.stroke();
+  drawText(ctx, text, tx+4, ty, 'left');
+}
+
+// Labels (engine + research components)
+function drawLabels(){
+  const topY = layout.centerY - layout.bodyR - 42;
+  const botY = layout.centerY + layout.bodyR + 44;
+
+  const s0=layout.stages[0], s1=layout.stages[1], s2=layout.stages[2],
+        s3=layout.stages[3], s4=layout.stages[4], s5=layout.stages[5],
+        s6=layout.stages[6];
+
+  labelFromTo('Vacuum Intake', s0.x0+12, layout.centerY- s0.r, s0.x0-80, topY-6);
+  labelFromTo('Magnetic Fan (negative-energy modulator)', layout.fanX, layout.centerY-34, s0.x0-80, topY+12);
+  labelFromTo('Fusion Ignition / Pre-Heat', s0.x0+40, layout.centerY- s0.r+16, s0.x0-60, topY+196);
+  labelFromTo('Particle Collider Ring (photon+ion)', s1.x0-8, layout.centerY- s1.r+10, s1.x0+40, topY+216);
+  labelFromTo('Modulates Vacuum Air Circulation', s1.x0+6, layout.centerY- s1.r, s1.x0-10, topY+34);
+  labelFromTo('Compression A/B/C', s2.x1-10, layout.centerY- s2.r, s2.x0-30, topY+54);
+  labelFromTo('Modulates Vacuum Fluctuation', s4.x0+6, layout.centerY- s4.r, s4.x0-18, topY+74);
+  labelFromTo('Reactors (Electro-plasma)', s5.x0+10, layout.centerY- s5.r, s5.x0+80, topY+94);
+  labelFromTo('Photon/Plasma Mixer', s6.x0+10, layout.centerY- s6.r, s6.x0+140, topY+114);
+
+  labelFromTo('Entanglement Feedback Loop', s5.x0+24, layout.centerY+16, s5.x0-40, botY);
+  labelFromTo('Atomic Clocks (CST) + Entangled Feedback', s3.x0+20, layout.centerY, s3.x0-80, botY+24);
+  labelFromTo('Pulse Control', s4.x1-8, layout.centerY+8, s4.x1+30, botY+48);
+  labelFromTo('AFT Power Ramp', layout.nozzle.x0-10, layout.centerY+6, layout.nozzle.x0+40, botY+72);
+  labelFromTo('AFT Power Ramp (Gradually)', layout.nozzle.x0+20, layout.centerY+22, layout.nozzle.x0+150, botY+96);
+  labelFromTo('Gravitational Stabilization Panel', s2.x0+20, layout.centerY+ s2.r, s2.x0-40, botY+120);
+  labelFromTo('Quantum Vertex Dampers (F/R/U/D/L/R)', s4.x0+20, layout.centerY+ s4.r, s4.x0+140, botY+144);
+  labelFromTo('Detection Lasers (particles)', s1.x1-10, layout.centerY+ s1.r, s1.x1+110, botY+168);
+  labelFromTo('Thermal Management (Water Cooling)', s5.x1-8, layout.centerY+ s5.r, s5.x1+160, botY+192);
+
+  // NEW research components
+  labelFromTo('ZPF Oscillator Rings (ZPO)', s4.x0+12, layout.centerY- s4.r+10, s4.x0-130, topY+136);
+  labelFromTo('Casimir Microarrays', s3.x1-6, layout.centerY- s3.r+6, s3.x1+28, topY+156);
+  labelFromTo('Tachyon Feedback Node', s5.x0+6, layout.centerY+12, s5.x0-140, botY+210);
+  labelFromTo('CTC Guard (CST Damping)', s3.x0+8, layout.centerY+8, s3.x0-160, botY+234);
+  labelFromTo('Positron Diagnostic Port', s6.x1-6, layout.centerY- s6.r+6, s6.x1+70, topY+176);
+  labelFromTo('Limestone–Granite Resonator', s0.x0+20, layout.centerY+ s0.r-8, s0.x0-60, botY+208);
+
+  const cx = layout.startX+layout.length*0.65;
+  labelFromTo('Temporal vs Spatial Warp (rx/ry vs clock)',
+    cx, layout.centerY - computeFieldRadius(warpFactor())*layout.bodyR*0.35 - 22,
+    cx-180, topY-20);
+  labelFromTo('Exotic-Matter Bypass (EM stress / Casimir)',
+    s4.x1-6, layout.centerY+ s4.r-10,
+    s4.x1+60, botY+180);
+}
+
+function drawCoreGlow(){
+  var g = ctx.createLinearGradient(layout.startX, layout.centerY, layout.nozzle.x1, layout.centerY);
+  g.addColorStop(0,'#a9bbff00');
+  g.addColorStop(0.4,'#9bb4ff22');
+  g.addColorStop(0.8,'#eaf0ff44');
+  ctx.fillStyle=g;
+  ctx.fillRect(layout.startX, layout.centerY-12, layout.nozzle.x1-layout.startX, 24);
+}
+function drawPlasmaCone(){
+  var len = computePlasmaLength(warpFactor());
+  var baseR = computePlasmaRadius(warpFactor());
+  var x0 = layout.nozzle.x1;
+  var x1 = x0 + len;
+  var grad = ctx.createLinearGradient(x0, layout.centerY, x1, layout.centerY);
+  grad.addColorStop(0, 'rgba(255,220,168,0.65)');
+  grad.addColorStop(0.3, 'rgba(255,220,168,0.35)');
+  grad.addColorStop(1, 'rgba(255,220,168,0.02)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.moveTo(x0, layout.centerY - baseR);
+  ctx.lineTo(x1, layout.centerY - baseR*0.35);
+  ctx.lineTo(x1, layout.centerY + baseR*0.35);
+  ctx.lineTo(x0, layout.centerY + baseR);
+  ctx.closePath();
+  ctx.fill();
+}
+function drawPipes(){
+  for(var i=0;i<pipes.length;i++){
+    var p = pipes[i];
+    ctx.strokeStyle='#6bd1ff';
+    ctx.lineWidth=3;
+    ctx.beginPath();
+    ctx.moveTo(p.x0, p.y0);
+    ctx.lineTo(p.x1, p.y1);
+    ctx.stroke();
+    var n=4;
+    for(var k=0;k<n;k++){
+      var t = ((k/n) + (performance.now()*0.0005) ) % 1;
+      var xx = p.x0 + (p.x1-p.x0)*t;
+      var yy = p.y0 + (p.y1-p.y0)*t;
+      ctx.fillStyle='#9bb4ff';
+      ctx.beginPath();
+      ctx.arc(xx, yy, 2, 0, TAU);
+      ctx.fill();
+    }
+  }
+}
+function drawCoolingLoops(){
+  var y = layout.centerY + layout.bodyR - 16;
+  ctx.strokeStyle='#6bd1ff';
+  ctx.lineWidth=2;
+  ctx.beginPath();
+  var x0 = layout.startX+10;
+  ctx.moveTo(x0,y);
+  for(var x1 = x0; x1 < layout.nozzle.x0-10; x1 += 32){
+    ctx.lineTo(x1+16, y+6);
+    ctx.lineTo(x1+32, y);
+  }
+  ctx.stroke();
+}
+function drawLasers(){
+  ctx.strokeStyle='#8aff9b';
+  ctx.lineWidth=1;
+  var cxF = layout.startX - 20;
+  var cxR = layout.nozzle.x1 + 20;
+  var cy = layout.centerY;
+  ctx.beginPath();
+  ctx.moveTo(cxF, cy-44);
+  ctx.lineTo(cxF-34, cy-44);
+  ctx.moveTo(cxF, cy+44);
+  ctx.lineTo(cxF-34, cy+44);
+  ctx.moveTo(cxR, cy-34);
+  ctx.lineTo(cxR+34, cy-34);
+  ctx.moveTo(cxR, cy+34);
+  ctx.lineTo(cxR+34, cy+34);
+  ctx.stroke();
+  var ccx = layout.startX+layout.length*0.65;
+  var ccy = layout.centerY;
+  ctx.beginPath();
+  ctx.moveTo(ccx-16, ccy);
+  ctx.lineTo(ccx+16, ccy);
+  ctx.moveTo(ccx, ccy-16);
+  ctx.lineTo(ccx, ccy+16);
+  ctx.stroke();
+}
+
+// Fusion & collider visuals
+function drawFusionZone(){
+  const s0 = layout.stages[0];
+  const cy = layout.centerY;
+  const x0 = s0.x0 + 26;
+  const x1 = s0.x0 + 86;
+  const cx = (x0 + x1) / 2;
+  const ry = s0.r * 0.55;
+  const rx = (x1 - x0) * 0.55;
+
+  const grd = ctx.createRadialGradient(cx, cy, 4, cx, cy, ry);
+  grd.addColorStop(0, 'rgba(255,200,140,0.95)');
+  grd.addColorStop(0.4, 'rgba(255,160,90,0.55)');
+  grd.addColorStop(1, 'rgba(255,140,80,0.04)');
+  ctx.fillStyle = grd;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, rx, ry, 0, 0, TAU);
+  ctx.fill();
+
+  ctx.strokeStyle = '#ffcc6699';
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, rx, ry, 0, 0, TAU);
+  ctx.stroke();
+}
+function drawColliderRing(){
+  const s1 = layout.stages[1];
+  const cx = s1.x0 - 18;
+  const cy = layout.centerY;
+  const R = layout.bodyR * 0.78;
+
+  ctx.strokeStyle = '#b26bffcc';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, TAU);
+  ctx.stroke();
+
+  const t = performance.now() * 0.0015;
+  ctx.strokeStyle = '#9bb4ffcc';
+  ctx.lineWidth = 1.5;
+  for(let i=0;i<3;i++){
+    const phase = t + i * TAU/3;
+    ctx.beginPath();
+    for(let a=0;a<=TAU;a+=0.15){
+      const r = R + Math.sin(a*3 + phase) * 4;
+      const px = cx + Math.cos(a)*r;
+      const py = cy + Math.sin(a)*r;
+      if(a === 0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+    }
+    ctx.stroke();
+  }
+}
+
+function setGauge(span, frac){
+  if(!span) return;
+  span.style.width = (clamp(frac,0,1)*100).toFixed(0)+'%';
+}
+
+// Update Telemetry + globals for nav
+function updateTelemetry(dt){
+  var w = warpFactor();
+  var sm = speedMult();
+  var fr = fieldRadius();
+  var cr = clockRate();
+  var hl = heatLevel();
+  var cl = coolLevel();
+  var entRate = computeEntangleRate(w);
+
+  var instFps = (dt>0)? 1000/dt : 60;
+  fps = fps*0.9 + instFps*0.1;
+
+  var p_phot = 0.7*sm;
+  var p_heat = 0.25*sm*hl;
+  var p_cool = 0.25*sm*cl;
+  var p_ent = 0.25*entRate;
+
+  var perSec = function(p){ return p * fps; };
+
+  var mag = fr*sm;
+  var pWave = (0.2*sm);
+
+  var shieldFrac = (fr-1.2)/(2.6-1.2);
+
+  var D = layout.bodyR*2;
+  var base = fr*D*0.35;
+  var ax = computeFieldAspectX(w);
+  var ay = computeFieldAspectY(w);
+  var rx = base*ax + 2*22;
+  var ry = base*ay + 2*10;
+
+  var coreC = computeCoreTempC(w,fps);
+  var coolC = computeCoolantTempC(w,fps);
+
+  var colliderBase = colliderEnabled() ? (0.6*sm*entRate) : 0;
+  var colliderPerSec = perSec(colliderBase);
+
+  // Tuned Effective FTL Gain (sim)
+  var baseGain = w;
+  var entBonus = 0.18 * entRate * (w / 10);
+  var colliderBonus = 0;
+  if (colliderEnabled()) {
+    var x = Math.max(0, w - 4);
+    colliderBonus = 0.4 + 0.15 * x * x;
+  }
+  var ftlGain = baseGain + entBonus + colliderBonus;
+
+  // Expose to global for nav panel
+  window._ftlGainSim = ftlGain;
+  window._warpCoreTempC = coreC;
+  window._shieldFracSim = clamp(shieldFrac,0,1);
+
+  if(v_speed){ v_speed.textContent = 'x'+sm.toFixed(1); setGauge(g_speed, (sm-1)/(6-1)); }
+  if(v_field){ v_field.textContent = fr.toFixed(2); setGauge(g_field, shieldFrac); }
+  if(v_fshield){ v_fshield.textContent = Math.round(shieldFrac*100)+'%'; setGauge(g_fshield, shieldFrac); }
+  if(v_fstretch){ v_fstretch.textContent = fmt(rx,0)+' / '+fmt(ry,0); setGauge(g_fstretch, clamp(rx/(base*1.9+2*22),0,1)); }
+
+  if(v_clock){ v_clock.textContent = cr.toFixed(2)+'×'; setGauge(g_clock, 1-cr); }
+  if(v_phot){ v_phot.textContent = fmtLarge(perSec(p_phot))+' /s'; setGauge(g_phot, Math.min(perSec(p_phot)/3000,1)); }
+
+  if(v_collider){
+    v_collider.textContent = colliderPerSec>0 ? (fmtLarge(colliderPerSec)+' /s') : '0/s';
+    setGauge(g_collider, colliderPerSec>0 ? Math.min(colliderPerSec/5000,1) : 0);
+  }
+
+  if(v_mag){ v_mag.textContent = mag.toFixed(2); setGauge(g_mag, Math.min(mag/6.0,1)); }
+
+  if(v_tcore){ v_tcore.textContent = coreC+' °C'; setGauge(g_tcore, Math.min(coreC/1500,1)); }
+  if(v_tcool){ v_tcool.textContent = coolC+' °C'; setGauge(g_tcool, Math.min(coolC/400,1)); }
+
+  var entPerSec = perSec(p_ent);
+  var entScaled = entPerSec>=1e9? (entPerSec/1e9).toFixed(2)+' G/s'
+                : entPerSec>=1e6? (entPerSec/1e6).toFixed(2)+' M/s'
+                : Math.round(entPerSec)+' /s';
+  if(v_ent){ v_ent.textContent = entScaled; setGauge(g_ent, Math.min(entPerSec/3.2e6,1)); }
+
+  var plen = computePlasmaLength(w);
+  if(v_plen){ v_plen.textContent = plen+' u'; setGauge(g_plen, (plen-90)/(260-90)); }
+  var prad = computePlasmaRadius(w);
+  if(v_prad){ v_prad.textContent = prad+' u'; setGauge(g_prad, (prad-10)/(36-10)); }
+  if(v_pwave){ v_pwave.textContent = pWave.toFixed(2); setGauge(g_pwave, Math.min(pWave/1.2,1)); }
+
+  if(v_ftl){
+    v_ftl.textContent = ftlGain.toFixed(2)+'×';
+    setGauge(g_ftl, clamp((ftlGain-1)/19, 0, 1));
+  }
+
+  var now = Date.now();
+  if(clkUTC){ clkUTC.textContent = new Date(now).toLocaleTimeString('en-US', {hour12:false,timeZone:'UTC'}); }
+  if(clkCST){ clkCST.textContent = new Date(now).toLocaleTimeString('en-US', {hour12:false,timeZone:'America/Chicago'}); }
+  warpClock += (dt * cr);
+  if(clkWarp){ clkWarp.textContent = new Date(warpClock).toLocaleTimeString('en-US', {hour12:false}); }
+}
+
+function render(dt){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  drawField();
+  for(var i=0;i<layout.stages.length;i++){
+    var s = layout.stages[i];
+    drawCylinder(s.x0, s.x1, s.r, s.r);
+  }
+  drawNozzle(layout.nozzle);
+  drawCoreGlow();
+  for(var j=0;j<layout.coils.length;j++){
+    drawCoil(layout.coils[j].xOff);
+  }
+  drawFan(fanAngle);
+
+  drawFusionZone();
+  if(colliderEnabled()){
+    drawColliderRing();
+  }
+
+  var pmult = speedMult();
+  if(Math.random()<0.7*pmult) spawnParticle();
+  for(var p=0;p<particles.length;p++){
+    var pt = particles[p];
+    pt.x += (1.9*pmult + pt.v)*1.2;
+    pt.y += Math.sin((pt.x+pt.y)*0.01)*0.22*pmult;
+    pt.life += dt;
+  }
+  particles = particles.filter(function(pt){ return pt.x < layout.nozzle.x1+560; });
+  ctx.fillStyle='#9bb4ff';
+  for(var q=0;q<particles.length;q++){
+    ctx.globalAlpha=0.7;
+    ctx.fillRect(particles[q].x, particles[q].y, 3, 2);
+    ctx.globalAlpha=1;
+  }
+
+  if(Math.random()<0.25*pmult*heatLevel()) spawnHeat();
+  if(Math.random()<0.25*pmult*coolLevel()) spawnCool();
+  for(var h=0;h<heat.length;h++){
+    heat[h].life+=dt;
+    heat[h].x+= 1.0*pmult;
+  }
+  for(var c0=0;c0<cool.length;c0++){
+    cool[c0].life+=dt;
+    cool[c0].x+= 0.7*pmult;
+  }
+  heat = heat.filter(function(it){ return it.x<layout.nozzle.x1; });
+  cool = cool.filter(function(it){ return it.x<layout.stages[3].x1; });
+  for(var h2=0;h2<heat.length;h2++){
+    ctx.fillStyle='#ffcc66';
+    ctx.beginPath();
+    ctx.arc(heat[h2].x,heat[h2].y,2+Math.sin(heat[h2].life*0.02)*1.5,0,TAU);
+    ctx.fill();
+  }
+  for(var c2=0;c2<cool.length;c2++){
+    ctx.fillStyle='#6bd1ff';
+    ctx.beginPath();
+    ctx.arc(cool[c2].x,cool[c2].y,2+Math.cos(cool[c2].life*0.02)*1.2,0,TAU);
+    ctx.fill();
+  }
+
+  if(Math.random()<computeEntangleRate(warpFactor())*0.25) spawnEntangle();
+  for(var e=0;e<entangle.length;e++){
+    var en = entangle[e];
+    en.life+=dt;
+    en.x += 1.2*pmult;
+    var amp = 26 + 8*Math.sin(en.life*0.01);
+    var wv = 0.026*pmult;
+    var yy = layout.centerY + Math.sin(en.phase + en.x*wv)*amp;
+    ctx.fillStyle='#b26bff';
+    ctx.beginPath();
+    ctx.arc(en.x, yy, 2.2, 0, TAU);
+    ctx.fill();
+  }
+  entangle = entangle.filter(function(en){ return en.x < layout.nozzle.x1 + 300; });
+
+  drawPlasmaCone();
+  drawPipes();
+  drawCoolingLoops();
+  drawLasers();
+
+  drawTimeLegendLeft();
+  drawCSTClock();
+  drawStatusLabel();
+  if(labelsEl.checked) drawLabels();
+}
+
+function loop(){
+  if(!running) return;
+  var now = performance.now();
+  var dt = now - t0;
+  t0 = now;
+  fanAngle += 0.005 * dt * speedMult();
+  render(dt);
+  updateTelemetry(dt);
+  requestAnimationFrame(loop);
+}
+loop();
+
+// Self-tests
+(function runTests(){
+  var results = [];
+  function ok(name,cond){ results.push((cond?'PASS ':'FAIL ')+name); }
+  ok('speed increases', computeSpeedMult(10) > computeSpeedMult(1));
+  ok('field grows', computeFieldRadius(10) > computeFieldRadius(1));
+  ok('plasma length grows', computePlasmaLength(10) > computePlasmaLength(1));
+  ok('plasma radius grows', computePlasmaRadius(10) > computePlasmaRadius(1));
+  ok('entangle rate grows', computeEntangleRate(10) > computeEntangleRate(1));
+  ok('field stretches wider', computeFieldAspectX(10) > computeFieldAspectX(1));
+  var el = document.getElementById('tests');
+  if(el){ el.textContent = 'Self-tests: ' + results.join(' | '); }
+})();
+
+</script>
+
+<script>
+// ===== Earth–Mars 4D Navigation Script =====
+(function(){
+  const AU = 1.0;
+  const AU_MARS = 1.524;
+  const T_EARTH = 365.25;
+  const T_MARS = 686.98;
+
+  const timeDaysEl = document.getElementById('timeDays');
+  const timeDaysLabelEl = document.getElementById('timeDaysLabel');
+  const phaseWeightEl = document.getElementById('phaseWeight');
+  const phaseWeightLabelEl = document.getElementById('phaseWeightLabel');
+  const warpEnergyEl = document.getElementById('warpEnergy');
+  const warpEnergyLabelEl = document.getElementById('warpEnergyLabel');
+  const distTolEl = document.getElementById('distTolerance');
+  const energyTolEl = document.getElementById('energyTolerance');
+  const phaseTolEl = document.getElementById('phaseTolerance');
+
+  const earthXEl = document.getElementById('earthX');
+  const earthYEl = document.getElementById('earthY');
+  const earthZEl = document.getElementById('earthZ');
+  const marsXEl = document.getElementById('marsX');
+  const marsYEl = document.getElementById('marsY');
+  const marsZEl = document.getElementById('marsZ');
+  const earthChiEl = document.getElementById('earthChi');
+  const marsChiEl = document.getElementById('marsChi');
+  const dx4dEl = document.getElementById('dx4d');
+  const dy4dEl = document.getElementById('dy4d');
+  const dz4dEl = document.getElementById('dz4d');
+  const dchi4dEl = document.getElementById('dchi4d');
+
+  const dist3DEl = document.getElementById('dist3D');
+  const dist4DEl = document.getElementById('dist4D');
+  const phaseGapEl = document.getElementById('phaseGap');
+  const curvatureKEl = document.getElementById('curvatureK');
+  const expectedEnergyEl = document.getElementById('expectedEnergy');
+  const warpEnergyEchoEl = document.getElementById('warpEnergyEcho');
+  const ftlGainNavEl = document.getElementById('ftlGainNav');
+  const tripTimeEl = document.getElementById('tripTime');
+  const tripTimeHoursEl = document.getElementById('tripTimeHours');
+  const engineTempPredEl = document.getElementById('engineTempPred');
+  const shieldPercentNavEl = document.getElementById('shieldPercentNav');
+  const impactIndexEl = document.getElementById('impactIndex');
+
+  const statusDistDot = document.getElementById('statusDistDot');
+  const statusEnergyDot = document.getElementById('statusEnergyDot');
+  const statusPhaseDot = document.getElementById('statusPhaseDot');
+  const statusOverallDot = document.getElementById('statusOverallDot');
+  const statusDistText = document.getElementById('statusDistText');
+  const statusEnergyText = document.getElementById('statusEnergyText');
+  const statusPhaseText = document.getElementById('statusPhaseText');
+  const statusOverallText = document.getElementById('statusOverallText');
+  const goBanner = document.getElementById('goBanner');
+
+  const xyInner = document.getElementById('xyInner');
+  const orbitEarth = document.getElementById('orbitEarth');
+  const orbitMars = document.getElementById('orbitMars');
+  const dotEarth = document.getElementById('dotEarth');
+  const dotMars = document.getElementById('dotMars');
+  const dotShip = document.getElementById('dotShip');
+  const vectorLine = document.getElementById('vectorLine');
+
+  const analyzeBtn = document.getElementById('analyzeTripBtn');
+  const warpTripBtn = document.getElementById('warpTripBtn');
+
+  let lastResult = null;
+  let lastPxE=0, lastPyE=0, lastPxM=0, lastPyM=0;
+
+  let shipActive = false;
+  let shipStartTime = 0;
+  let shipDurationMs = 8000;
+
+  function fmt(x, digits){ return x.toFixed(digits); }
+
+  function wrapAngle(angle){
+    const twoPi = Math.PI * 2;
+    let a = angle % twoPi;
+    if (a <= -Math.PI) a += twoPi;
+    if (a > Math.PI) a -= twoPi;
+    return a;
+  }
+
+  function updateOrbits(){
+    const rect = xyInner.getBoundingClientRect();
+    const size = Math.min(rect.width, rect.height);
+    const maxAU = AU_MARS * 1.1;
+    const scale = (size/2) / maxAU;
+
+    const re = AU * scale * 2;
+    const rm = AU_MARS * scale * 2;
+    orbitEarth.style.width = re + 'px';
+    orbitEarth.style.height = re + 'px';
+    orbitEarth.style.left = '50%';
+    orbitEarth.style.top = '50%';
+
+    orbitMars.style.width = rm + 'px';
+    orbitMars.style.height = rm + 'px';
+    orbitMars.style.left = '50%';
+    orbitMars.style.top = '50%';
+
+    return {scale};
+  }
+
+  function setStatus(elDot, elText, ok, warn=false){
+    elDot.classList.remove('status-ok','status-warn','status-bad','nav-status-ok','nav-status-warn','nav-status-bad');
+    elDot.classList.remove('status-ok','status-warn','status-bad');
+    if (ok){
+      elDot.classList.add('status-ok');
+    } else if (warn){
+      elDot.classList.add('status-warn');
+    } else {
+      elDot.classList.add('status-bad');
+    }
+    elText.textContent = ok ? 'YES' : 'NO';
+  }
+
+  function recompute(){
+    const t = parseFloat(timeDaysEl.value);
+    const kChi = parseFloat(phaseWeightEl.value);
+    const warpE = parseFloat(warpEnergyEl.value);
+    const distTolPct = Math.max(0.001, parseFloat(distTolEl.value));
+    const energyTolPct = Math.max(0.001, parseFloat(energyTolEl.value));
+    const phaseTol = Math.max(0.001, parseFloat(phaseTolEl.value));
+
+    timeDaysLabelEl.textContent = fmt(t,0);
+    phaseWeightLabelEl.textContent = fmt(kChi,1);
+    warpEnergyLabelEl.textContent = fmt(warpE,2);
+
+    const thetaE = 2*Math.PI * (t / T_EARTH);
+    const thetaM = 2*Math.PI * (t / T_MARS);
+
+    const xE = AU * Math.cos(thetaE);
+    const yE = AU * Math.sin(thetaE);
+    const zE = 0;
+
+    const xM = AU_MARS * Math.cos(thetaM);
+    const yM = AU_MARS * Math.sin(thetaM);
+    const zM = 0;
+
+    const chiE = wrapAngle(thetaE);
+    const chiM = wrapAngle(thetaM);
+
+    earthXEl.textContent = fmt(xE,3);
+    earthYEl.textContent = fmt(yE,3);
+    earthZEl.textContent = fmt(zE,3);
+    marsXEl.textContent = fmt(xM,3);
+    marsYEl.textContent = fmt(yM,3);
+    marsZEl.textContent = fmt(zM,3);
+    earthChiEl.textContent = fmt(chiE,3);
+    marsChiEl.textContent = fmt(chiM,3);
+
+    const dx = xM - xE;
+    const dy = yM - yE;
+    const dz = zM - zE;
+    const d3 = Math.sqrt(dx*dx + dy*dy + dz*dz);
+
+    const dChi = wrapAngle(chiM - chiE);
+    const d4 = Math.sqrt(dx*dx + dy*dy + dz*dz + (kChi * dChi)*(kChi * dChi));
+
+    dx4dEl.textContent = fmt(dx,3);
+    dy4dEl.textContent = fmt(dy,3);
+    dz4dEl.textContent = fmt(dz,3);
+    dchi4dEl.textContent = fmt(dChi,3);
+
+    dist3DEl.textContent = fmt(d3,3);
+    dist4DEl.textContent = fmt(d4,3);
+    phaseGapEl.textContent = fmt(Math.abs(dChi),3);
+
+    const kappa = d3>0 ? 1.0/(1.0 + d3) : 0;
+    curvatureKEl.textContent = fmt(kappa,3);
+
+    const alpha = 2.0;
+    const Eexp = alpha * d3;
+    expectedEnergyEl.textContent = fmt(Eexp,3);
+    warpEnergyEchoEl.textContent = fmt(warpE,3);
+
+    let distOK = false;
+    if (d3 > 0){
+      const relDiff = Math.abs(d4 - d3) / d3 * 100.0;
+      distOK = (relDiff <= distTolPct);
+    } else {
+      distOK = (Math.abs(d4) < 1e-4);
+    }
+
+    let energyOK = false;
+    if (Eexp > 0){
+      const relEDiff = Math.abs(warpE - Eexp) / Eexp * 100.0;
+      energyOK = (relEDiff <= energyTolPct);
+    } else {
+      energyOK = (Math.abs(warpE) < 1e-4);
+    }
+
+    const phaseOK = (Math.abs(dChi) <= phaseTol);
+
+    setStatus(statusDistDot, statusDistText, distOK);
+    setStatus(statusEnergyDot, statusEnergyText, energyOK);
+    setStatus(statusPhaseDot, statusPhaseText, phaseOK);
+
+    const overallOK = distOK && energyOK && phaseOK;
+    statusOverallDot.classList.remove('status-ok','status-warn','status-bad');
+    statusOverallDot.classList.add(overallOK ? 'status-ok' : 'status-bad');
+    statusOverallText.textContent = overallOK ? 'GO' : 'NO-GO';
+
+    goBanner.classList.remove('go','nogo');
+    if (overallOK){
+      goBanner.classList.add('go');
+      goBanner.textContent = 'GO: 4D vector and energy checks are satisfied for the Earth–Mars corridor (demo model)';
+    } else {
+      goBanner.classList.add('nogo');
+      goBanner.textContent = 'NO-GO: Verification conditions not all satisfied';
+    }
+
+    // Engine coupling: FTL gain, core temp, shield
+    const ftlGain = window._ftlGainSim || 1.0;
+    const coreTemp = window._warpCoreTempC || 0;
+    const shieldFrac = window._shieldFracSim || 0;
+
+    ftlGainNavEl.textContent = ftlGain.toFixed(2);
+
+    const baseSpeedAUperDay = 0.15;
+    const speedAUperDay = baseSpeedAUperDay * ftlGain;
+    const tripTimeDays = (speedAUperDay>0 && d3>0) ? d3 / speedAUperDay : 0;
+    const tripTimeHours = tripTimeDays * 24.0;
+
+    tripTimeEl.textContent = fmt(tripTimeDays,2);
+    tripTimeHoursEl.textContent = fmt(tripTimeHours,1);
+    engineTempPredEl.textContent = coreTemp.toFixed(0);
+    shieldPercentNavEl.textContent = Math.round(shieldFrac*100);
+
+    const impactIndex = (1.0 - shieldFrac) * d3;
+    impactIndexEl.textContent = impactIndex.toFixed(2);
+
+    const {scale} = updateOrbits();
+    const rect = xyInner.getBoundingClientRect();
+    const cx = rect.width / 2;
+    const cy = rect.height / 2;
+
+    const pxE = cx + xE * scale;
+    const pyE = cy - yE * scale;
+    const pxM = cx + xM * scale;
+    const pyM = cy - yM * scale;
+
+    lastPxE = pxE; lastPyE = pyE;
+    lastPxM = pxM; lastPyM = pyM;
+
+    dotEarth.style.left = pxE + 'px';
+    dotEarth.style.top = pyE + 'px';
+    dotMars.style.left = pxM + 'px';
+    dotMars.style.top = pyM + 'px';
+
+    const dxPix = pxM - pxE;
+    const dyPix = pyM - pyE;
+    const lenPix = Math.sqrt(dxPix*dxPix + dyPix*dyPix);
+    const ang = Math.atan2(dyPix, dxPix);
+
+    vectorLine.style.left = pxE + 'px';
+    vectorLine.style.top = pyE + 'px';
+    vectorLine.style.width = lenPix + 'px';
+    vectorLine.style.transform = 'rotate('+ang+'rad)';
+
+    if(!shipActive){
+      dotShip.style.left = pxE+'px';
+      dotShip.style.top = pyE+'px';
+    }
+
+    lastResult = {
+      t, kChi, warpE, d3, d4, dChi,
+      Eexp, distOK, energyOK, phaseOK, overallOK,
+      tripTimeDays, tripTimeHours, ftlGain, coreTemp, shieldFrac, impactIndex
+    };
+  }
+
+  function startShipAnimation(){
+    if(!lastResult || !lastResult.overallOK) return;
+
+    shipActive = true;
+    shipStartTime = performance.now();
+    const baseDuration = 12000;
+    const ftlGain = lastResult.ftlGain || 1.0;
+    shipDurationMs = baseDuration / Math.max(1, ftlGain);
+
+    function step(now){
+      if(!shipActive) return;
+      const elapsed = now - shipStartTime;
+      let u = elapsed / shipDurationMs;
+      if(u >= 1){
+        u = 1;
+        shipActive = false;
+      }
+      const x = lastPxE + (lastPxM - lastPxE)*u;
+      const y = lastPyE + (lastPyM - lastPyE)*u;
+      dotShip.style.left = x+'px';
+      dotShip.style.top = y+'px';
+
+      if(shipActive) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  analyzeBtn.addEventListener('click', recompute);
+  warpTripBtn.addEventListener('click', function(){
+    recompute();
+    if(lastResult && lastResult.overallOK){
+      startShipAnimation();
+    } else {
+      alert('NO-GO: Fix navigation or energy/phase mismatch before engaging warp.');
+    }
+  });
+
+  window.addEventListener('resize', ()=>{
+    updateOrbits();
+    recompute();
+  });
+  timeDaysEl.addEventListener('input', recompute);
+  phaseWeightEl.addEventListener('input', recompute);
+  warpEnergyEl.addEventListener('input', recompute);
+  distTolEl.addEventListener('input', recompute);
+  energyTolEl.addEventListener('input', recompute);
+  phaseTolEl.addEventListener('input', recompute);
+
+  updateOrbits();
+  recompute();
+})();
+</script>
+</body>
+</html>
