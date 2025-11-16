@@ -25,19 +25,22 @@
     font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;
   }
   a{color:#9bb4ff}
+
+  /* Use almost full screen and anchor more to the left */
   .wrap{
-    max-width:1800px;
-    margin:0 auto;
-    padding:16px;
+    max-width:none;
+    margin:0 8px 16px 8px;
+    padding:16px 8px;
   }
+
   h1{margin:.2rem 0 .4rem;font-size:26px}
   h2{margin:.4rem 0 .3rem;font-size:16px;color:#b8c4ff}
   p.note{color:#b8c4ff;font-size:12px;margin-top:8px}
 
-  /* Main layout: nav on left, engine on right */
+  /* Main layout: wider nav on left, engine on right */
   .main-grid{
     display:grid;
-    grid-template-columns:420px minmax(0,1fr);
+    grid-template-columns:500px minmax(0,1fr);
     gap:16px;
     align-items:start;
   }
@@ -1366,7 +1369,7 @@ loop();
   if(el){ el.textContent = 'Self-tests: ' + results.join(' | '); }
 })();
 
-// ===== 4D NAVIGATION LOGIC =====
+// ===== 4D NAVIGATION LOGIC + ENGINE COUPLING =====
 (function(){
   const AU = 1.0;
   const orbitData = {
@@ -1429,8 +1432,6 @@ loop();
   const warpTripBtn = document.getElementById('warpTripBtn');
 
   let lastScale = 1;
-  let lastCx = 0;
-  let lastCy = 0;
 
   let shipAnimating = false;
   let shipProgress = 0;
@@ -1455,10 +1456,7 @@ loop();
     orbitEarth.style.left = '50%';
     orbitEarth.style.top = '50%';
 
-    // target orbit size will be set in recompute()
     lastScale = scale;
-    lastCx = rect.width / 2;
-    lastCy = rect.height / 2;
   }
 
   function setStatus(elDot, elText, ok){
@@ -1526,7 +1524,6 @@ loop();
     // Estimate travel time using FTL gain + distance
     const ftlDisplay = parseFloat(document.getElementById('v_ftl').textContent);
     const ftlGain = isNaN(ftlDisplay) ? warpFactor() : ftlDisplay;
-    // crude: base "sublight" time ~ d3 * 200 hours, divide by FTL gain
     const baseHours = d3 * 200;
     const tau = baseHours / Math.max(1, ftlGain);
     travelTimeEl.textContent = tau.toFixed(2);
@@ -1597,6 +1594,42 @@ loop();
     return {overallOK, pxE, pyE, pxT, pyT};
   }
 
+  // ==== Couple navigation to engine warp power ====
+  function animateEngineWithTrip(durationMs){
+    const baseWarp = parseInt(warpEl.value,10) || 3;
+    const maxWarp = Math.min(10, baseWarp + 4);
+    const start = performance.now();
+
+    // Ensure engine is running for the whole trip
+    if(!running){
+      running = true;
+      t0 = performance.now();
+      loop();
+    }
+
+    function step(now){
+      const t = Math.min(1, (now - start) / durationMs);
+
+      // Simple "mountain" profile: ramp up, hold, ramp down
+      let up = t < 0.3 ? (t / 0.3) : 1;
+      let down = t > 0.7 ? (1 - (t - 0.7)/0.3) : 1;
+      const amp = Math.max(0, Math.min(1, Math.min(up, down)));
+
+      const currentWarp = baseWarp + (maxWarp - baseWarp) * amp;
+      warpEl.value = Math.round(currentWarp);
+      updateHUD();   // keep engine panel synced
+
+      if(t < 1){
+        requestAnimationFrame(step);
+      } else {
+        // Trip completed → return to base warp and stay stable
+        warpEl.value = baseWarp;
+        updateHUD();
+      }
+    }
+    requestAnimationFrame(step);
+  }
+
   function startWarpTrip(){
     const {overallOK, pxE, pyE, pxT, pyT} = recompute();
     shipAnimating = true;
@@ -1611,6 +1644,9 @@ loop();
 
     const start = performance.now();
     const duration = 5000; // ms
+
+    // Kick the engine warp-power animation for the same duration
+    animateEngineWithTrip(duration);
 
     function step(now){
       if(!shipAnimating) return;
