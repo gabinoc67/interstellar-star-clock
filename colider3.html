@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Warp Engine + 4D Backup Navigation</title>
+<title>Warp Engine + 4D Backup Navigation (Multi-Planet)</title>
 <style>
   :root{
     --bg:#0b1222;
@@ -22,15 +22,28 @@
     color:var(--ink);
     font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;
   }
+  a{color:#9bb4ff}
+
   .wrap{
     max-width:100%;
     margin:0 auto;
     padding:12px;
   }
+  h1{
+    margin:4px 0 6px;
+    font-size:1.4rem;
+  }
+  p.lead{
+    font-size:.85rem;
+    color:var(--muted);
+    margin:0 0 10px;
+  }
+
   .layout{
     display:grid;
     grid-template-columns:380px 1fr;
     gap:14px;
+    align-items:flex-start;
   }
   @media(max-width:1200px){
     .layout{grid-template-columns:1fr;}
@@ -53,6 +66,28 @@
     font-size:.8rem;
     margin-top:6px;
   }
+  select,
+  input[type=range],
+  input[type=number],
+  textarea{
+    width:100%;
+    font-size:.8rem;
+    padding:4px 6px;
+    border-radius:8px;
+    border:1px solid #26325a;
+    background:#070b18;
+    color:var(--ink);
+  }
+  input[type=range]{
+    padding:0;
+    height:6px;
+  }
+  select{
+    height:28px;
+  }
+  textarea{
+    resize:vertical;
+  }
   .miniVal{
     font-size:.75rem;
     color:var(--warn);
@@ -66,6 +101,7 @@
     cursor:pointer;
     margin-right:4px;
     color:var(--ink);
+    font-size:.8rem;
   }
   .btn:hover{filter:brightness(1.1)}
   .go-light{
@@ -73,7 +109,7 @@
     padding:10px;
     border-radius:14px;
     text-align:center;
-    font-size:.95rem;
+    font-size:.9rem;
     font-weight:600;
   }
   .go-light.go{
@@ -104,42 +140,49 @@
     font-size:22px;
     font-weight:600;
   }
-  .gauge{
+
+  /* bottom map */
+  #mapHolder{
+    position:relative;
     width:100%;
-    height:7px;
-    background:#0e1536;
-    border-radius:10px;
-    border:1px solid #2b3765;
+    padding-top:54%;
+    background:#070b18;
+    border-radius:14px;
+    border:1px solid #253056;
     overflow:hidden;
   }
-  .gauge span{
-    display:block;
-    height:100%;
-    width:0%;
-    background:linear-gradient(90deg,#6bd1ff,#9bb4ff);
+  #mapCanvas{
+    position:absolute;
+    left:0;
+    top:0;
   }
-  canvas{
-    width:100%;
-    height:900px;
-    display:block;
-    background:radial-gradient(1400px 900px at 50% 50%, #0f1740 0%, #0b1020 60%);
-    border-radius:14px;
-    border:1px solid #22305c;
+
+  .chanRow{
+    font-size:.78rem;
+    display:flex;
+    justify-content:space-between;
+    margin-top:2px;
   }
-  textarea{
-    resize:vertical;
-  }
+  .chanRow span.statusGood{color:var(--good);}
+  .chanRow span.statusBad{color:var(--bad);}
 </style>
 </head>
 <body>
 <div class="wrap">
+  <h1>Warp Engine + 4D Backup Navigation (Multi-Planet)</h1>
+  <p class="lead">
+    Choose a target planet, tune the 4D corridor (distance, energy, phase), and then hand the solution
+    to the warp engine. When status is GO, the engine accelerates for the trip and decelerates at arrival,
+    while the ship dot follows a curved warp path on the circular solar map.
+  </p>
+
   <div class="layout">
     <!-- =============== LEFT: NAVIGATION PANEL =============== -->
     <div class="panel" id="navPanel">
       <h2>4D Backup Navigation — Earth → Target Planet</h2>
       <p style="font-size:.8rem;color:var(--muted);margin-top:-4px;">
-        Adjust mission time, warp energy, and 4D phase offset to validate a GO / NO-GO warp corridor
-        from Earth to your selected planet. All three channels (distance, energy, phase) must pass for GO.
+        All three channels must pass: (1) 3D vs 4D distance consistency, (2) warp energy not underpowered,
+        (3) phase |Δχ| inside the allowed window.
       </p>
 
       <label>Target Planet</label>
@@ -181,22 +224,22 @@
       </label>
       <input id="navEwarp" type="range" min="0" max="10" value="2" step="0.01"/>
 
-      <div style="display:flex;gap:10px;margin-top:6px;">
-        <div>
+      <div style="display:flex;gap:10px;margin-top:6px;flex-wrap:wrap;">
+        <div style="flex:1 1 0;">
           <label>
             Distance Tolerance %
             <span id="navTolDistVal" class="miniVal"></span>
           </label>
           <input id="navTolDist" type="number" value="2" min="0.1" step="0.1"/>
         </div>
-        <div>
+        <div style="flex:1 1 0;">
           <label>
             Energy Tolerance %
             <span id="navTolEVal" class="miniVal"></span>
           </label>
           <input id="navTolE" type="number" value="5" min="0.1" step="0.1"/>
         </div>
-        <div>
+        <div style="flex:1 1 0;">
           <label>
             Phase Tolerance (rad)
             <span id="navTolPhaseVal" class="miniVal"></span>
@@ -211,15 +254,31 @@
       <div id="goText" class="go-light nogo" style="margin-top:10px;">
         NO-GO — Parameters not validated
       </div>
+
+      <!-- Explicit YES/NO channels -->
+      <div style="margin-top:6px;">
+        <div class="chanRow">
+          <span>Distance channel</span>
+          <span id="chanDist" class="statusBad">NO</span>
+        </div>
+        <div class="chanRow">
+          <span>Energy channel</span>
+          <span id="chanEnergy" class="statusBad">NO</span>
+        </div>
+        <div class="chanRow">
+          <span>Phase channel</span>
+          <span id="chanPhase" class="statusBad">NO</span>
+        </div>
+      </div>
+
       <p style="font-size:.75rem;color:var(--muted);margin-top:4px;">
-        GO requires: (1) 3D vs 4D distance match within tolerance, (2) warp energy not underpowered,
-        (3) phase gap |Δχ| below the configured limit.
+        GO requires: all three channels green. You can then press <strong>Warp Trip</strong> on the engine panel.
       </p>
 
-      <hr style="margin:14px 0;border:none;border-top:1px solid #253056;">
+      <hr style="margin:10px 0;border:none;border-top:1px solid #253056;">
 
       <!-- === Output metrics === -->
-      <div id="metrics" style="font-size:.85rem;line-height:1.4;">
+      <div id="metrics" style="font-size:.8rem;line-height:1.4;">
         Earth position (AU): ( <span id="mEx">0</span>, <span id="mEy">0</span>, <span id="mEz">0</span> )<br>
         Target position (AU): ( <span id="mTx">0</span>, <span id="mTy">0</span>, <span id="mTz">0</span> )<br>
         χ-phase: χ⊕=<span id="mEchi">0</span>, χt=<span id="mTchi">0</span><br><br>
@@ -227,6 +286,8 @@
         3D distance: <span id="mD3">0</span> AU<br>
         4D distance: <span id="mD4">0</span> AU<br>
         Phase gap |Δχ|: <span id="mPgap">0</span><br>
+        Warp curvature κ (demo): <span id="mKappa">0</span><br><br>
+
         Expected Energy: <span id="mEexp">0</span><br>
         Warp Energy: <span id="mEwarpEcho">0</span><br>
         Estimated Warp Travel Time: <span id="mTau">0</span><br>
@@ -244,18 +305,19 @@
     <div class="panel" id="enginePanel">
       <h2>Warp Engine Control</h2>
       <p style="font-size:.8rem;color:var(--muted);margin-top:-4px;">
-        Visual warp core demo tied to the navigation solution. When status is GO, you can launch a
-        Warp Trip and watch the engine ramp up while the map traces the Earth → target corridor.
+        Visual warp core demo with photon/particle stream. When status is GO, <strong>Warp Trip</strong>
+        makes the engine ramp up, hold peak warp, then decelerate at arrival while the bottom map
+        dot moves from Earth to the selected planet along a curved path.
       </p>
 
-      <label>Warp Factor</label>
+      <label>Warp Factor (idle baseline)</label>
       <input id="warpRange" type="range" min="1" max="10" value="3"/>
 
       <div style="display:flex;gap:6px;margin-top:6px;">
         <button id="enginePlay" class="btn">Play</button>
         <button id="enginePause" class="btn">Pause</button>
         <button id="engineReset" class="btn">Reset</button>
-        <label style="margin-left:auto;display:flex;align-items:center;gap:6px;">
+        <label style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:.8rem;">
           <input id="engineLabels" type="checkbox" checked/> Labels
         </label>
       </div>
@@ -272,25 +334,32 @@
 
       <button id="warpTripBtn" class="btn" style="margin-top:8px;width:100%;">🚀 Warp Trip</button>
       <p style="font-size:.75rem;color:var(--muted);margin-top:4px;">
-        Warp Trip will only activate when status is GO from the 4D Backup Navigation panel.
+        Warp Trip only activates when status is GO. Engine accelerates with the trip and deaccelerates
+        as the ship dot locks to the target planet on the circular solar map.
       </p>
+
+      <!-- Engine canvas is added here via script -->
     </div>
   </div> <!-- end of left+right layout -->
 
   <!-- =============== ORBIT MAP PANEL (BOTTOM) =============== -->
   <div class="panel" style="margin-top:12px;">
-    <h2>Solar Map — Earth + Target Only (4D Projection)</h2>
+    <h2>Solar Map — Earth + Target (Curved Warp Path)</h2>
     <p style="font-size:.8rem;color:var(--muted);margin-top:-4px;">
-      Top-down heliocentric slice. Earth and the target planet are shown with their orbits;
-      when you launch a Warp Trip, the travel line and ship marker animate along the corridor.
+      Top-down heliocentric slice. Earth and the selected planet are in circular orbits.
+      When you launch a Warp Trip, the ship dot follows a curved warp corridor whose curvature
+      κ is computed from the 4D distance and phase channel.
     </p>
-    <div id="mapHolder" style="position:relative;width:100%;padding-top:54%;background:#070b18;border-radius:14px;border:1px solid #253056;overflow:hidden;">
-      <canvas id="mapCanvas" width="1800" height="900" style="position:absolute;left:0;top:0;"></canvas>
+    <div id="mapHolder">
+      <canvas id="mapCanvas" width="1800" height="900"></canvas>
     </div>
   </div>
 </div> <!-- end wrap -->
+
 <script>
-/* --- Planet orbital database --- */
+/*******************************
+ * Planet database + presets
+ *******************************/
 const PLANETS = {
   Mercury:{a:0.387, T:87.97},
   Venus:{a:0.723, T:224.70},
@@ -303,7 +372,7 @@ const PLANETS = {
   Pluto:{a:39.482, T:90560.0}
 };
 
-/* Simple GO-friendly presets (tDays=0 => phases aligned) */
+/* Simple GO-friendly presets */
 const PRESETS = {
   innerTour: {
     label:'Inner Tour (Venus)',
@@ -354,7 +423,6 @@ function wrapPhase(a){
   if(a<=-Math.PI)a+=t;
   return a;
 }
-
 function getPos(planet, tDays){
   const P=PLANETS[planet];
   const ang=2*Math.PI*(tDays/P.T);
@@ -365,11 +433,13 @@ function getPos(planet, tDays){
     chi:wrapPhase(ang)
   };
 }
+function clamp(v,a,b){return v<a?a:(v>b?b:v);}
+function fmt(x,d){return x.toFixed(d);}
 
-/* --- Navigation state --- */
+/*******************************
+ * Navigation DOM + state
+ *******************************/
 let lastAnalysis = {go:false};
-
-/* ---------- NAVIGATION LOGIC & GO/NO-GO ---------- */
 
 const navTargetEl     = document.getElementById('targetPlanet');
 const navTEl          = document.getElementById('navT');
@@ -380,10 +450,10 @@ const navTolEEl       = document.getElementById('navTolE');
 const navTolPhaseEl   = document.getElementById('navTolPhase');
 const analyzeBtn      = document.getElementById('analyzeBtn');
 const goText          = document.getElementById('goText');
-const goBox           = document.getElementById('goBox'); // mirrored in engine panel
+const goBox           = document.getElementById('goBox');
 const configOutputEl  = document.getElementById('configOutput');
 
-// live readouts for sliders / tolerances
+// live readouts
 const navTVal         = document.getElementById('navTVal');
 const navKchiVal      = document.getElementById('navKchiVal');
 const navEwarpVal     = document.getElementById('navEwarpVal');
@@ -391,7 +461,7 @@ const navTolDistVal   = document.getElementById('navTolDistVal');
 const navTolEVal      = document.getElementById('navTolEVal');
 const navTolPhaseVal  = document.getElementById('navTolPhaseVal');
 
-// Metric spans
+// metric spans
 const mEx   = document.getElementById('mEx');
 const mEy   = document.getElementById('mEy');
 const mEz   = document.getElementById('mEz');
@@ -403,12 +473,15 @@ const mTchi = document.getElementById('mTchi');
 const mD3   = document.getElementById('mD3');
 const mD4   = document.getElementById('mD4');
 const mPgap = document.getElementById('mPgap');
+const mKappa= document.getElementById('mKappa');
 const mEexp = document.getElementById('mEexp');
 const mEwarpEcho = document.getElementById('mEwarpEcho');
 const mTau  = document.getElementById('mTau');
 
-function clamp(v,a,b){return v<a?a:(v>b?b:v);}
-function fmt(x,d){return x.toFixed(d);}
+// channel YES/NO
+const chanDistEl  = document.getElementById('chanDist');
+const chanEnergyEl= document.getElementById('chanEnergy');
+const chanPhaseEl = document.getElementById('chanPhase');
 
 function updateGoStatus(){
   const go = lastAnalysis.go;
@@ -427,6 +500,12 @@ function updateGoStatus(){
   }
   goText.textContent = msg;
   goBox.textContent  = msg;
+}
+
+function setChan(el, ok){
+  el.textContent = ok ? 'YES' : 'NO';
+  el.classList.remove('statusGood','statusBad');
+  el.classList.add(ok ? 'statusGood' : 'statusBad');
 }
 
 function recomputeNav(){
@@ -457,10 +536,15 @@ function recomputeNav(){
   const dChi = wrapPhase(Tpos.chi - Epos.chi);
   const d4 = Math.sqrt(dx*dx+dy*dy+dz*dz + (kChi*dChi)*(kChi*dChi));
 
-  // energy model: simple, user-facing
+  // simple energy model
   const alpha = 2.0;
   const Eexp  = alpha * d3;
-  const tauHours = (Ewarp>0 && d4>0) ? (d4*40/Ewarp) : 0; // demo travel time
+
+  // demo warp curvature κ: ties phase channel into curvature strength
+  const kappa = (d3>0) ? (kChi*Math.abs(dChi))/(1+d3) : 0;
+
+  // estimated travel time (demo)
+  const tauHours = (Ewarp>0 && d4>0) ? (d4*40/Ewarp) : 0;
 
   // Channel 1: distance consistency
   let distOK;
@@ -472,7 +556,6 @@ function recomputeNav(){
   }
 
   // Channel 2: energy — PASS if warp energy is not underpowered
-  // Ewarp ≥ Eexp * (1 - tolE%)
   let energyOK;
   if(Eexp>0){
     energyOK = (Ewarp >= Eexp*(1 - tolE/100));
@@ -488,12 +571,12 @@ function recomputeNav(){
   lastAnalysis = {
     go:overall,
     distOK,energyOK,phaseOK,
-    d3,d4,Eexp,Ewarp,tauHours,
+    d3,d4,Eexp,Ewarp,tauHours,kappa,
     tDays,kChi,target,
     Epos,Tpos,dChi
   };
 
-  // update metrics
+  // metrics
   mEx.textContent   = fmt(Epos.x,3);
   mEy.textContent   = fmt(Epos.y,3);
   mEz.textContent   = fmt(Epos.z,3);
@@ -505,9 +588,15 @@ function recomputeNav(){
   mD3.textContent   = fmt(d3,3);
   mD4.textContent   = fmt(d4,3);
   mPgap.textContent = fmt(Math.abs(dChi),3);
+  mKappa.textContent= fmt(kappa,3);
   mEexp.textContent = fmt(Eexp,3);
   mEwarpEcho.textContent = fmt(Ewarp,3);
   mTau.textContent  = tauHours>0 ? (fmt(tauHours,2)+' h') : '—';
+
+  // channel YES/NO
+  setChan(chanDistEl, distOK);
+  setChan(chanEnergyEl, energyOK);
+  setChan(chanPhaseEl, phaseOK);
 
   updateGoStatus();
 }
@@ -534,19 +623,22 @@ function buildConfigText(){
     '3D distance: ' + lastAnalysis.d3.toFixed(3) + ' AU',
     '4D distance: ' + lastAnalysis.d4.toFixed(3) + ' AU',
     'Phase gap |Δχ|: ' + Math.abs(lastAnalysis.dChi).toFixed(3),
+    'Warp curvature κ: ' + lastAnalysis.kappa.toFixed(3),
     'Expected Energy: ' + lastAnalysis.Eexp.toFixed(3),
     'Warp Energy: ' + lastAnalysis.Ewarp.toFixed(3),
     'Estimated Warp Travel Time: ' + (lastAnalysis.tauHours>0 ? lastAnalysis.tauHours.toFixed(2)+' h' : '—')
   ].join('\n');
 }
 
-// hook slider + inputs to recompute
-[navTargetEl,navTEl,navKchiEl,navEwarpEl,
- navTolDistEl,navTolEEl,navTolPhaseEl].forEach(el=>{
+// hook sliders + inputs
+[
+  navTargetEl,navTEl,navKchiEl,navEwarpEl,
+  navTolDistEl,navTolEEl,navTolPhaseEl
+].forEach(el=>{
   el.addEventListener('input', recomputeNav);
 });
 
-// Analyze Trip: recompute + print config if GO
+// Analyze Trip button
 analyzeBtn.addEventListener('click', ()=>{
   recomputeNav();
   if(lastAnalysis.go){
@@ -579,11 +671,11 @@ document.querySelectorAll('.btnPreset').forEach(btn=>{
   });
 });
 
-// initial compute so sliders show correct values
+// initial compute
 recomputeNav();
-/* ---------- ENGINE VISUAL + MAP ANIMATION ---------- */
-
-// create engine canvas inside engine panel dynamically
+/*******************************
+ * Engine visual + map animation
+ *******************************/
 const enginePanelEl = document.getElementById('enginePanel');
 const engineCanvas  = document.createElement('canvas');
 engineCanvas.id = 'engineCanvas';
@@ -621,21 +713,25 @@ let fanPhase = 0;
 let warpTripActive = false;
 let warpTripStart  = 0;
 let warpTripDurMs  = 8000;
-let warpTripPeak   = 8;
 let warpTripProgress = 0;
+let warpTripPeak   = 8;
 
-// cache nav positions for map travel
+// curved path control points for map
 let travelStart = null; // {x,y}
 let travelEnd   = null; // {x,y}
+let travelCtrl  = null; // {x,y} control point (curvature)
 
+/********* ENGINE HELPERS *********/
 function engineWarpValue(now){
   const base = parseFloat(warpRangeEl.value);
   if(!warpTripActive) return base;
+
   const t = clamp((now-warpTripStart)/warpTripDurMs,0,1);
   warpTripProgress = t;
-  // smooth in/out
+
+  // accelerate then decelerate using ease-in-out
   const ease = t<0.5 ? 2*t*t : 1-2*(1-t)*(1-t);
-  return 1 + (warpTripPeak-1)*ease;
+  return base + (warpTripPeak-base)*ease;
 }
 
 function updateEngineStats(warp){
@@ -790,7 +886,7 @@ function drawEngineFrame(dt, now){
   ectx.restore();
 
   // photon/particle stream inside tube
-  const numDots = 120;
+  const numDots = 140;
   ectx.save();
   ectx.translate(cx-bodyLen*0.5, cy);
   for(let i=0;i<numDots;i++){
@@ -803,17 +899,17 @@ function drawEngineFrame(dt, now){
   }
   ectx.restore();
 
-  // labels optional
+  // simple labels (tight)
   if(engineLabelsEl.checked){
     ectx.fillStyle='#eaf0ff';
-    ectx.font='14px system-ui,Segoe UI';
+    ectx.font='13px system-ui,Segoe UI';
     ectx.textAlign='left';
     ectx.fillText('Intake / Fusion Starter', cx-bodyLen*0.65, cy-bodyR-40);
     ectx.fillText('Warp Coils / Field Shaper', cx-bodyLen*0.15, cy-bodyR-40);
     ectx.fillText('Nozzle / Plasma Jet', cx+bodyLen*0.25, cy-bodyR-40);
   }
 
-  // if warp trip complete, show arrival banner
+  // arrival banner
   if(!warpTripActive && warpTripProgress>=1 && lastAnalysis.go){
     ectx.fillStyle='rgba(0,0,0,0.45)';
     ectx.fillRect(w*0.3,h*0.06,w*0.4,46);
@@ -824,8 +920,7 @@ function drawEngineFrame(dt, now){
   }
 }
 
-/* ---------- MAP DRAW ---------- */
-
+/********* MAP DRAW WITH WARP CURVATURE *********/
 function drawMapFrame(now){
   const w = mapCanvas.width;
   const h = mapCanvas.height;
@@ -838,7 +933,6 @@ function drawMapFrame(now){
   const cx = w*0.5;
   const cy = h*0.5;
 
-  // guard: need a last analysis with positions
   if(!lastAnalysis || !lastAnalysis.Epos || !lastAnalysis.Tpos) return;
 
   const aE = PLANETS['Earth'].a;
@@ -859,7 +953,7 @@ function drawMapFrame(now){
   mctx.strokeStyle='#2a3564';
   mctx.lineWidth=1;
   mctx.setLineDash([5,6]);
-  [aE,aT].forEach((ra,i)=>{
+  [aE,aT].forEach(ra=>{
     mctx.beginPath();
     mctx.arc(cx,cy,ra*scale,0,Math.PI*2);
     mctx.stroke();
@@ -874,26 +968,27 @@ function drawMapFrame(now){
   const Tx = cx + Tpos.x*scale;
   const Ty = cy - Tpos.y*scale;
 
-  // travel line if trip or completed
-  if(travelStart && travelEnd){
+  // warp curved corridor
+  if(travelStart && travelEnd && travelCtrl){
     mctx.strokeStyle='#8fb4ff';
     mctx.lineWidth=2;
     mctx.beginPath();
     mctx.moveTo(travelStart.x, travelStart.y);
-    mctx.lineTo(travelEnd.x, travelEnd.y);
+    mctx.quadraticCurveTo(travelCtrl.x, travelCtrl.y, travelEnd.x, travelEnd.y);
     mctx.stroke();
 
-    // moving dot during active trip
+    // moving ship dot
     if(warpTripActive){
       const t = warpTripProgress;
-      const px = travelStart.x + (travelEnd.x-travelStart.x)*t;
-      const py = travelStart.y + (travelEnd.y-travelStart.y)*t;
+      const u = t;
+      const om = 1-u;
+      const px = om*om*travelStart.x + 2*om*u*travelCtrl.x + u*u*travelEnd.x;
+      const py = om*om*travelStart.y + 2*om*u*travelCtrl.y + u*u*travelEnd.y;
       mctx.fillStyle='#7bffb1';
       mctx.beginPath();
       mctx.arc(px,py,6,0,Math.PI*2);
       mctx.fill();
     }else if(warpTripProgress>=1){
-      // arrival dot stays on planet
       mctx.fillStyle='#7bffb1';
       mctx.beginPath();
       mctx.arc(travelEnd.x,travelEnd.y,6,0,Math.PI*2);
@@ -913,7 +1008,7 @@ function drawMapFrame(now){
   mctx.arc(Tx,Ty,6,0,Math.PI*2);
   mctx.fill();
 
-  // legend text
+  // labels
   mctx.fillStyle='#9bb7e3';
   mctx.font='13px system-ui,Segoe UI';
   mctx.textAlign='left';
@@ -921,10 +1016,8 @@ function drawMapFrame(now){
   mctx.fillText(lastAnalysis.target, Tx+10, Ty-4);
 }
 
-/* ---------- WARP TRIP BUTTON ---------- */
-
+/********* WARP TRIP BUTTON *********/
 warpTripBtn.addEventListener('click', ()=>{
-  // only if GO
   if(!lastAnalysis.go) return;
 
   const now = performance.now();
@@ -932,14 +1025,14 @@ warpTripBtn.addEventListener('click', ()=>{
   warpTripStart  = now;
   warpTripProgress = 0;
 
-  // set duration from estimated tau, clamp to [4s, 20s] for demo
+  // duration from estimated tau, clamped
   const tauH = lastAnalysis.tauHours>0 ? lastAnalysis.tauHours : 1;
   warpTripDurMs = clamp(tauH*800, 4000, 20000);
 
-  // peak warp from distance, but capped
+  // peak warp from distance (capped)
   warpTripPeak = clamp(3 + lastAnalysis.d4*3, 4, 10);
 
-  // freeze travel endpoints for map (Earth → selected planet)
+  // compute travel endpoints + control point from curvature κ
   const w = mapCanvas.width;
   const h = mapCanvas.height;
   const cx = w*0.5;
@@ -948,13 +1041,29 @@ warpTripBtn.addEventListener('click', ()=>{
   const aT = PLANETS[lastAnalysis.target].a;
   const maxA = Math.max(aE,aT)*1.3;
   const scale = Math.min(w,h)*0.42/maxA;
-  travelStart = {
-    x:cx + lastAnalysis.Epos.x*scale,
-    y:cy - lastAnalysis.Epos.y*scale
-  };
-  travelEnd = {
-    x:cx + lastAnalysis.Tpos.x*scale,
-    y:cy - lastAnalysis.Tpos.y*scale
+
+  const Ex = cx + lastAnalysis.Epos.x*scale;
+  const Ey = cy - lastAnalysis.Epos.y*scale;
+  const Tx = cx + lastAnalysis.Tpos.x*scale;
+  const Ty = cy - lastAnalysis.Tpos.y*scale;
+
+  travelStart = {x:Ex,y:Ey};
+  travelEnd   = {x:Tx,y:Ty};
+
+  // control point offset uses warp curvature κ
+  const mx = (Ex+Tx)/2;
+  const my = (Ey+Ty)/2;
+  const vx = Tx-Ex;
+  const vy = Ty-Ey;
+  const len = Math.sqrt(vx*vx+vy*vy) || 1;
+  const nx = -vy/len;
+  const ny =  vx/len;
+  const curv = lastAnalysis.kappa || 0;
+  const offset = curv * Math.min(w,h)*0.15;
+
+  travelCtrl = {
+    x: mx + nx*offset,
+    y: my + ny*offset
   };
 });
 
@@ -974,8 +1083,7 @@ engineResetBtn.addEventListener('click', ()=>{
   warpTripProgress=0;
 });
 
-/* ---------- MAIN LOOP ---------- */
-
+/********* MAIN LOOP *********/
 function loop(now){
   if(!engineRunning) return;
   const dt = now-lastTime;
@@ -984,7 +1092,6 @@ function loop(now){
   drawEngineFrame(dt, now);
   drawMapFrame(now);
 
-  // stop warp trip when finished
   if(warpTripActive && now-warpTripStart >= warpTripDurMs){
     warpTripActive=false;
     warpTripProgress=1;
@@ -992,10 +1099,7 @@ function loop(now){
 
   requestAnimationFrame(loop);
 }
-
-// kick off animation
 requestAnimationFrame(loop);
-
 </script>
 </body>
 </html>
