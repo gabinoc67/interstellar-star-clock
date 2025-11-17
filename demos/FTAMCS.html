@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>CST–FTAMCS Unified Engine Simulation v4</title>
+<title>CST–FTAMCS Unified Engine Simulation v5</title>
 <style>
   :root{
     --bg:#0b1222;
@@ -61,6 +61,7 @@
     justify-content:space-between;
     margin:4px 0 8px;
     gap:8px;
+    flex-wrap:wrap;
   }
   input[type="number"], input[type="range"], select{
     width:100%;
@@ -275,11 +276,26 @@
     gap:8px;
     margin-top:8px;
   }
+  .engine-strip{
+    width:100%;
+    height:14px;
+    border-radius:999px;
+    background:#090f20;
+    border:1px solid #28335c;
+    overflow:hidden;
+    margin:6px 0 4px;
+  }
+  .engine-fill{
+    height:100%;
+    width:0%;
+    background:linear-gradient(90deg,#44c7ff,#7bffb1);
+    transition:width 0.2s ease,opacity 0.2s ease;
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>CST–FTAMCS Unified Engine Simulation v4</h1>
+  <h1>CST–FTAMCS Unified Engine Simulation v5</h1>
 
   <div class="grid">
     <!-- LEFT: INPUTS / COMPONENTS -->
@@ -535,6 +551,14 @@
     <div>
       <div class="panel">
         <h2>Engine Output (Continuous Internal Thrust)</h2>
+
+        <div class="row" style="margin-bottom:6px;justify-content:flex-start;gap:6px;">
+          <button id="startBtn">Start</button>
+          <button id="stopBtn">Stop</button>
+          <button id="resetBtn">Reset</button>
+          <span class="small" id="runStatus">Engine status: Running (simulation).</span>
+        </div>
+
         <div class="kpi">
           <span class="label">Effective thrust to COM:</span>
           <span id="thrustNn" class="value">–</span>
@@ -606,7 +630,7 @@
       </div>
 
       <div class="panel">
-        <h2>Internal Vacuum Chamber Geometry</h2>
+        <h2>Internal Vacuum Chamber Engine</h2>
         <div class="chamber-diagram">
           <div class="circle">
             <div class="corridor-overlay" id="corridorOverlay"></div>
@@ -652,11 +676,24 @@
           </div>
         </div>
       </div>
+
+      <div class="panel">
+        <h2>Internal Engine Strip (Thrust Display)</h2>
+        <div class="engine-strip">
+          <div class="engine-fill" id="engineFill"></div>
+        </div>
+        <div class="small">
+          Shows relative internal thrust level. When the engine is <strong>Stopped</strong>,
+          the strip goes dim even if FTAMCS, CST, and vacuum are configured.
+        </div>
+      </div>
     </div>
   </div>
 </div>
 <script>
 function $(id){return document.getElementById(id);}
+
+let engineOn = true; // start with engine running
 
 // Compute FTAMCS-based thrust per tile (nN)
 function computeFtamcsTileThrust(){
@@ -845,6 +882,7 @@ function applyPhase(phase){
       $('corridorAngleSlider').value = 0;
       break;
   }
+  engineOn = true;
   updateEngine();
 }
 
@@ -869,7 +907,7 @@ function updateEngine(){
   // Total microscopic thrust before CST/vacuum (nN)
   let thrust_nN = tileThrust_nN * tiles;
 
-  if(!ftamcsOn){
+  if(!ftamcsOn || !engineOn){
     thrust_nN = 0;
   }else{
     // Resonance gain from drive frequency
@@ -996,6 +1034,8 @@ function updateEngine(){
   let comment = '';
   if(!ftamcsOn){
     comment = 'Enable FTAMCS microscopic thrust to generate any internal impulse at all.';
+  }else if(!engineOn){
+    comment = 'Engine is stopped. Configuration is ready, but internal thrust is gated off by the Start/Stop control.';
   }else if(ftamcsOn && !cstOn && !vacOn){
     comment = 'You have microscopic FTAMCS thrust only. This represents a lab-scale internal effect, not yet a propulsion engine.';
   }else if(ftamcsOn && cstOn && !vacOn){
@@ -1012,6 +1052,22 @@ function updateEngine(){
     comment = 'Toggle CST and vacuum chamber on to see how internal FTAMCS thrust scales into a unified propulsion module.';
   }
   $('thrustComment').textContent = comment;
+
+  // Engine strip visualization
+  const strip = $('engineFill');
+  if(strip){
+    let level = 0;
+    if(thrust_nN > 0){
+      level = Math.min(1, Math.log10(1 + thrust_nN) / 6); // compress big ranges
+    }
+    strip.style.width = (level*100).toFixed(1) + '%';
+    strip.style.opacity = (engineOn && thrust_nN > 0) ? '1' : '0.25';
+  }
+
+  // Run status text
+  $('runStatus').textContent = engineOn
+    ? 'Engine status: Running (internal thrust active in simulation).'
+    : 'Engine status: Stopped (configuration only, no thrust).';
 
   // Chips
   const chipRow = $('chipRow');
@@ -1035,7 +1091,7 @@ function updateEngine(){
   addChip(`Angle: ${corridorDeg.toFixed(0)}°`);
 }
 
-// CSV export (uses same thrust model)
+// CSV export (uses same thrust model + engineOn)
 function exportCsv(){
   const ftamcsOn   = $('ftamcsReady').checked;
   const cstOn      = $('cstReady').checked;
@@ -1052,7 +1108,7 @@ function exportCsv(){
   let tileThrust_nN = useScaling ? computeFtamcsTileThrust() : baseManual;
 
   let thrust_nN = tileThrust_nN * tiles;
-  if(!ftamcsOn){
+  if(!ftamcsOn || !engineOn){
     thrust_nN = 0;
   }else{
     let resonanceGain = computeResonanceGain();
@@ -1108,14 +1164,14 @@ function exportCsv(){
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'cst_ftamcs_engine_simulation_v4.csv';
+  a.download = 'cst_ftamcs_engine_simulation_v5.csv';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
 
-// Link UI events
+// Link UI events (sliders, toggles, presets)
 [
   'ftamcsReady','cstReady','vacReady',
   'phasePreset',
@@ -1158,6 +1214,22 @@ function exportCsv(){
     }
     updateEngine();
   });
+});
+
+// Start / Stop / Reset buttons
+$('startBtn').addEventListener('click', ()=>{
+  engineOn = true;
+  updateEngine();
+});
+$('stopBtn').addEventListener('click', ()=>{
+  engineOn = false;
+  updateEngine();
+});
+$('resetBtn').addEventListener('click', ()=>{
+  engineOn = false;
+  $('burnTime').value = 0;
+  $('burnTimeSlider').value = 0;
+  updateEngine();
 });
 
 $('exportCsvBtn').addEventListener('click', exportCsv);
