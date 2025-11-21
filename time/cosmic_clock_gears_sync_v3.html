@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
-<title>Cosmic Clock — Dual Shaft v3 (Clutches, 52-Day Sync, Speed + Physics)</title>
+<title>Cosmic Clock — Dual Shaft v3 (Clutches, 52-Day Sync, Speed + Physics Date)</title>
 <style>
   :root {
     --ink:#e5e7eb; --muted:#9ca3af; --panel:#0b1327; --border:#1f2937;
@@ -33,7 +33,7 @@
   }
   button.secondary { background:#334155; }
   button:disabled{ opacity:0.5; cursor:default; }
-  select, input[type="number"] {
+  select, input[type="number"], input[type="date"] {
     background:#0f172a; color:var(--ink);
     border:1px solid var(--border); padding:6px 8px; border-radius:8px;
   }
@@ -54,14 +54,23 @@
   }
   .moon-ring { stroke-dasharray: 1 5; opacity:0.7 }
   .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+
+  table.phys {
+    border-collapse:collapse; margin-top:6px; width:100%; max-width:480px;
+    font-size:12px;
+  }
+  table.phys th, table.phys td {
+    border:1px solid #1f2937; padding:4px 6px;
+  }
+  table.phys th { background:#111827; text-align:left; }
 </style>
 </head>
 <body>
 <header>
-  <h1>Cosmic Clock — Dual Shaft v3 (Clutches, 52-Day Sync, Speed + Physics)</h1>
+  <h1>Cosmic Clock — Dual Shaft v3 (Clutches, 52-Day Sync, Speed + Physics Date)</h1>
   <div class="small">
-    Mechanical dual-shaft cosmic clock. The gears do <b>days</b>; the physics panel tells you how those days
-    map into <b>relativity, sidereal drift, and light-time</b>. No time travel — just deeper alignment diagnostics.
+    Dual-shaft cosmic clock. The gears always count <b>days</b>. The physics/date panel only
+    <b>reads</b> that state and explains what it means in GR, sidereal drift, and light-time.
   </div>
 </header>
 
@@ -155,27 +164,36 @@
       <div id="log" class="small"></div>
     </div>
 
-    <!-- NEW: Advanced Physics diagnostics card -->
+    <!-- NEW: Date + Advanced Physics diagnostics card -->
     <div class="card">
-      <div class="section-title">Advanced Physics Diagnostics — How the Gears Map to Real Sky</div>
+      <div class="section-title">Date → Gears + Advanced Physics Diagnostics</div>
       <div class="small">
-        This clock does <b>integer days</b>. Here we interpret the current Δt (day counter) as:
-        <ul>
-          <li>CST interval in years (calendar view)</li>
-          <li>GR-corrected interval at Earth’s surface</li>
-          <li>Sidereal drift between Sun-based days and star-based days</li>
-          <li>Light-path distance a photon could have traveled</li>
-        </ul>
-        It helps you decide whether gear ratios need tweaking for long-term alignment; it does not move the machine through time.
+        Epoch for this mechanism is fixed at <b>J2000 ≈ 2000-01-01 (noon UTC)</b>.
+        You can: (1) enter a calendar date, (2) jump the gears to that Δt,
+        then (3) convert that Δt into GR, sidereal drift, and light-time.
+        Reset brings the machine back to epoch with all clutches engaged.
+      </div>
+
+      <div class="row" style="margin-top:6px">
+        <label>Target calendar date (UTC, YYYY-MM-DD):
+          <input id="dateInput" type="date"/>
+        </label>
       </div>
       <div class="row">
-        <button id="physConvert">Convert Days → Physics</button>
-        <button id="physReset" class="secondary">Reset Physics</button>
-        <span class="chip">Δt = <span id="physDtLabel">0.00 years</span></span>
+        <button id="moveToDate">Move Gears to Date</button>
+        <button id="resetSystem" class="secondary">Reset Gears to Epoch</button>
+        <span class="chip">Current Δt = <span id="physDtLabel">0.00 years</span></span>
       </div>
+
+      <div class="row" style="margin-top:4px">
+        <button id="physConvert">Convert Days → Physics</button>
+        <button id="physReset" class="secondary">Reset Physics Panel</button>
+      </div>
+
       <div id="physOut" class="small mono" style="margin-top:6px;">
-        Physics layer idle. Step the handle to change Δt, then press “Convert Days → Physics” to see
-        SR/GR, sidereal drift, and light-time interpretations of the current gear state.
+        1) Turn the handle or use “Move Gears to Date”.<br/>
+        2) Click <b>Convert Days → Physics</b> to see small tables comparing CST vs GR, sidereal drift, and light-time.<br/>
+        3) Use “Reset Gears to Epoch” to return the mechanism to day 0 and re-engage clutches.
       </div>
     </div>
   </div>
@@ -208,8 +226,8 @@ const dials = [
 ];
 
 // State
-let dayCounter = 0;     // global Δt in days
-let stepUnit = 1;       // days per turn of handle
+let dayCounter = 0;     // global Δt in days from epoch
+let stepUnit = 1;       // days per handle step
 let speedMul = 1;
 let boostVis = false;
 dials.forEach(d => d.phase = 0);
@@ -420,22 +438,28 @@ function moonSync52(){
 
 /* ------------------ Advanced Physics Layer (equations on the gears) ------------------ */
 
-// These constants let you interpret the gear-based Δt in real physics terms.
-const TROPICAL_YEAR = 365.2422;
-const SOLAR_DAY_SEC = 86400;
-const SIDEREAL_DAY_SEC = 86164.1;
+// Constants for interpreting Δt
+const TROPICAL_YEAR   = 365.2422;
+const SOLAR_DAY_SEC   = 86400;
+const SIDEREAL_DAY_SEC= 86164.1;
 
-// GR constants for Earth surface reference (deep well but not black hole)
+// GR constants for Earth surface reference
 const G_CONST     = 6.6743e-11;
 const C_CONST     = 299792458;
 const EARTH_MASS  = 5.972e24;
 const EARTH_RAD   = 6.371e6;
 
-// Physics DOM
+// Epoch: J2000 ~ 2000-01-01T12:00:00Z
+const EPOCH_MS = Date.UTC(2000,0,1,12,0,0);
+
+// Physics / date DOM
 const physConvertBtn = document.getElementById('physConvert');
 const physResetBtn   = document.getElementById('physReset');
 const physDtLabel    = document.getElementById('physDtLabel');
 const physOut        = document.getElementById('physOut');
+const dateInput      = document.getElementById('dateInput');
+const moveToDateBtn  = document.getElementById('moveToDate');
+const resetSystemBtn = document.getElementById('resetSystem');
 
 // helper: seconds → ±HH:MM:SS
 function secondsToHMS(sec){
@@ -449,19 +473,18 @@ function secondsToHMS(sec){
 }
 
 /**
- * Convert the current dayCounter into:
- *  - CST years (calendar view)
- *  - GR-corrected years at Earth surface
+ * Convert the current dayCounter into small tables:
+ *  - CST Δt in years
+ *  - GR factor & GR-corrected years
  *  - Sidereal drift (time + degrees)
  *  - Light-path distance in light-years
  */
 function convertDaysToPhysics(){
   const dtDays  = dayCounter;
   const dtYears = dtDays / TROPICAL_YEAR;
-
   physDtLabel.textContent = dtYears.toFixed(4) + " years";
 
-  // GR factor at Earth surface: Δt' = Δt * sqrt(1 - 2GM/(r c^2))
+  // GR factor at Earth surface
   const arg = 1 - (2*G_CONST*EARTH_MASS)/(EARTH_RAD*C_CONST*C_CONST);
   let grFactor = 1, grYears = dtYears;
   if (arg > 0){
@@ -473,63 +496,53 @@ function convertDaysToPhysics(){
   const perDaySec = SOLAR_DAY_SEC - SIDEREAL_DAY_SEC; // ~ 3m56s
   const driftSec  = dtDays * perDaySec;
   const driftHMS  = secondsToHMS(driftSec);
-  const driftAngleDeg = driftSec / SIDEREAL_DAY_SEC * 360; // how far the star field slips
+  const driftAngleDeg = driftSec / SIDEREAL_DAY_SEC * 360;
 
-  // Light-path distance (flat-space approximation)
+  // Light-path distance
   const absYears = Math.abs(dtYears);
-  const lightYears = absYears; // 1 year of time ~ 1 light-year of travel
+  const lightYears = absYears; // 1 year of time ~ 1 ly of light travel
+
+  const signLabel = dtDays >= 0 ? "after epoch (future)" : "before epoch (past)";
 
   physOut.innerHTML = `
-Δt (gear clock, CST view):
-  ≈ ${dtYears.toFixed(6)} years  (from the mechanical epoch at day 0)
+<table class="phys">
+  <tr><th colspan="2">1. CST Interval (gear time)</th></tr>
+  <tr><td>Δt (days from epoch)</td><td>${dtDays.toFixed(3)} days (${signLabel})</td></tr>
+  <tr><td>Δt (years, CST view)</td><td>${dtYears.toFixed(6)} years</td></tr>
+</table>
 
-1. Gravitational time dilation — Earth surface reference
-  GR factor √(1 − 2GM/rc²):
-    ≈ ${grFactor.toExponential(6)}
-  GR-corrected interval Δt′ (Earth-surface clock):
-    ≈ ${grYears.toFixed(6)} years
+<table class="phys">
+  <tr><th colspan="2">2. Gravitational Time Dilation — Earth Surface</th></tr>
+  <tr><td>GR factor √(1 − 2GM/rc²)</td><td>${grFactor.toExponential(6)}</td></tr>
+  <tr><td>Δt′ (Earth-surface atomic clock)</td><td>${grYears.toFixed(6)} years</td></tr>
+  <tr><td>Explanation</td><td>Your cosmic clock gears follow CST. A perfect clock deep in space would see a slightly different interval; this factor measures that difference.</td></tr>
+</table>
 
-  Interpretation:
-    If your dual-shaft clock were a perfect atomic timekeeper on Earth's surface,
-    gravity would make it run slower than empty deep space by this factor.
+<table class="phys">
+  <tr><th colspan="2">3. Sidereal vs Solar — Star Drift</th></tr>
+  <tr><td>Sidereal day</td><td>≈ 23h 56m 4.1s</td></tr>
+  <tr><td>Per-day drift (solar − sidereal)</td><td>${(perDaySec/60).toFixed(2)} minutes per day</td></tr>
+  <tr><td>Accumulated drift over Δt</td><td>${driftHMS}</td></tr>
+  <tr><td>Meridian drift angle</td><td>${driftAngleDeg.toFixed(3)}° of rotation vs star field</td></tr>
+  <tr><td>Explanation</td><td>Over many days, the star background “slides” under a civil-day gear train. This tells you how far the constellations have rotated relative to your 12 o’clock meridian.</td></tr>
+</table>
 
-2. Sidereal vs solar drift — how gears slide against the star field
-  Sidereal day  ≈ 23h 56m 4.1s
-  Per-day drift (solar − sidereal):
-    ≈ ${(perDaySec/60).toFixed(2)} minutes per day
-  Accumulated drift over current Δt:
-    ≈ ${driftHMS}  of star-clock slip
-    ≈ ${driftAngleDeg.toFixed(3)}° of meridian rotation relative to the stars
-
-  Interpretation:
-    Your gears count civil days. Over many years, the star background will appear
-    rotated by this angle unless the gear ratios are built to follow sidereal time.
-
-3. Light-time distance — how far a photon goes while gears turn
-  |Δt| ≈ ${absYears.toFixed(4)} years
-  Equivalent light-path ≈ ${lightYears.toFixed(4)} light-years
-
-  Interpretation:
-    While this mechanism runs for Δt, a photon could cross this many light-years.
-    This lets you tag each gear configuration with a 'light shell' radius.
-
-Engineering use:
-  • If you want the Moon/Sun dials to stay locked to real sky over centuries,
-    you design tooth counts so their effective periods match the real values above.
-  • The diagnostics here tell you how much drift you'd accumulate if you rounded
-    those periods to simpler integer fractions in the gear train.
-`.trim();
+<table class="phys">
+  <tr><th colspan="2">4. Light-Time Radius — Photon Shell</th></tr>
+  <tr><td>|Δt| (years)</td><td>${absYears.toFixed(6)} years</td></tr>
+  <tr><td>Light-path distance</td><td>${lightYears.toFixed(6)} light-years</td></tr>
+  <tr><td>Explanation</td><td>If the clock ran smoothly for Δt, a photon could have crossed this radius. You can tag each gear configuration with a cosmic “light shell” around the origin.</td></tr>
+</table>
+  `.trim();
 }
 
-function resetPhysics(){
+function resetPhysicsPanel(){
   physDtLabel.textContent = "0.00 years";
-  physOut.textContent =
-    "Physics layer idle. Step the handle to change Δt, then press “Convert Days → Physics” to see\n" +
-    "SR/GR, sidereal drift, and light-time interpretations of the current gear state.";
+  physOut.innerHTML =
+    `1) Turn the handle or use “Move Gears to Date”.<br/>
+2) Click <b>Convert Days → Physics</b> to see small tables comparing CST vs GR, sidereal drift, and light-time.<br/>
+3) Use “Reset Gears to Epoch” to return the mechanism to day 0 and re-engage clutches.`;
 }
-
-physConvertBtn.addEventListener('click', convertDaysToPhysics);
-physResetBtn.addEventListener('click', resetPhysics);
 
 // Move by steps (handle)
 function stepDays(steps){
@@ -540,14 +553,89 @@ function stepDays(steps){
   updateVisuals();
 }
 
-document.getElementById('stepPos').onclick  = ()=> stepDays(+1);
-document.getElementById('stepNeg').onclick  = ()=> stepDays(-1);
-document.getElementById('stepPos10').onclick= ()=> stepDays(+10);
-document.getElementById('stepNeg10').onclick= ()=> stepDays(-10);
+// Date → gears
+function moveGearsToDate(){
+  const val = dateInput.value;
+  if (!val){
+    alert("Please choose a date (YYYY-MM-DD) first.");
+    return;
+  }
+  const parts = val.split("-");
+  if (parts.length !== 3){
+    alert("Invalid date format. Use YYYY-MM-DD.");
+    return;
+  }
+  const y = parseInt(parts[0],10);
+  const m = parseInt(parts[1],10);
+  const d = parseInt(parts[2],10);
+  if (isNaN(y)||isNaN(m)||isNaN(d)){
+    alert("Invalid date numbers.");
+    return;
+  }
+
+  // Target date at noon UTC, same convention as EPOCH_MS
+  const targetMs = Date.UTC(y, m-1, d, 12, 0, 0);
+  const dtDays = (targetMs - EPOCH_MS) / 86400000;
+
+  // Reset gears to epoch, then jump by dtDays
+  dayCounter = dtDays;
+  dials.forEach(d => { d.phase = dtDays; });
+  moonSync52();
+  updateVisuals();
+  resetPhysicsPanel();
+  log(`Gears moved to calendar date ${val} (Δt = ${dtDays.toFixed(3)} days from J2000 epoch).`);
+}
+
+// Full system reset: gears + clutches + physics
+function resetSystem(){
+  // Reset core state
+  dayCounter = 0;
+  dials.forEach(d => { d.phase = 0; });
+
+  // Re-engage all clutches
+  engaged.clear();
+  dials.forEach(d => {
+    engaged.add(d.key);
+    const cb = document.getElementById('cb_'+d.key);
+    if (cb) cb.checked = true;
+  });
+
+  // Reset step, speed, options
+  setStep(1);
+  document.getElementById('stepUnit').value = "1";
+  document.getElementById('stepCustom').value = "1";
+  setSpeed(1);
+  document.getElementById('speedMul').value = "1";
+  document.getElementById('boostVis').checked = false;
+  document.getElementById('sync52').checked = true;
+
+  // Clear date input
+  dateInput.value = "";
+
+  // Reset visuals + physics panel
+  updateVisuals();
+  resetPhysicsPanel();
+
+  // Clear log
+  logEl.textContent = "";
+  log("System reset: gears returned to epoch (dayCounter = 0), all clutches engaged, physics panel cleared.");
+}
+
+// Wire up buttons
+physConvertBtn.addEventListener('click', convertDaysToPhysics);
+physResetBtn.addEventListener('click', resetPhysicsPanel);
+moveToDateBtn.addEventListener('click', moveGearsToDate);
+resetSystemBtn.addEventListener('click', resetSystem);
+
+document.getElementById('stepPos').onclick   = ()=> stepDays(+1);
+document.getElementById('stepNeg').onclick   = ()=> stepDays(-1);
+document.getElementById('stepPos10').onclick = ()=> stepDays(+10);
+document.getElementById('stepNeg10').onclick = ()=> stepDays(-10);
 
 // Initial draw + physics reset
 updateVisuals();
-resetPhysics();
+resetPhysicsPanel();
+log("Initialized at J2000 epoch. Use the handle or the date control to move the gears.");
 </script>
 </body>
 </html>
