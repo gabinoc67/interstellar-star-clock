@@ -401,10 +401,7 @@ function gammaGR_regime(reg){
   return 1.0;
 }
 function combinedClockRate(w, reg){
-  // effective clock rate vs CST:
-  //  base warp factor slows / speeds coordinate time,
-  //  SR and GR reduce rate in ship frame
-  const warpScale = lerp(1, 1.6, (w-1)/9); // how strong geometry stretch is
+  const warpScale = lerp(1, 1.6, (w-1)/9); // geometry stretch
   const gSR = gammaSR(w);
   const gGR = gammaGR_regime(reg);
   const rate = 1/(warpScale * gSR * gGR);
@@ -668,7 +665,7 @@ function labelFromTo(text, ax, ay, tx, ty){
   drawText(ctx, text, tx+4, ty, 'left');
 }
 
-// Labels (same geometry, just descriptive)
+// Labels (engine structure unchanged)
 function drawLabels(){
   const topY = layout.centerY - layout.bodyR - 42;
   const botY = layout.centerY + layout.bodyR + 44;
@@ -695,7 +692,7 @@ function drawLabels(){
   labelFromTo('Detection Lasers (particles)', s1.x1-10, layout.centerY+ s1.r, s1.x1+110, botY+168);
   labelFromTo('Thermal Management (Water Cooling)', s5.x1-8, layout.centerY+ s5.r, s5.x1+160, botY+192);
 
-  // New research labels but same geometry
+  // New research labels, geometry unchanged
   labelFromTo('ZPF Oscillator Rings (ZPO)', s4.x0+12, layout.centerY- s4.r+10, s4.x0-130, topY+136);
   labelFromTo('Casimir Microarrays', s3.x1-6, layout.centerY- s3.r+6, s3.x1+28, topY+156);
   labelFromTo('Tachyon Feedback Node', s5.x0+6, layout.centerY+12, s5.x0-140, botY+210);
@@ -984,7 +981,7 @@ loop();
   const plSel = document.getElementById('pl_target');
   const progEl= document.getElementById('pl_progress');
 
-  // simple planet distance table (AU) and RA/Dec placeholders
+  // planet table with AU for info only; visual radius compressed so all fit
   const PLANETS = {
     mercury:{name:'Mercury', au:0.39},
     venus  :{name:'Venus',   au:0.72},
@@ -996,13 +993,14 @@ loop();
     neptune:{name:'Neptune', au:30.1},
     pluto  :{name:'Pluto',   au:39.5}
   };
+  const PLANET_ORDER = ['mercury','venus','earth','mars','jupiter','saturn','uranus','neptune','pluto'];
 
   let tripRunning=false;
   let tripT=0;
   let lastTripNow=performance.now();
+  let tripDurationMs=10000; // will be set from jump physics (coordYears)
 
   function siderealDriftSeconds(days){
-    // Sidereal day = 23h 56m 4.1s vs 24h solar
     const deltaPerDay = 24*3600 - (23*3600+56*60+4.1); // ≈ 235.9 s per day
     return days*deltaPerDay;
   }
@@ -1034,7 +1032,7 @@ loop();
     const gGR = gammaGR_regime(gravReg);
 
     // coordinate CST travel time with warp geometry compression
-    const coordYears = distLy / (warp * vLocal);          // apparent
+    const coordYears = distLy / (warp * vLocal);          // apparent CST coord time
     const coordMs    = coordYears * 365.25*86400*1000;
 
     // ship proper time with SR·GR dilation
@@ -1055,16 +1053,28 @@ loop();
     const nz = Math.sin(delta);
 
     // CST alignment rating: base on warp and sidereal age
-    let align = 50 + 5*(warp-1) - 0.001*driftDays - 5*Math.abs(nz); // penalize high |dec|
+    let align = 50 + 5*(warp-1) - 0.001*driftDays - 5*Math.abs(nz);
     align = clamp(align,0,100);
 
     // re-entry error in AU (smaller if alignment high)
-    const errAU = (110-align)/20;  // ~0 AU when align ≈ 100, few AU when poor
-    const vecAlign = align;        // interpret as % of correct vector
+    const errAU = (110-align)/20;
+    const vecAlign = align;
 
     const now = new Date();
     const depCST = now;
     const arrCST = new Date(now.getTime()+coordMs);
+
+    // ===== NEW: animation duration derived from coordYears =====
+    // Shorter coordYears → faster dot; longer → slower, but capped so it stays watchable.
+    let baseYears = coordYears;
+    if(baseYears < 0.1) baseYears = 0.1;
+    if(baseYears > 30)  baseYears = 30;
+
+    // Map [0.1, 30] years to roughly [6s, 22s] animation
+    const minDur = 6000;
+    const maxDur = 22000;
+    const norm   = (baseYears - 0.1) / (30 - 0.1);
+    tripDurationMs = minDur + norm * (maxDur - minDur);
 
     return {
       distLy, coordYears, shipYears,
@@ -1109,20 +1119,29 @@ loop();
     octx.clearRect(0,0,W,H);
 
     const cx = W/2;
-    const cy = H/2+10;
-    const scale = Math.min(W,H)/2.8;
+    const cy = H/2 + 4;                 // center a little below middle
+    const scale = Math.min(W,H)/2.4;    // overall scaling
+
+    // Compressed radii so Sun, Earth & all planets fit panel
+    const earthIndex = PLANET_ORDER.indexOf('earth');
+    const targetIndex= PLANET_ORDER.indexOf(targetKey);
+    const baseR = scale*0.45;          // Earth orbit radius
+    const step  = 14;                  // spacing between orbits
+
+    const earthR = baseR;
+    let targR    = baseR + (targetIndex-earthIndex)*step;
+    if(targR < baseR*0.6) targR = baseR*0.6;           // inner planets still visible
+    if(targR > Math.min(W,H)/2 - 16) targR = Math.min(W,H)/2 - 16; // keep inside window
+
+    const target = PLANETS[targetKey];
 
     // Sun
     octx.fillStyle='#ffd27a';
     octx.beginPath();
-    octx.arc(cx,cy,10,0,TAU);
+    octx.arc(cx,cy,8,0,TAU);
     octx.fill();
 
-    // Earth orbit (1 AU) and target orbit
-    const earthR = scale*1.0;
-    const target = PLANETS[targetKey];
-    const targR  = scale*target.au;
-
+    // Earth orbit & target orbit
     octx.strokeStyle='#2f3d6f';
     octx.lineWidth=1;
     octx.beginPath();
@@ -1134,26 +1153,26 @@ loop();
     octx.arc(cx,cy,targR,0,TAU);
     octx.stroke();
 
-    // Earth fixed at +x (static anchor)
+    // Earth fixed at +x
     const eX = cx + earthR;
     const eY = cy;
     octx.fillStyle='#6bd1ff';
     octx.beginPath();
-    octx.arc(eX,eY,5,0,TAU);
+    octx.arc(eX,eY,4,0,TAU);
     octx.fill();
 
-    // Target planet at some phase angle
-    const angle = -Math.PI/4; // fixed visual offset
+    // Target planet at fixed phase angle
+    const angle = -Math.PI/4;
     const pX = cx + targR*Math.cos(angle);
     const pY = cy + targR*Math.sin(angle);
     octx.fillStyle='#9bb4ff';
     octx.beginPath();
-    octx.arc(pX,pY,5,0,TAU);
+    octx.arc(pX,pY,4,0,TAU);
     octx.fill();
 
     // line Earth→target
     octx.strokeStyle='#556bff88';
-    octx.lineWidth=1.5;
+    octx.lineWidth=1.2;
     octx.beginPath();
     octx.moveTo(eX,eY);
     octx.lineTo(pX,pY);
@@ -1165,16 +1184,16 @@ loop();
     const sY = eY + (pY-eY)*t;
     octx.fillStyle = '#33e1b5';
     octx.beginPath();
-    octx.arc(sX,sY,4,0,TAU);
+    octx.arc(sX,sY,3.2,0,TAU);
     octx.fill();
 
-    // labels
+    // labels (smaller font as requested)
     octx.fillStyle='#eaf0ff';
-    octx.font='11px system-ui';
+    octx.font='9px system-ui';
     octx.textAlign='left';
-    octx.fillText('Sun', cx+12, cy-4);
-    octx.fillText('Earth (static anchor)', eX-40, eY-10);
-    octx.fillText(target.name+' orbit', cx+targR*Math.cos(angle)-20, cy+targR*Math.sin(angle)-10);
+    octx.fillText('Sun', cx+10, cy-6);
+    octx.fillText('Earth (static)', eX-40, eY-9);
+    octx.fillText(target.name+' orbit', cx+targR*Math.cos(angle)-26, cy+targR*Math.sin(angle)-8);
   }
 
   drawMapBackground(plSel.value,0);
@@ -1185,11 +1204,8 @@ loop();
     lastTripNow = now;
 
     if(tripRunning){
-      const warp = warpFactor();
-      const effRate = combinedClockRate(warp,'sun');
-      // speed of dot depends on warp + effective clock rate
-      const speed = 0.00035 * (1+warp*0.6) * (1+effRate);
-      tripT += speed*dt;
+      const dur = tripDurationMs>0 ? tripDurationMs : 10000;
+      tripT += dt / dur;
       if(tripT>=1){
         tripT = 1;
         tripRunning=false;
@@ -1208,8 +1224,8 @@ loop();
     const res = computeJump();
     if(!res) return;
     updateReport(res);
-    statusEl.textContent='Jump computed — SR/GR + CST + RA/Dec applied. Dot now traveling Earth → '+PLANETS[plSel.value].name+'.\nLocal plasma stays < c; apparent FTL comes from the warp geometry and CST mapping.';
-    // reset and start planet trip
+    statusEl.textContent='Jump computed — SR/GR + CST + RA/Dec applied. Dot now traveling Earth → '+PLANETS[plSel.value].name+'. Local plasma stays < c; apparent FTL comes from warp geometry and CST mapping.';
+    // reset and start planet trip with new duration from jump physics
     tripT = 0;
     tripRunning = true;
     lastTripNow = performance.now();
@@ -1223,6 +1239,7 @@ loop();
     driftEl.value = 9200;
     tripT = 0;
     tripRunning = false;
+    tripDurationMs = 10000;
     drawMapBackground(plSel.value,0);
     progEl.textContent='0%';
     resetReport();
