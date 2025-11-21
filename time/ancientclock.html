@@ -26,7 +26,7 @@
     width:100%; padding:9px 10px; font-size:1.05em;
     border:1px solid #334155; background:#0f172a; color:#e5e7eb; border-radius:8px;
   }
-  .btnRow{ margin-top:10px; display:flex; gap:10px; }
+  .btnRow{ margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; }
   .btn{
     background:#2563eb; color:#fff; border:none; border-radius:8px; cursor:pointer;
     padding:9px 16px; font-size:1.05em;
@@ -160,7 +160,7 @@
               <span>γ = <span id="srGammaOut" class="mono">1.000000</span></span>
             </div>
 
-            <label for="srDtYears" style="margin-top:8px;">Reference interval Δt (years)</label>
+            <label for="srDtYears" style="margin-top:8px;">Reference interval Δt (years) — CST</label>
             <input id="srDtYears" type="number" step="0.01" value="1.00" />
 
             <p style="margin-top:6px;">
@@ -185,6 +185,16 @@
             <p><small>Uses the same Δt from above. Extreme compact objects will show strong slowing of time.</small></p>
           </div>
         </div>
+
+        <!-- CST → Advanced conversion buttons + comparison -->
+        <div class="btnRow" style="margin-top:8px;">
+          <button class="btn" type="button" id="physicsConvertBtn">Convert CST → Advanced</button>
+          <button class="btn" type="button" id="physicsResetBtn">Reset Physics Panel</button>
+        </div>
+        <p id="physicsCompareOut" class="muted" style="margin-top:6px;">
+          Enter a CST interval (years) and a ship velocity, choose a gravity well, then press
+          <b>Convert CST → Advanced</b> to see SR/GR-corrected time intervals.
+        </p>
 
         <!-- Sidereal -->
         <div style="margin-top:10px;">
@@ -484,6 +494,10 @@ const ltDistanceLyInp = document.getElementById('ltDistanceLy');
 const ltYearsOut      = document.getElementById('ltYearsOut');
 const ltDescOut       = document.getElementById('ltDescOut');
 
+const physicsConvertBtn = document.getElementById('physicsConvertBtn');
+const physicsResetBtn   = document.getElementById('physicsResetBtn');
+const physicsCompareOut = document.getElementById('physicsCompareOut');
+
 let lastMeta = null; // remembers last date/location for sidereal drift
 
 function secondsToHMS(sec){
@@ -502,7 +516,8 @@ function updateSRGR(){
   const vFrac = parseFloat(srVelInput.value) || 0;
   srVelLabel.textContent = (vFrac*100).toFixed(1) + "% c";
 
-  const beta2 = Math.max(0, Math.min(0.9999, vFrac))**2;
+  const beta = Math.max(0, Math.min(0.9999, vFrac));
+  const beta2 = beta*beta;
   const gamma = 1 / Math.sqrt(1 - beta2);
   srGammaOut.textContent = gamma.toFixed(6);
 
@@ -579,6 +594,64 @@ function updateLightTime(){
   ltDescOut.textContent  = `You see this object as it was about ${years.toFixed(2)} years ago.`;
 }
 
+// Convert CST → Advanced Physics
+function convertCSTToAdvanced(){
+  let dtYears = parseFloat(srDtYearsInp.value);
+  if(!isFinite(dtYears) || dtYears <= 0){
+    dtYears = 1.0;
+    srDtYearsInp.value = dtYears.toFixed(2);
+  }
+
+  const vFrac = parseFloat(srVelInput.value) || 0;
+  const beta = Math.max(0, Math.min(0.9999, vFrac));
+  const beta2 = beta*beta;
+  const srFactor = Math.sqrt(1 - beta2);
+  const srYears = dtYears * srFactor;
+
+  const bodyKey = grBodySelect.value || "earth";
+  const body = GR_BODIES[bodyKey] || GR_BODIES.earth;
+  const arg = 1 - (2*G_CONST*body.M)/(body.r*C_CONST*C_CONST);
+  let grFactor = NaN;
+  let grYears = NaN;
+  if(arg > 0){
+    grFactor = Math.sqrt(arg);
+    grYears = dtYears * grFactor;
+  }
+
+  let combinedText = "";
+  if(arg > 0){
+    const combinedYears = dtYears * srFactor * grFactor;
+    combinedText = `<br/><b>SR × GR combined proper Δt′:</b> <span class="mono">${combinedYears.toFixed(4)} years</span>`;
+  }else{
+    combinedText = `<br/><b>SR × GR combined proper Δt′:</b> <span class="mono">N/A (inside horizon)</span>`;
+  }
+
+  physicsCompareOut.innerHTML = `
+    <b>CST reference interval Δt:</b> <span class="mono">${dtYears.toFixed(4)} years</span><br/>
+    <b>SR-only proper Δt′ (moving ship):</b> <span class="mono">${srYears.toFixed(4)} years</span><br/>
+    <b>GR-only Δt′ (gravity well: ${bodyKey}):</b> <span class="mono">${isNaN(grYears) ? "N/A" : grYears.toFixed(4) + " years"}</span>
+    ${combinedText}
+  `;
+}
+
+// Reset physics panel only
+function resetPhysicsPanel(){
+  srVelInput.value = "0";
+  srDtYearsInp.value = "1.00";
+  grBodySelect.value = "earth";
+  raHoursInp.value = "";
+  decDegInp.value = "";
+  ltDistanceLyInp.value = "";
+  physicsCompareOut.innerHTML = `
+    Enter a CST interval (years) and a ship velocity, choose a gravity well, then press
+    <b>Convert CST → Advanced</b> to see SR/GR-corrected time intervals.
+  `;
+  updateSRGR();
+  updateRaDecXYZ();
+  updateLightTime();
+  updateSiderealDrift();
+}
+
 // Physics panel event wiring
 srVelInput.addEventListener('input', updateSRGR);
 srDtYearsInp.addEventListener('input', updateSRGR);
@@ -586,6 +659,8 @@ grBodySelect.addEventListener('change', updateSRGR);
 raHoursInp.addEventListener('input', updateRaDecXYZ);
 decDegInp.addEventListener('input', updateRaDecXYZ);
 ltDistanceLyInp.addEventListener('input', updateLightTime);
+physicsConvertBtn.addEventListener('click', convertCSTToAdvanced);
+physicsResetBtn.addEventListener('click', resetPhysicsPanel);
 
 // Initialize static parts
 updateSRGR();
