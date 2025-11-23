@@ -573,7 +573,8 @@ function linePlot(canvas, series, colors, labels, alpha){
   ctx.restore();
 }
 
-function blob(canvas, strength, seed){
+// ---------- UPDATED: vibrating wave blob, energy-controlled ----------
+function blob(canvas, strength, seed, phase){
   sizeCanvas(canvas);
   const ctx=clearCanvas(canvas);
   const W=canvas.clientWidth, H=canvas.clientHeight;
@@ -589,16 +590,19 @@ function blob(canvas, strength, seed){
   ctx.globalAlpha=0.4;
   ctx.strokeStyle="rgba(110,231,255,0.35)";
   ctx.lineWidth=1.2;
+  // phase makes waves slide; higher energy = faster phase advance (set in animationLoop)
   for(let k=1;k<=6;k++){
     ctx.beginPath();
     for(let x=0;x<W;x++){
-      const y=cy + Math.sin((x/W)*Math.PI*2*(k+seed))* (10+strength*20)/(k*0.6);
+      const omega = (k+seed);          // base spatial frequency
+      const y = cy + Math.sin((x/W)*Math.PI*2*omega + phase*omega)* (10+strength*20)/(k*0.6);
       x===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
     }
     ctx.stroke();
   }
   ctx.globalAlpha=1;
 }
+
 function bars(canvas, vec){
   sizeCanvas(canvas);
   const ctx=clearCanvas(canvas);
@@ -699,16 +703,15 @@ const animState = {
   specStrengthPre: 0,
   specStrengthPost: 0,
   energyLevel: 0,
-  phase: 0,
+  phase: 0,         // for blinking
+  wavePhase: 0,     // for vibrating metric waves
   hasData: false
 };
 
 // ---------- SOLVER HOOKS (REPLACE WITH REAL KERNELS) ----------
 function makeInBrowserSolver(params){
-  // Toy scalar norms; replace with your full fields.
   const state = { hNorm: params.dC0, rhoNorm: params.Rqm0, t:0 };
 
-  // 1) GR STEP
   function grStep(dt, S_strength){
     const alpha = Math.max(0.05, Math.min(5, 0.2*params.kp + 0.05*params.kd));
     state.hNorm = Math.max(0, state.hNorm * Math.exp(-alpha*dt) - 0.00001*S_strength);
@@ -716,21 +719,19 @@ function makeInBrowserSolver(params){
     return R_GR;
   }
 
-  // 2) QM STEP
   function qmStep(dt, couplingPhi, F_eff){
     const beta = Math.max(0.05, Math.min(5, 0.17*params.kp + 0.07*params.kd));
     state.rhoNorm = Math.max(0, state.rhoNorm * Math.exp(-beta*dt) - 0.00001*(couplingPhi + 1e-6*F_eff));
     const R_QM = Math.max(1e-16, params.Rqm0 * (state.rhoNorm / (params.Rqm0+1e-12)));
-    const Tq_exp_mag = Math.max(0, 0.5*state.rhoNorm + 0.5*state.hNorm); // proxy
+    const Tq_exp_mag = Math.max(0, 0.5*state.rhoNorm + 0.5*state.hNorm);
     return { R_QM, Tq_exp_mag };
   }
 
-  // 3) CST FEEDBACK
   function cstFeedback(dt){
     const dC = state.hNorm;
     const dCdot = -dC;
     const Fmag = Math.max(0, params.kp*dC + params.kd*Math.abs(dCdot));
-    return Fmag; // treat as control energy magnitude
+    return Fmag;
   }
 
   return { state, grStep, qmStep, cstFeedback };
@@ -752,7 +753,6 @@ async function simulate(){
   const F0=P('F0'), Ml=P('Mlens'), dI=P('dI'), z=P('zred'), tau=P('tauNoise'), sig=P('sigmaNoise');
   const ou = makeOUNoise(tau, sig, dt);
 
-  // event-driven intensity
   const eventsText = document.getElementById('eventTimes').value;
   const events = parseEvents(eventsText);
   const kernel = document.getElementById('kernelType').value;
@@ -778,21 +778,16 @@ async function simulate(){
 
     const F_eff = photonFluxEffective(F0, dI, Ml, z, extraFrac);
 
-    // EM source magnitude ~ energy flux / c (toy)
     const S_em_mag = F_eff / 299792458;
 
-    // CST feedback
     const Fmag = solver.cstFeedback(dt);
 
-    // QM step (depends on control + photon flux)
     const qm = solver.qmStep(dt, Fmag, F_eff);
 
-    // GR step uses total source strength
     const R_GR = solver.grStep(dt, qm.Tq_exp_mag + S_em_mag + Fmag);
     const R_QM = qm.R_QM;
     const dC   = solver.state.hNorm;
 
-    // energy accounting (toy)
     const power = Math.max(0, params.kp*dC*dC + params.kd*dC*dC);
     const dCurv = Math.max(0, (params.Rgr0+params.Rqm0) - (R_GR+R_QM));
     totPower += power*dt;
@@ -810,7 +805,6 @@ async function simulate(){
     t += dt;
   }
 
-  // build spectra vectors and energy level for animation
   const pre = Array.from({length:24},(_,i)=>
     Math.max(0,0.2 + 0.8*Math.sin((i/24)*Math.PI*2*3+0.4))*(0.6+0.5*params.spec0)
   );
@@ -827,14 +821,13 @@ async function simulate(){
   animState.specStrengthPost = Math.max(0, params.spec0-0.55);
   animState.energyLevel = energyLevel;
   animState.phase = 0;
+  animState.wavePhase = 0;
   animState.hasData = true;
 
-  // badges for efficiency & total power
   const avgEff = totPower>0 ? (totCurv/totPower) : 0;
   setBadge(effBadge, `Efficiency: ${avgEff.toFixed(3)}`, avgEff>0 ? "ok":"warn");
   setBadge(powerBadge, `Total power: ${totPower.toExponential(2)} arb.`, totPower>0 ? "ok":"warn");
 
-  // badges for residuals
   const solved = solvedCount>=hold;
   setBadge(solvedBadge, solved ? "Self-consistency: PASS" : "Self-consistency: NOT MET", solved ? "ok":"bad");
 
@@ -842,7 +835,7 @@ async function simulate(){
   const stable = seriesDC.slice(tail).every((p,idx,arr)=> idx===0 || p[1] <= arr[idx-1][1]+1e-9);
   setBadge(stableBadge, stable ? "Stability: DAMPED" : "Stability: UNSTABLE?", stable ? "ok":"warn");
 
-  const physical = true; // placeholder
+  const physical = true;
   setBadge(physicalBadge, physical ? "Physicality: OK (placeholder)" : "Check constraints", physical ? "ok":"warn");
 
   const orbitErr = Math.max(1e-10, seriesGR.at(-1)[1]*0.5 + seriesQM.at(-1)[1]*0.5);
@@ -871,9 +864,11 @@ function drawSnapshots(blink){
   const f = 0.85 + 0.15*blink;
   const preStrength  = (animState.specStrengthPre  || 0.7) * f;
   const postStrength = (animState.specStrengthPost || 0.2) * f;
+  const phase = animState.wavePhase;
 
-  blob(snapPre,  preStrength,  2);
-  blob(snapPost, postStrength, 4);
+  // vibrating waves: phase controlled by energy in animationLoop
+  blob(snapPre,  preStrength,  2, phase);
+  blob(snapPost, postStrength, 4, phase+0.7);
 
   if(animState.specPre){
     const v1 = animState.specPre.map(v=>v*(0.9+0.1*blink));
@@ -898,9 +893,15 @@ function animationLoop(timestamp){
   lastFrameTime = timestamp;
 
   const e = animState.energyLevel || 0;
-  const speed = 0.6 + 3*e;       // more energy → faster blinking
-  animState.phase += speed * dt;
+
+  // more energy → faster blinking
+  const blinkSpeed = 0.6 + 3*e;
+  animState.phase += blinkSpeed * dt;
   const blink = 0.5 + 0.5*Math.sin(animState.phase*2*Math.PI); // 0..1
+
+  // more energy → faster wave vibration
+  const waveSpeed = 0.8 + 6*e;
+  animState.wavePhase += waveSpeed * dt;
 
   if(animState.hasData){
     drawResiduals(blink);
@@ -927,6 +928,9 @@ document.getElementById('resetBtn').addEventListener('click', ()=>{
   document.getElementById('eventTimes').value=""; document.getElementById('kernelType').value="gauss"; document.getElementById('bandwidth').value=300; document.getElementById('clambda').value=0.01;
 
   animState.hasData = false;
+  animState.phase = 0;
+  animState.wavePhase = 0;
+  animState.energyLevel = 0;
 
   setBadge(statusBadge,"Idle — awaiting run","warn");
   [resCanvas,snapPre,snapPost,specPre,specPost,energyC].forEach(c=>{sizeCanvas(c); clearCanvas(c);});
