@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CST String-Dimension Jump Simulator — v5.5 (Energy–Mass Jumps)</title>
+<meta name="description" content="Live CST ball snaps to nearest hour. Jump anim shows bright lightning columns (between dimensions) and bridges (across time and dimensions), brightness scales with jump distance and energy–mass budget." />
+<style>
+  :root{
+    --bg:#0b1020;--panel:#111735;--ink:#eaf0ff;--muted:#a9b3d6;--accent:#8fb4ff;
+    --grid:#20306b;--ring:#ff324f;--cursor:#7fb1ff;--border:#1a2550;
+    --ok:#35e6a2;--warn:#ffd15a;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
+  a{color:var(--accent)}
+  .wrap{max-width:1300px;margin:0 auto;padding:16px}
+  h1{margin:0 0 8px;font-size:1.6rem;letter-spacing:.2px}
+  .sub{color:var(--muted);font-size:.95rem;margin-bottom:16px}
+  .grid{display:grid;grid-template-columns:360px 1fr;gap:16px;align-items:start}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+  .card .hd{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+  .card .bd{padding:14px}
+  .pill{font-size:.75rem;color:var(--muted);background:#0e1430;border:1px solid var(--border);padding:4px 8px;border-radius:999px}
+  label{display:block;font-size:.85rem;color:var(--muted);margin:10px 0 6px}
+  input[type="number"],input[type="range"]{width:100%}
+  input,button{background:#0c1330;color:var(--ink);border:1px solid var(--border);border-radius:10px;padding:8px}
+  button{cursor:pointer}
+  button.primary{background:linear-gradient(180deg,#2446b3,#1b2f7d);border-color:#1a2f7a}
+  button.ghost{background:transparent}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
+  /* WALL */
+  .wall{height:560px;position:relative;border-top:1px solid var(--border);border-bottom:1px solid var(--border);
+    background:
+      repeating-linear-gradient(to right, rgba(255,255,255,.05) 0 1px, transparent 1px 40px),
+      linear-gradient(180deg, rgba(159,210,255,.04), rgba(159,210,255,.02));
+    overflow:hidden;border-radius:14px;margin:8px 12px}
+  .axis{position:absolute;left:0;right:0;height:1px;background:var(--grid);opacity:.7}
+  .axis .lbl{position:absolute;left:8px;top:-10px;font-size:.7rem;color:var(--muted)}
+  .hourTick{position:absolute;top:0;bottom:0;width:2px;background:#21316b;opacity:.35}
+  .hourLbl{position:absolute;top:6px;font-size:.65rem;color:var(--muted);transform:translateX(-50%)}
+  .legend{display:flex;gap:10px;flex-wrap:wrap;margin:8px 12px}
+  .legend span{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;color:var(--muted)}
+  .dot{width:10px;height:10px;border-radius:50%}
+  .stable{background:var(--ring)}
+  .note{color:var(--muted);font-size:.8rem}
+  .reading{font-variant-numeric:tabular-nums;font-weight:600}
+  canvas#viz{position:absolute;inset:0}
+  .badge{display:inline-block;padding:3px 8px;border:1px solid var(--border);border-radius:999px;font-size:.75rem;color:var(--muted)}
+  .good{color:var(--ok)}
+  .bad{color:var(--warn)}
+  .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>CST String-Dimension Jump Simulator — v5.5</h1>
+  <div class="sub">
+    On load, the ball snaps to the <strong>nearest whole CST hour</strong> on the current dimension (default Dim&nbsp;1, CST offset = <strong>-6h</strong>).
+    During a jump, you’ll see <strong>Columns</strong> (vertical chains between dimensions) and <strong>Bridges</strong> (diagonal arcs across time &amp; dimensions).
+    Brightness scales with jump distance and the <strong>Energy–Mass budget</strong> of the machine.
+  </div>
+
+  <div class="grid">
+    <!-- LEFT: Controls -->
+    <section class="card">
+      <div class="hd"><div>Mission Planner</div><span class="pill">Inputs</span></div>
+      <div class="bd">
+        <div class="row">
+          <div>
+            <label>Current Dimension</label>
+            <input type="number" id="curDim" min="1" max="12" value="1" />
+          </div>
+          <div>
+            <label>CST Offset (hrs vs UTC)</label>
+            <input type="number" id="cstOffset" step="0.25" value="-6" />
+            <div class="note">Use -5 during Daylight Saving (CDT).</div>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>Target Dimension (1–12)</label>
+            <input type="number" id="targetDim" min="1" max="12" value="5" />
+          </div>
+          <div>
+            <label>Jump Hour (0–24)</label>
+            <input type="number" id="destHour" min="0" max="24" step="0.1" value="23" />
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>Paradox Stability Threshold <span class="note">(S ≥ threshold = stable)</span></label>
+            <input type="range" id="paradoxThresh" min="0" max="1" step="0.01" value="0.60" />
+          </div>
+          <div>
+            <label>Lightning Gain <span class="note">(Energy Budget)</span></label>
+            <input type="range" id="lightningGain" min="0.5" max="3.0" step="0.1" value="1.8" />
+          </div>
+        </div>
+        <div class="row" style="align-items:end">
+          <button id="btnJump" class="primary">Jump &amp; Lock</button>
+          <button id="btnUnlock" class="ghost">Unlock (Return to Live)</button>
+        </div>
+        <div class="note" style="margin-top:8px">
+          <strong>Live:</strong> ball snaps to nearest CST hour on current dimension. <strong>Locked:</strong> stays at Target Dimension @ Jump Hour until <em>Unlock</em>.
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT: Visualization -->
+    <section class="card">
+      <div class="hd"><div>String-Wall (24h)</div><span class="pill">CST Snap-to-Hour</span></div>
+      <div class="bd">
+        <div class="legend">
+          <span><span class="dot stable"></span> Ball rim (red) = present/locked point</span>
+          <span><span class="dot" style="background:var(--cursor)"></span> Dashed line = selected Jump Hour</span>
+          <span class="note">Columns = between dimensions • Bridges = across time &amp; dimensions • Brightness ≈ Energy</span>
+        </div>
+        <div class="wall" id="wall">
+          <canvas id="viz"></canvas>
+        </div>
+
+        <div class="row">
+          <div>
+            <label>UTC</label>
+            <div class="reading" id="utcClock">—</div>
+          </div>
+          <div>
+            <label>CST</label>
+            <div class="reading" id="cstClock">—</div>
+          </div>
+        </div>
+        <div class="row" style="margin-top:6px">
+          <div>
+            <label>Today (CST frame)</label>
+            <div class="reading" id="todayStr">—</div>
+          </div>
+          <div>
+            <label>Paradox @ Target</label>
+            <div class="reading"><span id="paradoxState" class="badge">—</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- EXPLANATION -->
+    <section class="card">
+      <div class="hd"><div>Explanation • Equations</div><span class="pill">CST • Relativity • Energy–Mass</span></div>
+      <div class="bd">
+        <p class="note" style="line-height:1.6">
+          <strong>Paradox field (CST string):</strong>
+          <span class="mono">S(i,t) = ½·[1 + cos(ωᵢ·t + φᵢ + 0.6·h_dest)]</span>,
+          with <span class="mono">ωᵢ = 0.4 + 0.06·i</span>. Stable if
+          <span class="mono">S ≥ S_th</span>.<br>
+          <strong>Snap-to-hour (live CST):</strong>
+          <span class="mono">h_snap = (round(h_CST) mod 24)</span>
+          (e.g., CST 01:10 ≈ 01:00).<br>
+          <strong>Lightning brightness (Columns &amp; Bridges):</strong>
+          <span class="mono">I = clamp(|d_t − d_c|/11, 0.08, 1) × Gain</span>.<br>
+          <em>Credit:</em> Paradox–dimension linkage inspired by Prof. Jaroslav Kletetschka;
+          CST toy model expands that framing.
+        </p>
+
+        <p class="note" style="line-height:1.6;margin-top:10px">
+          <strong>1. Special-relativistic time jump (orbital / transit arcs):</strong><br>
+          <span class="mono">Δt' = Δt · √(1 − v²/c²)</span><br>
+          • <span class="mono">Δt</span> = time in the CST control frame (mission clock).<br>
+          • <span class="mono">Δt'</span> = time experienced on the craft / probe.<br>
+          • <span class="mono">v</span> = ship velocity along the arc, <span class="mono">c</span> = speed of light.<br>
+          Each dimension string can be read as a lane where high-v segments compress the local tick rate
+          compared with the CST wall.
+        </p>
+
+        <p class="note" style="line-height:1.6;margin-top:10px">
+          <strong>2. Gravitational time dilation (deep wells &amp; stellar bodies):</strong><br>
+          <span class="mono">Δt' = Δt · √(1 − 2GM/(r·c²))</span><br>
+          • <span class="mono">M</span> = mass of nearby body (star, giant planet, compact object).<br>
+          • <span class="mono">r</span> = radial distance from its center of mass.<br>
+          The same CST hour band in two dimensions can tick at different rates if one lives near a strong
+          gravity well and the other in a gentle field.
+        </p>
+
+        <p class="note" style="line-height:1.6;margin-top:10px">
+          <strong>3. Star coordinate mapping (Interstellar Star Clock shell):</strong><br>
+          With right ascension <span class="mono">α</span> and declination <span class="mono">δ</span>:
+          <span class="mono">x = cos(δ) · cos(α)</span>,
+          <span class="mono">y = cos(δ) · sin(α)</span>,
+          <span class="mono">z = sin(δ)</span>.<br>
+          This places real stars on a 3D unit sphere around the CST wall so each dimension can be tied to
+          specific stellar guides or long-baseline beacons.
+        </p>
+
+        <p class="note" style="line-height:1.6;margin-top:10px">
+          <strong>4. Sidereal clock drift (true stellar rhythm):</strong><br>
+          Solar day: <span class="mono">24h 00m 00s</span>,
+          Sidereal day: <span class="mono">23h 56m 4.1s</span>.<br>
+          The visible wall tracks human solar time; a hidden sidereal layer runs slightly faster.
+          Over many days, the offset shifts which stars align with each hour column, turning the wall
+          into a slow-precessing Interstellar Star Clock.
+        </p>
+
+        <p class="note" style="line-height:1.6;margin-top:10px">
+          <strong>5. Light-time correction (how far the sky is “in the past”):</strong><br>
+          <span class="mono">t = d / c</span><br>
+          • <span class="mono">d</span> = distance to star or beacon.<br>
+          • <span class="mono">t</span> = time delay of the signal or photon front.<br>
+          Every star is already <span class="mono">t</span> seconds (or years) old by the time its light
+          hits the clock; the machine can tint or weight guidance based on this delay.
+        </p>
+
+        <p class="note" style="line-height:1.6;margin-top:10px">
+          <strong>6. Energy–Mass channel for jumps (machine viewpoint):</strong><br>
+          The simulator does <em>not</em> convert matter into pure energy. Instead it uses
+          electrical &amp; electromagnetic power and treats mass as a bookkeeping shadow via
+          <span class="mono">E = m·c²</span>.<br><br>
+          • <span class="mono">E_jump</span> ≈ <span class="mono">k · Gain · (|ΔDim| + |ΔHour|/24)</span><br>
+          • <span class="mono">m_eff = E_jump / c²</span><br>
+          where <span class="mono">Gain</span> is your <strong>Lightning Gain (Energy Budget)</strong>,
+          <span class="mono">|ΔDim|</span> is the dimension gap, and <span class="mono">|ΔHour|</span> is the time gap.<br><br>
+          <strong>Machine story:</strong><br>
+          • Raising <em>Lightning Gain</em> means “inject more energy” into the jump.<br>
+          • The same jump can be described as storing an “effective mass” <span class="mono">m_eff</span> in the field
+            and releasing it along the columns and bridges as bright lightning.<br>
+          • A larger energy–mass budget makes the arcs brighter and more coherent but still must
+            respect the paradox stability <span class="mono">S ≥ S_th</span>.
+        </p>
+
+        <p class="note" style="line-height:1.6;margin-top:10px">
+          <strong>How the engine uses Energy ↔ Mass to jump dimensions:</strong><br>
+          • You choose <em>where</em> to go (Target Dim, Jump Hour).<br>
+          • You choose <em>how hard</em> to push (Lightning Gain = energy budget).<br>
+          • The machine internally tags that energy with a mass-equivalent
+            <span class="mono">m_eff = E_jump/c²</span>, so the field behaves like a stored “mass of intent”.<br>
+          • When you press <strong>Jump &amp; Lock</strong>, that energy–mass packet is routed through
+            columns (between strings) and bridges (across time), and the ball appears at the new
+            dimension / hour if the paradox field stays stable.<br>
+          Vision stays poetic — but the jump logic is now explicitly Energy–Mass aware.
+        </p>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+(function(){
+  // === DOM refs ===
+  const wall = document.getElementById('wall');
+  const canvas = document.getElementById('viz');
+  const ctx = canvas.getContext('2d');
+
+  const curDim    = document.getElementById('curDim');
+  const targetDim = document.getElementById('targetDim');
+  const destHour  = document.getElementById('destHour');
+  const cstOffset = document.getElementById('cstOffset');
+  const paradoxThresh = document.getElementById('paradoxThresh');
+  const lightningGain = document.getElementById('lightningGain');
+
+  const utcClock  = document.getElementById('utcClock');
+  const cstClock  = document.getElementById('cstClock');
+  const todayStr  = document.getElementById('todayStr');
+  const paradoxState = document.getElementById('paradoxState');
+
+  const btnJump   = document.getElementById('btnJump');
+  const btnUnlock = document.getElementById('btnUnlock');
+
+  // === Layout ===
+  function resize(){
+    const rect = wall.getBoundingClientRect();
+    canvas.width  = Math.floor(rect.width);
+    canvas.height = Math.floor(rect.height);
+    buildGrid();
+  }
+  window.addEventListener('resize', resize);
+
+  function buildGrid(){
+    [...wall.querySelectorAll('.hourTick,.hourLbl,.axis')].forEach(n=>n.remove());
+    for(let i=1;i<=12;i++){
+      const y = lineY(i);
+      const axis = document.createElement('div');
+      axis.className='axis'; axis.style.top = `${y}px`;
+      const lbl = document.createElement('div');
+      lbl.className='lbl'; lbl.textContent=`Dim ${i}`;
+      axis.appendChild(lbl);
+      wall.appendChild(axis);
+    }
+    for(let h=0;h<=24;h++){
+      const x = hourX(h);
+      const tick = document.createElement('div');
+      tick.className='hourTick'; tick.style.left = `${x-1}px`;
+      wall.appendChild(tick);
+      const hl = document.createElement('div');
+      hl.className='hourLbl'; hl.style.left = `${x}px`; hl.textContent = `${h}`;
+      wall.appendChild(hl);
+    }
+  }
+
+  function lineY(i){
+    const H = canvas.height; const pad=26; const usable = H - pad*2; const step = usable/11;
+    return Math.round(pad + (i-1)*step);
+  }
+  function hourX(h){
+    const W = canvas.width; const pad=20; const usable=W-pad*2;
+    return Math.round(pad + (h/24)*usable);
+  }
+
+  // === Time helpers ===
+  function getCSTDate(){
+    const now = new Date();
+    const utcMs = now.getTime() + now.getTimezoneOffset()*60000;
+    return new Date(utcMs + (+cstOffset.value)*3600000);
+  }
+  function getCSTHourFloat(){
+    const d = getCSTDate();
+    return d.getHours() + d.getMinutes()/60 + d.getSeconds()/3600;
+  }
+  function getCSTNearestHour(){ // 0..23
+    const h = getCSTHourFloat();
+    return (Math.round(h) + 24) % 24;
+  }
+  function fmtTime(d){
+    const hh = String(d.getHours()).padStart(2,'0');
+    const mm = String(d.getMinutes()).padStart(2,'0');
+    const ss = String(d.getSeconds()).padStart(2,'0');
+    return `${hh}:${mm}:${ss}`;
+  }
+
+  // === Model: stability S(i,t) ===
+  const phaseSeed = Array.from({length:12},()=>Math.random()*Math.PI*2);
+  function S(i, hour, tms){
+    const w = 0.4 + 0.06*i;
+    const phi = phaseSeed[i-1];
+    const t = tms/1000;
+    const arg = w*t + 0.6*hour + phi;
+    return 0.5*(1 + Math.cos(arg));
+  }
+
+  // === State ===
+  let locked = false;  // live on load
+  let lockDim = 1;
+  let lockHour = 0;
+  let anim = null;
+
+  // === Lightning system ===
+  const bolts = []; // active lightning paths (columns + bridges)
+
+  function randRange(a,b){ return a + Math.random()*(b-a); }
+  function lerp(a,b,t){ return a + (b-a)*t; }
+  function clampInt(v,a,b){ v=Math.round(v); return Math.max(a,Math.min(b,v)); }
+  function clampFloat(v,a,b){ return Math.max(a,Math.min(b,v)); }
+  // Columns: vertical chains between adjacent dimensions at a given hour band (x in [xMin,xMax])
+  function spawnLightningColumns(xMin, xMax, dMin, dMax, intensity){
+    const gain = +lightningGain.value;
+    const columns = Math.max(1, Math.round((1 + 2*intensity) * gain));
+    for(let c=0;c<columns;c++){
+      const x = lerp(xMin, xMax, Math.random());
+      const pts = [];
+      for(let d=dMin; d<dMax; d++){
+        const yA = lineY(d);
+        const yB = lineY(d+1);
+        const segs = 3 + Math.floor(Math.random()*3);
+        for(let s=0;s<segs;s++){
+          const t = s/(segs-1);
+          const y = lerp(yA, yB, t) + randRange(-4,4);
+          const xj = x + randRange(-6,6) + Math.sin((d+s)*0.9)*2;
+          pts.push({x:xj, y});
+        }
+      }
+      bolts.push(makeBolt(pts, intensity, gain, 140, 260));
+    }
+  }
+
+  // Bridges: diagonal arcs that run from origin hour toward current hour while stepping through dimensions
+  function spawnLightningBridge(x0, x1, dMin, dMax, intensity){
+    const gain = +lightningGain.value;
+    const pts = [];
+    const steps = Math.max(2, (dMax - dMin + 1) * 2);
+    for(let k=0;k<steps;k++){
+      const u = k/(steps-1);
+      const dimF = lerp(dMin, dMax, u);
+      const y = lineY(dimF);
+      // time progression from x0 -> x1 with jagged jitter
+      const x = lerp(x0, x1, u) + randRange(-10,10) + Math.sin((u*20)+(dMin+dMax))*3;
+      pts.push({x, y});
+    }
+    bolts.push(makeBolt(pts, intensity, gain, 180, 360));
+  }
+
+  function makeBolt(pts, intensity, gain, lifeMin, lifeRange){
+    return {
+      pts,
+      birth: performance.now(),
+      life: lifeMin + Math.random()*lifeRange,
+      width: 1.6 + 2.8*intensity*gain,
+      glow: 10 + 24*intensity*gain,
+      hueShift: Math.random()<0.5?0:1
+    };
+  }
+
+  function drawBolts(now){
+    for(let i=bolts.length-1;i>=0;i--){
+      const b = bolts[i];
+      const age = now - b.birth;
+      if(age > b.life){ bolts.splice(i,1); continue; }
+      const a = 1 - age / b.life;
+      const flicker = 0.75 + 0.25*Math.sin(now*0.06 + i);
+      const alpha = Math.max(0, Math.min(1, a * flicker));
+
+      // outer glow stroke
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.lineJoin = 'round';
+      ctx.lineCap  = 'round';
+      ctx.shadowColor = 'rgba(160,200,255,0.9)';
+      ctx.shadowBlur = b.glow;
+      ctx.strokeStyle = b.hueShift ? 'rgba(210,235,255,0.70)' : 'rgba(150,195,255,0.75)';
+      ctx.lineWidth = b.width*1.8;
+      ctx.globalAlpha = 0.35*alpha;
+      ctx.beginPath();
+      for(let k=0;k<b.pts.length;k++){
+        const p = b.pts[k];
+        if(k===0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+      }
+      ctx.stroke();
+      ctx.restore();
+
+      // inner core stroke
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.lineJoin = 'round';
+      ctx.lineCap  = 'round';
+      ctx.strokeStyle = '#eaf2ff';
+      ctx.lineWidth = b.width*0.9;
+      ctx.globalAlpha = 0.9*alpha;
+      ctx.beginPath();
+      for(let k=0;k<b.pts.length;k++){
+        const p = b.pts[k];
+        if(k===0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  // === Visuals ===
+  function drawWallpaper(){
+    const W = canvas.width, H = canvas.height; ctx.clearRect(0,0,W,H);
+    const t = performance.now()/1000;
+    for(let n=0;n<70;n++){
+      const x = (Math.sin(n*12.7 + t*0.7)*0.5+0.5) * (W-40) + 20;
+      const y = (Math.cos(n*9.3 + t*0.6)*0.5+0.5) * (H-40) + 20;
+      const r = 0.6 + 0.6*Math.sin(t*1.5 + n);
+      ctx.globalAlpha = 0.08 + 0.08*Math.sin(t*2 + n);
+      ctx.fillStyle = '#d9ecff';
+      ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); ctx.globalAlpha = 1;
+    }
+  }
+  function drawStrings(){
+    const now = performance.now();
+    for(let i=1;i<=12;i++){
+      const y = lineY(i);
+      ctx.strokeStyle = 'rgba(255,50,79,0.50)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(hourX(0), y);
+      for(let h=1; h<=24; h++){
+        ctx.lineTo(hourX(h), y + Math.sin((h+now/1000)*0.2 + i)*0.6);
+      }
+      ctx.stroke();
+    }
+  }
+  function drawPlannedHour(){
+    const xPlan = hourX(+destHour.value);
+    ctx.save();
+    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--cursor') || '#7fb1ff';
+    ctx.setLineDash([6,6]); ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(xPlan,0); ctx.lineTo(xPlan,canvas.height); ctx.stroke();
+    ctx.restore();
+  }
+  function drawBall(x, y, intensity=0.1, blinking=false){
+    const t = performance.now();
+    const blink = blinking ? (0.55 + 0.45*Math.abs(Math.sin(t*0.006*(0.7+1.6*intensity)))) : 1.0;
+
+    ctx.save(); ctx.translate(x,y);
+    const R = 12 + 2*Math.sin(t/160)*blink;
+    const haloR = R*(2.8 + 1.8*intensity);
+    const g = ctx.createRadialGradient(0,0,0,0,0,haloR);
+    const innerAlpha = 0.75 + 0.25*intensity;
+    const outerAlpha = 0.05 + 0.22*intensity;
+    g.addColorStop(0,`rgba(233,244,255,${innerAlpha*blink})`);
+    g.addColorStop(1,`rgba(159,210,255,${outerAlpha*blink})`);
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,haloR,0,Math.PI*2); ctx.fill();
+
+    ctx.fillStyle = `rgba(233,244,255,${0.98*blink})`;
+    ctx.beginPath(); ctx.arc(0,0,R,0,Math.PI*2); ctx.fill();
+
+    ctx.lineWidth=3; ctx.strokeStyle = '#ff324f';
+    ctx.beginPath(); ctx.arc(0,0,R+2,0,Math.PI*2); ctx.stroke();
+    ctx.restore();
+  }
+  function drawParadoxRing(dim, hour, isStable){
+    if(!isStable) return;
+    const x = hourX(hour);
+    const y = lineY(dim);
+    ctx.save();
+    ctx.strokeStyle = '#ff324f';
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.9;
+    const pulse = 2 + 2*Math.sin(performance.now()/700);
+    ctx.beginPath(); ctx.arc(x, y, 24 + pulse, 0, Math.PI*2); ctx.stroke();
+    ctx.restore();
+  }
+
+  // === Animation ===
+  function startJump(){
+    const cd = clampInt(+curDim.value,1,12);
+    const td = clampInt(+targetDim.value,1,12);
+    const dh = clampFloat(+destHour.value,0,24);
+
+    const liveSnapHr = getCSTNearestHour();
+    const x0 = hourX(liveSnapHr), y0 = lineY(cd);
+    const x1 = hourX(dh),         y1 = lineY(td);
+
+    const dSteps = Math.abs(td - cd);
+    const intensity = Math.max(0.08, Math.min(1, dSteps/11));
+    const DUR = 1200 + 220*dSteps;
+
+    anim = {
+      t0: performance.now(),
+      DUR, x0, y0, x1, y1, td, dh,
+      intensity,
+      lastFrame: performance.now(),
+      startDim: cd,
+      endDim: td,
+      minX: Math.min(x0,x1),
+      maxX: Math.max(x0,x1),
+      dir: Math.sign(x1 - x0) || 1
+    };
+    locked = false;
+    bolts.length = 0;
+  }
+
+  function isStable(dim, hour){
+    const s = S(dim, hour, performance.now());
+    return s >= +paradoxThresh.value;
+  }
+
+  function stepAnimation(now){
+    if(!anim) return false;
+    const {t0,DUR,x0,y0,x1,y1,td,dh,intensity,startDim,endDim,dir,minX,maxX} = anim;
+    const dt = now - anim.lastFrame; anim.lastFrame = now;
+
+    const p = Math.max(0, Math.min(1, (now - t0)/DUR));
+    const cx = x0 + (x1-x0)*0.5;
+    const cy = Math.min(y0,y1) - 60 - 40*Math.sin(now/300);
+    const x = (1-p)*(1-p)*x0 + 2*(1-p)*p*cx + p*p*x1;
+    const y = (1-p)*(1-p)*y0 + 2*(1-p)*p*cy + p*p*y1;
+
+    // background
+    drawWallpaper(); drawStrings(); drawPlannedHour();
+
+    // --- Spawn Lightning covering both dimensions & time ---
+    const coverX0 = dir>0 ? minX : x;
+    const coverX1 = dir>0 ? x    : maxX;
+
+    const gain = +lightningGain.value;
+    const colChance = (0.0025 + 0.004*intensity) * dt * gain;   // columns
+    const brgChance = (0.0015 + 0.003*intensity) * dt * gain;   // bridges
+
+    if(Math.random() < colChance){
+      const dMin = Math.min(startDim, endDim);
+      const dMax = Math.max(startDim, endDim);
+      const xA = lerp(coverX0, coverX1, Math.random()*0.95);
+      spawnLightningColumns(xA-4, xA+4, dMin, dMax, intensity);
+    }
+    if(Math.random() < brgChance){
+      const dMin = Math.min(startDim, endDim);
+      const dMax = Math.max(startDim, endDim);
+      const xb0 = dir>0 ? minX : maxX;
+      const xb1 = x + randRange(-6,6);
+      if(Math.random()<0.4){
+        const mid = lerp(xb0, xb1, 0.5);
+        spawnLightningBridge(xb0, mid, dMin, dMax, intensity);
+        spawnLightningBridge(mid, xb1, dMin, dMax, intensity);
+      }else{
+        spawnLightningBridge(xb0, xb1, dMin, dMax, intensity);
+      }
+    }
+
+    drawBolts(now);
+
+    // ball + effects
+    drawBall(x, y, intensity, true);
+
+    const stable = isStable(td, dh);
+    drawParadoxRing(td, dh, stable);
+    paradoxState.textContent = stable ? 'Stable' : 'Unstable';
+    paradoxState.className = 'badge ' + (stable ? 'good' : 'bad');
+
+    if(bolts.length>260) bolts.splice(0, bolts.length-260);
+
+    if(p>=1){
+      locked = true; lockDim = td; lockHour = dh; anim = null;
+    }
+    return true;
+  }
+
+  // === Main loop ===
+  function loop(){
+    const now = performance.now();
+    if(anim){
+      stepAnimation(now);
+    }else{
+      drawWallpaper(); drawStrings(); drawPlannedHour();
+      if(locked){
+        const x = hourX(lockHour);
+        const y = lineY(lockDim);
+        drawParadoxRing(lockDim, lockHour, isStable(lockDim, lockHour));
+        drawBall(x,y,0.25,false);
+        const st = isStable(lockDim, lockHour);
+        paradoxState.textContent = st ? 'Stable' : 'Unstable';
+        paradoxState.className = 'badge ' + (st ? 'good' : 'bad');
+      }else{
+        // LIVE: snap to nearest whole CST hour on current dimension
+        const snapHr = getCSTNearestHour();
+        const x = hourX(snapHr);
+        const y = lineY(clampInt(+curDim.value,1,12));
+        drawBall(x,y,0.12,false);
+
+        const st = isStable(clampInt(+targetDim.value,1,12), clampFloat(+destHour.value,0,24));
+        paradoxState.textContent = st ? 'Stable' : 'Unstable';
+        paradoxState.className = 'badge ' + (st ? 'good' : 'bad');
+      }
+    }
+    tickClocks();
+    requestAnimationFrame(loop);
+  }
+  // === Clocks ===
+  function tickClocks(){
+    const now = new Date();
+    const utc = new Date(now.getTime() + now.getTimezoneOffset()*60000);
+    const cst = getCSTDate();
+    utcClock.textContent = fmtTime(utc);
+    cstClock.textContent = fmtTime(cst);
+    todayStr.textContent = cst.toDateString();
+  }
+
+  // === Events ===
+  btnJump.addEventListener('click', ()=>{
+    if(locked && +targetDim.value===lockDim && +destHour.value===lockHour) return;
+    startJump();
+  });
+  btnUnlock.addEventListener('click', ()=>{ locked = false; anim = null; bolts.length = 0; });
+
+  [curDim,targetDim,destHour,cstOffset,paradoxThresh,lightningGain].forEach(el=>{
+    el.addEventListener('input', ()=>{ /* reactive via loop */ });
+  });
+
+  function init(){
+    resize();
+    locked = false;           // live on load
+    curDim.value = 1;         // default start dimension
+    requestAnimationFrame(loop);
+  }
+  window.addEventListener('load', init);
+})();
+</script>
+</body>
+</html>
