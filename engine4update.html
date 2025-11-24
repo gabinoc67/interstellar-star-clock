@@ -772,6 +772,7 @@ let autoJumpActive = false;
 let jumpProgress = 0;
 let jumpDurationMs = 10000;
 let lockedPlanetKey = 'mars';
+let jumpWarpOverride = null;   // << effective warp during jump
 
 // particle arrays
 let particles = [], heat = [], cool = [], entangle = [], pipes = [];
@@ -840,7 +841,11 @@ const clkUTC=document.getElementById('clk_utc');
 const clkCST=document.getElementById('clk_cst');
 const clkWarp=document.getElementById('clk_warp');
 
-function warpFactor(){ return parseInt(warpEl.value,10); }
+// ==== effective warp (engine uses this) ====
+function warpFactor(){
+  if(jumpWarpOverride != null) return jumpWarpOverride;
+  return parseFloat(warpEl.value || '1');
+}
 function speedMult(){ return computeSpeedMult(warpFactor()); }
 function fieldRadius(){ return computeFieldRadius(warpFactor()); }
 function heatLevel(){ return computeHeatLevel(warpFactor()); }
@@ -852,16 +857,18 @@ function gradLeftRight(){ return parseFloat(gradLeftRightEl.value)||0; }
 function gradWarpShield(){ return clamp(parseFloat(gradWarpShieldEl.value)||0.5,0,1); }
 
 function updateHUD(){
-  speedEl.textContent = 'x'+speedMult().toFixed(1);
-  fieldEl.textContent = fieldRadius().toFixed(1)+' x D';
-  tempEl.textContent  = heatLevel()>0.7? 'Hot' : (heatLevel()>0.5? 'Warm' : 'Cool');
+  const w = warpFactor();
+  speedEl.textContent = 'x'+computeSpeedMult(w).toFixed(1);
+  fieldEl.textContent = computeFieldRadius(w).toFixed(1)+' x D';
+  tempEl.textContent  = computeHeatLevel(w)>0.7? 'Hot' : (computeHeatLevel(w)>0.5? 'Warm' : 'Cool');
   const reg = 'sun';
-  const rate = combinedClockRate(warpFactor(), reg);
+  const rate = combinedClockRate(w, reg);
   timeEl.textContent = rate.toFixed(2)+' x';
 }
 updateHUD();
 warpEl.addEventListener('input', ()=>{
-  if(!autoJumpActive){ updateHUD(); }
+  if(!autoJumpActive){ jumpWarpOverride = null; }
+  updateHUD();
 });
 
 // Toggle mode UI
@@ -1041,10 +1048,11 @@ function drawShieldPlatesAndCore(){
 }
 
 function drawField(){
+  const wEff = warpFactor();
   var D = layout.bodyR*2;
-  var base = fieldRadius()*D*0.35;
-  var ax = computeFieldAspectX(warpFactor());
-  var ay = computeFieldAspectY(warpFactor());
+  var base = computeFieldRadius(wEff)*D*0.35;
+  var ax = computeFieldAspectX(wEff);
+  var ay = computeFieldAspectY(wEff);
 
   var gFR = gradFrontRear();
   var gLR = gradLeftRight();
@@ -1100,9 +1108,9 @@ function drawCSTClock(){
 function drawStatusLabel(){
   var x = layout.nozzle.x0-40;
   var y = layout.centerY- layout.bodyR - 58;
-  var warp = warpFactor();
-  var stab = computeStability(warp);
-  var s = 'Warp '+warp+' | Stability '+stab.toFixed(2);
+  var w = warpFactor();
+  var stab = computeStability(w);
+  var s = 'Warp '+w.toFixed(2)+' | Stability '+stab.toFixed(2);
   drawText(ctx, s, x, y, 'left');
 }
 function labelFromTo(text, ax, ay, tx, ty){
@@ -1170,8 +1178,9 @@ function drawCoreGlow(){
   ctx.fillRect(layout.startX, layout.centerY-12, layout.nozzle.x1-layout.startX, 24);
 }
 function drawPlasmaCone(){
-  var len = computePlasmaLength(warpFactor());
-  var baseR = computePlasmaRadius(warpFactor());
+  const wEff = warpFactor();
+  var len = computePlasmaLength(wEff);
+  var baseR = computePlasmaRadius(wEff);
   var x0 = layout.nozzle.x1;
   var x1 = x0 + len;
   var grad = ctx.createLinearGradient(x0, layout.centerY, x1, layout.centerY);
@@ -1245,7 +1254,7 @@ function drawLasers(){
 // ===== Telemetry Update =====
 function setGauge(span, frac){ span.style.width = (clamp(frac,0,1)*100).toFixed(0)+'%'; }
 function updateTelemetry(dt){
-  var w  = warpFactor();
+  const w  = warpFactor();
   var sm = computeSpeedMult(w);
   var fr = computeFieldRadius(w);
   var hl = computeHeatLevel(w);
@@ -1343,7 +1352,6 @@ function evaluateSafety(w, gFRCand){
   const clockRate = combinedClockRate(w,'sun');
   const syncErr   = Math.abs(clockRate - 1);
 
-  // Thresholds tuned so a safe band exists
   let cstLevel;
   if(syncErr < 0.11) cstLevel = 'green';
   else if(syncErr < 0.25) cstLevel = 'amber';
@@ -1361,7 +1369,7 @@ function evaluateSafety(w, gFRCand){
 
 // Recommend warp based on distance in AU
 function recommendWarpForDistance(au){
-  let w = 2 + au*0.22;   // Mars ~2.3, Saturn ~4, Pluto ~10
+  let w = 2 + au*0.22;
   if(w < 1) w = 1;
   if(w > 9) w = 9;
   return Math.round(w);
@@ -1369,14 +1377,12 @@ function recommendWarpForDistance(au){
 
 // Compute safety; auto-search for a safe combination so all 3 can go green
 function calculateJumpSafety(){
-  // Always sync locked planet with current selector so Pluto really means Pluto
   lockedPlanetKey = targetPlanetEl.value || lockedPlanetKey;
   const key  = lockedPlanetKey;
   const info = PLANETS[key] || PLANETS['mars'];
   const au   = info.au;
   const recW0 = recommendWarpForDistance(au);
 
-  // Search warp 1–9 and gFR 0.9–1.1 for a "green + green" combo
   let best = null;
   for(let w=1; w<=9; w++){
     for(let g=0.9; g<=1.1; g+=0.02){
@@ -1396,15 +1402,14 @@ function calculateJumpSafety(){
     chosenGFR = best.g;
     safety   = best.s;
   }else{
-    // Fall back to recommended warp and current trim
     chosenW  = recW0;
     chosenGFR = gradFrontRear();
     safety   = evaluateSafety(chosenW, chosenGFR);
   }
 
-  // Apply chosen safe configuration back to controls
   warpEl.value          = chosenW;
   gradFrontRearEl.value = chosenGFR.toFixed(2);
+  jumpWarpOverride      = null;
   updateHUD();
 
   const cstLevel  = safety.cstLevel;
@@ -1426,15 +1431,12 @@ function calculateJumpSafety(){
   distAUEl.textContent  = au.toFixed(2)+' AU';
   recWarpEl.textContent = 'Warp '+chosenW;
 
-  // === CALCULATIONS: from AU to CST coord time ===
-  // Base: 4 hours per AU at Warp 1 (fiction), then divide by warp.
-  const baseHours  = au * 4;                 // Δt_base = AU × 4 h
-  const coordHours = baseHours / chosenW;    // Δt_CST = Δt_base / Warp
+  const baseHours  = au * 4;
+  const coordHours = baseHours / chosenW;
   const coordMs    = coordHours * 3600 * 1000;
 
-  // E ⇌ m “budget” (conceptual indices)
-  const coreIndex  = Math.round(au*chosenW*120); // core m→E activity
-  const hullIndex  = Math.round(au*chosenW*80);  // hull E→m effective mass
+  const coreIndex  = Math.round(au*chosenW*120);
+  const hullIndex  = Math.round(au*chosenW*80);
 
   jumpTimeEl.textContent   = coordHours.toFixed(2);
   jumpEnergyEl.textContent = 'Core m→E '+coreIndex+' | Hull E→m '+hullIndex;
@@ -1448,7 +1450,6 @@ function calculateJumpSafety(){
     coordMs:coordMs
   };
 
-  // Map [0.1 h, 48 h] into [6 s, 30 s] animation
   let baseH = coordHours;
   if(baseH < 0.1) baseH = 0.1;
   if(baseH > 48)  baseH = 48;
@@ -1472,6 +1473,7 @@ function updateAutoJump(dt){
   if(jumpProgress >= 1){
     jumpProgress = 1;
     autoJumpActive = false;
+    jumpWarpOverride = null;   // back to slider control
     jumpStatusEl.textContent = 'Jump complete — simulated arrival at '+info.name+'. Engine continues at low warp.';
   }
 
@@ -1480,14 +1482,14 @@ function updateAutoJump(dt){
   const lowWarp = 2;
   let w;
   if(phase < 0.25){
-    w = lerp(lowWarp, cruise, phase/0.25);              // accelerate
+    w = lerp(lowWarp, cruise, phase/0.25);
   }else if(phase < 0.75){
-    w = cruise;                                         // cruise
+    w = cruise;
   }else{
-    w = lerp(cruise, lowWarp, (phase-0.75)/0.25);       // decelerate
+    w = lerp(cruise, lowWarp, (phase-0.75)/0.25);
   }
 
-  warpEl.value = Math.round(clamp(w,1,10));
+  jumpWarpOverride = clamp(w,1,10);
   updateHUD();
   jumpProgEl.textContent = Math.round(jumpProgress*100)+'%';
 }
@@ -1537,7 +1539,7 @@ function render(dt){
   for(var c2=0;c2<cool.length;c2++){
     ctx.fillStyle='#6bd1ff';
     ctx.beginPath();
-    ctx.arc(cool[c2].x,c2+layout.centerY - layout.centerY,2+Math.cos(c2*0.02)*1.2,0,TAU);
+    ctx.arc(cool[c2].x,cool[c2].y,2+Math.cos(c2*0.02)*1.2,0,TAU);
     ctx.fill();
   }
 
@@ -1599,8 +1601,7 @@ btnCalcSafety.addEventListener('click', ()=>{
 // Engage jump (only if all circles green)
 btnEngageJump.addEventListener('click', ()=>{
   if(!lastJumpPlan){
-    jumpStatusEl.textContent = 'No jump plan — lock planet and calculate safety first.';
-    return;
+    calculateJumpSafety(); // auto-calc if user forgot
   }
   if(!warpClearanceGo){
     jumpStatusEl.textContent = 'Jump blocked — all circles must be GREEN (Warp Clearance = GO).';
@@ -1619,6 +1620,7 @@ btnResetJump.addEventListener('click', ()=>{
   jumpProgress = 0;
   jumpDurationMs = 10000;
   warpClearanceGo = false;
+  jumpWarpOverride = null;
 
   targetPlanetEl.value = 'mars';
   lockedPlanetKey = 'mars';
