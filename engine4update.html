@@ -346,11 +346,6 @@
           <span class="inline-label">Ship Clock vs CST</span>
           <span class="badge" id="time">1.00 x</span>
         </div>
-        <div class="btn-row">
-          <button id="play" class="primary">Start Engine</button>
-          <button id="pause">Pause</button>
-          <button id="reset">Reset Streams</button>
-        </div>
       </div>
 
       <div class="controls-group">
@@ -398,7 +393,7 @@
         </div>
       </div>
 
-      <!-- Mirror of safety state under CST panel -->
+      <!-- Mirror of safety state under CST panel (one line) -->
       <div class="safety-status" id="mirrorSafetyText">
         CST Sync: UNLOCKED · Cabin Inertia: RED · Warp Clearance: NO-GO
       </div>
@@ -495,7 +490,7 @@
     <h2>CST Sync & Inertial Safety — Planet Warp Jump</h2>
     <p class="note">
       All three indicators must be <strong>green</strong> before a warp jump can engage. Inside the bubble:
-      dτ<sub>ship</sub> / dT<sub>CST</sub> ≈ 1 and a<sub>inside</sub> ≈ 0 (Zero-G Cabin Condition).
+      dτ<sub>ship</sub> / dT<sub>CST</sub> ≈ 1 and a<sub>inside</sub> ≈ 0 (Zero-G Cabin Condition). Earth is static.
     </p>
 
     <div class="controls-group">
@@ -553,12 +548,16 @@
         <span id="jump_progress">0%</span>
       </div>
       <div class="jump-summary-row">
-        <span>CST Coord Time</span>
+        <span>CST Coord Time (hours)</span>
         <span id="jump_time">—</span>
       </div>
       <div class="jump-summary-row">
         <span>E ⇌ m Budget</span>
         <span id="jump_energy">—</span>
+      </div>
+      <div class="jump-summary-row">
+        <span>Calc</span>
+        <span id="jump_calc">—</span>
       </div>
       <div class="jump-summary-row">
         <span>Status</span>
@@ -807,6 +806,7 @@ const jumpStatusEl     = document.getElementById('jump_status');
 const jumpProgEl       = document.getElementById('jump_progress');
 const jumpTimeEl       = document.getElementById('jump_time');
 const jumpEnergyEl     = document.getElementById('jump_energy');
+const jumpCalcEl       = document.getElementById('jump_calc');
 const mirrorSafety     = document.getElementById('mirrorSafetyText');
 
 // Telemetry DOM
@@ -1335,7 +1335,7 @@ function evaluateSafety(w, gFRCand){
   const clockRate = combinedClockRate(w,'sun');
   const syncErr   = Math.abs(clockRate - 1);
 
-  // Lenient but physical-looking thresholds
+  // Thresholds tuned to allow a "safe band" so you can get all 3 green
   let cstLevel;
   if(syncErr < 0.11) cstLevel = 'green';
   else if(syncErr < 0.25) cstLevel = 'amber';
@@ -1351,7 +1351,7 @@ function evaluateSafety(w, gFRCand){
   return {clockRate,syncErr,inertialIndex,cstLevel,inerLevel,clearance};
 }
 
-// Recommend warp based on distance in AU (short hops vs Pluto)
+// Recommend warp based on distance in AU
 function recommendWarpForDistance(au){
   let w = 2 + au*0.22;   // Mars ~2.3, Saturn ~4, Pluto ~10
   if(w < 1) w = 1;
@@ -1416,17 +1416,19 @@ function calculateJumpSafety(){
   distAUEl.textContent  = au.toFixed(2)+' AU';
   recWarpEl.textContent = 'Warp '+chosenW;
 
-  // Simple CST coord time (hours) based on AU & warp
-  const baseHours  = au * 4;                 // 4 hours per AU at Warp 1 (fiction)
-  const coordHours = baseHours / chosenW;    // faster at higher warp
+  // === CALCULATIONS: from AU to CST coord time ===
+  // Base: 4 hours per AU at Warp 1 (fiction), then divide by warp.
+  const baseHours  = au * 4;                 // Δt_base = AU × 4 h
+  const coordHours = baseHours / chosenW;    // Δt_CST = Δt_base / Warp
   const coordMs    = coordHours * 3600 * 1000;
 
   // E ⇌ m “budget” (conceptual indices)
-  const coreIndex  = Math.round(au*chosenW*120);
-  const hullIndex  = Math.round(au*chosenW*80);
+  const coreIndex  = Math.round(au*chosenW*120); // core m→E activity
+  const hullIndex  = Math.round(au*chosenW*80);  // hull E→m effective mass
 
-  jumpTimeEl.textContent   = coordHours.toFixed(2)+' h (CST coord)';
+  jumpTimeEl.textContent   = coordHours.toFixed(2);
   jumpEnergyEl.textContent = 'Core m→E '+coreIndex+' | Hull E→m '+hullIndex;
+  jumpCalcEl.textContent   = 'Δt_base = '+au.toFixed(2)+' AU × 4 h = '+baseHours.toFixed(2)+' h; Δt_CST = Δt_base / Warp '+chosenW+' ≈ '+coordHours.toFixed(2)+' h';
 
   lastJumpPlan = {
     planetKey:key,
@@ -1460,7 +1462,7 @@ function updateAutoJump(dt){
   if(jumpProgress >= 1){
     jumpProgress = 1;
     autoJumpActive = false;
-    jumpStatusEl.textContent = 'Jump complete — simulated arrival at '+info.name+'. Engine remains on at low warp.';
+    jumpStatusEl.textContent = 'Jump complete — simulated arrival at '+info.name+'. Engine continues at low warp.';
   }
 
   const phase = jumpProgress;
@@ -1468,11 +1470,11 @@ function updateAutoJump(dt){
   const lowWarp = 2;
   let w;
   if(phase < 0.25){
-    w = lerp(lowWarp, cruise, phase/0.25);
+    w = lerp(lowWarp, cruise, phase/0.25);              // accelerate
   }else if(phase < 0.75){
-    w = cruise;
+    w = cruise;                                         // cruise
   }else{
-    w = lerp(cruise, lowWarp, (phase-0.75)/0.25);
+    w = lerp(cruise, lowWarp, (phase-0.75)/0.25);       // decelerate
   }
 
   warpEl.value = Math.round(clamp(w,1,10));
@@ -1570,22 +1572,6 @@ function loop(){
 loop();
 
 // ===== Buttons / interactions =====
-document.getElementById('pause').onclick=function(){
-  running=false;
-};
-
-document.getElementById('play').onclick=function(){
-  // Engine can always run; warp jump is separately gated
-  if(!running){
-    running=true;
-    t0=performance.now();
-    loop();
-  }
-};
-
-document.getElementById('reset').onclick=function(){
-  particles.length=0; heat.length=0; cool.length=0; entangle.length=0; pipes.length=0; fanAngle=0;
-};
 
 // Lock planet selection
 btnLockTarget.addEventListener('click', ()=>{
@@ -1612,13 +1598,8 @@ btnEngageJump.addEventListener('click', ()=>{
   }
   autoJumpActive = true;
   jumpProgress = 0;
-  if(!running){
-    running = true;
-    t0 = performance.now();
-    loop();
-  }
   const info = PLANETS[lastJumpPlan.planetKey];
-  jumpStatusEl.textContent = 'Jump engaged — engine auto-accelerates and auto-decelerates toward '+info.name+'.';
+  jumpStatusEl.textContent = 'Jump engaged — CST controls acceleration and deceleration toward '+info.name+'.';
 });
 
 // Reset jump + safety to defaults
@@ -1637,6 +1618,7 @@ btnResetJump.addEventListener('click', ()=>{
   jumpProgEl.textContent   = '0%';
   jumpTimeEl.textContent   = '—';
   jumpEnergyEl.textContent = '—';
+  jumpCalcEl.textContent   = '—';
   jumpStatusEl.textContent = 'Idle — lock planet, then calculate safety.';
 
   setCircleState(circCST,     labelCST,     'CST Sync: UNLOCKED', 'red');
