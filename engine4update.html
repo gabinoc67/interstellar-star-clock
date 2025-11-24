@@ -322,7 +322,7 @@
   </header>
 
   <div class="grid-main">
-    <!-- ===== LEFT PANEL: CONTROLS & TIMING ===== -->
+    <!-- ===== LEFT PANEL: CONTROLS & CST TIME ===== -->
     <div class="panel">
       <h2>Warp Engine Controls & CST Time</h2>
 
@@ -396,6 +396,11 @@
           <span class="time-label">Warp-Frame Clock</span>
           <span class="time-value" id="clk_warp">--:--:--</span>
         </div>
+      </div>
+
+      <!-- Mirror of safety state under CST panel -->
+      <div class="safety-status" id="mirrorSafetyText">
+        CST Sync: UNLOCKED · Cabin Inertia: RED · Warp Clearance: NO-GO
       </div>
     </div>
 
@@ -802,6 +807,7 @@ const jumpStatusEl     = document.getElementById('jump_status');
 const jumpProgEl       = document.getElementById('jump_progress');
 const jumpTimeEl       = document.getElementById('jump_time');
 const jumpEnergyEl     = document.getElementById('jump_energy');
+const mirrorSafety     = document.getElementById('mirrorSafetyText');
 
 // Telemetry DOM
 const v_speed=document.getElementById('v_speed'), g_speed=document.getElementById('g_speed');
@@ -1324,56 +1330,100 @@ function setCircleState(circleEl, labelEl, stateText, level){
   labelEl.textContent = stateText;
 }
 
+// Evaluate safety for given warp + front/rear trim
+function evaluateSafety(w, gFRCand){
+  const clockRate = combinedClockRate(w,'sun');
+  const syncErr   = Math.abs(clockRate - 1);
+
+  // Lenient but physical-looking thresholds
+  let cstLevel;
+  if(syncErr < 0.11) cstLevel = 'green';
+  else if(syncErr < 0.25) cstLevel = 'amber';
+  else cstLevel = 'red';
+
+  const inertialIndex = ((w-1)/9) + Math.abs(gFRCand-1)*0.6;
+  let inerLevel;
+  if(inertialIndex < 0.35) inerLevel = 'green';
+  else if(inertialIndex < 0.6) inerLevel = 'amber';
+  else inerLevel = 'red';
+
+  const clearance = (cstLevel==='green' && inerLevel==='green');
+  return {clockRate,syncErr,inertialIndex,cstLevel,inerLevel,clearance};
+}
+
 // Recommend warp based on distance in AU (short hops vs Pluto)
 function recommendWarpForDistance(au){
   let w = 2 + au*0.22;   // Mars ~2.3, Saturn ~4, Pluto ~10
-  if(w < 2) w = 2;
+  if(w < 1) w = 1;
   if(w > 9) w = 9;
   return Math.round(w);
 }
 
-// Compute safety for a candidate warp
+// Compute safety; auto-search for a safe combination so all 3 can go green
 function calculateJumpSafety(){
-  const key = lockedPlanetKey;
+  const key  = lockedPlanetKey;
   const info = PLANETS[key] || PLANETS['mars'];
-  const au = info.au;
-  const recW = recommendWarpForDistance(au);
+  const au   = info.au;
+  const recW0 = recommendWarpForDistance(au);
 
-  // Basic CST sync metric: we want combined clock rate near 1
-  const clockRate = combinedClockRate(recW,'sun'); // ship / CST
-  const syncErr = Math.abs(clockRate - 1);
-  let cstLevel;
-  if(syncErr < 0.03) cstLevel = 'green';
-  else if(syncErr < 0.10) cstLevel = 'amber';
-  else cstLevel = 'red';
+  // Search warp 1–9 and gFR 0.9–1.1 for a "green + green" combo
+  let best = null;
+  for(let w=1; w<=9; w++){
+    for(let g=0.9; g<=1.1; g+=0.02){
+      const s = evaluateSafety(w,g);
+      if(s.clearance){
+        const score = s.syncErr + s.inertialIndex;
+        if(!best || score < best.score){
+          best = {w,g,s,score};
+        }
+      }
+    }
+  }
 
-  // Cabin inertia metric: depends on warp and trim
-  const gFR = gradFrontRear();
-  const inertialIndex = ((recW-1)/9) + Math.abs(gFR-1)*0.6;
-  let inerLevel;
-  if(inertialIndex < 0.25) inerLevel = 'green';
-  else if(inertialIndex < 0.45) inerLevel = 'amber';
-  else inerLevel = 'red';
+  let chosenW, chosenGFR, safety;
+  if(best){
+    chosenW  = best.w;
+    chosenGFR = best.g;
+    safety   = best.s;
+  }else{
+    // Fall back to recommended warp and current trim
+    chosenW  = recW0;
+    chosenGFR = gradFrontRear();
+    safety   = evaluateSafety(chosenW, chosenGFR);
+  }
 
-  // Warp clearance: both must be green
-  warpClearanceGo = (cstLevel === 'green' && inerLevel === 'green');
+  // Apply chosen safe configuration back to controls
+  warpEl.value          = chosenW;
+  gradFrontRearEl.value = chosenGFR.toFixed(2);
+  updateHUD();
+
+  const cstLevel  = safety.cstLevel;
+  const inerLevel = safety.inerLevel;
+  warpClearanceGo = safety.clearance;
   const clearLevel = warpClearanceGo ? 'green' : 'red';
 
-  setCircleState(circCST,     labelCST,     'CST Sync: '     +(cstLevel==='green'?'LOCKED':'UNLOCKED'), cstLevel);
+  setCircleState(circCST,     labelCST,     'CST Sync: '+(cstLevel==='green'?'LOCKED':'UNLOCKED'), cstLevel);
   setCircleState(circInertia, labelInertia, 'Cabin Inertia: '+(inerLevel==='green'?'GREEN':(inerLevel==='amber'?'AMBER':'RED')), inerLevel);
   setCircleState(circClear,   labelClear,   'Warp Clearance: '+(warpClearanceGo?'GO':'NO-GO'), clearLevel);
 
+  if(mirrorSafety){
+    mirrorSafety.textContent =
+      'CST Sync: '+(cstLevel==='green'?'LOCKED':'UNLOCKED')+
+      ' · Cabin Inertia: '+(inerLevel==='green'?'GREEN':(inerLevel==='amber'?'AMBER':'RED'))+
+      ' · Warp Clearance: '+(warpClearanceGo?'GO':'NO-GO');
+  }
+
   distAUEl.textContent  = au.toFixed(2)+' AU';
-  recWarpEl.textContent = 'Warp '+recW;
+  recWarpEl.textContent = 'Warp '+chosenW;
 
   // Simple CST coord time (hours) based on AU & warp
-  const baseHours = au * 4;                     // 4 hours per AU at Warp 1 (fiction)
-  const coordHours = baseHours / recW;          // faster at higher warp
+  const baseHours  = au * 4;                 // 4 hours per AU at Warp 1 (fiction)
+  const coordHours = baseHours / chosenW;    // faster at higher warp
   const coordMs    = coordHours * 3600 * 1000;
 
-  // E ⇌ m “budget” (purely conceptual indices)
-  const coreIndex  = Math.round(au*recW*120);
-  const hullIndex  = Math.round(au*recW*80);
+  // E ⇌ m “budget” (conceptual indices)
+  const coreIndex  = Math.round(au*chosenW*120);
+  const hullIndex  = Math.round(au*chosenW*80);
 
   jumpTimeEl.textContent   = coordHours.toFixed(2)+' h (CST coord)';
   jumpEnergyEl.textContent = 'Core m→E '+coreIndex+' | Hull E→m '+hullIndex;
@@ -1381,7 +1431,7 @@ function calculateJumpSafety(){
   lastJumpPlan = {
     planetKey:key,
     distAU:au,
-    recWarp:recW,
+    recWarp:chosenW,
     coordHours:coordHours,
     coordMs:coordMs
   };
@@ -1396,9 +1446,8 @@ function calculateJumpSafety(){
   jumpDurationMs = minDur + norm*(maxDur-minDur);
 
   jumpStatusEl.textContent = warpClearanceGo
-    ? 'Safety OK — all circles GREEN. Ready to engage warp to '+info.name+'.'
-    : 'Safety check: adjust trim / warp until all circles are green (Warp Clearance = GO).';
-
+    ? 'Safety OK — all circles can be GREEN. Ready to engage warp to '+info.name+'.'
+    : 'Safety check: this configuration is not fully green; adjust or try again.';
   jumpProgEl.textContent = '0%';
 }
 
@@ -1415,7 +1464,7 @@ function updateAutoJump(dt){
   }
 
   const phase = jumpProgress;
-  const cruise = lastJumpPlan.recWarp;
+  const cruise  = lastJumpPlan.recWarp;
   const lowWarp = 2;
   let w;
   if(phase < 0.25){
@@ -1526,11 +1575,7 @@ document.getElementById('pause').onclick=function(){
 };
 
 document.getElementById('play').onclick=function(){
-  // Engine refuses to start into warp unless clearance is GO
-  if(!warpClearanceGo){
-    jumpStatusEl.textContent = 'Engine start refused — Warp Clearance is NO-GO. Run safety until all circles are green.';
-    return;
-  }
+  // Engine can always run; warp jump is separately gated
   if(!running){
     running=true;
     t0=performance.now();
@@ -1598,7 +1643,12 @@ btnResetJump.addEventListener('click', ()=>{
   setCircleState(circInertia, labelInertia, 'Cabin Inertia: RED', 'red');
   setCircleState(circClear,   labelClear,   'Warp Clearance: NO-GO', 'red');
 
+  if(mirrorSafety){
+    mirrorSafety.textContent = 'CST Sync: UNLOCKED · Cabin Inertia: RED · Warp Clearance: NO-GO';
+  }
+
   warpEl.value = 4;
+  gradFrontRearEl.value = '1.00';
   updateHUD();
 });
 
