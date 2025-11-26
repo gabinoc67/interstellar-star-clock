@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Interstellar Star Clock — CST Warp Trip Planner</title>
+
+<style>
+  :root{
+    --bg:#050815;
+    --panel:#111735;
+    --ink:#eaf0ff;
+    --muted:#9fa8d6;
+    --accent:#8fb4ff;
+    --grid:#1d264e;
+    --border:#1c2750;
+    --ok:#35e6a2;
+    --warn:#ffd15a;
+    --bad:#ff6b8b;
+  }
+  *{box-sizing:border-box}
+  html,body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;
+  }
+  .wrap{max-width:1800px;margin:0 auto;padding:16px;}
+  header{
+    padding:12px 16px 18px;
+    border-radius:16px;
+    background:radial-gradient(circle at top left,#3b82f6 0,#020617 40%,#000 100%);
+    border:1px solid rgba(148,163,184,0.4);
+    margin-bottom:14px;
+  }
+  header h1{
+    margin:0 0 4px;
+    font-size:22px;
+    letter-spacing:0.04em;
+    text-transform:uppercase;
+  }
+  header p{margin:2px 0;font-size:13px;color:var(--muted);}
+  .tagline{font-size:12px;color:#a5b4fc;}
+
+  .panel{
+    background:var(--panel);
+    border-radius:16px;
+    border:1px solid var(--border);
+    padding:12px 14px 14px;
+    margin-bottom:14px;
+    box-shadow:0 18px 40px rgba(15,23,42,0.75);
+  }
+  .panel h2{margin:0 0 8px;font-size:16px;}
+  .panel p{font-size:13px;color:var(--muted);margin:3px 0 6px;}
+
+  /* Trip UI */
+  .trip-grid{
+    display:grid;
+    grid-template-columns:minmax(0,340px) minmax(0,1.3fr);
+    gap:14px;
+  }
+  .trip-field label{
+    display:block;font-size:11px;margin-bottom:2px;color:var(--muted);
+  }
+  .trip-field select{
+    width:100%;font-size:12px;padding:4px 6px;
+    border-radius:6px;background:#020617;
+    border:1px solid rgba(148,163,184,0.5);
+    color:#e5e7eb;
+  }
+  button{
+    font-size:12px;border-radius:999px;padding:5px 11px;
+    border:1px solid rgba(148,163,184,0.6);
+    background:#020617;color:#e5e7eb;cursor:pointer;
+  }
+  button.primary{border-color:#4ade80;color:#afffd6;}
+  button:hover:not(:disabled){background:#041020;}
+  button:disabled{opacity:0.45;cursor:default;}
+
+  /* GO status lamps */
+  .go-row{display:flex;align-items:center;gap:10px;margin-top:10px;}
+  .go-circles{display:flex;gap:8px;align-items:center;}
+  .go-circle{
+    width:34px;height:34px;border-radius:50%;
+    border:2px solid #64748b;
+    display:flex;align-items:center;justify-content:center;
+    font-size:11px;background:#020617;color:#94a3b8;
+  }
+  .go-active{border-color:var(--ok);color:#afffd6;box-shadow:0 0 12px rgba(34,197,94,0.7);}
+  .nogo-active{border-color:var(--bad);color:#ffc2d2;box-shadow:0 0 12px rgba(255,90,90,0.7);}
+
+  .trip-report-row{
+    display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px;
+  }
+
+  /* Clock panel */
+  .clock-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;}
+  .clock-card{
+    border-radius:12px;background:#020617;
+    border:1px solid rgba(148,163,184,0.5);
+    padding:8px;font-size:12px;
+  }
+  .clock-title{font-size:11px;color:#e5e7eb;}
+  .clock-time{font-family:monospace;font-size:12px;margin-top:2px;}
+  .clock-note{font-size:10px;color:var(--muted);}
+
+  /* Engine canvas */
+  canvas{
+    display:block;width:100%;
+    border:1px solid var(--grid);
+    background:#020617;border-radius:12px;
+  }
+
+  /* Telemetry */
+  .telemetry-grid{
+    display:grid;
+    grid-template-columns:repeat(4,minmax(0,1fr));
+    gap:10px;margin-top:4px;
+  }
+  .telemetry-card{
+    padding:6px;border-radius:10px;
+    border:1px solid rgba(148,163,184,0.45);
+    background:#020617;font-size:11px;
+  }
+  .telemetry-title{font-size:11px;color:#e5e7eb;margin-bottom:2px;}
+  .telemetry-value{font-family:monospace;font-size:11px;margin-bottom:2px;}
+  .gauge{height:5px;border-radius:10px;background:#0b1220;overflow:hidden;}
+  .gauge-fill{height:100%;width:0;background:linear-gradient(90deg,#22c55e,#eab308,#ef4444);}
+
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Interstellar Star Clock — Warp Trip Planner</h1>
+  <p>Earth → Planet navigation using CST-locked warp geometry, mass–energy conversion, and inertial dampers.</p>
+  <p class="tagline">The CST clock keeps time safe — the warp engine keeps motion safe.</p>
+</header>
+<!-- ===== WARP TRIP PLANNER ===== -->
+<div class="panel">
+  <h2>Warp Trip Planner — Earth → Planet</h2>
+  <div class="trip-grid">
+    <div>
+      <div class="trip-field">
+        <label>1 — Target Planet (Earth is launch point)</label>
+        <select id="planetSelect">
+          <option value="mercury">Mercury (0.39 AU)</option>
+          <option value="venus">Venus (0.72 AU)</option>
+          <option value="mars" selected>Mars (1.52 AU)</option>
+          <option value="jupiter">Jupiter (5.20 AU)</option>
+          <option value="saturn">Saturn (9.58 AU)</option>
+          <option value="uranus">Uranus (19.20 AU)</option>
+          <option value="neptune">Neptune (30.10 AU)</option>
+          <option value="pluto">Pluto (39.50 AU)</option>
+        </select>
+      </div>
+      <div class="trip-field">
+        <label>2 — Warp Drive Factor (1–10)</label>
+        <select id="warpSelect">
+          <option value="1">Warp 1</option>
+          <option value="2">Warp 2</option>
+          <option value="3" selected>Warp 3</option>
+          <option value="4">Warp 4</option>
+          <option value="5">Warp 5</option>
+          <option value="6">Warp 6</option>
+          <option value="7">Warp 7</option>
+          <option value="8">Warp 8</option>
+          <option value="9">Warp 9</option>
+          <option value="10">Warp 10</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button id="btnCompute" class="primary">3 — Compute Trip</button>
+        <button id="btnReset">4 — Reset</button>
+        <button id="btnEngage" class="primary" disabled>5 — Engage Warp</button>
+      </div>
+      <div class="go-row">
+        <div class="go-circles">
+          <div id="lampNoGo" class="go-circle">NO</div>
+          <div id="lampGo" class="go-circle">GO</div>
+        </div>
+        <div class="go-note"><span id="goExplanation">NO-GO — compute first.</span></div>
+      </div>
+      <div id="tripStatus" class="trip-status" style="font-size:11px;color:#ffd15a;margin-top:6px;">
+        Idle — awaiting trip parameters.
+      </div>
+    </div>
+
+    <div>
+      <div class="trip-report">
+        <div class="trip-report-row"><span>Distance</span><span id="r_dist">—</span></div>
+        <div class="trip-report-row"><span>Coordinate Time (CST)</span><span id="r_coord">—</span></div>
+        <div class="trip-report-row"><span>Ship Time</span><span id="r_ship">—</span></div>
+        <div class="trip-report-row"><span>ΔAge CST − Ship</span><span id="r_age">—</span></div>
+        <div class="trip-report-row"><span>Speeds</span><span id="r_speed">—</span></div>
+        <div class="trip-report-row"><span>Curvature Index</span><span id="r_curv">—</span></div>
+        <div class="trip-report-row"><span>Approx g-force</span><span id="r_gforce">—</span></div>
+        <div class="trip-report-row"><span>Safety</span><span id="r_safety">—</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== CLOCK PANEL ===== -->
+<div class="panel">
+  <h2>CST Clock Deck — UTC, CST, Warp Frame</h2>
+  <div class="clock-grid">
+    <div class="clock-card"><div class="clock-title">UTC</div><div id="clkUTC" class="clock-time">--:--:--</div><div class="clock-note">Reference atomic</div></div>
+    <div class="clock-card"><div class="clock-title">CST</div><div id="clkCST" class="clock-time">--:--:--</div><div class="clock-note">Earth synchronized</div></div>
+    <div class="clock-card"><div class="clock-title">Ship Warp Clock</div><div id="clkShip" class="clock-time">--:--:--</div><div id="clkShipNote" class="clock-note">Waiting trip</div></div>
+    <div class="clock-card"><div class="clock-title">Last Trip Summary</div><div class="clock-time" id="clkTripSpeed">Speed: —</div><div class="clock-note" id="clkTripAge">ΔAge: —</div></div>
+  </div>
+</div>
+
+<!-- ===== ENGINE CANVAS ===== -->
+<div class="panel">
+  <h2>Engine View — Mass–Energy Core & Warp Shell</h2>
+  <canvas id="engineView" width="1200" height="360"></canvas>
+  <label style="font-size:12px;display:flex;align-items:center;gap:6px;margin-top:8px;">
+    <input type="checkbox" id="labels" checked> Show simplified labels
+  </label>
+</div>
+
+<!-- ===== TELEMETRY ===== -->
+<div class="panel">
+  <h2>Warp Telemetry — Speeds, Fields, Temperatures</h2>
+  <div class="telemetry-grid">
+    <div class="telemetry-card"><div class="telemetry-title">Plasma Speed Multiplier</div><div id="v_speed" class="telemetry-value">—</div><div class="gauge"><div id="g_speed" class="gauge-fill"></div></div></div>
+    <div class="telemetry-card"><div class="telemetry-title">Field Radius</div><div id="v_field" class="telemetry-value">—</div><div class="gauge"><div id="g_field" class="gauge-fill"></div></div></div>
+    <div class="telemetry-card"><div class="telemetry-title">Curvature / Gamma / g-force</div><div id="v_curv" class="telemetry-value">—</div><div class="gauge"><div id="g_curv" class="gauge-fill"></div></div><div id="v_gamma" class="telemetry-value">—</div><div class="gauge"><div id="g_gamma" class="gauge-fill"></div></div><div id="v_g" class="telemetry-value">—</div><div class="gauge"><div id="g_g" class="gauge-fill"></div></div></div>
+    <div class="telemetry-card"><div class="telemetry-title">Photon & Magnetic</div><div id="v_phot" class="telemetry-value">—</div><div class="gauge"><div id="g_phot" class="gauge-fill"></div></div><div id="v_mag" class="telemetry-value">—</div><div class="gauge"><div id="g_mag" class="gauge-fill"></div></div></div>
+  </div>
+</div>
+<!-- ===== WARP ENGINE PHYSICS ENHANCEMENTS ===== -->
+<div class="panel">
+  <h2>Warp Engine Physics — Extra Dimension, Λ, Energy & CST Time Index</h2>
+  <p>These live values show how the engine manipulates the vacuum state to generate a warp bubble.</p>
+  <div class="telemetry-grid">
+
+    <div class="telemetry-card">
+      <div class="telemetry-title">Extra Dimension Radius R</div>
+      <div id="v_Rextra" class="telemetry-value">—</div>
+      <div class="gauge"><div id="g_Rextra" class="gauge-fill"></div></div>
+    </div>
+
+    <div class="telemetry-card">
+      <div class="telemetry-title">Λ<sub>local</sub> / Λ<sub>cosmic</sub></div>
+      <div id="v_lambdaLocal" class="telemetry-value">—</div>
+      <div class="gauge"><div id="g_lambdaLocal" class="gauge-fill"></div></div>
+    </div>
+
+    <div class="telemetry-card">
+      <div class="telemetry-title">Warp Bubble Energy</div>
+      <div id="v_Ebubble" class="telemetry-value">E = —</div>
+      <div id="v_Mbubble" class="telemetry-value">m = —</div>
+    </div>
+
+    <div class="telemetry-card">
+      <div class="telemetry-title">Time Index (Bubble Rim)</div>
+      <div id="v_timeIndex" class="telemetry-value">—</div>
+      <div class="gauge"><div id="g_timeIndex" class="gauge-fill"></div></div>
+    </div>
+
+    <div class="telemetry-card">
+      <div class="telemetry-title">Inertial Mass Factor (g-Dampers)</div>
+      <div id="v_massFactor" class="telemetry-value">—</div>
+      <div class="gauge"><div id="g_massFactor" class="gauge-fill"></div></div>
+    </div>
+
+  </div>
+</div>
+<script>
+(function(){
+  const C = 299792458;
+  const AU = 1.495978707e11;
+  const PLANETS = {
+    mercury:{name:'Mercury', au:0.39}, venus:{name:'Venus', au:0.72},
+    mars:{name:'Mars', au:1.52}, jupiter:{name:'Jupiter', au:5.20},
+    saturn:{name:'Saturn', au:9.58}, uranus:{name:'Uranus', au:19.20},
+    neptune:{name:'Neptune', au:30.10}, pluto:{name:'Pluto', au:39.50}
+  };
+
+  /* === HTML references === */
+  const planetSelect = document.getElementById('planetSelect');
+  const warpSelect   = document.getElementById('warpSelect');
+  const btnCompute   = document.getElementById('btnCompute');
+  const btnReset     = document.getElementById('btnReset');
+  const btnEngage    = document.getElementById('btnEngage');
+  const lampGo       = document.getElementById('lampGo');
+  const lampNoGo     = document.getElementById('lampNoGo');
+  const goExplanation= document.getElementById('goExplanation');
+  const tripStatus   = document.getElementById('tripStatus');
+
+  const r_dist=document.getElementById('r_dist'), r_coord=document.getElementById('r_coord'),
+        r_ship=document.getElementById('r_ship'), r_age=document.getElementById('r_age'),
+        r_speed=document.getElementById('r_speed'), r_curv=document.getElementById('r_curv'),
+        r_gforce=document.getElementById('r_gforce'), r_safety=document.getElementById('r_safety');
+
+  const clkUTC=document.getElementById('clkUTC'), clkCST=document.getElementById('clkCST'),
+        clkShip=document.getElementById('clkShip'), clkShipNote=document.getElementById('clkShipNote'),
+        clkTripSpeed=document.getElementById('clkTripSpeed'), clkTripAge=document.getElementById('clkTripAge');
+
+  /* Engine */
+  const engineCanvas=document.getElementById('engineView');
+  const ectx=engineCanvas.getContext('2d');
+  const labelsToggle=document.getElementById('labels');
+
+  /* Telemetry */
+  const g = id => document.getElementById(id);
+  const T = id => document.getElementById(id);
+  const tele = {
+    speed:[T('v_speed'),g('g_speed')], field:[T('v_field'),g('g_field')],
+    curv:[T('v_curv'),g('g_curv')], gamma:[T('v_gamma'),g('g_gamma')],
+    gforce:[T('v_g'),g('g_g')], phot:[T('v_phot'),g('g_phot')],
+    mag:[T('v_mag'),g('g_mag')]
+  };
+  /* NEW */
+  const tRextra=document.getElementById('v_Rextra'), gRextra=document.getElementById('g_Rextra');
+  const tLambda=document.getElementById('v_lambdaLocal'), gLambda=document.getElementById('g_lambdaLocal');
+  const tEbubble=document.getElementById('v_Ebubble'), tMbubble=document.getElementById('v_Mbubble');
+  const tTimeIndex=document.getElementById('v_timeIndex'), gTimeIndex=document.getElementById('g_timeIndex');
+  const tMassFactor=document.getElementById('v_massFactor'), gMassFactor=document.getElementById('g_massFactor');
+
+  /* ====== Physics state ====== */
+  let lastTrip=null, tripSafe=false, tripActive=false;
+  let tripStart=0, tripDurationMs=0, tripProgress=0;
+  let currentWarp=1;
+  let shipClockMs=Date.now(), lastFrameTime=performance.now();
+
+  /* Extra dimension physics knob */
+  let R_extra_factor = 1.0;     // 1 = normal, shrinks during warp
+  const H0 = 2.17e-18;          // baseline cosmic H
+  const LAMBDA0 = 1e-10;        // baseline Λ
+
+  /* Helpers */
+  function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+  function lerp(a,b,t){return a+(b-a)*t;}
+  function fmt(sec){
+    if(sec<0) return '0 s';
+    if(sec<60) return sec.toFixed(1)+' s';
+    const m=Math.floor(sec/60),s=sec-m*60;
+    if(m<60) return m+' min '+s.toFixed(0)+' s';
+    const h=Math.floor(m/60),m2=m-h*60;return h+' h '+m2+' min';
+  }
+  function localSpeedFrac(w){return clamp(0.2+0.08*(w-1),0.2,0.92);}
+  function gammaSR(vf){return 1/Math.sqrt(1-vf*vf);}
+  function inertialMassFactor(w){return 1 - 0.95*(w-1)/9;}  // NEW
+
+  /* Extra dimension → Λ → time index */
+  function calcWarpFromExtraDim(distMeters){
+    const lambdaLocal = LAMBDA0 * Math.pow(1/R_extra_factor,4);
+    const H_local = H0 * Math.pow(1/R_extra_factor,2);
+    const v_expansion = H_local * distMeters;
+    const timeIndex = 1/(1 + 0.3*Math.log10(lambdaLocal/LAMBDA0 + 1));
+    return {lambdaLocal,H_local,v_expansion,timeIndex};
+  }
+
+  function calcBubbleEnergy(distMeters,warp){
+    const radius = 20 + 4*warp;
+    const volume = (4/3)*Math.PI*Math.pow(radius,3);
+    const wdim = calcWarpFromExtraDim(distMeters);
+    const E = wdim.lambdaLocal * volume;
+    return {radius,volume,E,m:E/(C*C),wdim};
+  }
+
+  function computeWarpTrip(){
+    const key = planetSelect.value;
+    const warp = parseInt(warpSelect.value);
+    const p = PLANETS[key];
+    const distAU=Math.abs(p.au-1);
+    const distMeters = distAU*AU;
+    const vLocal=localSpeedFrac(warp), vApp=warp*vLocal;
+    const lightT=distMeters/C;
+    const coordT = lightT / vApp;
+    const gSR=gammaSR(vLocal);
+    const shipT = coordT/(gSR*1.000002);
+    const dAge = coordT - shipT;
+    const curv = distAU*warp;
+    const effG = (0.20 + 0.18*(warp-1)) * inertialMassFactor(warp);
+
+    const energy = calcBubbleEnergy(distMeters,warp);
+    const shapeRisk = warp * 0.4; // simple
+
+    let safe=true,reasons=[];
+    if(curv>500) safe=false,reasons.push("curvature");
+    if(gSR>3) safe=false,reasons.push("γ");
+    if(effG>3) safe=false,reasons.push("g");
+    if(dAge>5*365*24*3600) safe=false,reasons.push("ΔAge");
+    if(shapeRisk>30) safe=false,reasons.push("bubble stability");
+
+    r_dist.textContent=distAU.toFixed(3)+' AU';
+    r_coord.textContent=fmt(coordT);
+    r_ship.textContent=fmt(shipT);
+    r_age.textContent=dAge.toFixed(3)+' s';
+    r_speed.textContent='v_app '+vApp.toFixed(2)+' c; v_local '+vLocal.toFixed(2)+' c';
+    r_curv.textContent=curv.toFixed(2);
+    r_gforce.textContent=effG.toFixed(2)+' g';
+    r_safety.textContent = safe ? 'GO' : 'NO-GO';
+
+    lampGo.classList.remove('go-active');
+    lampNoGo.classList.remove('nogo-active');
+    btnEngage.disabled = !safe;
+    if(safe){
+      lampGo.classList.add('go-active');
+      goExplanation.textContent='GO — safe warp envelope.';
+    }else{
+      lampNoGo.classList.add('nogo-active');
+      goExplanation.textContent='NO-GO — '+reasons.join(', ');
+    }
+
+    clkTripSpeed.textContent='Speed: '+vApp.toFixed(2)+' c';
+    clkTripAge.textContent='ΔAge: '+dAge.toFixed(3)+' s';
+    clkShipNote.textContent='Time rate = '+(1/(gSR*1.000002)).toFixed(3)+'× CST';
+
+    lastTrip = {key,p,warp,distMeters,vLocal,vApp,coordT,shipT,dAge,curv,effG,energy,safe,gSR};
+    tripSafe=safe;
+    currentWarp=warp;
+
+    const tNorm=clamp((coordT-600)/(1e7-600),0,1);
+    tripDurationMs = 6000 + tNorm*(22000-6000);
+    tripStatus.textContent='Trip computed for '+p.name;
+  }
+
+  function resetTrip(){
+    planetSelect.value='mars';warpSelect.value='3';
+    lastTrip=null;tripSafe=false;tripActive=false;tripProgress=0;
+    currentWarp=1;btnEngage.disabled=true;
+    lampGo.classList.remove('go-active');
+    lampNoGo.classList.remove('nogo-active');
+    goExplanation.textContent='NO-GO — compute first.';
+    tripStatus.textContent='Idle.';
+    r_dist.textContent=r_coord.textContent=r_ship.textContent=r_age.textContent='—';
+    r_speed.textContent=r_curv.textContent=r_gforce.textContent=r_safety.textContent='—';
+    clkTripSpeed.textContent='Speed: —';
+    clkTripAge.textContent='ΔAge: —';
+    clkShipNote.textContent='Waiting trip.';
+  }
+
+  function engageWarp(){
+    if(!lastTrip || !tripSafe || tripActive) return;
+    tripActive = true;
+    tripStart = performance.now();
+    shipClockMs = Date.now();
+    tripStatus.textContent='Warp engaged → '+lastTrip.p.name;
+  }
+
+  lampGo.addEventListener('click',()=>{ if(tripSafe) engageWarp(); });
+  btnCompute.addEventListener('click',computeWarpTrip);
+  btnReset.addEventListener('click',resetTrip);
+  btnEngage.addEventListener('click',engageWarp);
+
+  /* CLOCKS */
+  function updateClocks(dt){
+    const now=Date.now();
+    clkUTC.textContent=new Date(now).toLocaleTimeString('en-US',{hour12:false,timeZone:'UTC'});
+    clkCST.textContent=new Date(now).toLocaleTimeString('en-US',{hour12:false,timeZone:'America/Chicago'});
+    let rate = 1;
+    if(tripActive && lastTrip){ rate = 1/(lastTrip.gSR*1.000002); }
+    shipClockMs += dt*rate;
+    clkShip.textContent=new Date(shipClockMs).toLocaleTimeString('en-US',{hour12:false});
+  }
+
+  /* ENGINE RENDER & PARTICLES (unchanged structure, shortened for space) */
+  const TAU=Math.PI*2, particles=[];
+  function spawnParticles(str){for(let i=0;i<12+str*60;i++)particles.push({
+    x:200,y:180,vx:(2+Math.random()*2)*(0.6+str),vy:(Math.random()*2-1)*(0.3+0.1*str),
+    life:0,maxLife:500+Math.random()*800,size:1+Math.random()*2
+  });}
+  function drawEngine(dt){
+    const w=engineCanvas.width,h=engineCanvas.height,cx=270,cy=h/2;
+    ectx.fillStyle='#020617'; ectx.fillRect(0,0,w,h);
+    const warpNorm=clamp((currentWarp-1)/9,0,1);
+    const bubble = 110 + warpNorm*80;
+    ectx.save();
+    ectx.translate(cx+(warpNorm*120),cy);
+    ectx.scale(1+warpNorm*0.5,1-warpNorm*0.12);
+    const gShell=ectx.createRadialGradient(0,0,bubble*0.3,0,0,bubble);
+    gShell.addColorStop(0,'rgba(56,189,248,0.08)');
+    gShell.addColorStop(0.6,'rgba(56,189,248,0.32)');
+    gShell.addColorStop(1,'rgba(56,189,248,0.02)');
+    ectx.fillStyle=gShell; ectx.beginPath(); ectx.ellipse(0,0,bubble,bubble*0.55,0,0,TAU); ectx.fill();
+    ectx.restore();
+    ectx.fillStyle='#0b1220'; ectx.beginPath(); ectx.roundRect(cx-120,cy-40,240,80,18); ectx.fill();
+    ectx.fillStyle='#facc15'; ectx.beginPath(); ectx.arc(cx,cy,18,0,TAU); ectx.fill();
+    spawnParticles(warpNorm);
+    for(let i=particles.length-1;i>=0;i--){
+      const p=particles[i]; p.life+=dt; p.x+=p.vx*dt*0.08; p.y+=p.vy*dt*0.08;
+      if(p.life>p.maxLife||p.x>w){particles.splice(i,1);continue;}
+      const a=1-Math.pow(p.life/p.maxLife,1.2);
+      ectx.fillStyle='rgba(156,163,255,'+a.toFixed(3)+')'; ectx.beginPath(); ectx.arc(p.x,p.y,p.size,0,TAU); ectx.fill();
+    }
+    if(labelsToggle.checked){
+      ectx.fillStyle='#e5e7eb'; ectx.font='10px system-ui';
+      ectx.fillText('Core (m→E)',cx-20,cy-60);
+      ectx.fillText('Hull Conversion (E→m)',cx+90,cy-80);
+      ectx.fillText('Warp Boundary',cx+160,cy+70);
+    }
+  }
+
+  /* TELEMETRY UPDATE */
+  function setGauge(el,v){if(el) el.style.width=(clamp(v,0,1)*100)+'%';}
+  function updateTelemetry(){
+    if(!lastTrip) return;
+    const w=lastTrip.warp;
+    const vLocal=localSpeedFrac(w);
+    tele.speed[0].textContent='x'+(1+0.6*(w-1)).toFixed(1);
+    setGauge(tele.speed[1],(w-1)/9);
+    const fieldR=1+0.15*(w-1); tele.field[0].textContent=fieldR.toFixed(2); setGauge(tele.field[1],(fieldR-1)/1.35);
+    tele.curv[0].textContent=lastTrip.curv.toFixed(2); setGauge(tele.curv[1],lastTrip.curv/500);
+    tele.gamma[0].textContent='γ '+gammaSR(vLocal).toFixed(3); setGauge(tele.gamma[1],clamp((gammaSR(vLocal)-1)/2,0,1));
+    tele.gforce[0].textContent=lastTrip.effG.toFixed(2)+' g'; setGauge(tele.gforce[1],lastTrip.effG/3);
+    /* NEW WARP-PHYSICS */
+    R_extra_factor = lerp(1,1e-6,(currentWarp-1)/9);
+    tRextra.textContent='R = '+R_extra_factor.toExponential(2);
+    setGauge(gRextra,(1-Math.log10(R_extra_factor)/6));
+    const scaled = calcWarpFromExtraDim(lastTrip.distMeters);
+    const lam = scaled.lambdaLocal/LAMBDA0;
+    tLambda.textContent=lam.toExponential(2)+' × cosmic';
+    setGauge(gLambda,clamp(Math.log10(lam)/12,0,1));
+    tEbubble.textContent='E = '+lastTrip.energy.E.toExponential(2)+' J';
+    tMbubble.textContent='m = '+lastTrip.energy.m.toExponential(2)+' kg';
+    tTimeIndex.textContent=scaled.timeIndex.toFixed(3)+'× CST';
+    setGauge(gTimeIndex,clamp(1-scaled.timeIndex,0,1));
+    const mf = inertialMassFactor(w);
+    tMassFactor.textContent=mf.toFixed(2)+'×';
+    setGauge(gMassFactor,1-mf);
+  }
+
+  /* MAIN LOOP */
+  function loop(){
+    const now=performance.now();
+    const dt=now-lastFrameTime; lastFrameTime=now;
+    if(tripActive && lastTrip){
+      const t=(now-tripStart)/tripDurationMs;
+      tripProgress=clamp(t,0,1);
+      const mid = tripProgress<0.5?tripProgress/0.5:(1-tripProgress)/0.5;
+      currentWarp = 1 + (lastTrip.warp-1)*mid;
+      if(tripProgress>=1){
+        tripActive=false;currentWarp=1;
+        tripStatus.textContent='Arrived near '+lastTrip.p.name+', CST resync complete.';
+      }
+    }else if(!tripActive && lastTrip){ currentWarp = lerp(currentWarp,1,0.02); }
+    updateClocks(dt); drawEngine(dt); updateTelemetry();
+    requestAnimationFrame(loop);
+  }
+
+  resetTrip(); loop();
+})();
+</script>
+</div>
+</body>
+</html>
