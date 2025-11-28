@@ -95,7 +95,7 @@ addPlanet("Uranus",  5.0, 0.3, -0.3, 0.32, 0x9cd6e8);
 addPlanet("Neptune", 6.2,-0.2,  0.9, 0.32, 0x6bb5ff);
 
 /* ---------------------------------------
-   HOLOGRAPHIC 4-D SHEET
+   HOLOGRAPHIC 4-D SHEET (BufferGeometry-safe)
 --------------------------------------- */
 const sheetGeo = new THREE.PlaneGeometry(13, 10, 42, 42);
 const sheetMat = new THREE.MeshBasicMaterial({
@@ -106,17 +106,22 @@ sheet.rotation.x = -Math.PI/2.2;
 sheet.position.y = -5.2;
 scene.add(sheet);
 
-function wave(t){
-  const v = sheet.geometry.vertices; let i=0;
-  for (let y=0;y<43;y++){
-    for (let x=0;x<43;x++){
-      v[i].z = Math.sin(x*0.22 + t*2.0)*0.22 + Math.cos(y*0.18 + t*1.3)*0.18;
-      i++;
-    }
-  }
-  sheet.geometry.verticesNeedUpdate = true;
-}
+// Access BufferGeometry positions instead of .vertices
+const sheetPos = sheet.geometry.attributes.position;
+const sheetCount = sheetPos.count;
 
+/* animate z using x,y from the plane's local coordinates */
+function wave(t){
+  for (let i = 0; i < sheetCount; i++){
+    const x = sheetPos.getX(i);
+    const y = sheetPos.getY(i);
+    const z =
+      Math.sin(x * 0.22 + t * 2.0) * 0.22 +
+      Math.cos(y * 0.18 + t * 1.3) * 0.18;
+    sheetPos.setZ(i, z);
+  }
+  sheetPos.needsUpdate = true;
+}
 /* ---------------------------------------
    HOLOGRAPHIC STRINGS
 --------------------------------------- */
@@ -137,7 +142,7 @@ let warpLine = null;
 const hud = document.getElementById("hud");
 
 function energyCalc(curvatureFactor, distance){
-  const base = 3.2e16;   // Joules per warp unit
+  const base = 3.2e16;   // Joules per warp unit (fictional)
   const E = base * distance * (1 + curvatureFactor*2.5);
   const c = 299792458;
   const m = E / (c*c);
@@ -154,9 +159,10 @@ function drawWarpPath(target){
 
   for (let i=0;i<=20;i++){
     let s = i/20;
-    let x = THREE.Math.lerp(start.x,end.x,s);
-    let y = THREE.Math.lerp(start.y,end.y,s);
-    let z = THREE.Math.lerp(start.z,end.z,s);
+    // use MathUtils.lerp (safer than THREE.Math)
+    let x = THREE.MathUtils.lerp(start.x, end.x, s);
+    let y = THREE.MathUtils.lerp(start.y, end.y, s);
+    let z = THREE.MathUtils.lerp(start.z, end.z, s);
     let curv = Math.sin(s*3.2) * Math.cos(s*1.8) * 0.9;
     points.push(new THREE.Vector3(x, y + curv*0.35, z));
     curvatureSum += Math.abs(curv);
@@ -203,11 +209,12 @@ function animate(){
   controls.update();
   renderer.render(scene,camera);
 
+  // Update 2D labels over 3D planets
   scene.traverse(o=>{
     if(o.userData.label){
       const v = o.position.clone().project(camera);
-      o.userData.label.style.left=((v.x+1)/2*window.innerWidth)+"px";
-      o.userData.label.style.top =(-(v.y-1)/2*window.innerHeight)+"px";
+      o.userData.label.style.left = ((v.x+1)/2*window.innerWidth) + "px";
+      o.userData.label.style.top  = (-(v.y-1)/2*window.innerHeight) + "px";
     }
   });
 }
