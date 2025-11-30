@@ -227,6 +227,111 @@ function newEngineParticle(){
   };
 }
 
+/* ========== STARFIELD (MOVING STARS) ========== */
+const stars = [];
+function initStars(count){
+  stars.length = 0;
+  for(let i=0;i<count;i++){
+    stars.push({
+      x:Math.random()*W,
+      y:Math.random()*H,
+      speed:0.5+Math.random()*1.5,
+      size:Math.random()*1.8+0.4
+    });
+  }
+}
+initStars(220);
+
+function updateStars(dt){
+  const speedBoost = 1 + warp*0.4;
+  for(let s of stars){
+    s.y += s.speed*speedBoost;
+    if(s.y > H+10){
+      s.y = -10;
+      s.x = Math.random()*W;
+      s.speed = 0.5+Math.random()*1.5;
+    }
+  }
+}
+
+function drawStars(){
+  ctx.save();
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  for(let s of stars){
+    ctx.globalAlpha = 0.35 + s.speed*0.1;
+    ctx.fillRect(s.x, s.y, s.size, s.size);
+  }
+  ctx.restore();
+}
+
+/* ========== FIELD IMPACT PARTICLES (HIT SHIELD & REPEL) ========== */
+const fieldParticles = [];
+function initFieldParticles(count){
+  fieldParticles.length = 0;
+  for(let i=0;i<count;i++){
+    fieldParticles.push(newFieldParticle());
+  }
+}
+function newFieldParticle(){
+  const angle = Math.random()*Math.PI*2;
+  const r = 260 + Math.random()*80; // outside default shield
+  const sp = - (20 + Math.random()*40); // inward
+  return {
+    a:angle,
+    r:r,
+    sp:sp,
+    hit:false,
+    flash:0
+  };
+}
+initFieldParticles(140);
+
+function updateFieldParticles(dt, shieldR){
+  for(let p of fieldParticles){
+    p.r += p.sp*dt;
+    // approaching inward
+    if(!p.hit && p.r <= shieldR){
+      p.hit = true;
+      p.flash = 0.25;        // blink window
+      p.sp = Math.abs(p.sp); // repel outward
+      p.r = shieldR;         // clamp at shield boundary
+    }
+    if(p.hit){
+      p.flash -= dt;
+      if(p.flash <= 0){
+        p.flash = 0;
+      }
+    }
+    // recycle if far away or somehow too deep
+    if(p.r > shieldR+140 || p.r < shieldR*0.4){
+      Object.assign(p, newFieldParticle());
+    }
+  }
+}
+
+function drawFieldParticles(shieldR, t){
+  ctx.save();
+  ctx.translate(cx,cy);
+  for(let p of fieldParticles){
+    const x = Math.cos(p.a)*p.r;
+    const y = Math.sin(p.a)*p.r;
+    let alpha = 0.4;
+    let radius = 2;
+    if(p.hit && p.flash>0){
+      // blink effect on impact
+      const blink = 0.5+0.5*Math.sin(t*40);
+      alpha = 0.8*blink;
+      radius = 3.5;
+    }
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    ctx.arc(x,y,radius,0,Math.PI*2);
+    ctx.fillStyle = p.hit ? "rgba(255,255,220,1)" : "rgba(150,210,255,1)";
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 /* ========== DOM HELPERS ========== */
 const planetSelect = document.getElementById("planetSelect");
 const warpSelect   = document.getElementById("warpSelect");
@@ -382,10 +487,10 @@ function updateClocks(){
     const arrivalCST = new Date(cstNow.getTime() + trip.seconds*1000);
     arrClockEl.textContent = arrivalCST.toTimeString().split(" ")[0];
 
-    // Ship proper time = CST time slowed by dilation
+    // Ship proper time = CST time slowed by dilation (illustrative)
     const dilation = 1 - (trip.shipSeconds / trip.seconds);
     const shipMsOffset = trip.seconds*1000 * (1-dilation);
-    const shipNow = new Date(cstNow.getTime() + shipMsOffset*0.000001); // tiny illustrative offset
+    const shipNow = new Date(cstNow.getTime() + shipMsOffset*0.000001);
     shipClockEl.textContent = shipNow.toTimeString().split(" ")[0];
   } else {
     shipClockEl.textContent = "--:--:--";
@@ -406,22 +511,38 @@ function loop(ts){
 
   ctx.clearRect(0,0,W,H);
 
+  // Stars background
+  updateStars(dt);
+  drawStars();
+
   // Draw ship outline
   drawShipOutline();
 
-  // Draw protection field (gets brighter with warp)
-  drawProtectionField(ts);
+  // Compute shield radius same way as before
+  const baseR = 210;
+  const pulse = 0.12*Math.sin(ts*0.004) + 0.88;
+  const warpBoost = 1 + warp*0.12;
+  const shieldR = baseR*pulse*warpBoost;
 
-  // Draw core and nuclear/fission rings
+  // Protection / warp field
+  drawProtectionField(shieldR);
+
+  // Core + rings
   drawCore(ts);
 
-  // Update and draw particles
+  // Core particles
   updateCoreParticles(dt);
   drawCoreParticles();
+
+  // Engine particles
   updateEngineParticles(dt);
   drawEngineParticles();
 
-  // Update clock panels
+  // Field impact particles (hit shield and repel)
+  updateFieldParticles(dt, shieldR);
+  drawFieldParticles(shieldR, ts/1000);
+
+  // Clocks
   updateClocks();
 
   requestAnimationFrame(loop);
@@ -458,12 +579,7 @@ function drawShipOutline(){
   ctx.restore();
 }
 
-function drawProtectionField(ts){
-  const baseR = 210;
-  const pulse = 0.12*Math.sin(ts*0.004) + 0.88;
-  const warpBoost = 1 + warp*0.12;
-  const R = baseR*pulse*warpBoost;
-
+function drawProtectionField(R){
   const innerAlpha = 0.18 + warp*0.06;
   const midAlpha   = 0.10 + warp*0.05;
 
