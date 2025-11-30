@@ -2,25 +2,63 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>CST Warp Navigation — Full Simulation</title>
+<title>CST Warp Navigation — Full Simulation v2</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-  html,body{margin:0;height:100%;background:#020617;overflow:hidden;
-    font-family:Segoe UI,Roboto,Arial,sans-serif;color:#e8f3ff;}
+  html,body{
+    margin:0;
+    height:100%;
+    background:#020617;
+    overflow:hidden;
+    font-family:Segoe UI,Roboto,Arial,sans-serif;
+    color:#e8f3ff;
+  }
   canvas{position:fixed;inset:0;}
-  .panel{position:fixed;top:10px;right:10px;background:rgba(12,22,52,.72);
-    padding:14px 18px;border:1px solid rgba(130,190,255,.6);border-radius:12px;
-    backdrop-filter:blur(10px);max-width:320px;}
-  .panel h2{margin:0 0 6px;font-size:17px;letter-spacing:.06em;}
-  .panel label{font-size:12px;color:#9fc2ff;}
-  .panel select,.panel button{
-    width:100%;padding:7px 8px;margin-top:6px;
-    background:#0c1634;color:#d5e9ff;border:1px solid #3d67b8;border-radius:6px;
-    font-size:14px;cursor:pointer;}
-  #warpBtn{background:#003ae3;}
-  #warpBtn:hover{background:#0d4aff;}
-  #tripInfo{margin-top:10px;font-size:12px;color:#9fd7ff;line-height:1.35;}
-  #warn{color:#ff7272;font-size:12px;margin-top:4px;}
+  .panel{
+    position:fixed;
+    top:10px;
+    right:10px;
+    background:rgba(12,22,52,.72);
+    padding:14px 18px;
+    border:1px solid rgba(130,190,255,.6);
+    border-radius:12px;
+    backdrop-filter:blur(10px);
+    max-width:320px;
+  }
+  .panel h2{
+    margin:0 0 6px;
+    font-size:17px;
+    letter-spacing:.06em;
+  }
+  .panel label{
+    font-size:12px;
+    color:#9fc2ff;
+  }
+  .panel select,
+  .panel button{
+    width:100%;
+    padding:7px 8px;
+    margin-top:6px;
+    background:#0c1634;
+    color:#d5e9ff;
+    border:1px solid #3d67b8;
+    border-radius:6px;
+    font-size:14px;
+    cursor:pointer;
+  }
+  #warpBtn{ background:#003ae3; }
+  #warpBtn:hover{ background:#0d4aff; }
+  #tripInfo{
+    margin-top:10px;
+    font-size:12px;
+    color:#9fd7ff;
+    line-height:1.35;
+  }
+  #warn{
+    color:#ff7272;
+    font-size:12px;
+    margin-top:4px;
+  }
 </style>
 </head>
 <body>
@@ -51,183 +89,341 @@
 
 <script>
 /* -------- Canvas Setup -------- */
-const canvas=document.getElementById("sim");
-const ctx=canvas.getContext("2d");
+const canvas = document.getElementById("sim");
+const ctx    = canvas.getContext("2d");
 let W=0,H=0,cx=0,cy=0;
-function resize(){W=canvas.width=innerWidth;H=canvas.height=innerHeight;cx=W/2;cy=H/2;}
-addEventListener("resize",resize);resize();
 
-/* -------- Warp State -------- */
-let warp=0; // 0 = idle, 1..10 = warp factor
-let trip=null;
-let running=false;
+function resize(){
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  cx = W/2;
+  cy = H/2;
+}
+window.addEventListener("resize", resize);
+resize();
 
-/* distances from Sun in AU for travel calculations */
+/* -------- Warp / Trip State -------- */
+let warp = 0;   // 0 = idle, 1..10 = warp factor
+let trip = null;
+let running = false;
+
 const AU = 149597870.7; // km
 const distancesAU = {
   Mercury:0.387, Venus:0.723, Mars:1.524, Jupiter:5.203,
-  Saturn:9.539,Uranus:19.18,Neptune:30.06,Pluto:39.48
+  Saturn:9.539, Uranus:19.18, Neptune:30.06, Pluto:39.48
 };
 
-/* -------- Particle Generators -------- */
-const coreParticles=[],engineLeft=[],engineRight=[];
-for(let i=0;i<200;i++) coreParticles.push(newCP());
-for(let i=0;i<200;i++) engineLeft.push(newEP(-1));
-for(let i=0;i<200;i++) engineRight.push(newEP(1));
+/* -------- Particles -------- */
+const coreParticles  = [];
+const engineLeft     = [];
+const engineRight    = [];
 
-function newCP(){
-  return {a:Math.random()*Math.PI*2,r:Math.random()*10,
-    max:70+Math.random()*50,sp:0.06+Math.random()*0.14,size:1+Math.random()*2,life:Math.random()};
+for(let i=0;i<200;i++) coreParticles.push(newCoreParticle());
+for(let i=0;i<200;i++) engineLeft.push(newEngineParticle());
+for(let i=0;i<200;i++) engineRight.push(newEngineParticle());
+
+function newCoreParticle(){
+  return {
+    a:  Math.random()*Math.PI*2,
+    r:  Math.random()*10,
+    max:70+Math.random()*50,
+    sp: 0.06+Math.random()*0.14,
+    size:1+Math.random()*2,
+    life:Math.random()
+  };
 }
-function newEP(side){ return {x:0,y:0,vx:side*(2+Math.random()*1),vy:-1+Math.random()*2,life:Math.random()*1.5};}
 
-/* -------- Core Conversion Brightness/Energy -------- */
-function warpEnergy(){ return 0.25 + warp*0.75/10; }  // scale warp 1–10
+// Engine particles now go mostly *downward*
+function newEngineParticle(){
+  return {
+    x:0,
+    y:0,
+    vx:(Math.random()-0.5)*0.6,  // small horizontal scatter
+    vy:2+Math.random()*2.5,      // positive = downward
+    life:0.7+Math.random()*1.1
+  };
+}
 
-/* -------- Trip Controls -------- */
+/* -------- Utility -------- */
+function warpEnergy(){   // 0.25 .. ~1.0
+  return 0.25 + warp*0.75/10;
+}
+
 function calcTrip(){
-  const planet=document.getElementById("planetSelect").value;
-  const dAU=distancesAU[planet]-1; // Earth = static 1 AU
-  const km=Math.abs(dAU)*AU;
-  const c=299792.458; // km/s
-  const warpSpeed = c * Math.pow(warp||1,1.5); // custom warp multiplier
-  const travelSeconds = km/warpSpeed;
-  trip={planet,km,travelSeconds};
+  const planet = document.getElementById("planetSelect").value;
+  const dAU    = distancesAU[planet] - 1; // Earth static at 1 AU
+  const km     = Math.abs(dAU)*AU;
+  const c      = 299792.458;  // km/s
+  const warpSpeed   = c * Math.pow(warp || 1, 1.5); // toy warp law
+  const travelSeconds = km / warpSpeed;
+  trip = { planet, km, travelSeconds };
   updateTripInfo();
 }
+
 function updateTripInfo(){
   if(!trip) return;
-  const info=document.getElementById("tripInfo");
-  let hrs = trip.travelSeconds/3600;
-  let days = hrs/24;
-  info.innerHTML=
-  `Distance: ${(trip.km/1e6).toFixed(2)} million km<br>
-   Warp Factor: ${warp || "Not engaged"}<br>
-   Travel Time: ${(trip.travelSeconds/3600).toFixed(2)} hrs (~${days.toFixed(2)} days)<br>
-   CST Time: ${new Date().toLocaleTimeString()}`;
+  const info = document.getElementById("tripInfo");
+  const hours = trip.travelSeconds / 3600;
+  const days  = hours / 24;
+  info.innerHTML =
+    `Distance: ${(trip.km/1e6).toFixed(2)} million km<br>`+
+    `Warp Factor: ${warp || "Not engaged"}<br>`+
+    `Travel Time: ${hours.toFixed(2)} hrs (~${days.toFixed(2)} days)<br>`+
+    `CST Time: ${new Date().toLocaleTimeString()}`;
 }
+
 function safetyCheck(){
-  const warn=document.getElementById("warn");
-  if(warp<4){ warn.textContent="⚠ Unsafe: Warp below stability threshold"; return false; }
-  warn.textContent="✔ Safe corridor: Warp field stable";
+  const warn = document.getElementById("warn");
+  if(warp < 4){
+    warn.textContent = "⚠ Unsafe: Warp below stability threshold";
+    return false;
+  }
+  warn.textContent = "✔ Safe corridor: Protection field stable";
   return true;
 }
 
-/* -------- Button Events -------- */
-document.getElementById("calcBtn").onclick=()=>{calcTrip();};
-document.getElementById("warpBtn").onclick=()=>{
-  warp = Math.min(warp+1,10);
-  if(!running) running=true;
+/* -------- Buttons -------- */
+document.getElementById("calcBtn").onclick = () => {
   calcTrip();
 };
-document.getElementById("recalcBtn").onclick=()=>{
-  safetyCheck(); calcTrip();
-};
-document.getElementById("resetBtn").onclick=()=>{
-  warp=0; running=false; trip=null;
-  document.getElementById("tripInfo").innerHTML="";
-  document.getElementById("warn").innerHTML="";
+
+document.getElementById("warpBtn").onclick = () => {
+  warp = Math.min(warp+1, 10);   // increase warp 1 → 10
+  running = true;
+  calcTrip();
 };
 
-/* -------- Main Drawing -------- */
-let last=0,start=null;
+document.getElementById("recalcBtn").onclick = () => {
+  safetyCheck();
+  calcTrip();
+};
+
+document.getElementById("resetBtn").onclick = () => {
+  warp    = 0;
+  running = false;
+  trip    = null;
+  document.getElementById("tripInfo").innerHTML = "";
+  document.getElementById("warn").innerHTML     = "";
+};
+
+/* -------- Main Animation Loop -------- */
+let last = 0;
+let start = null;
+
 function frame(ts){
-  if(!start) start=ts;
-  const t=(ts-start)/1000;
-  const dt=(ts-last)/1000||0; last=ts;
+  if(!start) start = ts;
+  const t  = (ts-start)/1000;
+  const dt = (ts-last)/1000 || 0;
+  last = ts;
 
   ctx.clearRect(0,0,W,H);
 
-  /* ---- Outline of Ship ---- */
-  ctx.save();
-  ctx.translate(cx,cy);
-  ctx.strokeStyle="rgba(120,180,255,0.55)";
-  ctx.lineWidth=2;
-  ctx.beginPath();
-  // fuselage
-  ctx.moveTo(0,-200); ctx.quadraticCurveTo(60,-80,60,60);
-  ctx.quadraticCurveTo(60,150,0,190); ctx.quadraticCurveTo(-60,150,-60,60);
-  ctx.quadraticCurveTo(-60,-80,0,-200);
-  // nacelles
-  ctx.moveTo(-110,-40); ctx.quadraticCurveTo(-160,50,-110,160);
-  ctx.quadraticCurveTo(-60,80,-110,-40);
-  ctx.moveTo(110,-40); ctx.quadraticCurveTo(160,50,110,160);
-  ctx.quadraticCurveTo(60,80,110,-40);
-  ctx.stroke();
-  ctx.restore();
-
-  /* ---- Warp Field ---- */
-  let envelope = (0.18*Math.sin(t*2.3)+0.82)* (1+warp*0.09);
-  let R = 200*envelope;
-  ctx.save(); ctx.translate(cx,cy);
-  let g = ctx.createRadialGradient(0,0,R*0.1,0,0,R);
-  g.addColorStop(0,"rgba(200,250,255,"+(0.4+warp*0.04)+")");
-  g.addColorStop(0.4,"rgba(130,210,255,"+(0.2+warp*0.05)+")");
-  g.addColorStop(1,"rgba(20,40,90,0)");
-  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,R,0,Math.PI*2); ctx.fill();
-  ctx.restore();
-
-  /* ---- Core ---- */
-  ctx.save(); ctx.translate(cx,cy);
-  let coreR = 13 + warpEnergy()*20*Math.sin(t*6);
-  ctx.beginPath(); ctx.arc(0,0,coreR*0.55,0,Math.PI*2);
-  ctx.fillStyle="rgba(255,255,255,0.95)"; ctx.fill();
-  let cor = coreR*1.8;
-  let cg = ctx.createRadialGradient(0,0,coreR*0.2,0,0,cor);
-  cg.addColorStop(0,"rgba(255,255,255,0.9)");
-  cg.addColorStop(0.4,"rgba(255,200,150,0.6)");
-  cg.addColorStop(1,"rgba(255,120,80,0)");
-  ctx.fillStyle=cg; ctx.beginPath(); ctx.arc(0,0,cor,0,Math.PI*2); ctx.fill();
-  ctx.restore();
-
-  /* ---- Core → Engines Particles ---- */
-  emitCore(dt); emitEngines(dt);
-  drawCore(); drawEngines();
+  drawShipOutline();
+  drawProtectionField(t);
+  drawCore(t);
+  updateCoreParticles(dt);
+  drawCoreParticles();
+  updateEngineParticles(dt);
+  drawEngineParticles();
 
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
-/* Core particle update */
-function emitCore(dt){
-  for(let p of coreParticles){p.r+=p.sp*dt*110*(1+warp*0.7);p.life+=dt*0.5;
-    if(p.r>p.max||p.life>1) Object.assign(p,newCP());
+/* -------- Drawing Functions -------- */
+
+// Ship hull + nacelles (outline only)
+function drawShipOutline(){
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.strokeStyle = "rgba(120,180,255,0.65)";
+  ctx.lineWidth   = 2;
+
+  ctx.beginPath();
+  // fuselage
+  ctx.moveTo(0,-200);
+  ctx.quadraticCurveTo(60,-80,60,60);
+  ctx.quadraticCurveTo(60,150,0,190);
+  ctx.quadraticCurveTo(-60,150,-60,60);
+  ctx.quadraticCurveTo(-60,-80,0,-200);
+  // nacelles
+  ctx.moveTo(-110,-40);
+  ctx.quadraticCurveTo(-160,50,-110,160);
+  ctx.quadraticCurveTo(-60,80,-110,-40);
+
+  ctx.moveTo(110,-40);
+  ctx.quadraticCurveTo(160,50,110,160);
+  ctx.quadraticCurveTo(60,80,110,-40);
+
+  ctx.stroke();
+  ctx.restore();
+}
+
+// Protection field (circular shield) — brightness scales with warp
+function drawProtectionField(t){
+  const baseR   = 210;
+  const pulsate = 0.12*Math.sin(t*2.0) + 0.88;
+  const warpBoost = 1 + warp*0.12;    // bigger at higher warp
+  const R = baseR * pulsate * warpBoost;
+
+  const innerAlpha = 0.20 + warp*0.06;  // brighter per warp
+  const midAlpha   = 0.10 + warp*0.05;
+
+  ctx.save();
+  ctx.translate(cx,cy);
+
+  const g = ctx.createRadialGradient(0,0,R*0.15, 0,0,R);
+  g.addColorStop(0, `rgba(200,250,255,${innerAlpha})`);
+  g.addColorStop(0.4,`rgba(130,210,255,${midAlpha})`);
+  g.addColorStop(1, "rgba(20,40,90,0)");
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(0,0,R,0,Math.PI*2);
+  ctx.fill();
+
+  // outline ring of the shield
+  ctx.globalAlpha = 0.35 + warp*0.04;
+  ctx.strokeStyle = "rgba(165,225,255,0.9)";
+  ctx.lineWidth   = 1.5 + warp*0.2;
+  ctx.beginPath();
+  ctx.arc(0,0,R,0,Math.PI*2);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+// Core + Nuclear Reactor + Fission Converter outlines
+function drawCore(t){
+  const energy = warpEnergy();
+
+  ctx.save();
+  ctx.translate(cx,cy);
+
+  // central core pulse
+  const coreR = 13 + energy*20*Math.sin(t*6);
+  ctx.beginPath();
+  ctx.arc(0,0,coreR*0.55,0,Math.PI*2);
+  ctx.fillStyle = "rgba(255,255,255,0.96)";
+  ctx.fill();
+
+  // glowing corona
+  const cor  = coreR*1.9;
+  const cg   = ctx.createRadialGradient(0,0,coreR*0.2,0,0,cor);
+  cg.addColorStop(0,"rgba(255,255,255,0.9)");
+  cg.addColorStop(0.4,"rgba(255,210,150,0.65)");
+  cg.addColorStop(1,"rgba(255,120,80,0)");
+  ctx.fillStyle = cg;
+  ctx.beginPath();
+  ctx.arc(0,0,cor,0,Math.PI*2);
+  ctx.fill();
+
+  // Nuclear Reactor outline ring
+  const reactorR = 55;
+  ctx.beginPath();
+  ctx.strokeStyle = "rgba(0,255,180,0.9)";
+  ctx.lineWidth   = 1.3;
+  ctx.setLineDash([6,4]);
+  ctx.arc(0,0,reactorR,0,Math.PI*2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Fission Converter outline ring
+  const fissionR = 95;
+  ctx.beginPath();
+  ctx.strokeStyle = "rgba(255,190,80,0.9)";
+  ctx.lineWidth   = 1.3;
+  ctx.setLineDash([8,5]);
+  ctx.arc(0,0,fissionR,0,Math.PI*2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Labels: Nuclear Reactor, Fission Converter, E=mc², m=E/c²
+  ctx.fillStyle = "rgba(190,235,255,0.9)";
+  ctx.font      = "12px Segoe UI";
+
+  ctx.fillText("Nuclear Reactor", -60, reactorR+14);
+  ctx.fillText("Fission Converter", -68, fissionR+16);
+
+  ctx.fillText("E = mc²", -24, -reactorR-10);
+  ctx.fillText("m = E / c²", -32, -fissionR-10);
+
+  ctx.restore();
+}
+
+/* Core Particles (burst in all directions from core) */
+function updateCoreParticles(dt){
+  const speedBoost = 1 + warp*0.7;
+  for(let p of coreParticles){
+    p.r    += p.sp*dt*110*speedBoost;
+    p.life += dt*0.5;
+    if(p.r > p.max || p.life > 1){
+      Object.assign(p, newCoreParticle());
+    }
   }
 }
-function drawCore(){
-  ctx.save(); ctx.translate(cx,cy);
+
+function drawCoreParticles(){
+  ctx.save();
+  ctx.translate(cx,cy);
   for(let p of coreParticles){
-    let x = Math.cos(p.a)*p.r, y = Math.sin(p.a)*p.r*0.8;
-    let a = 1-(p.r/p.max);
-    ctx.globalAlpha=a*(0.7+warp*0.03);
-    ctx.beginPath(); ctx.arc(x,y,p.size,0,Math.PI*2);
-    ctx.fillStyle="rgba(190,245,255,1)"; ctx.fill();
+    const x = Math.cos(p.a)*p.r;
+    const y = Math.sin(p.a)*p.r*0.8;
+    const alpha = 1 - (p.r/p.max);
+    ctx.globalAlpha = alpha*(0.7 + warp*0.03);
+    ctx.beginPath();
+    ctx.arc(x,y,p.size,0,Math.PI*2);
+    ctx.fillStyle = "rgba(190,245,255,1)";
+    ctx.fill();
   }
   ctx.restore();
 }
 
-/* Engines */
-function emitEngines(dt){
-  let boost= 1+warp*2.2;
-  for(let e of engineLeft){e.x+=e.vx*boost; e.y+=e.vy*boost; e.life-=dt*0.3;
-    if(e.life<=0){Object.assign(e,newEP(-1));}}
-  for(let e of engineRight){e.x+=e.vx*boost; e.y+=e.vy*boost; e.life-=dt*0.3;
-    if(e.life<=0){Object.assign(e,newEP(1));}}
+/* Engine particles (now downward jets from nacelles) */
+function updateEngineParticles(dt){
+  const boost = 1 + warp*2.3;
+
+  for(let e of engineLeft){
+    e.x   += e.vx*boost;
+    e.y   += e.vy*boost;
+    e.life -= dt*0.5;
+    if(e.life <= 0){
+      Object.assign(e, newEngineParticle());
+    }
+  }
+
+  for(let e of engineRight){
+    e.x   += e.vx*boost;
+    e.y   += e.vy*boost;
+    e.life -= dt*0.5;
+    if(e.life <= 0){
+      Object.assign(e, newEngineParticle());
+    }
+  }
 }
-function drawEngines(){
+
+function drawEngineParticles(){
+  // left engine: translate to left nacelle, then draw downward jet
   ctx.save();
-  // left
-  ctx.translate(cx-110,cy+60);
-  for(let e of engineLeft){ctx.globalAlpha=e.life;
-    ctx.beginPath();ctx.arc(e.x,e.y,2,0,Math.PI*2);
-    ctx.fillStyle="rgba(120,220,255,1)";ctx.fill();}
+  ctx.translate(cx-110, cy+60);
+  for(let e of engineLeft){
+    ctx.globalAlpha = e.life;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, 2, 0, Math.PI*2);
+    ctx.fillStyle = "rgba(120,220,255,1)";
+    ctx.fill();
+  }
   ctx.restore();
-  // right
+
+  // right engine: translate to right nacelle, then draw downward jet
   ctx.save();
-  ctx.translate(cx+110,cy+60);
-  for(let e of engineRight){ctx.globalAlpha=e.life;
-    ctx.beginPath();ctx.arc(e.x,e.y,2,0,Math.PI*2);
-    ctx.fillStyle="rgba(120,220,255,1)";ctx.fill();}
+  ctx.translate(cx+110, cy+60);
+  for(let e of engineRight){
+    ctx.globalAlpha = e.life;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, 2, 0, Math.PI*2);
+    ctx.fillStyle = "rgba(120,220,255,1)";
+    ctx.fill();
+  }
   ctx.restore();
 }
 </script>
