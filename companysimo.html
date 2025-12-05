@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CST–Warp Field Simulator</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+html, body {
+  margin:0;
+  padding:0;
+  overflow:hidden;
+  background:#020617;
+  font-family: Arial, Helvetica, sans-serif;
+  color:#e8f3ff;
+}
+
+#simCanvas {
+  position:fixed;
+  top:0; left:0;
+  width:100vw;
+  height:100vh;
+}
+
+#panel {
+  position:fixed;
+  top:20px;
+  left:20px;
+  width:280px;
+  padding:18px;
+  background:rgba(12,22,52,0.85);
+  border:1px solid rgba(100,160,255,0.45);
+  border-radius:14px;
+  box-shadow:0 0 20px rgba(0,140,255,0.3);
+}
+
+#panel h2 {
+  margin-top:0;
+  font-size:20px;
+  color:#7cc0ff;
+}
+
+.sliderBox { margin-bottom:14px; }
+.sliderBox label { display:block; font-size:14px; }
+.sliderBox input, select { width:100%; }
+
+.statLine { margin:6px 0; font-size:14px; }
+</style>
+</head>
+
+<body>
+
+<canvas id="simCanvas"></canvas>
+
+<div id="panel">
+  <h2>CST–WARP ENGINE</h2>
+
+  <!-- BASE CONTROLS -->
+  <div class="sliderBox">
+    <label>Warp Factor</label>
+    <input type="range" id="warpFactor" min="0" max="10" step="1" value="0">
+  </div>
+
+  <div class="sliderBox">
+    <label>CST Phase Alignment</label>
+    <input type="range" id="cstPhase" min="0" max="100" value="50">
+  </div>
+
+  <div class="sliderBox">
+    <label>Mass Bank Level</label>
+    <input type="range" id="massBank" min="0" max="100" value="60">
+  </div>
+
+  <div class="statLine">Warp Velocity: <span id="warpVel">0</span>c</div>
+  <div class="statLine">CST Drift: <span id="driftVal">0.000</span></div>
+  <div class="statLine">Bubble Stability: <span id="stabVal">100%</span></div>
+
+  <hr style="border:0;border-top:1px solid #335599;margin:12px 0;">
+
+  <!-- NAVIGATION -->
+  <h3 style="color:#7cc0ff;font-size:16px;margin-top:8px;">Navigation</h3>
+
+  <div class="sliderBox">
+    <label>Navigation Vector (Heading)</label>
+    <input type="range" id="navVector" min="0" max="360" value="0">
+  </div>
+
+  <div class="sliderBox">
+    <label>Destination</label>
+    <select id="destination" style="padding:4px;">
+      <option value="0">None</option>
+      <option value="1">Mars (CST=+4)</option>
+      <option value="2">Alpha Centauri (CST=+12)</option>
+      <option value="3">Andromeda (CST=+87)</option>
+    </select>
+  </div>
+
+  <button id="autopilotBtn" style="width:100%;padding:8px;margin-top:10px;
+    background:#2277ff;border:1px solid #66aaff;color:white;border-radius:6px;">
+    AUTOPILOT ENGAGE
+  </button>
+
+  <button id="collapseBtn" style="width:100%;padding:8px;margin-top:10px;
+    background:#aa0033;border:1px solid #ff5577;color:white;border-radius:6px;">
+    EMERGENCY COLLAPSE
+  </button>
+
+  <hr style="border:0;border-top:1px solid #335599;margin:12px 0;">
+
+  <!-- HUD -->
+  <h3 style="color:#7cc0ff;font-size:16px;margin-top:8px;">HUD</h3>
+  <div class="statLine">CST Clock: <span id="cstClock">0.000</span></div>
+  <div class="statLine">Front Curvature: <span id="frontCurv">0.00</span></div>
+  <div class="statLine">Rear Curvature: <span id="rearCurv">0.00</span></div>
+</div>
+
+<script>
+// =========================================
+// CANVAS SETUP
+// =========================================
+const canvas = document.getElementById("simCanvas");
+const ctx = canvas.getContext("2d");
+let W, H;
+
+function resize(){
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener("resize", resize);
+
+// =========================================
+// ENGINE VARIABLES
+// =========================================
+let warp = 0;
+let phase = 50;
+let massLevel = 60;
+let heading = 0;
+
+let t = 0;
+let destCST = 0;
+let autopilot = false;
+let cstClock = 0;
+
+// UI INPUTS
+document.getElementById("warpFactor").oninput = e => warp = Number(e.target.value);
+document.getElementById("cstPhase").oninput = e => phase = Number(e.target.value);
+document.getElementById("massBank").oninput = e => massLevel = Number(e.target.value);
+document.getElementById("navVector").oninput = e => heading = Number(e.target.value);
+
+document.getElementById("destination").onchange = e => {
+  let d = Number(e.target.value);
+  destCST = (d === 1 ? 4 : d === 2 ? 12 : d === 3 ? 87 : 0);
+};
+
+document.getElementById("autopilotBtn").onclick = () => autopilot = true;
+
+// =========================================
+// CAMERA SHAKE
+// =========================================
+let shakeIntensity = 0;
+function applyCameraShake(){
+  if (shakeIntensity > 0.01){
+    let dx = (Math.random() - 0.5) * shakeIntensity;
+    let dy = (Math.random() - 0.5) * shakeIntensity;
+    ctx.translate(dx, dy);
+    shakeIntensity *= 0.9;
+  }
+}
+
+// =========================================
+// STARFIELD
+// =========================================
+let stars = [];
+for (let i=0; i<400; i++){
+  stars.push({ x:Math.random()*W, y:Math.random()*H, z:Math.random()*3+1 });
+}
+
+function drawStars(){
+  ctx.fillStyle = "#000015";
+  ctx.fillRect(0,0,W,H);
+
+  stars.forEach(s=>{
+    s.y += warp * 0.6 * s.z;
+    if (s.y > H){ s.y = -5; s.x = Math.random()*W; }
+    ctx.fillStyle = `rgba(255,255,255,${0.4+s.z*0.1})`;
+    ctx.fillRect(s.x, s.y, s.z, s.z);
+  });
+}
+
+// =========================================
+// WARP TUNNEL
+// =========================================
+function drawWarpTunnel(){
+  if (warp < 8) return;
+  for (let i = 0; i < 16; i++){
+    let y = (i * H/16 + (t * 120 * (warp-7))) % H;
+    ctx.beginPath();
+    ctx.strokeStyle = `rgba(0,200,255,0.25)`;
+    ctx.lineWidth = 3;
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+    ctx.stroke();
+  }
+}
+
+// =========================================
+// ADVANCED FIELD EFFECTS (WAVES, PARTICLES, INTERFERENCE)
+// =========================================
+let particles = [];
+function initParticles(){
+  particles = [];
+  for (let i=0; i<200; i++){
+    particles.push({
+      angle:Math.random()*Math.PI*2,
+      radius:180+Math.random()*80,
+      speed:0.002+Math.random()*0.003,
+      size:Math.random()*2+1
+    });
+  }
+}
+initParticles();
+
+function drawCurvatureWaves(cx,cy,r){
+  for (let w=0; w<4; w++){
+    let waveR = r + w*25 + Math.sin(t+w)*10;
+    ctx.beginPath();
+    ctx.strokeStyle = `rgba(120,180,255,${0.18-w*0.03})`;
+    ctx.arc(cx,cy,waveR,0,Math.PI*2);
+    ctx.stroke();
+  }
+}
+
+function drawParticles(cx,cy){
+  particles.forEach(p=>{
+    p.angle += p.speed*(1+warp*0.3);
+    let px = cx + Math.cos(p.angle)*p.radius;
+    let py = cy + Math.sin(p.angle)*p.radius;
+    ctx.fillStyle = `rgba(180,220,255,${0.4+Math.sin(t+p.angle)*0.3})`;
+    ctx.beginPath(); ctx.arc(px,py,p.size,0,Math.PI*2); ctx.fill();
+  });
+}
+
+let pulseRings = [];
+function drawPulseRings(cx,cy){
+  if (Math.random()<0.03 && massLevel>20){
+    pulseRings.push({r:10, alpha:0.7});
+  }
+  for (let i=pulseRings.length-1; i>=0; i--){
+    let ring = pulseRings[i];
+    ring.r+=3; ring.alpha-=0.01;
+    ctx.beginPath();
+    ctx.strokeStyle = `rgba(0,180,255,${ring.alpha})`;
+    ctx.lineWidth=3;
+    ctx.arc(cx,cy,ring.r,0,Math.PI*2); ctx.stroke();
+    if (ring.alpha<=0) pulseRings.splice(i,1);
+  }
+}
+
+function drawInterference(cx,cy){
+  let ps = (phase-50)/50;
+  for (let i=0; i<6; i++){
+    let r = 120+i*18+Math.sin(t*2+i+ps*3)*8;
+    ctx.beginPath();
+    ctx.strokeStyle=`rgba(255,255,255,${0.1+0.05*Math.sin(t+i)})`;
+    ctx.arc(cx,cy,r,0,Math.PI*2);
+    ctx.stroke();
+  }
+}
+
+let arcs = [];
+function drawHarmonicArcs(cx,cy,r){
+  if (warp>5 && Math.random()<0.15){
+    arcs.push({a:Math.random()*Math.PI*2, alpha:1, width:r*0.8});
+  }
+  for (let i=arcs.length-1; i>=0; i--){
+    let arc=arcs[i];
+    arc.alpha-=0.015;
+    ctx.beginPath();
+    ctx.strokeStyle=`rgba(0,200,255,${arc.alpha})`;
+    ctx.lineWidth=2;
+    ctx.arc(cx,cy,arc.width,arc.a,arc.a+0.6);
+    ctx.stroke();
+    if (arc.alpha<=0) arcs.splice(i,1);
+  }
+}
+
+// =========================================
+// REACTOR GLOW + EXPANSION/COMPRESSION
+// =========================================
+function drawCompressionExpansion(cx,cy,r){
+  let stretch = warp*22;
+
+  ctx.beginPath();
+  ctx.fillStyle="rgba(80,140,255,0.25)";
+  ctx.ellipse(cx, cy-r*1.1, r*0.45, r*0.75+stretch, 0,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.fillStyle="rgba(0,200,255,0.18)";
+  ctx.ellipse(cx, cy+r*1.2, r*0.55, r*0.95+stretch, 0,0,Math.PI*2);
+  ctx.fill();
+}
+
+function drawReactorGlow(cx,cy,r){
+  let glow=r*0.15+warp*4;
+  let g=ctx.createRadialGradient(cx,cy,glow*0.3,cx,cy,glow);
+  g.addColorStop(0,"rgba(0,255,255,0.6)");
+  g.addColorStop(1,"rgba(0,80,255,0)");
+  ctx.beginPath();
+  ctx.fillStyle=g;
+  ctx.arc(cx,cy,glow,0,Math.PI*2);
+  ctx.fill();
+}
+
+// =========================================
+// MAIN WARP BUBBLE
+// =========================================
+function drawWarpBubble(){
+  const cx=W/2, cy=H/2;
+  const r = 150 + warp*25;
+
+  drawCurvatureWaves(cx,cy,r);
+  drawCompressionExpansion(cx,cy,r);
+
+  let grd = ctx.createRadialGradient(cx,cy,r*0.2,cx,cy,r);
+  grd.addColorStop(0,"rgba(80,150,255,0.65)");
+  grd.addColorStop(1,"rgba(0,0,30,0)");
+  ctx.beginPath();
+  ctx.fillStyle=grd;
+  ctx.arc(cx,cy,r,0,Math.PI*2);
+  ctx.fill();
+
+  drawReactorGlow(cx,cy,r);
+  drawHarmonicArcs(cx,cy,r);
+  drawParticles(cx,cy);
+  drawPulseRings(cx,cy);
+  drawInterference(cx,cy);
+}
+
+// =========================================
+// ENGINE SOUND (OSCILLATOR)
+// =========================================
+let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+let osc = audioCtx.createOscillator();
+let gain = audioCtx.createGain();
+osc.type="sine";
+osc.frequency.value=40;
+gain.gain.value=0.0;
+osc.connect(gain).connect(audioCtx.destination);
+osc.start();
+
+function updateEngineSound(){
+  let freq=40+warp*18+Math.abs(phase-50);
+  osc.frequency.value=freq;
+  let vol=Math.min(0.02+warp*0.01,0.25);
+  gain.gain.value=vol;
+}
+
+// =========================================
+// AUTOPILOT
+// =========================================
+document.getElementById("collapseBtn").onclick = () => {
+  warp = 0; autopilot = false; shockwaveTrigger();
+  document.getElementById("warpFactor").value = 0;
+};
+
+function runAutopilot(){
+  if (!autopilot) return;
+
+  let diff = destCST - phase;
+  phase += diff*0.02;
+  document.getElementById("cstPhase").value = phase;
+
+  if (Math.abs(diff)<10 && warp<9) warp += 0.03;
+
+  let stab = 100 - Math.abs(phase-50)*0.8 - warp*3;
+  if (stab<50) warp-=0.05;
+
+  document.getElementById("warpFactor").value = warp;
+
+  if (stab<10){ warp=0; autopilot=false; shockwaveTrigger(); }
+}
+
+// =========================================
+// CST CLOCK / CURVATURE METERS
+// =========================================
+function updateCSTclock(){
+  let dilation = 1/(1+warp*0.12+Math.abs(phase-50)*0.01);
+  cstClock += dilation*0.01;
+  document.getElementById("cstClock").innerText = cstClock.toFixed(3);
+}
+
+function updateCurvatures(r){
+  let front=warp*0.12+(50-phase)*0.005;
+  let rear =warp*0.18+(phase-50)*0.005;
+  document.getElementById("frontCurv").innerText = front.toFixed(2);
+  document.getElementById("rearCurv").innerText  = rear.toFixed(2);
+}
+
+// =========================================
+// REACTOR HEAT + OVERLOAD
+// =========================================
+let reactorHeat = 0;
+let overloadFlash = 0;
+
+function updateReactorHeat(){
+  reactorHeat += warp*0.05;
+  reactorHeat += Math.abs(phase-50)*0.02;
+  reactorHeat *= 0.995;
+
+  if (reactorHeat>100){
+    overloadFlash=1.0;
+    shakeIntensity=55;
+    warp=0;
+    autopilot=false;
+    shockwaveTrigger();
+  }
+}
+
+function drawReactorHeat(){
+  let x=20, y=H-40, w=180, h=14;
+  ctx.fillStyle="rgba(30,40,60,0.7)";
+  ctx.fillRect(x,y,w,h);
+  let pct = Math.min(reactorHeat,100)/100;
+  ctx.fillStyle=pct>0.7 ? "#ff4444" : "#44aaff";
+  ctx.fillRect(x,y,w*pct,h);
+  ctx.strokeStyle="rgba(200,220,255,0.4)";
+  ctx.strokeRect(x,y,w,h);
+
+  if (overloadFlash>0){
+    ctx.fillStyle=`rgba(255,0,0,${overloadFlash})`;
+    ctx.fillRect(0,0,W,H);
+    overloadFlash*=0.9;
+  }
+}
+
+// =========================================
+// SHOCKWAVE DROPOUT
+// =========================================
+let shockwave = null;
+function shockwaveTrigger(){ shockwave={r:10,a:1.0}; }
+
+function drawShockwave(){
+  if (!shockwave) return;
+  shockwave.r += 25;
+  shockwave.a *= 0.9;
+
+  ctx.beginPath();
+  ctx.strokeStyle=`rgba(100,200,255,${shockwave.a})`;
+  ctx.lineWidth=6;
+  ctx.arc(W/2,H/2,shockwave.r,0,Math.PI*2);
+  ctx.stroke();
+
+  if (shockwave.a<0.02) shockwave=null;
+}
+
+// =========================================
+// UPDATE PANEL STATS
+// =========================================
+function updateStats(){
+  let wv=warp*0.2;
+  document.getElementById("warpVel").innerText = wv.toFixed(2);
+
+  let drift=(phase-50)*0.0002;
+  document.getElementById("driftVal").innerText = drift.toFixed(3);
+
+  let stab=Math.max(5,100-Math.abs(phase-50)*0.8-warp*3);
+  document.getElementById("stabVal").innerText = stab.toFixed(1)+"%";
+}
+
+// =========================================
+// MAIN LOOP
+// =========================================
+function animate(){
+  ctx.save();
+  applyCameraShake();
+
+  t+=0.02;
+
+  drawStars();
+  drawWarpTunnel();
+  drawWarpBubble();
+  updateCurvatures(150+warp*25);
+
+  drawShockwave();
+  updateReactorHeat();
+  drawReactorHeat();
+
+  updateCSTclock();
+  updateStats();
+  runAutopilot();
+  updateEngineSound();
+
+  ctx.restore();
+  requestAnimationFrame(animate);
+}
+animate();
+</script>
+</body>
+</html>
