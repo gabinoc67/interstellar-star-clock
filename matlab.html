@@ -187,6 +187,14 @@
       </div>
     </div>
 
+    <!-- NEW: Slider Explanation Panel -->
+    <div>
+      <div class="group-title">Slider Explanation</div>
+      <div class="status" id="explainText">
+        Adjust Warp, CST Phase φ, and m ↔ E to see how the field and CST clocks respond.
+      </div>
+    </div>
+
     <div>
       <div class="group-title">CST Warp Metrics (Approx)</div>
       <div class="mini-metrics">
@@ -205,6 +213,44 @@
         <div class="metric">
           <div class="label">Core Temp T</div>
           <div class="value" id="metricT">0 K</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- NEW: Reactor Power Metrics -->
+    <div>
+      <div class="group-title">Reactor Power</div>
+      <div class="mini-metrics">
+        <div class="metric">
+          <div class="label">Nuclear Power Pₙ</div>
+          <div class="value" id="metricPn">0.0</div>
+        </div>
+        <div class="metric">
+          <div class="label">Fusion Power P_f</div>
+          <div class="value" id="metricPf">0.0</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- NEW: CST Time Clocks Panel -->
+    <div>
+      <div class="group-title">CST Time Clocks</div>
+      <div class="mini-metrics">
+        <div class="metric">
+          <div class="label">Earth Clock tₑ</div>
+          <div class="value" id="clockEarth">0.0 s</div>
+        </div>
+        <div class="metric">
+          <div class="label">CST Clock t_CST</div>
+          <div class="value" id="clockCST">0.0 s</div>
+        </div>
+        <div class="metric">
+          <div class="label">Ship Clock τ</div>
+          <div class="value" id="clockShip">0.0 s</div>
+        </div>
+        <div class="metric">
+          <div class="label">Δt (CST−Earth)</div>
+          <div class="value" id="clockDrift">0.0 s</div>
         </div>
       </div>
     </div>
@@ -230,6 +276,7 @@
   const phiVal = document.getElementById('phiVal');
   const convVal = document.getElementById('convVal');
   const statusText = document.getElementById('statusText');
+  const explainText = document.getElementById('explainText');
   const startBtn = document.getElementById('startBtn');
   const stopBtn = document.getElementById('stopBtn');
 
@@ -237,6 +284,14 @@
   const metricK = document.getElementById('metricK');
   const metricGrad = document.getElementById('metricGrad');
   const metricT = document.getElementById('metricT');
+
+  const metricPn = document.getElementById('metricPn');
+  const metricPf = document.getElementById('metricPf');
+
+  const clockEarth = document.getElementById('clockEarth');
+  const clockCST  = document.getElementById('clockCST');
+  const clockShip = document.getElementById('clockShip');
+  const clockDrift = document.getElementById('clockDrift');
 
   let running = false;
   startBtn.onclick = () => {
@@ -257,7 +312,13 @@
     const phiDot = 0.02 + 0.005 * warp;
     const mE = 0.5 + 0.5 * ce;
     const T  = 100 + 10 * warp;
-    return { W, K, dKdr, B, phiDot, mE, T };
+
+    // Effective velocity and CST timing (for clocks)
+    const vEff = Math.min(0.92, 0.06 * warp);         // v/c effective
+    const gamma = 1 / Math.sqrt(1 - vEff * vEff);    // relativistic factor
+    const cstRate = 1 + 0.02 * warp * ce;            // CST clock rate vs Earth
+
+    return { W, K, dKdr, B, phiDot, mE, T, vEff, gamma, cstRate };
   }
 
   // Particle system for heavy downward exhaust
@@ -276,6 +337,53 @@
     if (particles.length > maxParticles) particles.shift();
   }
 
+  // CST time clocks (simulation time, stable)
+  let earthTime = 0;  // baseline seconds
+  let cstTime   = 0;  // CST-synchronized time
+  let shipTime  = 0;  // proper time onboard
+  const baseDt  = 0.05; // "seconds" per frame for Earth
+
+  function formatSeconds(t) {
+    return t.toFixed(1) + ' s';
+  }
+
+  function updateExplanation(w, phi, ce, P) {
+    const cosPhi = Math.cos(phi);
+    const sinPhi = Math.sin(phi);
+
+    let warpText;
+    if (w < 2) {
+      warpText = 'low-warp regime (field barely compressed, gentle exhaust).';
+    } else if (w < 5) {
+      warpText = 'mid-warp regime — bubble brightens and curvature gradient increases.';
+    } else if (w < 8) {
+      warpText = 'high-warp regime — strong curvature gradients, heavy downward exhaust.';
+    } else {
+      warpText = 'extreme-warp regime — CST field highly compressed, reactor load intense.';
+    }
+
+    let phiText;
+    if (Math.abs(cosPhi) > Math.abs(sinPhi)) {
+      phiText = 'Most energy sits in the “material channel” (cos φ), stabilizing synthetic mass.';
+    } else {
+      phiText = 'Most energy sits in the “field / radiation channel” (sin φ), strengthening the warp bubble.';
+    }
+
+    let convText;
+    if (ce < 0.3) {
+      convText = 'The m ↔ E converter is throttled low — nuclear power stays mostly as rest mass.';
+    } else if (ce < 0.7) {
+      convText = 'The converter balances mass storage and energy release, keeping CST clocks near Earth time.';
+    } else {
+      convText = 'The converter is near maximum — mass is aggressively converted to field energy, CST time runs faster while ship proper time slows.';
+    }
+
+    explainText.textContent =
+      'Warp slider: ' + warpText + ' ' +
+      'CST Phase φ: ' + phiText + ' ' +
+      'm ↔ E slider: ' + convText;
+  }
+
   let t = 0;
   function loop() {
     requestAnimationFrame(loop);
@@ -289,10 +397,30 @@
     convVal.textContent = ce.toFixed(2);
 
     const P = warpFieldEquations(w, phi, ce);
+
     metricW.textContent = P.W.toFixed(2);
     metricK.textContent = P.K.toFixed(3);
     metricGrad.textContent = P.dKdr.toFixed(3);
     metricT.textContent = P.T.toFixed(0) + ' K';
+
+    // Nuclear & Fusion power (change with sliders)
+    const Pnuc = 100 + 40 * w;                 // arbitrary nuclear power units
+    const Pfus = Pnuc * P.mE * (1.0 + ce);     // fusion output scales with converter & mass-energy factor
+    metricPn.textContent = Pnuc.toFixed(1);
+    metricPf.textContent = Pfus.toFixed(1);
+
+    // Update CST time clocks (stable, always advancing)
+    earthTime += baseDt;
+    cstTime   += baseDt * P.cstRate;
+    shipTime  += baseDt / P.gamma;
+
+    clockEarth.textContent = formatSeconds(earthTime);
+    clockCST.textContent   = formatSeconds(cstTime);
+    clockShip.textContent  = formatSeconds(shipTime);
+    clockDrift.textContent = formatSeconds(cstTime - earthTime);
+
+    // Update slider explanation text
+    updateExplanation(w, phi, ce, P);
 
     if (running) {
       phiSlider.value = (phi + P.phiDot) % (2 * Math.PI);
@@ -354,7 +482,6 @@
     ctx.stroke();
     ctx.restore();
 
-    // Warp core stack
     function roundedRect(x,y,w,h,r,fill,stroke,alpha) {
       ctx.save();
       ctx.globalAlpha = alpha ?? 1;
@@ -532,6 +659,53 @@
       ctx.fill();
       ctx.restore();
     }
+
+    // ===== NEW: TITLE + LABELS WITH LINES =====
+    function labelWithLine(text, xText, yText, xAnchor, yAnchor) {
+      ctx.save();
+      ctx.strokeStyle = "rgba(148,163,184,0.9)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(xText, yText);
+      ctx.lineTo(xAnchor, yAnchor);
+      ctx.stroke();
+
+      ctx.fillStyle = "rgba(226,232,240,0.96)";
+      ctx.font = "11px system-ui";
+      ctx.textAlign = (xText < xAnchor) ? "left" : "right";
+      ctx.fillText(text, xText, yText - 4);
+      ctx.restore();
+    }
+
+    // Diagram title
+    ctx.save();
+    ctx.fillStyle = "rgba(125,211,252,0.95)";
+    ctx.font = "16px system-ui";
+    ctx.textAlign = "center";
+    ctx.fillText("CST–Warp Engine Field Layout (Nuclear + Fusion + CST Time)", 0, -260);
+    ctx.restore();
+
+    // Approximate anchor points (engine space)
+    // Nuclear Reactor center ~ (0,110)
+    labelWithLine("Nuclear Reactor (E = mc² power source)", -320, 150, 0, 110);
+    // Fusion chamber center ~ (0,-120)
+    labelWithLine("Fusion Chamber (plasma gain stage)", -320, -150, 0, -120);
+    // m <-> E converter center ~ (0,0)
+    labelWithLine("m ↔ E Converter (mass–energy loop)", 320, -20, 0, 0);
+    // Synthetic mass bank ~ (0,-55)
+    labelWithLine("Synthetic Mass Bank (Φ_mass)", 320, -80, 0, -55);
+    // Warp coils stack
+    labelWithLine("Warp Coils / CST Rings", -320, -200, 0, -40);
+    // Left nacelle
+    labelWithLine("Left NX Warp Nacelle", -320, 60, -nacelleX, nacelleOffsetY + osc);
+    // Right nacelle
+    labelWithLine("Right NX Warp Nacelle", 320, 60, nacelleX, nacelleOffsetY - osc);
+    // Exhaust
+    labelWithLine("Downward Exhaust (warp plasma stream)", 0, 250, 0, 190);
+    // Curvature hull
+    labelWithLine("Positive / Negative Curvature Hull", 0, -230, 0, -100);
+    // Warp bubble
+    labelWithLine("CST Warp Bubble (shield + field envelope)", 320, -230, bubbleR * 0.6, -40);
 
     ctx.restore();
     t += running ? 16 : 10;
