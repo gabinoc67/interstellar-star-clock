@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Tabletop Torsion-Coherence Prototype Simulator</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #f5f5f7;
+    color: #111827;
+    display: flex;
+    height: 100vh;
+  }
+
+  /* Layout */
+  #diagram {
+    flex: 1.1;
+    padding: 16px;
+    border-right: 1px solid #d1d5db;
+    display: flex;
+    flex-direction: column;
+  }
+  #controls {
+    flex: 1;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  h1 {
+    font-size: 1.2rem;
+    margin: 0 0 10px;
+  }
+  h2 {
+    font-size: 1rem;
+    margin: 0 0 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #4b5563;
+  }
+
+  /* Diagram canvas */
+  .diagram-box {
+    flex: 1;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: #ffffff;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .core {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 180px;
+    height: 120px;
+    transform: translate(-50%, -50%);
+    border-radius: 12px;
+    border: 2px solid #111827;
+    background: #f9fafb;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 8px;
+  }
+  .core-title {
+    font-weight: 700;
+    font-size: 0.85rem;
+    margin-bottom: 4px;
+  }
+  .core-sub {
+    font-size: 0.7rem;
+    line-height: 1.2;
+  }
+
+  .device {
+    position: absolute;
+    padding: 4px 8px;
+    border-radius: 8px;
+    border: 1px solid #111827;
+    background: #f3f4f6;
+    font-size: 0.7rem;
+    max-width: 150px;
+  }
+
+  .device-title {
+    font-weight: 600;
+    display: block;
+    margin-bottom: 2px;
+  }
+
+  .device-small {
+    font-size: 0.65rem;
+  }
+
+  /* Positions */
+  .device.cst-loop    { top: 12%; left: 50%; transform: translateX(-50%); }
+  .device.fluxgate    { top: 25%; left: 8%; }
+  .device.microbol    { top: 70%; left: 8%; }
+  .device.radar       { top: 25%; right: 8%; text-align: right; }
+  .device.accel       { top: 70%; right: 8%; text-align: right; }
+
+  /* Lines from devices to core (simple straight connectors) */
+  .line {
+    position: absolute;
+    background: #111827;
+  }
+
+  .line.fluxgate-h    { top: 30%; left: 26%; width: 20%; height: 1px; }
+  .line.microbol-h    { top: 75%; left: 26%; width: 20%; height: 1px; }
+  .line.radar-h       { top: 30%; right: 26%; width: 20%; height: 1px; }
+  .line.accel-h       { top: 75%; right: 26%; width: 20%; height: 1px; }
+  .line.cst-v         { top: 22%; left: 50%; width: 1px; height: 15%; transform: translateX(-0.5px); }
+
+  .diagram-caption {
+    margin-top: 8px;
+    font-size: 0.75rem;
+    color: #4b5563;
+  }
+
+  /* Controls & Readouts */
+  .control-panel, .readout-panel, .event-panel {
+    border-radius: 8px;
+    border: 1px solid #d1d5db;
+    background: #ffffff;
+    padding: 12px 14px;
+  }
+
+  .row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+  label {
+    font-size: 0.85rem;
+    min-width: 140px;
+  }
+
+  input[type="range"] {
+    flex: 1;
+  }
+
+  button {
+    font-family: inherit;
+    font-size: 0.9rem;
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1px solid #111827;
+    background: #111827;
+    color: #f9fafb;
+    cursor: pointer;
+  }
+  button.secondary {
+    background: #ffffff;
+    color: #111827;
+  }
+  button:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  select {
+    font-family: inherit;
+    font-size: 0.85rem;
+    padding: 4px 8px;
+    border-radius: 999px;
+    border: 1px solid #9ca3af;
+    background: #f9fafb;
+  }
+
+  .status {
+    font-size: 0.85rem;
+    padding: 6px 10px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid #e5e7eb;
+  }
+  .status-indicator {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: #9ca3af;
+  }
+  .status.running .status-indicator {
+    background: #16a34a;
+  }
+  .status.locked .status-indicator {
+    box-shadow: 0 0 0 4px rgba(22,163,74,0.25);
+  }
+  .status.unstable .status-indicator {
+    background: #b91c1c;
+    box-shadow: 0 0 0 4px rgba(220,38,38,0.2);
+  }
+
+  .readouts-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0,1fr));
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .readout {
+    border-radius: 6px;
+    border: 1px solid #e5e7eb;
+    padding: 6px 8px;
+    font-size: 0.8rem;
+  }
+  .readout-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #6b7280;
+    margin-bottom: 2px;
+  }
+  .readout-value {
+    font-family: "SF Mono", ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 0.9rem;
+  }
+
+  .note {
+    font-size: 0.75rem;
+    color: #4b5563;
+    margin-top: 8px;
+  }
+
+  .event-panel {
+    font-size: 0.78rem;
+    max-height: 140px;
+    display: flex;
+    flex-direction: column;
+  }
+  .event-log {
+    margin-top: 6px;
+    padding: 6px;
+    border-radius: 6px;
+    border: 1px solid #e5e7eb;
+    background: #f9fafb;
+    overflow-y: auto;
+    flex: 1;
+  }
+  .event-entry {
+    margin-bottom: 4px;
+  }
+  .event-time {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas;
+    font-size: 0.72rem;
+    color: #6b7280;
+  }
+  .event-msg {
+    margin-left: 4px;
+  }
+
+  .footer {
+    font-size: 0.7rem;
+    color: #6b7280;
+    margin-top: auto;
+  }
+</style>
+</head>
+<body>
+
+<!-- LEFT: DIAGRAM -->
+<section id="diagram">
+  <h1>Tabletop Torsion-Coherence Prototype</h1>
+  <div class="diagram-box">
+    <!-- Core -->
+    <div class="core">
+      <div class="core-title">Chiral Torsion-Coherence Core</div>
+      <div class="core-sub">
+        Ferromagnetic–Piezoelectric Hybrid<br/>
+        Vacuum Symmetry Breaking Lattice
+      </div>
+    </div>
+
+    <!-- Devices -->
+    <div class="device cst-loop">
+      <span class="device-title">CST-Synchronized Phase-Locked Loop</span>
+      <span class="device-small">
+        Temporal coherence control,<br/>drives torsion-coherence activation.
+      </span>
+    </div>
+
+    <div class="device fluxgate">
+      <span class="device-title">Picotesla Fluxgate Magnetometer</span>
+      <span class="device-small">
+        Detects subtle vacuum-induced<br/>magnetic anomalies.
+      </span>
+    </div>
+
+    <div class="device microbol">
+      <span class="device-title">Thermal IR Microbolometer</span>
+      <span class="device-small">
+        Measures temperature spikes<br/>without resistive heating.
+      </span>
+    </div>
+
+    <div class="device radar">
+      <span class="device-title">Radar Interferometric Probe</span>
+      <span class="device-small">
+        Tracks phase shifts in EM waves<br/>without physical motion.
+      </span>
+    </div>
+
+    <div class="device accel">
+      <span class="device-title">Accelerometer in Vacuum Cavity</span>
+      <span class="device-small">
+        Senses curvature-like accelerations<br/>without applied force.
+      </span>
+    </div>
+
+    <!-- Connectors -->
+    <div class="line fluxgate-h"></div>
+    <div class="line microbol-h"></div>
+    <div class="line radar-h"></div>
+    <div class="line accel-h"></div>
+    <div class="line cst-v"></div>
+  </div>
+  <div class="diagram-caption">
+    Schematic layout (not to scale). Geometry is the signal: macroscopic motion is not required.
+  </div>
+</section>
+
+<!-- RIGHT: CONTROLS & READOUTS -->
+<section id="controls">
+  <h2>Control Console</h2>
+  <div class="control-panel">
+    <div class="row">
+      <button id="startBtn">START Torsion-Coherence Run</button>
+      <button id="stopBtn" class="secondary" disabled>STOP</button>
+    </div>
+    <div class="row">
+      <label for="modeSelect">Mode</label>
+      <select id="modeSelect">
+        <option value="stable">Stable Lock (CST Aligned)</option>
+        <option value="unstable">Unstable / Misaligned</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="drive">Core Drive Amplitude</label>
+      <input id="drive" type="range" min="0" max="100" value="35" />
+    </div>
+    <div class="row">
+      <label for="phase">CST Phase Lock (°)</label>
+      <input id="phase" type="range" min="-10" max="10" value="0" />
+    </div>
+    <div class="row">
+      <label for="vacuum">Vacuum Isolation Level</label>
+      <input id="vacuum" type="range" min="0" max="100" value="80" />
+    </div>
+
+    <div class="row" style="margin-top:10px; justify-content:space-between;">
+      <div id="status" class="status">
+        <div class="status-indicator"></div>
+        <span id="statusText">Idle — System Ready</span>
+      </div>
+      <div style="font-size:0.8rem;color:#4b5563;">
+        Geometry Mode: <strong id="geomModeLabel">Stable</strong>
+      </div>
+    </div>
+
+    <div class="note">
+      <strong>Stable Lock:</strong> small, correlated deviations on all sensors.<br/>
+      <strong>Unstable:</strong> noisy, desynchronized signals indicating bad CST alignment or hardware fault.
+    </div>
+  </div>
+
+  <h2>Live Diagnostic Readouts</h2>
+  <div class="readout-panel">
+    <div class="readouts-grid">
+      <div class="readout">
+        <div class="readout-label">Fluxgate</div>
+        <div class="readout-value" id="fluxgateVal">0.00 pT</div>
+      </div>
+      <div class="readout">
+        <div class="readout-label">IR Microbolometer</div>
+        <div class="readout-value" id="tempVal">23.00 °C</div>
+      </div>
+      <div class="readout">
+        <div class="readout-label">Radar Phase Shift</div>
+        <div class="readout-value" id="phaseShiftVal">0.000 rad</div>
+      </div>
+      <div class="readout">
+        <div class="readout-label">Vacuum Accelerometer</div>
+        <div class="readout-value" id="accelVal">0.000 µg</div>
+      </div>
+    </div>
+
+    <div class="note">
+      Target signature in <strong>Stable Lock</strong>:
+      temperature spikes without resistive heating,
+      phase shifts without motion,
+      and curvature-like accelerations without force —
+      all in a controlled, coherent regime.
+    </div>
+  </div>
+
+  <div class="event-panel">
+    <strong>Event Log</strong>
+    <div class="event-log" id="eventLog">
+      <!-- events appear here -->
+    </div>
+  </div>
+
+  <div class="footer">
+    Simulation only — illustrates how a torsion-coherence tabletop rig would look and behave
+    under CST-locked vs misaligned conditions.
+  </div>
+</section>
+
+<script>
+(function() {
+  const startBtn = document.getElementById("startBtn");
+  const stopBtn = document.getElementById("stopBtn");
+  const statusEl = document.getElementById("status");
+  const statusText = document.getElementById("statusText");
+  const geomModeLabel = document.getElementById("geomModeLabel");
+  const modeSelect = document.getElementById("modeSelect");
+
+  const drive = document.getElementById("drive");
+  const phase = document.getElementById("phase");
+  const vacuum = document.getElementById("vacuum");
+
+  const fluxgateVal = document.getElementById("fluxgateVal");
+  const tempVal = document.getElementById("tempVal");
+  const phaseShiftVal = document.getElementById("phaseShiftVal");
+  const accelVal = document.getElementById("accelVal");
+
+  const eventLog = document.getElementById("eventLog");
+
+  let running = false;
+  let t = 0;
+  let timer = null;
+  let lastEventTime = 0;
+
+  function setStatus(text, mode) {
+    statusText.textContent = text;
+    statusEl.classList.remove("running", "locked", "unstable");
+    if (mode === "running") statusEl.classList.add("running");
+    if (mode === "locked") statusEl.classList.add("running", "locked");
+    if (mode === "unstable") statusEl.classList.add("running", "unstable");
+  }
+
+  function baselineValues() {
+    return {
+      flux: 0.0,     // pT
+      temp: 23.0,    // °C
+      phaseShift: 0, // rad
+      accel: 0       // µg
+    };
+  }
+
+  function addEvent(message) {
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString();
+    const entry = document.createElement("div");
+    entry.className = "event-entry";
+    const timeSpan = document.createElement("span");
+    timeSpan.className = "event-time";
+    timeSpan.textContent = "[" + timeStr + "]";
+    const msgSpan = document.createElement("span");
+    msgSpan.className = "event-msg";
+    msgSpan.textContent = " " + message;
+    entry.appendChild(timeSpan);
+    entry.appendChild(msgSpan);
+    eventLog.insertBefore(entry, eventLog.firstChild);
+  }
+
+  function updateReadouts() {
+    t += 0.1;
+
+    const base = baselineValues();
+    const driveFactor = Number(drive.value) / 100;
+    const phaseError = Math.abs(Number(phase.value)) / 10; // 0 → perfect
+    const phaseLock = 1 - phaseError; // 1 → perfect lock
+    const vacuumIso = Number(vacuum.value) / 100;
+
+    const mode = modeSelect.value;
+    const isStable = mode === "stable";
+
+    // Stability: more vacuum isolation = smoother
+    let noiseScale = 1.0 - 0.7 * vacuumIso;
+    if (!isStable) {
+      // Unstable: more noise, more jitter
+      noiseScale += 0.8;
+    }
+
+    if (!running) {
+      fluxgateVal.textContent   = base.flux.toFixed(2) + " pT";
+      tempVal.textContent       = base.temp.toFixed(2) + " °C";
+      phaseShiftVal.textContent = base.phaseShift.toFixed(3) + " rad";
+      accelVal.textContent      = base.accel.toFixed(3) + " µg";
+      return;
+    }
+
+    const osc = Math.sin(t * 1.3);
+    const slow = Math.sin(t * 0.2);
+    const fast = Math.sin(t * 3.7);
+
+    // Fluxgate
+    let flux =
+      base.flux +
+      (0.5 + driveFactor * (isStable ? 3 : 6)) * osc * (isStable ? phaseLock : 1) +
+      (Math.random() - 0.5) * noiseScale * (isStable ? 1 : 3);
+
+    // Temperature
+    let temp =
+      base.temp +
+      (0.05 + driveFactor * (isStable ? 0.4 : 0.8)) * (osc * osc) +
+      (Math.random() - 0.5) * (isStable ? 0.03 : 0.15);
+
+    // Radar phase shift
+    let phaseShift =
+      (0.0005 + (isStable ? 0.003 : 0.01) * driveFactor) * slow * (isStable ? phaseLock : 1) +
+      (Math.random() - 0.5) * 0.0002 * noiseScale * (isStable ? 1 : 5);
+
+    // Accelerometer
+    let accel =
+      (0.001 + (isStable ? 0.01 : 0.03) * driveFactor) * (osc + (isStable ? 0 : 0.3 * fast)) * (isStable ? phaseLock : 1) +
+      (Math.random() - 0.5) * 0.0007 * noiseScale * (isStable ? 1 : 4);
+
+    fluxgateVal.textContent   = flux.toFixed(2) + " pT";
+    tempVal.textContent       = temp.toFixed(2) + " °C";
+    phaseShiftVal.textContent = phaseShift.toFixed(3) + " rad";
+    accelVal.textContent      = accel.toFixed(3) + " µg";
+
+    // Simple anomaly detection & events (rate-limited)
+    if (t - lastEventTime > 2) {
+      let triggered = false;
+
+      // thresholds tuned to show occasional events
+      if (isStable) {
+        if (temp - base.temp > 0.35 && Math.abs(flux) < 2) {
+          addEvent("Non-thermal temperature spike detected (no resistive load change).");
+          triggered = true;
+        } else if (Math.abs(phaseShift) > 0.002 && Math.abs(accel) < 0.004) {
+          addEvent("Radar phase shift without measurable motion — geometric phase anomaly.");
+          triggered = true;
+        } else if (Math.abs(accel) > 0.006) {
+          addEvent("Curvature-like micro-acceleration recorded in vacuum cavity.");
+          triggered = true;
+        }
+      } else {
+        if (Math.abs(phaseShift) > 0.006) {
+          addEvent("Phase instability detected — CST lock likely lost.");
+          triggered = true;
+        } else if (temp - base.temp > 0.7) {
+          addEvent("Thermal spike exceeds safe tolerance — possible resistive or hardware fault.");
+          triggered = true;
+        } else if (Math.abs(flux) > 5) {
+          addEvent("Magnetic noise surge — check ferromagnetic environment and shielding.");
+          triggered = true;
+        }
+      }
+
+      if (triggered) {
+        lastEventTime = t;
+      }
+    }
+  }
+
+  function start() {
+    if (running) return;
+    running = true;
+    t = 0;
+    lastEventTime = 0;
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+
+    if (modeSelect.value === "stable") {
+      setStatus("Running — CST Lock Stable", "locked");
+      geomModeLabel.textContent = "Stable";
+    } else {
+      setStatus("Running — Geometry Unstable / Misaligned", "unstable");
+      geomModeLabel.textContent = "Unstable";
+    }
+
+    timer = setInterval(updateReadouts, 100);
+  }
+
+  function stop() {
+    if (!running) return;
+    running = false;
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    setStatus("Idle — System Ready", "");
+    if (timer) {
+      clearInterval(timer);
+      timer = null;
+    }
+    updateReadouts();
+  }
+
+  startBtn.addEventListener("click", start);
+  stopBtn.addEventListener("click", stop);
+
+  modeSelect.addEventListener("change", () => {
+    if (running) {
+      if (modeSelect.value === "stable") {
+        setStatus("Running — CST Lock Reacquired", "locked");
+        geomModeLabel.textContent = "Stable";
+      } else {
+        setStatus("Running — Geometry Unstable / Misaligned", "unstable");
+        geomModeLabel.textContent = "Unstable";
+      }
+    } else {
+      geomModeLabel.textContent = modeSelect.value === "stable" ? "Stable" : "Unstable";
+    }
+  });
+
+  drive.addEventListener("input", () => {
+    if (running) setStatus("Running — Drive Adjusted", modeSelect.value === "stable" ? "locked" : "unstable");
+  });
+  phase.addEventListener("input", () => {
+    if (running) setStatus("Running — CST Phase Correction", modeSelect.value === "stable" ? "locked" : "unstable");
+  });
+  vacuum.addEventListener("input", () => {
+    if (running) setStatus("Running — Vacuum Isolation Adjusted", modeSelect.value === "stable" ? "locked" : "unstable");
+  });
+
+  // Initialize display
+  updateReadouts();
+})();
+</script>
+</body>
+</html>
