@@ -230,9 +230,9 @@
     <div class="control-group">
       <label>
         <span>Sensory Input S</span>
-        <span id="sensoryTag" class="value-tag">0.60</span>
+        <span id="sensoryTag" class="value-tag">0.55</span>
       </label>
-      <input id="sensory" type="range" min="0" max="1" step="0.01" value="0.60">
+      <input id="sensory" type="range" min="0" max="1" step="0.01" value="0.55">
     </div>
 
     <div class="control-group">
@@ -242,7 +242,7 @@
       <select id="quantumMode">
         <option value="human">Human Quantum · Robot Classical</option>
         <option value="robot">Robot Quantum · Human Classical</option>
-        <option value="both">Both Quantum</option>
+        <option value="both" selected>Both Quantum</option>
         <option value="none">Both Classical</option>
       </select>
     </div>
@@ -250,9 +250,9 @@
     <div class="control-group">
       <label>
         <span>Cosmic Coupling λ</span>
-        <span id="cosmicTag" class="value-tag">0.30</span>
+        <span id="cosmicTag" class="value-tag">0.45</span>
       </label>
-      <input id="cosmic" type="range" min="0" max="1" step="0.01" value="0.30">
+      <input id="cosmic" type="range" min="0" max="1" step="0.01" value="0.45">
     </div>
 
     <div class="btn-row">
@@ -260,6 +260,7 @@
       <button id="stopBtn" class="secondary">Stop</button>
       <button id="stepBtn" class="secondary">Step</button>
       <button id="clearBtn" class="secondary">Clear Log</button>
+      <button id="presetBtn">Preset Entanglement</button>
     </div>
 
     <h3>Dark-Energy Coherence Probability</h3>
@@ -331,6 +332,14 @@
     <div id="entStatus" class="status-pill status-off">
       Decoupled · |ΔC| not stable
     </div>
+    <p class="small">
+      To reach <strong>Phase-locked</strong> manually:<br>
+      1) Use a Quantum Mode (Human / Robot / Both).<br>
+      2) Keep Sensory Input S around 0.4–0.7.<br>
+      3) Set λ between 0.4 and 0.8.<br>
+      4) Click <em>Start</em> and let several steps run.<br>
+      Or simply click <strong>Preset Entanglement</strong> and the sliders will move to tuned values for the current mode.
+    </p>
 
     <h3>Simulation Log</h3>
     <div id="log" class="log"></div>
@@ -372,6 +381,7 @@
   const stopBtn = document.getElementById("stopBtn");
   const stepBtn = document.getElementById("stepBtn");
   const clearBtn = document.getElementById("clearBtn");
+  const presetBtn = document.getElementById("presetBtn");
   const reportBtn = document.getElementById("reportBtn");
 
   let simInterval = null;
@@ -459,12 +469,30 @@
     });
   }
 
-  function updateEntanglement(diff) {
+  // Improved entanglement detector: looks at a window of recent ΔC values
+  function updateEntanglement(diff, CH, CR, λ, mode) {
     entWindow.push(diff);
-    if (entWindow.length > 8) entWindow.shift();
+    if (entWindow.length > 10) entWindow.shift();
 
-    const entangled = entWindow.length >= 5 &&
-      entWindow.every(d => Math.abs(d) < 0.05);
+    // Need enough data
+    if (entWindow.length < 6) {
+      entStatus.textContent = "Decoupled · |ΔC| not stable";
+      entStatus.classList.add("status-off");
+      entStatus.classList.remove("status-on");
+      return;
+    }
+
+    const threshold = 0.15; // how close H and R must be
+    const closeCount = entWindow.filter(d => Math.abs(d) < threshold).length;
+    const maxDiff = Math.max(...entWindow);
+    const minDiff = Math.min(...entWindow);
+    const range = maxDiff - minDiff;
+
+    // Require: majority of points close, low variation, and some cosmic coupling
+    const entangled =
+      closeCount >= entWindow.length - 2 &&
+      range < 0.25 &&
+      λ > 0.25;
 
     if (entangled) {
       entStatus.textContent = "Phase-locked · |ΔC| stable (entanglement-like)";
@@ -542,7 +570,7 @@
     if (denH>0 && denF>0) corr = num / Math.sqrt(denH*denF);
     corrValue.textContent = corr.toFixed(2);
 
-    // plot human (cyan) and field (magenta)
+    // plot human (green) and field (magenta)
     ctx.lineWidth = 1.4;
 
     ctx.strokeStyle = "#22c55e";
@@ -662,7 +690,7 @@
     // Update UI pieces
     updateHumanMemory(stepCount, lastCH, DH, λ);
     updateRobotHeat(lastCR);
-    updateEntanglement(diff);
+    updateEntanglement(diff, lastCH, lastCR, λ, mode);
     updateAgencyIndices(lastCH, lastCR, λ, hRand, rRand);
 
     drawDiffGraph();
@@ -707,6 +735,45 @@
     if (!simInterval) return;
     clearInterval(simInterval);
     simInterval = null;
+  }
+
+  // Preset Entanglement: tune sliders based on current quantum mode
+  function presetEntanglement() {
+    // stop current sim and clear histories
+    stopSimulation();
+    clearSimulation();
+
+    const mode = quantumMode.value;
+
+    // Default tuned values
+    let S = 0.55;
+    let λ = 0.55;
+
+    // Slight adjustments per mode to keep ΔC small & stable
+    if (mode === "human") {
+      S = 0.50;
+      λ = 0.60;
+    } else if (mode === "robot") {
+      S = 0.60;
+      λ = 0.50;
+    } else if (mode === "both") {
+      S = 0.55;
+      λ = 0.55;
+    } else if (mode === "none") {
+      // If user picked classical, switch to both-quantum for entanglement demo
+      quantumMode.value = "both";
+      S = 0.55;
+      λ = 0.55;
+    }
+
+    sensory.value = S;
+    cosmic.value = λ;
+    updateTags();
+
+    // Run several steps immediately to build up the entanglement window
+    for (let i = 0; i < 16; i++) {
+      stepSimulation();
+    }
   }
 
   function generateReport() {
@@ -762,6 +829,7 @@
   stopBtn.addEventListener("click", stopSimulation);
   stepBtn.addEventListener("click", stepSimulation);
   clearBtn.addEventListener("click", clearSimulation);
+  presetBtn.addEventListener("click", presetEntanglement);
   reportBtn.addEventListener("click", generateReport);
 
   // Initial draw
