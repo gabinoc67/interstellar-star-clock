@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Hexagon Saturation → Regulation Simulator</title>
+  <style>
+    body { margin:0; font-family: system-ui, Segoe UI, Arial; background:#0b0f14; color:#e8eef6; }
+    .wrap { display:grid; grid-template-columns: 360px 1fr; gap:12px; padding:12px; }
+    .panel { background:#101823; border:1px solid #1f2c3c; border-radius:12px; padding:12px; }
+    .panel h2 { margin:0 0 10px; font-size:16px; }
+    .row { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0; }
+    button {
+      background:#1a2a3d; color:#e8eef6; border:1px solid #2d4764;
+      border-radius:10px; padding:8px 10px; cursor:pointer;
+    }
+    button:hover { background:#233a55; }
+    button:disabled { opacity:.5; cursor:not-allowed; }
+    label { display:block; font-size:12px; opacity:.9; margin-top:8px; }
+    input[type="range"] { width:100%; }
+    .small { font-size:12px; opacity:.9; line-height:1.35; }
+    .log {
+      height:260px; overflow:auto; padding:10px; background:#0c131d;
+      border:1px solid #1f2c3c; border-radius:10px; font-size:12px; line-height:1.35;
+      white-space:pre-wrap;
+    }
+    canvas { width:100%; height:calc(100vh - 24px); background:#070a0f; border-radius:12px; border:1px solid #1f2c3c; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; border:1px solid #2d4764; background:#0c131d; font-size:12px; margin-right:6px;}
+    .eq { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background:#0c131d; border:1px solid #1f2c3c; border-radius:10px; padding:8px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="panel">
+      <h2>Hexagon Saturation → Regulation</h2>
+
+      <div class="row">
+        <button id="add1">+ Add 1 ring</button>
+        <button id="add5">+ Add 5 rings</button>
+        <button id="step">Step</button>
+        <button id="reset">Reset</button>
+      </div>
+
+      <div class="row">
+        <span class="pill" id="ringsPill">Rings: 0</span>
+        <span class="pill" id="cellsPill">Hexes: 1</span>
+        <span class="pill" id="modePill">Mode: Geometry</span>
+      </div>
+
+      <label>Local spacing (hex size): <span id="sizeVal">18</span></label>
+      <input id="size" type="range" min="10" max="34" value="18" />
+
+      <label>Container radius (global limit): <span id="RVal">240</span></label>
+      <input id="R" type="range" min="140" max="420" value="240" />
+
+      <label>Regulation strength (how hard compression applies): <span id="kVal">1.00</span></label>
+      <input id="k" type="range" min="0" max="200" value="100" />
+
+      <div style="margin-top:10px" class="small">
+        <div><b>What you’ll see:</b></div>
+        <ul>
+          <li><b>Geometry stage:</b> local hex spacing stays exact; patch expands normally.</li>
+          <li><b>Saturation:</b> when growth would exceed the container radius, it doesn’t “break.”</li>
+          <li><b>Regulation stage:</b> a global compression rescales positions to fit, while local rule stays readable.</li>
+        </ul>
+      </div>
+
+      <div style="margin-top:10px" class="small">
+        <div><b>Regulation equation (bypasses the “6 limit” by moving the constraint):</b></div>
+        <div class="eq" id="eqBox"></div>
+        <div class="small" style="margin-top:6px">
+          Interpretation: we don’t add new orthogonal directions. We <b>regulate capacity</b> by compressing global scale so expansion can continue.
+        </div>
+      </div>
+
+      <div style="margin-top:10px"><b>Step Log</b></div>
+      <div class="log" id="log"></div>
+    </div>
+
+    <canvas id="c"></canvas>
+  </div>
+
+<script>
+(() => {
+  // ===== Hex math (axial coords) =====
+  // axial (q, r) with implicit s = -q-r
+  const dirs = [
+    [1, 0], [1, -1], [0, -1],
+    [-1, 0], [-1, 1], [0, 1]
+  ];
+
+  function key(q,r){ return q + "," + r; }
+
+  function hexRing(radius){
+    // returns axial coords of ring at distance=radius
+    // classic algorithm: start at (dir4 * radius) then walk 6 sides
+    if(radius === 0) return [[0,0]];
+    let q = dirs[4][0] * radius;
+    let r = dirs[4][1] * radius;
+    const out = [];
+    for(let side=0; side<6; side++){
+      const [dq, dr] = dirs[side];
+      for(let step=0; step<radius; step++){
+        out.push([q,r]);
+        q += dq; r += dr;
+      }
+    }
+    return out;
+  }
+
+  function axialToPixel(q, r, size){
+    // pointy-top hex layout
+    const x = size * (Math.sqrt(3) * q + Math.sqrt(3)/2 * r);
+    const y = size * (3/2 * r);
+    return [x,y];
+  }
+
+  function polygonHex(x,y,size){
+    const pts = [];
+    for(let i=0;i<6;i++){
+      const ang = (Math.PI/180) * (60*i - 30);
+      pts.push([x + size*Math.cos(ang), y + size*Math.sin(ang)]);
+    }
+    return pts;
+  }
+
+  // ===== Simulation state =====
+  let rings = 0;
+  const cells = new Map(); // key -> {q,r}
+  cells.set(key(0,0), {q:0,r:0});
+
+  // staged step machine
+  // each "Step" will do: (1) attempt growth, (2) detect saturation, (3) apply regulation
+  let pendingRingsToAdd = 0;
+
+  // UI
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+  const logEl = document.getElementById("log");
+  const ringsPill = document.getElementById("ringsPill");
+  const cellsPill = document.getElementById("cellsPill");
+  const modePill  = document.getElementById("modePill");
+  const sizeEl = document.getElementById("size");
+  const REl = document.getElementById("R");
+  const kEl = document.getElementById("k");
+  const sizeVal = document.getElementById("sizeVal");
+  const RVal = document.getElementById("RVal");
+  const kVal = document.getElementById("kVal");
+  const eqBox = document.getElementById("eqBox");
+
+  function log(line){
+    logEl.textContent += line + "\n";
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function resize(){
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    canvas.width  = Math.floor(canvas.clientWidth * dpr);
+    canvas.height = Math.floor(canvas.clientHeight * dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    draw();
+  }
+  window.addEventListener("resize", resize);
+
+  function updateEq(){
+    const R = +REl.value;
+    const k = (+kEl.value)/100;
+    eqBox.textContent =
+`Let r_max = max distance of any hex center from origin.
+
+If r_max <= R : (Geometry mode)
+    positions stay unscaled.
+
+If r_max > R : (Regulation mode)
+    scale factor s = (R / r_max)^k
+    x' = s x
+    y' = s y
+
+This keeps local 6-neighbor spacing readable,
+while global capacity grows without “breaking”.`;
+  }
+
+  function stats(){
+    ringsPill.textContent = "Rings: " + rings;
+    cellsPill.textContent = "Hexes: " + cells.size;
+  }
+
+  // ===== Growth + Regulation =====
+  function addRing(){
+    rings += 1;
+    const ringCells = hexRing(rings);
+    let added = 0;
+    for(const [q,r] of ringCells){
+      const K = key(q,r);
+      if(!cells.has(K)){
+        cells.set(K, {q,r});
+        added++;
+      }
+    }
+    return added;
+  }
+
+  function computeMaxRadius(size){
+    let maxD = 0;
+    for(const {q,r} of cells.values()){
+      const [x,y] = axialToPixel(q,r,size);
+      const d = Math.hypot(x,y);
+      if(d > maxD) maxD = d;
+    }
+    return maxD;
+  }
+
+  function computeScale(size, R, k){
+    const rMax = computeMaxRadius(size);
+    if(rMax <= R) return {s:1, rMax};
+    // regulation: compress globally
+    const s = Math.pow(R / rMax, k);
+    return {s, rMax};
+  }
+
+  // ===== Drawing =====
+  function draw(){
+    const size = +sizeEl.value;
+    const R = +REl.value;
+    const k = (+kEl.value)/100;
+
+    sizeVal.textContent = size;
+    RVal.textContent = R;
+    kVal.textContent = k.toFixed(2);
+    updateEq();
+    stats();
+
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+
+    ctx.clearRect(0,0,w,h);
+
+    // background grid faint
+    ctx.globalAlpha = 0.35;
+    ctx.strokeStyle = "#1f2c3c";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for(let gx=0; gx<w; gx+=40){ ctx.moveTo(gx,0); ctx.lineTo(gx,h); }
+    for(let gy=0; gy<h; gy+=40){ ctx.moveTo(0,gy); ctx.lineTo(w,gy); }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // origin
+    const cx = w/2;
+    const cy = h/2;
+
+    // container circle
+    ctx.strokeStyle = "#3a5678";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI*2);
+    ctx.stroke();
+
+    // compute regulation
+    const {s, rMax} = computeScale(size, R, k);
+    const regulated = (s < 0.999999);
+
+    modePill.textContent = "Mode: " + (regulated ? "Regulation" : "Geometry");
+    modePill.style.borderColor = regulated ? "#b68b2e" : "#2d4764";
+    modePill.style.background = regulated ? "#221a0a" : "#0c131d";
+
+    // draw cells
+    for(const {q,r} of cells.values()){
+      const [x0,y0] = axialToPixel(q,r,size);
+      const x = cx + s*x0;
+      const y = cy + s*y0;
+
+      const pts = polygonHex(x,y, s*size*0.98);
+
+      // fill
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0], pts[i][1]);
+      ctx.closePath();
+
+      // color rules: interior vs boundary estimate by axial distance
+      const dist = (Math.abs(q) + Math.abs(r) + Math.abs(-q-r)) / 2;
+      const isBoundary = (dist === rings);
+
+      ctx.fillStyle = isBoundary ? "#0f2236" : "#0d1a2a";
+      ctx.fill();
+
+      ctx.strokeStyle = isBoundary ? "#8aa7c8" : "#456784";
+      ctx.lineWidth = isBoundary ? 1.6 : 1;
+      ctx.stroke();
+    }
+
+    // show saturation diagnostic
+    ctx.fillStyle = "#e8eef6";
+    ctx.font = "12px system-ui, Segoe UI, Arial";
+    const msg = regulated
+      ? `Saturation detected: r_max=${rMax.toFixed(1)} > R=${R}. Regulation applied: scale s=${s.toFixed(3)}`
+      : `No saturation: r_max=${rMax.toFixed(1)} <= R=${R}. Pure geometry growth.`;
+    ctx.fillText(msg, 14, 18);
+  }
+
+  // ===== Step logic =====
+  function doStep(){
+    const size = +sizeEl.value;
+    const R = +REl.value;
+    const k = (+kEl.value)/100;
+
+    if(pendingRingsToAdd <= 0){
+      // default: add 1 ring per step if nothing queued
+      pendingRingsToAdd = 1;
+    }
+
+    // Step 1: add exactly one ring from the pending queue
+    pendingRingsToAdd -= 1;
+    const added = addRing();
+    log(`STEP: Added ring ${rings}. New hexes added: ${added}. Total hexes: ${cells.size}.`);
+
+    // Step 2: check saturation
+    const rMax = computeMaxRadius(size);
+    if(rMax <= R){
+      log(`CHECK: r_max=${rMax.toFixed(2)} <= R=${R}. Geometry alone is sufficient. Local 6-rule remains exact.`);
+      log(`RESULT: Expansion continues with no contradiction (boundary simply grows).`);
+    } else {
+      // Step 3: regulation takes over (global constraint)
+      const s = Math.pow(R / rMax, k);
+      log(`CHECK: r_max=${rMax.toFixed(2)} > R=${R}. Orthogonal expansion is saturated (not failed).`);
+      log(`TAKEOVER: Regulation engages via scale s=(R/r_max)^k = (${R}/${rMax.toFixed(2)})^${k.toFixed(2)} = ${s.toFixed(4)}.`);
+      log(`EFFECT: Global compression keeps the entire patch inside the container, while local hex structure stays readable.`);
+      log(`NOTE: Geometry still "rules locally" (same neighbor lattice), but regulation rules globally (capacity constraint).`);
+    }
+
+    log("—");
+    draw();
+  }
+
+  // ===== Controls =====
+  document.getElementById("add1").addEventListener("click", () => {
+    pendingRingsToAdd += 1;
+    doStep();
+  });
+  document.getElementById("add5").addEventListener("click", () => {
+    pendingRingsToAdd += 5;
+    doStep();
+  });
+  document.getElementById("step").addEventListener("click", () => doStep());
+  document.getElementById("reset").addEventListener("click", () => {
+    rings = 0;
+    cells.clear();
+    cells.set(key(0,0), {q:0,r:0});
+    pendingRingsToAdd = 0;
+    logEl.textContent = "";
+    log("RESET: Back to 1 hex (ring 0). Geometry mode.");
+    log("—");
+    draw();
+  });
+
+  sizeEl.addEventListener("input", draw);
+  REl.addEventListener("input", draw);
+  kEl.addEventListener("input", draw);
+
+  // init
+  log("RESET: Back to 1 hex (ring 0). Geometry mode.");
+  log("Press '+ Add 1 ring' or 'Step' to grow. Watch when regulation activates.");
+  log("—");
+  resize();
+})();
+</script>
+</body>
+</html>
