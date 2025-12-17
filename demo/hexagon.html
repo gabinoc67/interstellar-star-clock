@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Polygon Coherence: N-Side Boundary + Regulation (k)</title>
+<title>Hexagon Fix: Boundary Refinement (6→7→…→Circle) + Regulation (k)</title>
 <style>
   :root{
     --bg:#0b0f14; --panel:#101823; --panel2:#0c131d; --line:#1f2c3c;
@@ -56,7 +56,6 @@
     height:100%;width:0%;
     background:linear-gradient(90deg,#3a5678,#b68b2e,#ff7a18);
   }
-
   .box{
     background:var(--panel2);
     border:1px solid var(--line);
@@ -82,68 +81,46 @@
 <div class="wrap">
 
   <div class="panel">
-    <h2>Polygon Coherence: N-Side Boundary → Regulation (k)</h2>
+    <h2>Hexagon Fix: one shape, refine boundary (6→7→8→…→circle-like)</h2>
 
     <div class="row">
-      <button id="addRing1">+ Add 1 ring</button>
-      <button id="addRing3">+ Add 3 rings</button>
-      <button id="step">Step</button>
-      <button id="reset">Reset</button>
+      <button id="step">+1 side</button>
+      <button id="step5">+5 sides</button>
+      <button id="reset">Reset (N=6)</button>
+      <button id="auto">Auto → circle mirror</button>
     </div>
 
     <div class="row">
-      <span class="pill" id="ringsPill">Rings: 0</span>
-      <span class="pill" id="cellsPill">Cells: 1</span>
+      <span class="pill" id="nPill">N: 6</span>
       <span class="pill" id="modePill">Mode: Geometry</span>
+      <span class="pill" id="matchPill">Match: —</span>
     </div>
 
-    <label>Cell size: <span id="sizeVal"></span></label>
-    <input id="size" type="range" min="12" max="34" value="18" />
+    <label>Polygon sides N (6=hexagon, 7=heptagon, …): <span id="nVal"></span></label>
+    <input id="N" type="range" min="6" max="240" step="1" value="6" />
 
-    <label>Container radius R (domain): <span id="RVal"></span></label>
-    <input id="R" type="range" min="160" max="460" value="240" />
+    <label>Polygon “intent radius” a (tries to be this big): <span id="aVal"></span></label>
+    <input id="a" type="range" min="80" max="420" value="260" />
+
+    <label>Container radius R (domain circle): <span id="RVal"></span></label>
+    <input id="R" type="range" min="160" max="520" value="300" />
 
     <label>Regulation strength k (compression strength):</label>
-    <input id="k" type="range" min="0.50" max="2.50" step="0.01" value="0.94" />
+    <input id="k" type="range" min="0.50" max="2.50" step="0.01" value="1.10" />
 
     <div class="kbox">
       <div class="kTop">
         <div class="kHint"><b>Strength</b> (k)</div>
-        <div class="kBig" id="kBig">0.94</div>
+        <div class="kBig" id="kBig">1.10</div>
       </div>
       <div class="meter"><div class="meterFill" id="kFill"></div></div>
       <div class="kHint" id="kText" style="margin-top:6px;"></div>
     </div>
 
-    <h3>Boundary “lines” now change the shape (6 → 7 → 8 → …)</h3>
-    <div class="box">
-      <div class="row" style="align-items:center;justify-content:space-between;">
-        <div class="small">
-          Sides = corners = <b>N</b> (polygon).<br>
-          Set N=6 for a hexagon, N=7 for a 7-gon, etc.
-        </div>
-        <div class="bigNum" id="nBig">6</div>
-      </div>
-
-      <div class="row">
-        <button id="nMinus">-1</button>
-        <button id="nPlus">+1</button>
-        <button id="nPlus5">+5</button>
-        <button id="nSet6">6</button>
-        <button id="nAuto">Auto ↑ toward circle</button>
-      </div>
-
-      <label>Polygon sides N: <span id="nVal"></span></label>
-      <input id="N" type="range" min="3" max="120" step="1" value="6" />
-
-      <div class="small" style="margin-top:6px;">
-        Coherence is still enforced by the circle domain; regulation compresses only when growth would exceed R.
-      </div>
-    </div>
-
     <div class="warn small" style="margin-top:10px;">
-      Interpretation: you can increase boundary complexity (N) while keeping the whole patch coherent in the same domain.
-      If the patch would exceed the circle, regulation (k) applies a global scale factor s.
+      <b>Hexagon Fix mapping:</b> N=6 is the closed planar frame. Increasing N is not a “7th axis” inside the plane — it’s
+      boundary refinement that converges to a circular constraint (new embedding behavior). Regulation (k) clamps only when
+      the boundary would exceed the domain R.
     </div>
 
     <h3>Step log</h3>
@@ -155,38 +132,35 @@
 
 <script>
 (() => {
-  // ===== Hex grid (axial coords) =====
-  const dirs = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
-  const key  = (q,r)=> `${q},${r}`;
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
 
-  function hexRing(radius){
-    if(radius===0) return [[0,0]];
-    let q = dirs[4][0]*radius;
-    let r = dirs[4][1]*radius;
-    const out=[];
-    for(let side=0; side<6; side++){
-      const [dq,dr]=dirs[side];
-      for(let step=0; step<radius; step++){
-        out.push([q,r]);
-        q += dq; r += dr;
-      }
-    }
-    return out;
-  }
+  const NEl = document.getElementById("N");
+  const aEl = document.getElementById("a");
+  const REl = document.getElementById("R");
+  const kEl = document.getElementById("k");
 
-  function axialToPixel(q,r,size){
-    // pointy-top layout
-    return [
-      size*(Math.sqrt(3)*q + Math.sqrt(3)/2*r),
-      size*(3/2*r)
-    ];
-  }
+  const nVal = document.getElementById("nVal");
+  const aVal = document.getElementById("aVal");
+  const RVal = document.getElementById("RVal");
 
-  // ===== N-gon vertices (N sides => N corners) =====
+  const nPill = document.getElementById("nPill");
+  const modePill = document.getElementById("modePill");
+  const matchPill = document.getElementById("matchPill");
+
+  const kBig  = document.getElementById("kBig");
+  const kFill = document.getElementById("kFill");
+  const kText = document.getElementById("kText");
+
+  const logEl = document.getElementById("log");
+  const log = (t)=>{ logEl.textContent += t + "\n"; logEl.scrollTop = logEl.scrollHeight; };
+
+  function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
+
+  // Regular N-gon vertices on circumradius rad
   function polygonVertices(cx, cy, rad, n){
     const pts=[];
-    // keep the same "pointy-top" feel as your original (-30° offset)
-    const offset = -Math.PI/6;
+    const offset = -Math.PI/6; // keeps a “pointy” feel near N=6
     for(let i=0;i<n;i++){
       const ang = (Math.PI*2)*(i/n) + offset;
       pts.push([cx + rad*Math.cos(ang), cy + rad*Math.sin(ang)]);
@@ -194,7 +168,7 @@
     return pts;
   }
 
-  function fillAndStrokePolygon(pts){
+  function drawPolygon(pts){
     ctx.beginPath();
     ctx.moveTo(pts[0][0], pts[0][1]);
     for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0], pts[i][1]);
@@ -203,103 +177,55 @@
     ctx.stroke();
   }
 
-  // ===== State =====
-  let rings = 0;
-  const cells = new Map();
-  cells.set(key(0,0), {q:0,r:0});
-
-  // ===== UI =====
-  const canvas = document.getElementById("c");
-  const ctx = canvas.getContext("2d");
-
-  const sizeEl = document.getElementById("size");
-  const REl    = document.getElementById("R");
-  const kEl    = document.getElementById("k");
-  const nEl    = document.getElementById("N");
-
-  const sizeVal= document.getElementById("sizeVal");
-  const RVal   = document.getElementById("RVal");
-  const ringsPill=document.getElementById("ringsPill");
-  const cellsPill=document.getElementById("cellsPill");
-  const modePill =document.getElementById("modePill");
-
-  const kBig  = document.getElementById("kBig");
-  const kFill = document.getElementById("kFill");
-  const kText = document.getElementById("kText");
-
-  const nBig = document.getElementById("nBig");
-  const nVal = document.getElementById("nVal");
-
-  const logEl = document.getElementById("log");
-  const log = (t)=>{ logEl.textContent += t + "\n"; logEl.scrollTop = logEl.scrollHeight; };
-
-  function updatePills(regulated){
-    ringsPill.textContent = "Rings: " + rings;
-    cellsPill.textContent = "Cells: " + cells.size;
-    modePill.textContent = "Mode: " + (regulated ? "Regulation" : "Geometry");
-    modePill.style.borderColor = regulated ? "#b68b2e" : "#2d4764";
-    modePill.style.background  = regulated ? "#221a0a" : "#0c131d";
-  }
-
   function updateKUI(regulated){
     const k = parseFloat(kEl.value);
     kBig.textContent = k.toFixed(2);
 
-    const pct = Math.max(0, Math.min(100, ((k - 0.50) / 2.00) * 100));
+    const pct = clamp(((k - 0.50) / 2.00) * 100, 0, 100);
     kFill.style.width = pct.toFixed(1) + "%";
 
-    let label = "Soft compression.";
-    if(k >= 1.00 && k < 1.50) label = "Balanced regulation.";
-    if(k >= 1.50 && k < 2.10) label = "Strong regulation.";
+    let label = "Soft clamp (gentle regulation).";
+    if(k >= 1.00 && k < 1.50) label = "Balanced clamp.";
+    if(k >= 1.50 && k < 2.10) label = "Strong clamp.";
     if(k >= 2.10) label = "Very strong clamp.";
     if(regulated) label += " (ACTIVE)";
     kText.textContent = label;
   }
 
-  function updateNUI(){
-    const N = parseInt(nEl.value,10);
-    nBig.textContent = String(N);
-    nVal.textContent = String(N);
+  function updatePills(regulated, N, matchPct){
+    nPill.textContent = `N: ${N}`;
+    modePill.textContent = `Mode: ${regulated ? "Regulation" : "Geometry"}`;
+    modePill.style.borderColor = regulated ? "#b68b2e" : "#2d4764";
+    modePill.style.background  = regulated ? "#221a0a" : "#0c131d";
+    matchPill.textContent = `Match: ${matchPct.toFixed(1)}%`;
   }
 
-  // ===== Growth + Regulation =====
-  function addRing(){
-    rings++;
-    let added=0;
-    for(const [q,r] of hexRing(rings)){
-      const K=key(q,r);
-      if(!cells.has(K)){ cells.set(K,{q,r}); added++; }
-    }
-    return added;
+  // How “circle-like” is a regular N-gon vs its circumcircle?
+  // Using area ratio: A_ngon / A_circle = (N sin(2π/N)) / (2π)
+  function circleMatchPercent(N){
+    const ratio = (N * Math.sin((2*Math.PI)/N)) / (2*Math.PI);
+    return 100 * ratio; // 100% => perfect circle (limit)
   }
 
-  function maxRadius(size){
-    let m=0;
-    for(const {q,r} of cells.values()){
-      const [x,y]=axialToPixel(q,r,size);
-      m = Math.max(m, Math.hypot(x,y));
-    }
-    return m;
-  }
-
-  function computeScale(size,R,k){
-    const rMax = maxRadius(size);
-    if(rMax <= R) return {s:1, rMax};
-    return {s: Math.pow(R/rMax, k), rMax};
+  // Regulation: polygon "wants" circumradius = a, but must stay <= R.
+  // If a > R, clamp by scale s = (R/a)^k, final radius = a*s.
+  function regulatedRadius(a, R, k){
+    if(a <= R) return { rad: a, regulated:false, s:1.0 };
+    const s = Math.pow(R / a, k);
+    return { rad: a * s, regulated:true, s };
   }
 
   function strokeForK(regulated, k){
-    const t = Math.max(0, Math.min(1, (k - 0.50)/2.00));
+    const t = clamp((k - 0.50)/2.00, 0, 1);
     const cool = {r:69,g:103,b:132};
     const warm = {r:182,g:139,b:46};
     const r = Math.round(cool.r*(1-t) + warm.r*t);
     const g = Math.round(cool.g*(1-t) + warm.g*t);
     const b = Math.round(cool.b*(1-t) + warm.b*t);
-    const a = regulated ? (0.70 + 0.20*t) : (0.55 + 0.20*t);
+    const a = regulated ? (0.75 + 0.20*t) : (0.55 + 0.20*t);
     return `rgba(${r},${g},${b},${a})`;
   }
 
-  // ===== Render =====
   function resize(){
     const dpr=Math.max(1, window.devicePixelRatio || 1);
     canvas.width=Math.floor(canvas.clientWidth*dpr);
@@ -310,20 +236,20 @@
   window.addEventListener("resize", resize);
 
   function draw(){
-    const size = +sizeEl.value;
-    const R = +REl.value;
+    const N = parseInt(NEl.value,10);
+    const a = +aEl.value;     // intended radius
+    const R = +REl.value;     // domain radius
     const k = parseFloat(kEl.value);
-    const N = parseInt(nEl.value,10);
 
-    sizeVal.textContent = size;
+    nVal.textContent = N;
+    aVal.textContent = a;
     RVal.textContent = R;
-    updateNUI();
 
     const w=canvas.clientWidth, h=canvas.clientHeight;
     ctx.clearRect(0,0,w,h);
 
     // faint grid
-    ctx.globalAlpha = 0.35;
+    ctx.globalAlpha = 0.30;
     ctx.strokeStyle = "#1f2c3c";
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -332,124 +258,107 @@
     ctx.stroke();
     ctx.globalAlpha = 1;
 
-    const cx0=w/2, cy0=h/2;
+    const cx=w/2, cy=h/2;
 
     // domain circle
     ctx.strokeStyle="#3a5678";
     ctx.lineWidth=2;
     ctx.beginPath();
-    ctx.arc(cx0,cy0,R,0,Math.PI*2);
+    ctx.arc(cx,cy,R,0,Math.PI*2);
     ctx.stroke();
 
-    // regulation
-    const {s, rMax} = computeScale(size,R,k);
-    const regulated = s < 0.999999;
-    updatePills(regulated);
-    updateKUI(regulated);
+    // regulation clamp
+    const rr = regulatedRadius(a, R, k);
+    updateKUI(rr.regulated);
 
-    // draw all cells: fill + N-gon boundary
-    for(const {q,r} of cells.values()){
-      const [x0,y0]=axialToPixel(q,r,size);
-      const cx = cx0 + s*x0;
-      const cy = cy0 + s*y0;
+    const matchPct = circleMatchPercent(N);
+    updatePills(rr.regulated, N, matchPct);
 
-      const dist=(Math.abs(q)+Math.abs(r)+Math.abs(-q-r))/2;
-      const isBoundary = dist === rings;
+    // polygon
+    const pts = polygonVertices(cx, cy, rr.rad, N);
 
-      const rad = s*size*0.98;
-      const pts = polygonVertices(cx,cy,rad,N);
+    ctx.fillStyle = rr.regulated ? "#0f2236" : "#0d1a2a";
+    ctx.strokeStyle = strokeForK(rr.regulated, k);
+    ctx.lineWidth = 2;
+    drawPolygon(pts);
 
-      ctx.fillStyle = isBoundary ? "#0f2236" : "#0d1a2a";
-      ctx.strokeStyle = strokeForK(regulated, k);
-      ctx.lineWidth = isBoundary ? 1.8 : 1.05;
+    // “mirror” overlay: show a faint circle at polygon radius so you can see convergence
+    ctx.globalAlpha = 0.45;
+    ctx.strokeStyle = "rgba(232,238,246,0.35)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(cx,cy,rr.rad,0,Math.PI*2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
 
-      fillAndStrokePolygon(pts);
-    }
-
-    // overlay diagnostics
+    // diagnostics text
     ctx.fillStyle="#e8eef6";
     ctx.font="12px system-ui, Segoe UI, Arial";
-    const msg = regulated
-      ? `Saturation: r_max=${rMax.toFixed(1)} > R=${R} → Regulation ON (s=${s.toFixed(3)}, k=${k.toFixed(2)})`
-      : `No saturation: r_max=${rMax.toFixed(1)} <= R=${R} → Geometry ON (s=1.000, k=${k.toFixed(2)})`;
-    ctx.fillText(msg, 14, 18);
 
-    ctx.fillStyle = regulated ? "rgba(182,139,46,0.95)" : "rgba(138,167,200,0.95)";
-    ctx.fillText(`Polygon sides/corners N=${N} (6=hex, 7=heptagon, 8=octagon, ...)`, 14, 36);
+    const geomMsg = rr.regulated
+      ? `Clamp: a=${a.toFixed(0)} > R=${R.toFixed(0)} → s=(R/a)^k = ${rr.s.toFixed(3)} (k=${k.toFixed(2)})`
+      : `No clamp: a=${a.toFixed(0)} <= R=${R.toFixed(0)} → s=1.000 (k=${k.toFixed(2)})`;
 
-    // show on the center cell too
+    ctx.fillText(geomMsg, 14, 18);
+    ctx.fillStyle="rgba(138,167,200,0.95)";
+    ctx.fillText(`Boundary refinement: N=${N} sides. Circle-likeness (area match) ≈ ${matchPct.toFixed(1)}%`, 14, 36);
+
     ctx.fillStyle="rgba(232,238,246,0.92)";
     ctx.font="bold 13px system-ui, Segoe UI, Arial";
-    ctx.fillText(`k=${k.toFixed(2)}`, cx0-28, cy0+4);
-    ctx.font="bold 12px system-ui, Segoe UI, Arial";
-    ctx.fillText(`N=${N}`, cx0-16, cy0+20);
-  }
-
-  // ===== Step logic =====
-  function doStep(){
-    const size = +sizeEl.value;
-    const R = +REl.value;
-    const k = parseFloat(kEl.value);
-    const N = parseInt(nEl.value,10);
-
-    const added = addRing();
-    log(`STEP: Added ring ${rings}. +${added} cells. Total: ${cells.size}.`);
-
-    const rMax = maxRadius(size);
-    if(rMax <= R){
-      log(`CHECK: r_max=${rMax.toFixed(2)} <= R=${R}. In-domain coherence holds.`);
-      log(`NOTE: Boundary sides/corners N=${N}.`);
-    } else {
-      const s = Math.pow(R/rMax, k);
-      log(`CHECK: r_max=${rMax.toFixed(2)} > R=${R}. Would exceed domain → regulation clamps.`);
-      log(`TAKEOVER: k=${k.toFixed(2)} → s=${s.toFixed(4)}. Coherence preserved inside circle.`);
-    }
-    log("—");
-    draw();
+    ctx.fillText(`N=${N}`, cx-20, cy+4);
   }
 
   // ===== Controls =====
-  document.getElementById("step").onclick = doStep;
-  document.getElementById("addRing1").onclick = doStep;
-  document.getElementById("addRing3").onclick = () => { doStep(); doStep(); doStep(); };
+  function setN(v){
+    v = clamp(v, 6, 240);
+    NEl.value = String(v);
+    draw();
+  }
+
+  document.getElementById("step").onclick = () => {
+    const N = parseInt(NEl.value,10);
+    setN(N+1);
+    log(`STEP: N=${N+1}. (One shape only) Boundary refined: 6→7→8→…  Circle-match ≈ ${circleMatchPercent(N+1).toFixed(2)}%`);
+    log("—");
+  };
+
+  document.getElementById("step5").onclick = () => {
+    const N = parseInt(NEl.value,10);
+    setN(N+5);
+    log(`STEP: N=${N+5}. Boundary refined +5. Circle-match ≈ ${circleMatchPercent(N+5).toFixed(2)}%`);
+    log("—");
+  };
 
   document.getElementById("reset").onclick = () => {
-    rings=0;
-    cells.clear();
-    cells.set(key(0,0), {q:0,r:0});
+    setN(6);
     logEl.textContent="";
-    log("RESET: 1 cell (ring 0). N controls polygon sides: 6→7→8…");
+    log("RESET: N=6 (hexagon). This is the planar closed frame.");
+    log("Add one 'line' => N=7 (not a new axis, but boundary refinement).");
+    log("As N grows large, polygon becomes circle-like (embedding to domain constraint).");
     log("—");
     draw();
   };
 
-  function setN(v){
-    v = Math.max(3, Math.min(120, v));
-    nEl.value = String(v);
-    draw();
-  }
-
-  document.getElementById("nMinus").onclick = ()=>setN(parseInt(nEl.value,10)-1);
-  document.getElementById("nPlus").onclick  = ()=>setN(parseInt(nEl.value,10)+1);
-  document.getElementById("nPlus5").onclick = ()=>setN(parseInt(nEl.value,10)+5);
-  document.getElementById("nSet6").onclick  = ()=>setN(6);
-
-  // Auto: increase N toward “circle-like” (more sides), but doesn't change regulation math.
-  document.getElementById("nAuto").onclick = () => {
-    let N = parseInt(nEl.value,10);
-    for(let it=0; it<60; it++){
+  document.getElementById("auto").onclick = () => {
+    // Increase N until circle-match is very high (mirror convergence)
+    let N = parseInt(NEl.value,10);
+    for(let it=0; it<400; it++){
+      const m = circleMatchPercent(N);
+      if(m >= 99.6) break; // very circle-like
       N += 1;
-      if(N >= 120) break;
-      nEl.value = String(N);
+      if(N >= 240) break;
     }
-    draw();
+    setN(N);
+    log(`AUTO: N→${N}. Circle-match ≈ ${circleMatchPercent(N).toFixed(2)}% (mirror-like).`);
+    log("—");
   };
 
-  [sizeEl, REl, kEl, nEl].forEach(el => el.addEventListener("input", draw));
+  [NEl, aEl, REl, kEl].forEach(el => el.addEventListener("input", draw));
 
   // init
-  log("RESET: 1 cell (ring 0). N controls polygon sides: 6→7→8…");
-  log("If the patch would exceed the circle, regulation clamps with s=(R/r_max)^k.");
+  log("RESET: One shape centered in the circle.");
+  log("N=6 starts as hexagon. Each +1 makes a 7-gon, 8-gon, ... approaching circle.");
+  log("Regulation (k) clamps size only if the polygon would exceed R.");
   log("—");
   resize();
 })();
