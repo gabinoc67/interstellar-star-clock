@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Hex Coherence: Add Lines (Not Points) + Regulation (k)</title>
+<title>Hex Coherence: Add Boundary Lines (Segments) + Regulation (k)</title>
 <style>
   :root{
     --bg:#0b0f14; --panel:#101823; --panel2:#0c131d; --line:#1f2c3c;
@@ -83,11 +83,11 @@
 <div class="wrap">
 
   <div class="panel">
-    <h2>Hex Coherence: Add Lines (Not Points) → Regulation (k)</h2>
+    <h2>Hex Coherence: Add Boundary Lines (Segments) → Regulation (k)</h2>
 
     <div class="row">
-      <button id="add1">+ Add 1 ring</button>
-      <button id="add3">+ Add 3 rings</button>
+      <button id="addRing1">+ Add 1 ring</button>
+      <button id="addRing3">+ Add 3 rings</button>
       <button id="step">Step</button>
       <button id="reset">Reset</button>
     </div>
@@ -116,38 +116,36 @@
       <div class="kHint" id="kText" style="margin-top:6px;"></div>
     </div>
 
-    <h3>How many internal lines to add (hex stays 6-sided)</h3>
+    <h3>Add “more lines” to the same hexagon boundary</h3>
     <div class="box">
       <div class="row" style="align-items:center;justify-content:space-between;">
         <div class="small">
-          The boundary is always a <b>6-point hexagon</b>.<br>
-          Extra “lines” are internal structure only (do NOT add vertices).
+          Corners stay <b>6</b> (still a hexagon).<br>
+          “Lines” = how many <b>edge segments</b> the boundary is split into (6,7,8,9…).
         </div>
-        <div class="bigNum" id="linesBig">6</div>
+        <div class="bigNum" id="segBig">6</div>
       </div>
 
       <div class="row">
-        <button id="L6">6</button>
-        <button id="L12">12</button>
-        <button id="L24">24</button>
-        <button id="L48">48</button>
-        <button id="L96">96</button>
+        <button id="segMinus">-1</button>
+        <button id="segPlus">+1</button>
+        <button id="segPlus5">+5</button>
+        <button id="segSet6">6</button>
+        <button id="segAuto">Auto ↑ to circle</button>
       </div>
 
-      <label>Extra internal lines (0…200):</label>
-      <input id="lines" type="range" min="0" max="200" step="1" value="6" />
+      <label>Boundary segments (lines): <span id="segVal"></span></label>
+      <input id="segments" type="range" min="6" max="120" step="1" value="6" />
+
       <div class="small" style="margin-top:6px;">
-        Rule you stated: <b>More lines do not break the hex rules</b> as long as the patch stays inside the circle.
-        If growth would exceed R, <b>regulation compresses</b> to keep coherence.
+        This does <b>not</b> create a 7-corner polygon. It keeps the hex and just adds more boundary line pieces.
+        Coherence is enforced by the circle domain; regulation compresses only when growth would exceed R.
       </div>
     </div>
 
-    <h3>Rule statement (locked)</h3>
-    <div class="warn small">
-      A hexagon is defined by its <b>6 vertices</b>. We never change that.  
-      Adding more lines means adding <b>internal connections</b> (capacity/structure),
-      not adding points/sides. Coherence is maintained by staying inside the domain (circle),
-      and regulation activates only to keep the whole system inside that domain.
+    <div class="warn small" style="margin-top:10px;">
+      In your framing: “identity” (6 corners) stays fixed; added segments are supplementation (more articulation).
+      The remainder is global saturation; regulation (k) translates it into a scale factor s so coherence stays in-domain.
     </div>
 
     <h3>Step log</h3>
@@ -155,7 +153,6 @@
   </div>
 
   <canvas id="c"></canvas>
-
 </div>
 
 <script>
@@ -187,7 +184,7 @@
     ];
   }
 
-  // ALWAYS a 6-vertex hex boundary
+  // 6-corner hex vertices (always)
   function hexVertices(cx,cy,rad){
     const pts=[];
     for(let i=0;i<6;i++){
@@ -195,6 +192,42 @@
       pts.push([cx + rad*Math.cos(ang), cy + rad*Math.sin(ang)]);
     }
     return pts;
+  }
+
+  // Distribute totalSegments across 6 sides as evenly as possible.
+  // Example: totalSegments=7 => [2,1,1,1,1,1] (still a hex, one side is split into 2 segments)
+  function segmentsPerSide(totalSegments){
+    const base = Math.floor(totalSegments / 6);
+    let rem = totalSegments % 6;
+    const arr = new Array(6).fill(base);
+    // give the remainder to first sides
+    for(let i=0;i<6 && rem>0;i++,rem--) arr[i] += 1;
+    // ensure at least 1 segment per side (we clamp slider min to 6 anyway)
+    for(let i=0;i<6;i++) if(arr[i] < 1) arr[i] = 1;
+    return arr;
+  }
+
+  // Draw hex boundary using totalSegments segments while keeping the same 6 corners.
+  function strokeHexWithSegments(pts, totalSegments){
+    const perSide = segmentsPerSide(totalSegments);
+    ctx.beginPath();
+    for(let s=0;s<6;s++){
+      const a = pts[s];
+      const b = pts[(s+1)%6];
+      const n = perSide[s];
+      // split side into n subsegments
+      for(let i=0;i<n;i++){
+        const t0 = i / n;
+        const t1 = (i+1) / n;
+        const x0 = a[0] + (b[0]-a[0]) * t0;
+        const y0 = a[1] + (b[1]-a[1]) * t0;
+        const x1 = a[0] + (b[0]-a[0]) * t1;
+        const y1 = a[1] + (b[1]-a[1]) * t1;
+        ctx.moveTo(x0,y0);
+        ctx.lineTo(x1,y1);
+      }
+    }
+    ctx.stroke();
   }
 
   // ===== State =====
@@ -209,7 +242,7 @@
   const sizeEl = document.getElementById("size");
   const REl    = document.getElementById("R");
   const kEl    = document.getElementById("k");
-  const linesEl= document.getElementById("lines");
+  const segEl  = document.getElementById("segments");
 
   const sizeVal= document.getElementById("sizeVal");
   const RVal   = document.getElementById("RVal");
@@ -217,15 +250,23 @@
   const cellsPill=document.getElementById("cellsPill");
   const modePill =document.getElementById("modePill");
 
-  const logEl = document.getElementById("log");
-
   const kBig  = document.getElementById("kBig");
   const kFill = document.getElementById("kFill");
   const kText = document.getElementById("kText");
 
-  const linesBig = document.getElementById("linesBig");
+  const segBig = document.getElementById("segBig");
+  const segVal = document.getElementById("segVal");
 
-  function log(t){ logEl.textContent += t + "\n"; logEl.scrollTop = logEl.scrollHeight; }
+  const logEl = document.getElementById("log");
+  const log = (t)=>{ logEl.textContent += t + "\n"; logEl.scrollTop = logEl.scrollHeight; };
+
+  function updatePills(regulated){
+    ringsPill.textContent = "Rings: " + rings;
+    cellsPill.textContent = "Hexes: " + cells.size;
+    modePill.textContent = "Mode: " + (regulated ? "Regulation" : "Geometry");
+    modePill.style.borderColor = regulated ? "#b68b2e" : "#2d4764";
+    modePill.style.background  = regulated ? "#221a0a" : "#0c131d";
+  }
 
   function updateKUI(regulated){
     const k = parseFloat(kEl.value);
@@ -242,20 +283,13 @@
     kText.textContent = label;
   }
 
-  function updateLinesUI(){
-    const L = parseInt(linesEl.value,10);
-    linesBig.textContent = String(L);
+  function updateSegUI(){
+    const S = parseInt(segEl.value,10);
+    segBig.textContent = String(S);
+    segVal.textContent = String(S);
   }
 
-  function updatePills(regulated){
-    ringsPill.textContent = "Rings: " + rings;
-    cellsPill.textContent = "Hexes: " + cells.size;
-    modePill.textContent = "Mode: " + (regulated ? "Regulation" : "Geometry");
-    modePill.style.borderColor = regulated ? "#b68b2e" : "#2d4764";
-    modePill.style.background  = regulated ? "#221a0a" : "#0c131d";
-  }
-
-  // ===== Growth =====
+  // ===== Growth + Regulation =====
   function addRing(){
     rings++;
     let added=0;
@@ -281,57 +315,6 @@
     return {s: Math.pow(R/rMax, k), rMax};
   }
 
-  // ===== Internal-line drawing (adds structure, never adds vertices) =====
-  function drawInternalLines(pts, cx, cy, lineCount, strokeStyle, lw){
-    if(lineCount <= 0) return;
-
-    // We only ever use the 6 vertices + the center.
-    // We can draw any number of internal lines by repeating patterns.
-    // This guarantees: hex stays 6-point. Lines are just extra structure.
-
-    ctx.strokeStyle = strokeStyle;
-    ctx.lineWidth = lw;
-    ctx.beginPath();
-
-    let n = lineCount;
-
-    // 1) spokes (center -> vertex) : up to 6
-    for(let i=0;i<6 && n>0;i++){
-      ctx.moveTo(cx,cy);
-      ctx.lineTo(pts[i][0], pts[i][1]);
-      n--;
-    }
-
-    // 2) short diagonals (i -> i+2) : up to 6
-    for(let i=0;i<6 && n>0;i++){
-      const j=(i+2)%6;
-      ctx.moveTo(pts[i][0], pts[i][1]);
-      ctx.lineTo(pts[j][0], pts[j][1]);
-      n--;
-    }
-
-    // 3) long diagonals (i -> i+3) : up to 6
-    for(let i=0;i<6 && n>0;i++){
-      const j=(i+3)%6;
-      ctx.moveTo(pts[i][0], pts[i][1]);
-      ctx.lineTo(pts[j][0], pts[j][1]);
-      n--;
-    }
-
-    // 4) if still more, repeat diagonals (structure density increases)
-    let t=0;
-    while(n>0){
-      const i=t%6;
-      const j=(i+2)%6;
-      ctx.moveTo(pts[i][0], pts[i][1]);
-      ctx.lineTo(pts[j][0], pts[j][1]);
-      n--; t++;
-    }
-
-    ctx.stroke();
-  }
-
-  // color for boundary strokes that “shows k”
   function strokeForK(regulated, k){
     const t = Math.max(0, Math.min(1, (k - 0.50)/2.00));
     const cool = {r:69,g:103,b:132};
@@ -339,7 +322,7 @@
     const r = Math.round(cool.r*(1-t) + warm.r*t);
     const g = Math.round(cool.g*(1-t) + warm.g*t);
     const b = Math.round(cool.b*(1-t) + warm.b*t);
-    const a = regulated ? (0.65 + 0.25*t) : (0.55 + 0.20*t);
+    const a = regulated ? (0.70 + 0.20*t) : (0.55 + 0.20*t);
     return `rgba(${r},${g},${b},${a})`;
   }
 
@@ -357,11 +340,11 @@
     const size = +sizeEl.value;
     const R = +REl.value;
     const k = parseFloat(kEl.value);
-    const L = parseInt(linesEl.value,10);
+    const S = parseInt(segEl.value,10);
 
     sizeVal.textContent = size;
     RVal.textContent = R;
-    updateLinesUI();
+    updateSegUI();
 
     const w=canvas.clientWidth, h=canvas.clientHeight;
     ctx.clearRect(0,0,w,h);
@@ -388,11 +371,10 @@
     // regulation
     const {s, rMax} = computeScale(size,R,k);
     const regulated = s < 0.999999;
-
     updatePills(regulated);
     updateKUI(regulated);
 
-    // draw all hexes (always 6 points)
+    // draw all cells: fill + segmented boundary
     for(const {q,r} of cells.values()){
       const [x0,y0]=axialToPixel(q,r,size);
       const cx = cx0 + s*x0;
@@ -404,7 +386,7 @@
       const rad = s*size*0.98;
       const pts = hexVertices(cx,cy,rad);
 
-      // fill
+      // fill polygon (true hex)
       ctx.beginPath();
       ctx.moveTo(pts[0][0], pts[0][1]);
       for(let i=1;i<6;i++) ctx.lineTo(pts[i][0], pts[i][1]);
@@ -412,16 +394,10 @@
       ctx.fillStyle = isBoundary ? "#0f2236" : "#0d1a2a";
       ctx.fill();
 
-      // boundary stroke shows k/regulation
+      // segmented boundary shows “more lines”
       ctx.strokeStyle = strokeForK(regulated, k);
       ctx.lineWidth = isBoundary ? 1.8 : 1.05;
-      ctx.stroke();
-
-      // internal lines (structure only)
-      if(L > 0){
-        const inner = regulated ? "rgba(182,139,46,0.28)" : "rgba(138,167,200,0.22)";
-        drawInternalLines(pts, cx, cy, L, inner, isBoundary ? 1.0 : 0.75);
-      }
+      strokeHexWithSegments(pts, S);
     }
 
     // overlay diagnostics
@@ -431,15 +407,16 @@
       ? `Saturation: r_max=${rMax.toFixed(1)} > R=${R} → Regulation ON (s=${s.toFixed(3)}, k=${k.toFixed(2)})`
       : `No saturation: r_max=${rMax.toFixed(1)} <= R=${R} → Geometry ON (s=1.000, k=${k.toFixed(2)})`;
     ctx.fillText(msg, 14, 18);
-    ctx.fillStyle = regulated ? "rgba(182,139,46,0.95)" : "rgba(138,167,200,0.95)";
-    ctx.fillText(`Internal lines per hex = ${L} (hex remains 6-point)`, 14, 36);
 
-    // show on the center hex (k + L “on the hexagon”)
+    ctx.fillStyle = regulated ? "rgba(182,139,46,0.95)" : "rgba(138,167,200,0.95)";
+    ctx.fillText(`Hex corners=6 always | boundary line segments S=${S} (6→7→8→…)`, 14, 36);
+
+    // show on the center cell too
     ctx.fillStyle="rgba(232,238,246,0.92)";
     ctx.font="bold 13px system-ui, Segoe UI, Arial";
     ctx.fillText(`k=${k.toFixed(2)}`, cx0-28, cy0+4);
     ctx.font="bold 12px system-ui, Segoe UI, Arial";
-    ctx.fillText(`L=${L}`, cx0-16, cy0+20);
+    ctx.fillText(`S=${S}`, cx0-16, cy0+20);
   }
 
   // ===== Step logic =====
@@ -447,20 +424,19 @@
     const size = +sizeEl.value;
     const R = +REl.value;
     const k = parseFloat(kEl.value);
-    const L = parseInt(linesEl.value,10);
+    const S = parseInt(segEl.value,10);
 
     const added = addRing();
     log(`STEP: Added ring ${rings}. +${added} hexes. Total: ${cells.size}.`);
 
     const rMax = maxRadius(size);
     if(rMax <= R){
-      log(`CHECK: r_max=${rMax.toFixed(2)} <= R=${R}. Coherence maintained in-domain.`);
-      log(`NOTE: Lines L=${L} add structure only (hex stays 6-point).`);
+      log(`CHECK: r_max=${rMax.toFixed(2)} <= R=${R}. In-domain coherence holds.`);
+      log(`NOTE: Added boundary segments S=${S}. Hex is still 6-corner (same identity), just more line pieces.`);
     } else {
       const s = Math.pow(R/rMax, k);
-      log(`CHECK: r_max=${rMax.toFixed(2)} > R=${R}. Saturation occurs (not failure).`);
-      log(`TAKEOVER: Regulation compresses with k=${k.toFixed(2)} → s=${s.toFixed(4)}.`);
-      log(`RESULT: Patch stays inside domain; coherence maintained.`);
+      log(`CHECK: r_max=${rMax.toFixed(2)} > R=${R}. Would exceed domain → regulation clamps.`);
+      log(`TAKEOVER: k=${k.toFixed(2)} → s=${s.toFixed(4)}. Coherence preserved inside circle.`);
     }
     log("—");
     draw();
@@ -468,33 +444,55 @@
 
   // ===== Controls =====
   document.getElementById("step").onclick = doStep;
-  document.getElementById("add1").onclick = doStep;
-  document.getElementById("add3").onclick = () => { doStep(); doStep(); doStep(); };
+  document.getElementById("addRing1").onclick = doStep;
+  document.getElementById("addRing3").onclick = () => { doStep(); doStep(); doStep(); };
 
   document.getElementById("reset").onclick = () => {
     rings=0;
     cells.clear();
     cells.set(key(0,0), {q:0,r:0});
     logEl.textContent="";
-    log("RESET: 1 hex (ring 0). Hex stays 6-point forever.");
-    log("Add any number of internal lines. Regulation keeps the patch inside the circle.");
+    log("RESET: 1 hex (ring 0). Corners=6 always. Add boundary segments S=6→7→8…");
     log("—");
     draw();
   };
 
-  // line preset buttons
-  const setL = (v) => { linesEl.value = String(v); draw(); };
-  document.getElementById("L6").onclick  = ()=>setL(6);
-  document.getElementById("L12").onclick = ()=>setL(12);
-  document.getElementById("L24").onclick = ()=>setL(24);
-  document.getElementById("L48").onclick = ()=>setL(48);
-  document.getElementById("L96").onclick = ()=>setL(96);
+  function setSeg(v){
+    v = Math.max(6, Math.min(120, v));
+    segEl.value = String(v);
+    draw();
+  }
 
-  [sizeEl, REl, kEl, linesEl].forEach(el => el.addEventListener("input", draw));
+  document.getElementById("segMinus").onclick = ()=>setSeg(parseInt(segEl.value,10)-1);
+  document.getElementById("segPlus").onclick  = ()=>setSeg(parseInt(segEl.value,10)+1);
+  document.getElementById("segPlus5").onclick = ()=>setSeg(parseInt(segEl.value,10)+5);
+  document.getElementById("segSet6").onclick  = ()=>setSeg(6);
+
+  // Auto: increase segments until near circle fill (visual density), but never affects geometry.
+  document.getElementById("segAuto").onclick = () => {
+    // push S upward in steps until either S hits max or saturation is visually near (r_max close to R)
+    const size = +sizeEl.value;
+    const R = +REl.value;
+    const k = parseFloat(kEl.value);
+
+    let S = parseInt(segEl.value,10);
+    // we don't want infinite loops; cap iterations
+    for(let it=0; it<60; it++){
+      const {rMax} = computeScale(size,R,k);
+      // if patch is close to domain edge, stop
+      if(rMax >= 0.98*R) break;
+      S += 1;
+      if(S >= 120) break;
+      segEl.value = String(S);
+    }
+    draw();
+  };
+
+  [sizeEl, REl, kEl, segEl].forEach(el => el.addEventListener("input", draw));
 
   // init
-  log("RESET: 1 hex (ring 0). Hex stays 6-point forever.");
-  log("More lines = more structure, not more points. Coherence is preserved inside the circle.");
+  log("RESET: 1 hex (ring 0). Corners=6 always. Add boundary segments S=6→7→8…");
+  log("More boundary line pieces do not break coherence; only leaving the circle would, so regulation clamps.");
   log("—");
   resize();
 })();
