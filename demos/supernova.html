@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Supernova CST–Astronomy Observation Simulator (Full)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<style>
+body{font-family:Arial,Helvetica,sans-serif;background:#f5f7fb;margin:0;color:#111;}
+header{background:#0b3d91;color:#fff;padding:18px;}
+main{display:grid;grid-template-columns:460px 1fr;gap:16px;padding:16px;}
+.panel{background:#fff;border-radius:10px;padding:14px;box-shadow:0 4px 12px rgba(0,0,0,0.08);}
+.panel h3{margin-top:0;color:#0b3d91;}
+label{display:block;font-size:13px;margin-top:8px;}
+input,select,button{width:100%;padding:6px;margin-top:4px;}
+button{background:#0b3d91;color:#fff;border:none;border-radius:6px;cursor:pointer;margin-top:8px;}
+button:hover{background:#092f70;}
+canvas{background:#000;border-radius:10px;}
+.readout{font-family:monospace;font-size:12px;white-space:pre-line;margin-top:8px;}
+.eq{font-family:monospace;background:#eef2ff;padding:6px;border-radius:6px;margin:6px 0;font-size:12px;}
+.explain{font-size:13px;line-height:1.45;}
+.clock{background:#000;color:#0f0;padding:6px;border-radius:6px;margin-top:6px;font-family:monospace;font-size:12px;}
+</style>
+</head>
+<body>
+<header>
+<h2>Supernova Light Detection Simulator (Astronomy + CST)</h2>
+<div>Heliocentric geometry · Earth observer location · φ-tomography · CST synchronization</div>
+</header>
+<main>
+<div class="panel">
+<h3>What this Simulation Does</h3>
+<div class="explain">
+This simulator models how light from a distant Type Ia supernova is detected on Earth, explicitly showing:
+<ul>
+<li>The Sun-centered (heliocentric) geometry</li>
+<li>The Earth’s orbital position around the Sun</li>
+<li>The observer’s latitude and longitude on Earth</li>
+<li>The propagation of a photon from the supernova to Earth</li>
+<li>How redshift, distance, and phase φ are computed</li>
+<li>How synchronized cosmic time (CST) refines interpretation</li>
+</ul>
+The simulation is model-independent and follows the φ-tomography framework used in the referenced Pantheon+ analysis.
+</div>
+
+<h3>Equations Used (from the paper + CST extension)</h3>
+<div class="eq">D<sub>L</sub> = 10<sup>(μ − 25)/5</sup>  (observational definition)</div>
+<div class="eq">H<sub>eff</sub> = (c · z) / D<sub>L</sub></div>
+<div class="eq">φ = arctan(H<sub>eff</sub> / H<sub>0,ref</sub>)</div>
+<div class="eq">z<sub>obs</sub> = z + (v<sub>⊕</sub>/c) · cos(lat) · cos(lon)</div>
+<div class="eq">t<sub>travel</sub> ≈ D<sub>L</sub> · 3.26×10<sup>6</sup> years</div>
+<div class="eq">φ<sub>CST</sub> = φ · CST</div>
+
+<h3>Observer Location (Earth)</h3>
+<label>Latitude (deg)
+<input id="lat" type="number" value="30" /></label>
+<label>Longitude (deg)
+<input id="lon" type="number" value="-97" /></label>
+<label>Day of Year (Earth around Sun)
+<input id="day" type="number" value="180" min="1" max="365" /></label>
+<label>CST Scale Factor
+<input id="cst" type="number" value="1.00" step="0.01" /></label>
+
+<h3>Supernova Source</h3>
+<label>Galaxy / Redshift
+<select id="galaxy">
+<option value="0.01">Local Group (z ≈ 0.01)</option>
+<option value="0.05" selected>Virgo Cluster (z ≈ 0.05)</option>
+<option value="0.10">Great Attractor (z ≈ 0.10)</option>
+<option value="0.50">Deep Field SN (z ≈ 0.50)</option>
+<option value="1.00">Early Universe SN (z ≈ 1.0)</option>
+</select></label>
+
+<button onclick="generateSN()">Generate Supernova & Photon</button>
+<button onclick="resetSim()">Reset</button>
+
+<h3>Live Clocks</h3>
+<div class="clock" id="utcClock"></div>
+<div class="clock" id="cstClock"></div>
+<div class="clock" id="travelClock"></div>
+<div class="clock" id="arrivalClock"></div>
+</div>
+
+<div class="panel">
+<h3>Heliocentric Geometry & Photon Propagation</h3>
+<canvas id="sky" width="900" height="420"></canvas>
+<div class="readout" id="output"></div>
+</div>
+</main>
+
+<script>
+// Constants
+const c = 299792; // km/s
+const H0 = 70; // km/s/Mpc
+const AU = 1.496e8; // km
+
+const canvas = document.getElementById('sky');
+const ctx = canvas.getContext('2d');
+let photonProgress = 0;
+let anim;
+let detectTime;
+let travelSeconds;
+
+function deg2rad(d){return d*Math.PI/180;}
+function earthOrbitalVelocity(day){return 29.8*Math.cos(2*Math.PI*(day/365));}
+
+function updateClocks(){
+  const now = new Date();
+  document.getElementById('utcClock').textContent = `UTC now: ${now.toUTCString()}`;
+  document.getElementById('cstClock').textContent = `CST (scaled): ${(now.getTime()/1000).toFixed(2)}`;
+}
+setInterval(updateClocks,200);
+
+function generateSN(){
+  cancelAnimationFrame(anim);
+  photonProgress = 0;
+
+  const lat = +latEl.value;
+  const lon = +lonEl.value;
+  const day = +dayEl.value;
+  const CST = +cstEl.value;
+  const z = +galaxyEl.value;
+
+  // Distance and phase
+  const D_L = (c*z)/H0; // scaled proxy
+  const H_eff = (c*z)/D_L;
+  let phi = Math.atan(H_eff/H0) * 180/Math.PI;
+  const phiCST = phi * CST;
+
+  // Observer correction
+  const vE = earthOrbitalVelocity(day);
+  const geo = Math.cos(deg2rad(lat))*Math.cos(deg2rad(lon));
+  const zObs = z + (vE/c)*geo;
+
+  // Travel time
+  const travelYears = D_L * 3.26e6;
+  travelSeconds = travelYears * 365.25*24*3600;
+
+  detectTime = new Date();
+  const arrivalTime = new Date(detectTime.getTime() + travelSeconds*1000);
+
+  document.getElementById('arrivalClock').textContent = `Expected arrival UTC: ${arrivalTime.toUTCString()}`;
+
+  document.getElementById('output').textContent =
+`Supernova source: ${galaxyEl.options[galaxyEl.selectedIndex].text}
+Observed redshift z_obs: ${zObs.toFixed(5)}
+Luminosity distance D_L: ${D_L.toFixed(2)} (scaled Mpc)
+Photon speed: c = ${c} km/s
+Estimated travel time: ${travelYears.toExponential(2)} years
+
+Phase φ: ${phi.toFixed(2)}°
+CST-adjusted phase φ_CST: ${phiCST.toFixed(2)}°
+Detection UTC: ${detectTime.toUTCString()}`;
+
+  animatePhoton(phi);
+}
+
+function animatePhoton(phi0){
+  function frame(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle='black';ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    const sunX=450, sunY=210, orbitR=90;
+
+    // Sun
+    ctx.fillStyle='yellow';ctx.beginPath();ctx.arc(sunX,sunY,16,0,2*Math.PI);ctx.fill();
+    ctx.fillStyle='white';ctx.fillText('Sun',sunX-12,sunY-24);
+
+    // Earth orbit
+    ctx.strokeStyle='yellow';ctx.beginPath();ctx.arc(sunX,sunY,orbitR,0,2*Math.PI);ctx.stroke();
+
+    const angle = 2*Math.PI*(+dayEl.value/365);
+    const earthX = sunX + orbitR*Math.cos(angle);
+    const earthY = sunY + orbitR*Math.sin(angle);
+
+    // Earth
+    ctx.fillStyle='deepskyblue';ctx.beginPath();ctx.arc(earthX,earthY,8,0,2*Math.PI);ctx.fill();
+    ctx.fillStyle='white';ctx.fillText('Earth (observer)',earthX-36,earthY+20);
+
+    // Supernova
+    const snX = sunX + 320;
+    const snY = sunY;
+    ctx.fillStyle='white';ctx.beginPath();ctx.arc(snX,snY,7,0,2*Math.PI);ctx.fill();
+    ctx.fillText('Supernova',snX-36,snY-14);
+
+    // Photon
+    const px = snX + (earthX - snX)*photonProgress;
+    const py = snY + (earthY - snY)*photonProgress;
+    ctx.fillStyle = (Math.floor(performance.now()/150)%2===0)?'red':'white';
+    ctx.beginPath();ctx.arc(px,py,4,0,2*Math.PI);ctx.fill();
+
+    // Phase fluctuation
+    const phiNow = phi0 + 0.05*Math.sin(photonProgress*20);
+
+    // Travel clock
+    const elapsedYears = (photonProgress*travelSeconds)/(365.25*24*3600);
+    document.getElementById('travelClock').textContent = `Photon travel elapsed: ${elapsedYears.toExponential(2)} years`;
+
+    photonProgress += 0.001;
+    if(photonProgress < 1){anim=requestAnimationFrame(frame);} else {
+      document.getElementById('arrivalClock').textContent = `Photon arrived UTC: ${new Date().toUTCString()}`;
+    }
+  }
+  frame();
+}
+
+function resetSim(){
+  cancelAnimationFrame(anim);
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  document.getElementById('output').textContent='';
+  document.getElementById('travelClock').textContent='';
+  document.getElementById('arrivalClock').textContent='';
+}
+
+const latEl=document.getElementById('lat');
+const lonEl=document.getElementById('lon');
+const dayEl=document.getElementById('day');
+const cstEl=document.getElementById('cst');
+const galaxyEl=document.getElementById('galaxy');
+</script>
+</body>
+</html>
