@@ -1,0 +1,808 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>80-Ton Lever Crane Simulator (Counterbalanced Fulcrum Beam)</title>
+<style>
+  :root{
+    --bg:#f5f7fb;
+    --panel:#ffffff;
+    --ink:#111;
+    --muted:#4b5563;
+    --blue:#0b3d91;
+    --green:#1f8a3b;
+    --red:#b91c1c;
+    --shadow: 0 6px 18px rgba(0,0,0,.10);
+    --radius: 12px;
+  }
+  html,body{height:100%;}
+  body{
+    margin:0;
+    font-family: Arial, Helvetica, sans-serif;
+    background:var(--bg);
+    color:var(--ink);
+  }
+  header{
+    background:var(--blue);
+    color:#fff;
+    padding:14px 16px;
+  }
+  header h1{margin:0;font-size:18px;}
+  header .sub{opacity:.9;font-size:13px;margin-top:4px;}
+  main{
+    display:grid;
+    grid-template-columns: 420px 1fr;
+    gap:14px;
+    padding:14px;
+  }
+  .card{
+    background:var(--panel);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow);
+    padding:12px;
+  }
+  h2{
+    margin:6px 0 10px;
+    font-size:15px;
+    color:var(--blue);
+  }
+  label{display:block;font-size:12px;color:var(--muted);margin-top:10px;}
+  input[type="range"], input[type="number"], select{
+    width:100%;
+    margin-top:6px;
+    padding:6px;
+    border:1px solid #d1d5db;
+    border-radius:10px;
+    font-size:13px;
+    background:#fff;
+  }
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+  button{
+    border:0;
+    border-radius:10px;
+    padding:9px 10px;
+    font-weight:700;
+    cursor:pointer;
+    background:var(--blue);
+    color:#fff;
+    box-shadow: 0 6px 14px rgba(11,61,145,.20);
+  }
+  button.secondary{background:#111827;}
+  button.ghost{
+    background:#e5e7eb;
+    color:#111;
+    box-shadow:none;
+    font-weight:700;
+  }
+  button.small{padding:6px 8px;font-size:12px;}
+  .kpi{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap:10px;
+    margin-top:10px;
+  }
+  .kpi .box{
+    background:#f9fafb;
+    border:1px solid #e5e7eb;
+    border-radius:12px;
+    padding:10px;
+  }
+  .kpi .box .v{font-size:16px;font-weight:800;margin-top:4px;}
+  .kpi .box .t{font-size:12px;color:var(--muted);}
+  .warn{
+    margin-top:10px;
+    padding:10px;
+    border-radius:12px;
+    border:1px solid #fee2e2;
+    background:#fff1f2;
+    color:#7f1d1d;
+    font-size:13px;
+    line-height:1.25;
+  }
+  .ok{
+    margin-top:10px;
+    padding:10px;
+    border-radius:12px;
+    border:1px solid #dcfce7;
+    background:#f0fdf4;
+    color:#14532d;
+    font-size:13px;
+    line-height:1.25;
+  }
+  .mono{
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+    font-size:12px;
+    white-space:pre-wrap;
+    background:#0b1020;
+    color:#e5e7eb;
+    padding:10px;
+    border-radius:12px;
+    border:1px solid rgba(255,255,255,.08);
+    line-height:1.25;
+  }
+  canvas{
+    width:100%;
+    height:520px;
+    border-radius:var(--radius);
+    background: #ffffff;
+    box-shadow:var(--shadow);
+  }
+  .foot{
+    margin-top:8px;
+    font-size:12px;
+    color:var(--muted);
+    line-height:1.25;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>80-Ton Lever Crane Simulator (Counterbalanced Fulcrum Beam)</h1>
+  <div class="sub">Torque balance + beam stress + contact pressure — lift just enough to slide/move (pyramid-style “no crack” reasoning).</div>
+</header>
+
+<main>
+  <!-- LEFT: controls + computed panel -->
+  <section class="card">
+    <h2>Controls</h2>
+
+    <label>Units</label>
+    <select id="units">
+      <option value="imperial" selected>Imperial (ft, lb, psi)</option>
+      <option value="metric">Metric (m, N, MPa)</option>
+    </select>
+
+    <div class="row">
+      <div>
+        <label>Block weight (tons)</label>
+        <input id="tons" type="number" step="1" value="80" min="1" />
+      </div>
+      <div>
+        <label>Ton type</label>
+        <select id="tonType">
+          <option value="short" selected>Short ton (US) 2000 lb</option>
+          <option value="metric">Metric tonne 1000 kg</option>
+          <option value="long">Long ton 2240 lb</option>
+        </select>
+      </div>
+    </div>
+
+    <label>Front arm length r_front (ft) — distance from fulcrum to block sling</label>
+    <input id="rFront" type="range" min="1.0" max="6.0" step="0.01" value="2.09" />
+    <div class="btnrow">
+      <button class="ghost small" id="front209">Set 2.09 ft (≈0.64 m)</button>
+      <button class="ghost small" id="front300">Set 3.00 ft</button>
+      <button class="ghost small" id="front400">Set 4.00 ft</button>
+    </div>
+
+    <label>Back arm length r_back (ft) — distance from fulcrum to counterweight</label>
+    <input id="rBack" type="range" min="10" max="70" step="0.1" value="49.2" />
+    <div class="btnrow">
+      <button class="ghost small" data-back="20">20 ft</button>
+      <button class="ghost small" data-back="30">30 ft</button>
+      <button class="ghost small" data-back="49.2">49 ft</button>
+      <button class="ghost small" data-back="60">60 ft</button>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Counterweight (tons) (you can override)</label>
+        <input id="cwTons" type="number" step="0.1" value="0" min="0" />
+      </div>
+      <div>
+        <label>Mode</label>
+        <select id="mode">
+          <option value="auto" selected>Auto: set CW to balance</option>
+          <option value="manual">Manual: use my CW value</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Built-up logs in beam</label>
+        <select id="logs">
+          <option value="4" selected>4 logs (2×2 lash)</option>
+          <option value="6">6 logs (3×2 lash)</option>
+          <option value="8">8 logs (4×2 lash)</option>
+        </select>
+      </div>
+      <div>
+        <label>Log diameter (in)</label>
+        <input id="logDia" type="number" step="0.5" value="12" min="6" max="24" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Contact pad area under sling (in²)</label>
+        <input id="padArea" type="number" step="10" value="300" min="20" />
+      </div>
+      <div>
+        <label>Lift height target (in) — “just enough to move”</label>
+        <input id="liftIn" type="number" step="0.5" value="6" min="0.5" max="24" />
+      </div>
+    </div>
+
+    <div class="btnrow">
+      <button id="liftBtn">Lift</button>
+      <button id="resetBtn" class="secondary">Reset</button>
+    </div>
+
+    <h2 style="margin-top:14px;">Live Results</h2>
+
+    <div class="kpi">
+      <div class="box">
+        <div class="t">Required counterweight</div>
+        <div class="v" id="cwOut">—</div>
+      </div>
+      <div class="box">
+        <div class="t">Mechanical advantage (r_back / r_front)</div>
+        <div class="v" id="maOut">—</div>
+      </div>
+      <div class="box">
+        <div class="t">Beam bending stress (approx)</div>
+        <div class="v" id="stressOut">—</div>
+      </div>
+      <div class="box">
+        <div class="t">Contact pressure at sling pad</div>
+        <div class="v" id="pressOut">—</div>
+      </div>
+    </div>
+
+    <div id="statusBox" class="ok" style="display:none;"></div>
+
+    <h2>Equations (shown live)</h2>
+    <div class="mono" id="eqBox">Loading…</div>
+
+    <div class="foot">
+      Model: lever torque + simple section-modulus estimate. Increase logs/diameter to reduce bending stress.
+      Increase pad area to reduce contact pressure (helps explain “no visible cracking” if wide pads/rollers were used).
+    </div>
+  </section>
+
+  <!-- RIGHT: canvas -->
+  <section>
+    <canvas id="c"></canvas>
+  </section>
+</main>
+
+<script>
+(() => {
+  // ---------- Helpers ----------
+  const $ = (id) => document.getElementById(id);
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+  // Unit conversions
+  const FT_TO_M = 0.3048;
+  const IN_TO_M = 0.0254;
+  const LB_TO_N = 4.4482216152605;
+  const PSI_TO_MPA = 0.006894757293168;
+  const KSI_TO_MPA = 6.894757293168;
+
+  // Approx wood allowables (very rough) for demo
+  const WOOD_ALLOW_MPA = 40;      // bending "safe-ish" for strong timber (demo value)
+  const WOOD_WARN_MPA  = 60;      // above this: high risk
+  // Stone crushing strength can be huge; cracking is more about point loading.
+  // We'll just warn when contact pressure is very high.
+  const PRESS_WARN_PSI = 6000;    // heavy point-load warning
+  const PRESS_OK_PSI   = 2500;    // more comfortable with pads
+
+  // Canvas
+  const canvas = $("c");
+  const ctx = canvas.getContext("2d");
+
+  function resizeCanvas(){
+    const r = canvas.getBoundingClientRect();
+    canvas.width = Math.floor(r.width * devicePixelRatio);
+    canvas.height = Math.floor(r.height * devicePixelRatio);
+    ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+  }
+  window.addEventListener("resize", resizeCanvas);
+
+  // ---------- State ----------
+  const state = {
+    lifting:false,
+    liftProgress:0, // 0..1
+    lastT: performance.now()
+  };
+
+  // ---------- Inputs ----------
+  const units = $("units");
+  const tons = $("tons");
+  const tonType = $("tonType");
+  const rFront = $("rFront");
+  const rBack = $("rBack");
+  const cwTons = $("cwTons");
+  const mode = $("mode");
+  const logs = $("logs");
+  const logDia = $("logDia");
+  const padArea = $("padArea");
+  const liftIn = $("liftIn");
+
+  // Buttons for presets
+  $("front209").onclick = () => { rFront.value = 2.09; computeAndRender(); };
+  $("front300").onclick = () => { rFront.value = 3.00; computeAndRender(); };
+  $("front400").onclick = () => { rFront.value = 4.00; computeAndRender(); };
+
+  document.querySelectorAll('button[data-back]').forEach(b=>{
+    b.onclick = () => { rBack.value = b.getAttribute("data-back"); computeAndRender(); };
+  });
+
+  $("liftBtn").onclick = () => {
+    state.lifting = !state.lifting;
+    if(state.lifting){
+      state.liftProgress = 0;
+      $("liftBtn").textContent = "Stop";
+    }else{
+      $("liftBtn").textContent = "Lift";
+    }
+  };
+
+  $("resetBtn").onclick = () => {
+    state.lifting = false;
+    state.liftProgress = 0;
+    $("liftBtn").textContent = "Lift";
+    computeAndRender();
+  };
+
+  // ---------- Core physics ----------
+  function blockWeightLb(tonsVal, type){
+    if(type === "short") return tonsVal * 2000;
+    if(type === "long")  return tonsVal * 2240;
+    // metric tonne: 1000 kg -> weight in N then to lb
+    // 1000 kg * 9.80665 = 9806.65 N; / 4.448.. = 2204.6226 lb
+    return tonsVal * 2204.62262185;
+  }
+
+  function sectionFromLogs(nLogs, diaIn){
+    // Build-up beam shape approximation:
+    // 4 logs => 2x2, 6 logs => 3x2, 8 logs => 4x2
+    const d = diaIn; // inches
+    let cols = 2, rows = 2;
+    if(nLogs === 6){ cols = 3; rows = 2; }
+    if(nLogs === 8){ cols = 4; rows = 2; }
+    const b = cols * d; // width (in)
+    const h = rows * d; // height (in)
+    // Section modulus for rectangle: S = b*h^2/6 (in^3)
+    const S = b * h * h / 6.0;
+    return {b,h,S,cols,rows};
+  }
+
+  function compute(){
+    const U = units.value; // "imperial" or "metric"
+    const tonsVal = Math.max(1, Number(tons.value)||80);
+    const rF_ft = clamp(Number(rFront.value)||2.09, 0.1, 1000);
+    const rB_ft = clamp(Number(rBack.value)||49.2, 0.1, 10000);
+
+    const Wb_lb = blockWeightLb(tonsVal, tonType.value);
+
+    // Required CW from torque balance:
+    // Wb * r_front = Wcw * r_back  =>  Wcw = Wb * r_front / r_back
+    const Wcw_req_lb = (Wb_lb * rF_ft) / rB_ft;
+    const cw_req_short_ton = Wcw_req_lb / 2000.0;
+
+    // If manual, use provided CW; otherwise set output CW
+    let cw_user_ton = Math.max(0, Number(cwTons.value)||0);
+    let Wcw_lb = Wcw_req_lb;
+    if(mode.value === "manual"){
+      // interpret "tons" input as the selected ton type for consistency
+      // We’ll convert manual ton to lb using same ton type selection.
+      Wcw_lb = blockWeightLb(cw_user_ton, tonType.value);
+    } else {
+      cwTons.value = (tonType.value==="short") ? cw_req_short_ton.toFixed(2)
+                    : (tonType.value==="long")  ? (Wcw_req_lb/2240).toFixed(2)
+                    : (Wcw_req_lb/2204.62262185).toFixed(2);
+    }
+
+    // Net torque "lift condition"
+    // If CW torque >= block torque, block can lift.
+    const tauBlock = Wb_lb * rF_ft;
+    const tauCW    = Wcw_lb * rB_ft;
+    const tauRatio = (tauCW / tauBlock);
+
+    // Reaction at fulcrum (vertical) ~ Wb + Wcw (ignoring beam weight)
+    const R_lb = Wb_lb + Wcw_lb;
+
+    // Beam max bending moment magnitude at fulcrum (for two point loads):
+    // If balanced, M ≈ Wb * r_front (lb-ft). If not balanced, still use the larger torque side.
+    const M_lbft = Math.max(tauBlock, tauCW);
+
+    // Beam section modulus S (in^3), compute bending stress sigma = M / S
+    // Convert M to lb-in: (lb-ft)*12
+    const nLogs = Number(logs.value);
+    const diaIn = Math.max(6, Number(logDia.value)||12);
+    const sec = sectionFromLogs(nLogs, diaIn);
+    const M_lbin = M_lbft * 12.0;
+    const sigma_psi = M_lbin / sec.S;         // psi
+    const sigma_mpa = sigma_psi * PSI_TO_MPA; // MPa
+
+    // Contact pressure under sling pad: p = Wb / A
+    const A_in2 = Math.max(1, Number(padArea.value)||300);
+    const p_psi = Wb_lb / A_in2;
+    const p_mpa = p_psi * PSI_TO_MPA;
+
+    // Mechanical advantage
+    const MA = rB_ft / rF_ft;
+
+    // Lift height target
+    const liftTargetIn = clamp(Number(liftIn.value)||6, 0.1, 48);
+
+    // Convert outputs depending on units
+    let out = {
+      U,
+      tonsVal,
+      Wb_lb,
+      rF_ft, rB_ft,
+      Wcw_req_lb,
+      Wcw_lb,
+      tauBlock, tauCW, tauRatio,
+      R_lb,
+      M_lbft,
+      sec,
+      sigma_psi, sigma_mpa,
+      A_in2,
+      p_psi, p_mpa,
+      MA,
+      liftTargetIn
+    };
+
+    // Provide metric equivalents too (for panel)
+    out.Wb_N = Wb_lb * LB_TO_N;
+    out.Wcw_N = Wcw_lb * LB_TO_N;
+    out.R_N = R_lb * LB_TO_N;
+    out.rF_m = rF_ft * FT_TO_M;
+    out.rB_m = rB_ft * FT_TO_M;
+    out.M_Nm = M_lbft * LB_TO_N * FT_TO_M; // lb*ft -> N*m
+
+    return out;
+  }
+
+  // ---------- UI outputs ----------
+  function fmt(n, d=2){ return Number(n).toFixed(d); }
+
+  function computeAndRender(){
+    const d = compute();
+
+    // Counterweight output
+    let cwDisplay;
+    if(d.U === "imperial"){
+      // show in selected ton unit + lbs
+      const cw_lb = d.Wcw_lb;
+      let cw_ton;
+      if(tonType.value==="short") cw_ton = cw_lb/2000;
+      else if(tonType.value==="long") cw_ton = cw_lb/2240;
+      else cw_ton = cw_lb/2204.62262185;
+      cwDisplay = `${fmt(cw_ton,2)} tons  (${fmt(cw_lb,0)} lb)`;
+    } else {
+      const cw_kN = d.Wcw_N/1000;
+      cwDisplay = `${fmt(cw_kN,1)} kN`;
+    }
+    $("cwOut").textContent = cwDisplay;
+
+    $("maOut").textContent = `${fmt(d.MA,2)} ×`;
+
+    // Beam stress output
+    if(d.U === "imperial"){
+      const ksi = d.sigma_psi/1000;
+      $("stressOut").textContent = `${fmt(ksi,2)} ksi`;
+    } else {
+      $("stressOut").textContent = `${fmt(d.sigma_mpa,1)} MPa`;
+    }
+
+    // Pressure output
+    if(d.U === "imperial"){
+      $("pressOut").textContent = `${fmt(d.p_psi,0)} psi`;
+    } else {
+      $("pressOut").textContent = `${fmt(d.p_mpa,2)} MPa`;
+    }
+
+    // Status / warnings
+    const status = $("statusBox");
+    const liftable = d.tauRatio >= 1.0;
+    let msg = [];
+    let cls = "ok";
+
+    // Beam bending stress warnings (very rough)
+    if(d.sigma_mpa > WOOD_WARN_MPA){
+      cls = "warn";
+      msg.push(`Beam stress is VERY HIGH (${fmt(d.sigma_mpa,1)} MPa). Add logs, increase log diameter, or reduce required moment (shorter front arm / longer back arm).`);
+    } else if(d.sigma_mpa > WOOD_ALLOW_MPA){
+      cls = "warn";
+      msg.push(`Beam stress is high (${fmt(d.sigma_mpa,1)} MPa). More logs or larger diameter reduces stress (supports your “4 → 6 → 8 logs” claim).`);
+    } else {
+      msg.push(`Beam stress is in a safer range (${fmt(d.sigma_mpa,1)} MPa for this simplified model).`);
+    }
+
+    // Contact pressure warnings
+    if(d.p_psi > PRESS_WARN_PSI){
+      cls = "warn";
+      msg.push(`Contact pressure is extremely high (${fmt(d.p_psi,0)} psi). Use wider pads/rollers or spread the sling load to avoid point-cracking.`);
+    } else if(d.p_psi > PRESS_OK_PSI){
+      msg.push(`Contact pressure is moderate (${fmt(d.p_psi,0)} psi). Wider pads can lower this further (helps explain “no cracks”).`);
+    } else {
+      msg.push(`Contact pressure is relatively low (${fmt(d.p_psi,0)} psi) due to pad area — consistent with minimal surface damage.`);
+    }
+
+    // Lift condition
+    if(liftable){
+      msg.push(`Torque condition: COUNTERWEIGHT torque ≥ BLOCK torque → lift is possible (small lift for repositioning).`);
+    } else {
+      cls = "warn";
+      msg.push(`Torque condition: counterweight torque is NOT enough (τ_cw / τ_block = ${fmt(d.tauRatio,2)}). Increase r_back or CW, or reduce r_front.`);
+    }
+
+    status.className = cls;
+    status.style.display = "block";
+    status.textContent = msg.join(" ");
+
+    // Equations panel
+    const eq = [];
+    eq.push(`Given: block weight W_b, counterweight W_cw, lever arms r_front and r_back`);
+    eq.push(`Torque balance about fulcrum (lift threshold):`);
+    eq.push(`  τ_block = W_b · r_front`);
+    eq.push(`  τ_cw    = W_cw · r_back`);
+    eq.push(`Lift condition:  τ_cw ≥ τ_block`);
+    eq.push(`Required counterweight (balance):`);
+    eq.push(`  W_cw = W_b · (r_front / r_back)`);
+    eq.push(`Mechanical advantage (ideal):`);
+    eq.push(`  MA = r_back / r_front`);
+    eq.push(`Fulcrum reaction (ignoring beam self-weight):`);
+    eq.push(`  R ≈ W_b + W_cw`);
+    eq.push(`Bending moment magnitude near fulcrum (simplified):`);
+    eq.push(`  M ≈ max(τ_block, τ_cw)`);
+    eq.push(`Beam bending stress estimate using section modulus S:`);
+    eq.push(`  σ ≈ M / S`);
+    eq.push(`Rectangular built-up approximation (logs lashed as a block):`);
+    eq.push(`  S ≈ (b · h²) / 6`);
+    eq.push(`Contact pressure under sling pad area A:`);
+    eq.push(`  p = W_b / A`);
+
+    eq.push(``);
+    eq.push(`LIVE VALUES:`);
+    eq.push(`  W_b = ${fmt(d.Wb_lb,0)} lb  (${fmt(d.Wb_N/1000,1)} kN)`);
+    eq.push(`  r_front = ${fmt(d.rF_ft,2)} ft  (${fmt(d.rF_m,3)} m)`);
+    eq.push(`  r_back  = ${fmt(d.rB_ft,1)} ft  (${fmt(d.rB_m,3)} m)`);
+    eq.push(`  τ_block = ${fmt(d.tauBlock,0)} lb·ft`);
+    eq.push(`  τ_cw    = ${fmt(d.tauCW,0)} lb·ft`);
+    eq.push(`  τ_cw/τ_block = ${fmt(d.tauRatio,3)}`);
+    eq.push(`  W_cw (used)  = ${fmt(d.Wcw_lb,0)} lb  (${fmt(d.Wcw_N/1000,1)} kN)`);
+    eq.push(`  MA = ${fmt(d.MA,2)}`);
+    eq.push(`  R ≈ ${fmt(d.R_lb,0)} lb  (${fmt(d.R_N/1000,1)} kN)`);
+    eq.push(`  M ≈ ${fmt(d.M_lbft,0)} lb·ft  (${fmt(d.M_Nm,0)} N·m)`);
+    eq.push(`  Logs: ${d.sec.cols}×${d.sec.rows} built-up block, d=${fmt(Number(logDia.value),1)} in`);
+    eq.push(`  b=${fmt(d.sec.b,1)} in, h=${fmt(d.sec.h,1)} in, S=${fmt(d.sec.S,0)} in³`);
+    eq.push(`  σ ≈ ${fmt(d.sigma_psi,0)} psi  (${fmt(d.sigma_mpa,1)} MPa)`);
+    eq.push(`  A = ${fmt(d.A_in2,0)} in²`);
+    eq.push(`  p = ${fmt(d.p_psi,0)} psi  (${fmt(d.p_mpa,2)} MPa)`);
+
+    $("eqBox").textContent = eq.join("\n");
+
+    // Render canvas with updated numbers
+    draw(d);
+  }
+
+  // ---------- Drawing ----------
+  function draw(d){
+    resizeCanvas();
+
+    const w = canvas.getBoundingClientRect().width;
+    const h = canvas.getBoundingClientRect().height;
+
+    ctx.clearRect(0,0,w,h);
+
+    // ground
+    const groundY = h - 70;
+    ctx.beginPath();
+    ctx.moveTo(30, groundY);
+    ctx.lineTo(w-30, groundY);
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "#1f8a3b";
+    ctx.stroke();
+
+    // Coordinate mapping: place fulcrum near left
+    const pivotX = 180;
+    const pivotY = groundY - 210;
+
+    // Scale lever arms to canvas width
+    // We draw a "virtual" lever length where r_front + r_back maps into available pixels.
+    const avail = (w - 220) - 60;
+    const totalFt = d.rF_ft + d.rB_ft;
+    const pxPerFt = clamp(avail / totalFt, 3, 20);
+
+    const frontPx = d.rF_ft * pxPerFt;
+    const backPx  = d.rB_ft * pxPerFt;
+
+    // Mast / post
+    ctx.fillStyle = "#111";
+    ctx.fillRect(pivotX-10, pivotY, 20, groundY - pivotY);
+    ctx.fillStyle = "#111";
+    ctx.font = "14px Arial";
+    ctx.fillText("Vertical post / mast", pivotX-70, groundY-10);
+
+    // Yoke/seat (pivot contact)
+    ctx.fillStyle = "#e5e7eb";
+    ctx.strokeStyle = "#111";
+    ctx.lineWidth = 2;
+    ctx.fillRect(pivotX-22, pivotY-22, 44, 44);
+    ctx.strokeRect(pivotX-22, pivotY-22, 44, 44);
+    ctx.fillStyle = "#111";
+    ctx.fillText("Seat / yoke (pivot)", pivotX-80, pivotY-35);
+
+    // Beam
+    const beamY = pivotY;
+    const beamX0 = pivotX - frontPx;
+    const beamX1 = pivotX + backPx;
+
+    // beam thickness depends on logs (visual only)
+    const thick = (Number(d.logs)||4) === 4 ? 16 : (Number(d.logs)||4) === 6 ? 20 : 24;
+
+    ctx.strokeStyle = "#0b3d91";
+    ctx.lineWidth = thick;
+    ctx.beginPath();
+    ctx.moveTo(beamX0, beamY);
+    ctx.lineTo(beamX1, beamY);
+    ctx.stroke();
+
+    ctx.lineWidth = 1;
+    ctx.fillStyle = "#0b3d91";
+    ctx.font = "15px Arial";
+    ctx.fillText(`Built-up beam (${logs.value} logs lashed)`, (beamX0+beamX1)/2 - 110, beamY - 18);
+
+    // Front arm label
+    ctx.fillStyle = "#111";
+    ctx.font = "13px Arial";
+    ctx.fillText(`Front arm r_front = ${fmt(d.rF_ft,2)} ft`, beamX0 + 10, beamY - 60);
+
+    // Back arm label
+    ctx.fillText(`Back arm r_back = ${fmt(d.rB_ft,1)} ft`, pivotX + 10, beamY - 90);
+
+    // Block + sling
+    const blockW = 70, blockH = 70;
+    const slingX = beamX0 + 30;
+    const slingY = beamY + 6;
+
+    // sling line
+    ctx.strokeStyle = "#111";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(slingX, slingY);
+    ctx.lineTo(slingX, slingY + 40);
+    ctx.stroke();
+
+    // lift animation offset
+    const liftPx = (d.liftTargetIn / 12.0) * pxPerFt; // inches -> ft -> px
+    const liftNow = state.liftProgress * liftPx;
+
+    // block rectangle
+    const blockX = slingX - blockW/2;
+    const blockY = slingY + 40 - liftNow;
+
+    ctx.fillStyle = "#111";
+    ctx.strokeStyle = "#111";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(blockX, blockY, blockW, blockH);
+
+    ctx.fillStyle = "#111";
+    ctx.font = "13px Arial";
+    ctx.fillText(`${tons.value}-ton block`, blockX - 10, blockY + blockH + 18);
+    ctx.fillText(`Sling / net`, slingX - 28, slingY + 30);
+
+    // Counterweight
+    const cwW = 56, cwH = 56;
+    const cwX = beamX1 - 30 - cwW/2;
+    const cwY = beamY + 40;
+    ctx.strokeStyle = "#111";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(cwX, cwY, cwW, cwH);
+
+    ctx.fillStyle = "#111";
+    ctx.font = "13px Arial";
+    let cwText;
+    if(d.U==="imperial"){
+      const cw_lb = d.Wcw_lb;
+      let cw_ton;
+      if(tonType.value==="short") cw_ton = cw_lb/2000;
+      else if(tonType.value==="long") cw_ton = cw_lb/2240;
+      else cw_ton = cw_lb/2204.62262185;
+      cwText = `${fmt(cw_ton,2)} tons`;
+    } else {
+      cwText = `${fmt(d.Wcw_N/1000,1)} kN`;
+    }
+    ctx.fillText(`Counterweight`, cwX - 10, cwY + cwH + 18);
+    ctx.fillText(cwText, cwX + 4, cwY + cwH + 34);
+
+    // Arrows for lever arms
+    function arrow(x0,y0,x1,y1,text){
+      ctx.strokeStyle = "#111";
+      ctx.fillStyle = "#111";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x0,y0); ctx.lineTo(x1,y1);
+      ctx.stroke();
+
+      // arrowheads
+      const ang = Math.atan2(y1-y0,x1-x0);
+      const a = 10;
+      ctx.beginPath();
+      ctx.moveTo(x1,y1);
+      ctx.lineTo(x1 - a*Math.cos(ang-0.5), y1 - a*Math.sin(ang-0.5));
+      ctx.lineTo(x1 - a*Math.cos(ang+0.5), y1 - a*Math.sin(ang+0.5));
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.moveTo(x0,y0);
+      ctx.lineTo(x0 + a*Math.cos(ang-0.5), y0 + a*Math.sin(ang-0.5));
+      ctx.lineTo(x0 + a*Math.cos(ang+0.5), y0 + a*Math.sin(ang+0.5));
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.font = "12px Arial";
+      ctx.fillText(text, (x0+x1)/2 - 40, y0 - 6);
+    }
+
+    arrow(pivotX, beamY-110, beamX1, beamY-110, "r_back");
+    arrow(beamX0, beamY-80, pivotX, beamY-80, "r_front");
+
+    // Small info block top-right
+    const infoX = w - 300, infoY = 28;
+    ctx.fillStyle = "#f9fafb";
+    ctx.strokeStyle = "#e5e7eb";
+    ctx.lineWidth = 1;
+    ctx.fillRect(infoX, infoY, 270, 120);
+    ctx.strokeRect(infoX, infoY, 270, 120);
+
+    ctx.fillStyle = "#111";
+    ctx.font = "12px Arial";
+    ctx.fillText(`Torque ratio τ_cw/τ_block = ${fmt(d.tauRatio,2)}`, infoX+10, infoY+24);
+    ctx.fillText(`M ≈ ${fmt(d.M_lbft,0)} lb·ft`, infoX+10, infoY+44);
+    ctx.fillText(`Beam stress ≈ ${fmt(d.sigma_psi/1000,2)} ksi`, infoX+10, infoY+64);
+    ctx.fillText(`Pad pressure ≈ ${fmt(d.p_psi,0)} psi`, infoX+10, infoY+84);
+    ctx.fillStyle = (d.tauRatio>=1) ? "#14532d" : "#7f1d1d";
+    ctx.font = "13px Arial";
+    ctx.fillText((d.tauRatio>=1) ? "LIFT POSSIBLE" : "NOT ENOUGH TORQUE", infoX+10, infoY+108);
+  }
+
+  // ---------- Animation loop ----------
+  function tick(t){
+    const dt = Math.min(0.05, (t - state.lastT)/1000);
+    state.lastT = t;
+
+    const d = compute();
+
+    if(state.lifting){
+      // Only lift if torque condition met
+      const liftable = d.tauRatio >= 1.0;
+      if(liftable){
+        state.liftProgress = clamp(state.liftProgress + dt*0.7, 0, 1);
+      }else{
+        state.liftProgress = clamp(state.liftProgress - dt*0.9, 0, 1);
+      }
+      if(state.liftProgress >= 1){
+        // hold at top while lifting is "on"
+      }
+    } else {
+      state.liftProgress = clamp(state.liftProgress - dt*1.2, 0, 1);
+    }
+
+    draw(d);
+    requestAnimationFrame(tick);
+  }
+
+  // ---------- Event wiring ----------
+  [units, tons, tonType, rFront, rBack, cwTons, mode, logs, logDia, padArea, liftIn].forEach(el=>{
+    el.addEventListener("input", computeAndRender);
+    el.addEventListener("change", computeAndRender);
+  });
+
+  // Initialize
+  resizeCanvas();
+  computeAndRender();
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
