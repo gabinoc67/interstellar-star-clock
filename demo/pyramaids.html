@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Forgotten Lever-Crane Simulator — 80-Ton Lift + Move (Ropes Follow Beam Ends + A-Frame)</title>
+<title>Forgotten Lever-Crane Simulator — Go/No-Go Beam Torque + Force Needed</title>
 <style>
   :root{
     --bg:#f5f7fb;
@@ -13,7 +13,6 @@
     --blue:#0b3d91;
     --green:#1f8a3b;
     --red:#b91c1c;
-    --amber:#b45309;
     --shadow: 0 6px 18px rgba(0,0,0,.10);
     --radius: 12px;
   }
@@ -73,8 +72,6 @@
     background:#111827;color:#e5e7eb;border-radius:12px;padding:10px;border:1px solid rgba(255,255,255,.08);
     font-size:12px;white-space:pre-wrap;line-height:1.25;
   }
-
-  /* NEW: diagram image styling under the explain panel */
   .diagramWrap{
     margin-top:10px;
     background:#fff;
@@ -97,18 +94,16 @@
     font-size:12px;
     line-height:1.25;
   }
-
   canvas{width:100%;height:520px;border-radius:var(--radius);background:#fff;box-shadow:var(--shadow);}
   .foot{margin-top:8px;font-size:12px;color:var(--muted);line-height:1.25;}
 </style>
 </head>
 <body>
 <header>
-  <h1>Forgotten Lever-Crane Simulator — 80-Ton Lift + Move (Rope Ends Follow Beam Ends)</h1>
+  <h1>Forgotten Lever-Crane Simulator — Go/No-Go Beam Torque + Force Needed</h1>
   <div class="sub">
-    Updated: rollers/skids under the block have been removed (no logs drawn underneath the stone).
-    Counterweight rope attaches to the beam end and follows the rocking beam.
-    Beam now turns <b style="color:#a7f3d0;">green</b> when lift is safe (demo thresholds), <b style="color:#fecaca;">red</b> when compromised.
+    Go/No-Go beam coloring: <b style="color:#a7f3d0;">green</b> when torque is OK to lift; <b style="color:#fecaca;">red</b> when beam torque is too high (compromised).
+    Moving r_front and r_back shows torque increase/decrease and the force needed to lift.
   </div>
 </header>
 
@@ -185,12 +180,8 @@
         <input id="liftIn" type="number" step="0.5" value="6" min="0.5" max="24" />
       </div>
       <div>
-        <label>Beam safety coloring uses</label>
-        <select id="beamSafetyMode">
-          <option value="stressAndTorque" selected>Torque + beam stress</option>
-          <option value="torqueOnly">Torque only</option>
-          <option value="stressOnly">Beam stress only</option>
-        </select>
+        <label>Move distance per cycle (ft) (Lift+Move)</label>
+        <input id="moveFt" type="number" step="0.5" value="3" min="0.5" max="20" />
       </div>
     </div>
 
@@ -247,21 +238,13 @@
         <input id="padArea" type="number" step="10" value="300" min="20" />
       </div>
       <div>
-        <label>Move distance per cycle (ft) (Lift+Move)</label>
-        <input id="moveFt" type="number" step="0.5" value="3" min="0.5" max="20" />
-      </div>
-    </div>
-
-    <div class="row">
-      <div>
-        <label>Friction μ (0.02–0.20) — used in math only</label>
-        <input id="mu" type="range" min="0.02" max="0.20" step="0.005" value="0.06" />
-      </div>
-      <div>
-        <label>Optional pull force (lb) (for sliding)</label>
+        <label>Optional people pull force (lb) (for sliding)</label>
         <input id="pullLb" type="number" step="100" value="2000" min="0" />
       </div>
     </div>
+
+    <label>Friction μ (0.02–0.20) — used in math only</label>
+    <input id="mu" type="range" min="0.02" max="0.20" step="0.005" value="0.06" />
 
     <div class="btnrow">
       <button id="liftToggleBtn">Lift (toggle)</button>
@@ -280,6 +263,17 @@
         <div class="t">Mechanical advantage (r_back / r_front)</div>
         <div class="v" id="maOut">—</div>
       </div>
+      <div class="box">
+        <div class="t">Beam torque tension (Go/No-Go)</div>
+        <div class="v" id="beamTorqueOut">—</div>
+      </div>
+      <div class="box">
+        <div class="t">Force needed to lift at back end</div>
+        <div class="v" id="forceLiftOut">—</div>
+      </div>
+    </div>
+
+    <div class="kpi" style="margin-top:10px;">
       <div class="box">
         <div class="t">Beam bending stress (approx)</div>
         <div class="v" id="stressOut">—</div>
@@ -310,8 +304,8 @@
     <textarea id="paperText" readonly></textarea>
 
     <div class="foot">
-      Note: visual rollers/logs under the block have been removed; “Lift+Move” now shows sliding only while calculations still use μ for resistance.
-      Beam color: <b style="color:var(--green);">green</b>=demo-safe, <b style="color:var(--red);">red</b>=compromised.
+      Beam color is a simple Go/No-Go check on beam torque capacity vs applied torque:
+      if applied torque exceeds capacity, beam turns red; otherwise green.
     </div>
   </section>
 
@@ -327,30 +321,24 @@
         That’s why a practical ancient method would favor a cycle of <b>small controlled lift</b> plus <b>wide pads</b> and <b>controlled sliding/rolling</b>.
       </p>
       <ul>
-        <li><b>Lift only a few inches</b> (enough to reposition), not “super high.”</li>
-        <li><b>Spread stress</b> using a built-up beam (4/6/8 logs) and wide pads to reduce bending stress and contact pressure.</li>
-        <li><b>Move resistance</b> is estimated by <b>F ≈ μ·W</b>. Lower μ means far less pull than dragging.</li>
-        <li><b>Multiple poles / tripods</b>: smaller stones can be handled with <b>two or three poles tied as a tripod</b> (or multiple “canes”/poles in parallel) so the load is shared.</li>
-        <li><b>A-frame support</b> reduces side load on a single post by splitting the reaction into two legs.</li>
+        <li><b>Front arm longer</b> → more stone torque → harder to lift.</li>
+        <li><b>Back arm longer</b> → less force/counterweight needed.</li>
+        <li><b>Force needed to lift</b> at the back end: <b>F_lift = (W_block · r_front) / r_back</b>.</li>
+        <li><b>Go/No-Go</b> uses a beam torque capacity estimate (from beam stress limit × section modulus).</li>
       </ul>
-      <p>
-        Documentation note (your claim): you could not find this technique written clearly; it may have been transmitted by apprenticeship and oral tradition.
-      </p>
     </div>
 
     <div class="explain">
-      <h3>Can this method lift an 80-ton stone?</h3>
+      <h3>Can this method lift the selected stone?</h3>
       <p>
-        <b>Yes — in principle</b>, this lever-crane method can lift an <b>80-ton</b> stone when the counterweight torque equals or exceeds the stone torque,
-        and when the beam/pivot/ropes are strong and stable enough to carry the forces.
+        <b>Yes — in principle</b>, if the counterweight/people force can supply enough torque, and if the beam torque is within safe capacity.
       </p>
       <div class="math" id="explainMath">Loading…</div>
       <p>
-        <b>Bottom line:</b> torque balance decides “can it lift.” Engineering decides “can it lift safely.”
+        <b>Bottom line:</b> torque balance decides “can it lift.” Beam torque capacity decides “go/no-go.”
       </p>
     </div>
 
-    <!-- NEW: YOUR SWIFFEL DIAGRAM UNDER THE PANEL -->
     <div class="diagramWrap">
       <h3>Swivel / torque-point concept diagram</h3>
       <img
@@ -358,9 +346,7 @@
         alt="Swivel torque-point diagram"
         src="https://raw.githubusercontent.com/gabinoc67/interstellar-star-clock/main/demo/swiffel.png"
       />
-      <p class="diagramNote">
-        Diagram is shown under the panel exactly as requested. If your GitHub file path changes, update the <span style="font-family:ui-monospace,monospace;">src</span>.
-      </p>
+      <p class="diagramNote">Shown under the panel as requested.</p>
     </div>
 
   </section>
@@ -375,8 +361,7 @@
   const PSI_TO_MPA=0.006894757293168;
 
   // Demo thresholds (rough)
-  const WOOD_ALLOW_MPA=40;
-  const WOOD_WARN_MPA=60;
+  const WOOD_ALLOW_MPA=40; // stress "allowable" demo
   const PRESS_WARN_PSI=6000;
   const PRESS_OK_PSI=2500;
 
@@ -399,7 +384,6 @@
   const tonsPreset=$("tonsPreset");
   const tons=$("tons");
   const liftIn=$("liftIn");
-  const beamSafetyMode=$("beamSafetyMode");
   const rFront=$("rFront");
   const rBack=$("rBack");
   const cwTons=$("cwTons");
@@ -416,7 +400,6 @@
   $("front300").onclick=()=>{ rFront.value=3.00; computeAndRender(); };
   $("front400").onclick=()=>{ rFront.value=4.00; computeAndRender(); };
   $("front500").onclick=()=>{ rFront.value=5.00; computeAndRender(); };
-
   document.querySelectorAll('button[data-back]').forEach(b=>{
     b.onclick=()=>{ rBack.value=b.getAttribute("data-back"); computeAndRender(); };
   });
@@ -447,7 +430,7 @@
     if(nLogs===8){cols=4;rows=2;}
     const b=cols*d;
     const h=rows*d;
-    const S=b*h*h/6;
+    const S=b*h*h/6; // in^3
     return {b,h,S,cols,rows};
   }
 
@@ -457,12 +440,20 @@
     const rF_ft=clamp(Number(rFront.value)||2.09,0.2,1000);
     const rB_ft=clamp(Number(rBack.value)||49.2,0.2,10000);
 
+    // weights
     const Wb_lb=blockWeightLb(tonsVal,tonType.value);
-    const tauBlock=Wb_lb*rF_ft;
 
-    const Wcw_req_lb=tauBlock/rB_ft;
+    // Stone torque about pivot
+    const tauBlock_lbft=Wb_lb*rF_ft;
+
+    // Force needed at back end to just balance (people pull or CW rope tension at end)
+    // F_lift = (W_block * r_front) / r_back
+    const F_lift_lb = tauBlock_lbft / rB_ft;
+
+    // Auto CW uses exactly that balancing force as counterweight "weight"
+    const Wcw_req_lb = F_lift_lb;
+
     let Wcw_lb=Wcw_req_lb;
-
     if(cwMode.value==="manual"){
       const cw_user=Math.max(0,Number(cwTons.value)||0);
       Wcw_lb=blockWeightLb(cw_user,tonType.value);
@@ -474,76 +465,94 @@
       cwTons.value=cw_ton.toFixed(2);
     }
 
-    const tauCW=Wcw_lb*rB_ft;
-    const tauRatio=tauCW/tauBlock;
+    // Counterweight torque
+    const tauCW_lbft = Wcw_lb*rB_ft;
+    const tauRatio = tauCW_lbft / tauBlock_lbft; // ≥1 lift
 
-    const R_lb=Wb_lb+Wcw_lb;
-    const M_lbft=Math.max(tauBlock,tauCW);
+    // Beam torque "demand" = max end torque being carried (same as max of the two torques)
+    const tauDemand_lbft = Math.max(tauBlock_lbft, tauCW_lbft);
 
+    // Beam section + bending capacity estimate
     const nLogs=Number(logs.value)||4;
     const diaIn=Math.max(6,Number(logDia.value)||12);
     const sec=sectionFromLogs(nLogs,diaIn);
 
-    const M_lbin=M_lbft*12;
-    const sigma_psi=M_lbin/sec.S;
-    const sigma_mpa=sigma_psi*PSI_TO_MPA;
+    // capacity based on allowable stress:
+    // M_allow = sigma_allow * S  (units: (psi)*(in^3)=lb*in)
+    // convert to lb*ft
+    const M_allow_lbin = (WOOD_ALLOW_MPA/PSI_TO_MPA) * sec.S; // psi = MPa / PSI_TO_MPA
+    const tauCap_lbft = M_allow_lbin / 12.0;
 
+    const goNoGo = (tauDemand_lbft <= tauCap_lbft);
+
+    // Report stress too (still shown)
+    const M_lbin = tauDemand_lbft*12;
+    const sigma_psi = M_lbin/sec.S;
+    const sigma_mpa = sigma_psi*PSI_TO_MPA;
+
+    // contact pressure
     const A_in2=Math.max(1,Number(padArea.value)||300);
     const p_psi=Wb_lb/A_in2;
     const p_mpa=p_psi*PSI_TO_MPA;
 
-    const MA=rB_ft/rF_ft;
-    const liftTargetIn=clamp(Number(liftIn.value)||6,0.5,48);
-
+    // move resistance
     const muVal=Number(mu.value)||0.06;
     const moveRes_lb=muVal*Wb_lb;
     const pullAvail_lb=Math.max(0,Number(pullLb.value)||0);
 
+    // reactions
+    const R_lb=Wb_lb+Wcw_lb;
     const legLoad_lb=R_lb/2;
 
-    // Beam safety logic for coloring
-    const torqueOK = (tauRatio>=1);
-    const stressOK = (sigma_mpa<=WOOD_ALLOW_MPA);
-    const stressBad = (sigma_mpa>WOOD_WARN_MPA);
-
-    let beamSafe=true;
-    let beamCompromised=false;
-
-    if(beamSafetyMode.value==="torqueOnly"){
-      beamSafe = torqueOK;
-      beamCompromised = !torqueOK;
-    }else if(beamSafetyMode.value==="stressOnly"){
-      beamSafe = stressOK;
-      beamCompromised = stressBad;
-    }else{ // stressAndTorque
-      beamSafe = torqueOK && stressOK;
-      beamCompromised = (!torqueOK) || stressBad;
-    }
-
-    let beamColor="green"; // green / amber / red
-    if(beamCompromised) beamColor="red";
-    else if(!beamSafe) beamColor="amber";
-
     return {
-      U, tonsVal, Wb_lb,
-      rF_ft,rB_ft,
-      Wcw_req_lb,Wcw_lb,
-      tauBlock,tauCW,tauRatio,
-      R_lb,M_lbft,
-      sec,sigma_psi,sigma_mpa,
-      A_in2,p_psi,p_mpa,
-      MA,liftTargetIn,
-      muVal,moveRes_lb,pullAvail_lb,
+      U,
+      tonsVal,
+      Wb_lb,
+      rF_ft,
+      rB_ft,
+
+      tauBlock_lbft,
+      tauCW_lbft,
+      tauRatio,
+
+      // NEW outputs
+      tauDemand_lbft,
+      tauCap_lbft,
+      goNoGo,
+      beamColor: goNoGo ? "green" : "red",
+
+      // force needed to lift (at back end)
+      F_lift_lb,
+
+      // CW
+      Wcw_req_lb,
+      Wcw_lb,
+
+      // stress
+      sec,
+      sigma_psi,
+      sigma_mpa,
+
+      // contact
+      A_in2,
+      p_psi,
+      p_mpa,
+
+      // move
+      muVal,
+      moveRes_lb,
+      pullAvail_lb,
+
+      // other
+      R_lb,
       legLoad_lb,
+
+      // conversions
       Wb_N:Wb_lb*LB_TO_N,
       Wcw_N:Wcw_lb*LB_TO_N,
-      R_N:R_lb*LB_TO_N,
-      rF_m:rF_ft*FT_TO_M,
-      rB_m:rB_ft*FT_TO_M,
-      M_Nm:M_lbft*LB_TO_N*FT_TO_M,
-      moveRes_N:moveRes_lb*LB_TO_N,
-      beamColor,beamSafe,beamCompromised,
-      torqueOK,stressOK,stressBad
+      F_lift_N:F_lift_lb*LB_TO_N,
+      tauDemand_Nm:tauDemand_lbft*LB_TO_N*FT_TO_M,
+      tauCap_Nm:tauCap_lbft*LB_TO_N*FT_TO_M
     };
   }
 
@@ -551,23 +560,29 @@
 
   function setPaperText(){
     const t =
-`Forgotten counterbalanced lever-crane concept (plausible ancient workflow)
+`Go/No-Go beam torque + force-needed model
 
-This simulation models a practical method for handling very heavy stone blocks using materials available in antiquity: timber (multiple logs lashed as a beam), rope, a pivot seat/yoke, stone counterweights, and controlled repositioning. The goal is not to lift a block high, but to lift it “just enough” (a few inches) to reposition with less damage risk.
-
-Physics basis (torque balance):
+Core lift physics:
   τ_block = W_block · r_front
-  τ_cw    = W_cw · r_back
-Lift begins when τ_cw ≥ τ_block, giving the required counterweight:
-  W_cw = W_block · (r_front / r_back)
+  Lift requires an opposing torque from counterweight or people force at the back end:
+  τ_back = F_back · r_back
 
-A long back arm r_back reduces the needed counterweight dramatically while preserving torque balance. To avoid cracking and visible damage, the load must be spread: a built-up beam (4, 6, or 8 logs lashed) increases section modulus S and reduces bending stress (σ ≈ M/S), while wide sling pads reduce local contact pressure (p = W/A). After a small lift, the block can be repositioned; move resistance is approximated by F ≈ μ·W (μ lower for rollers/skids than dragging).
+Force needed to just start lifting (balance point):
+  F_lift = (W_block · r_front) / r_back
 
-Scaling to real work:
-People could scale this by using multiple poles, multiple crews pulling ropes, and for smaller blocks a tripod (three poles tied together) or multiple “canes/poles” in parallel to share load paths.
+Go/No-Go beam check (torque capacity):
+  Beam "demand torque" is the maximum torque it must carry:
+    τ_demand = max(τ_block, τ_back)
+  Beam torque capacity is estimated from allowable bending stress:
+    M_allow = σ_allow · S
+    τ_cap   = M_allow / 12  (convert lb·in to lb·ft)
+  If τ_demand ≤ τ_cap → GO (beam green)
+  Else → NO-GO (beam red)
 
-Documentation note:
-I could not find this exact technique clearly written in surviving sources; it is plausible that methods like this were transmitted by apprenticeship and oral tradition—word-by-word and demonstration—rather than formal manuals.`;
+Changing r_front and r_back:
+  r_front up  → τ_block up  → harder lift (more force needed)
+  r_back  up  → needed force down (more mechanical advantage)
+`;
     $("paperText").value=t;
   }
 
@@ -575,38 +590,26 @@ I could not find this exact technique clearly written in surviving sources; it i
     const status=$("statusBox");
     let cls="ok";
     const msg=[];
-    const liftable=d.tauRatio>=1;
 
-    if(d.sigma_mpa>WOOD_WARN_MPA){
-      cls="warn";
-      msg.push(`Beam stress VERY HIGH (${fmt(d.sigma_mpa,1)} MPa). Add logs/diameter or increase r_back / reduce r_front.`);
-    }else if(d.sigma_mpa>WOOD_ALLOW_MPA){
-      cls="warn";
-      msg.push(`Beam stress high (${fmt(d.sigma_mpa,1)} MPa). More logs/diameter lowers stress.`);
+    if(d.goNoGo){
+      msg.push(`GO: Beam torque OK (τ_demand ≤ τ_cap).`);
     }else{
-      msg.push(`Beam stress in safer demo range (${fmt(d.sigma_mpa,1)} MPa).`);
+      cls="warn";
+      msg.push(`NO-GO: Beam torque TOO HIGH (τ_demand > τ_cap). Increase logs/diameter, reduce r_front, or reduce load.`);
     }
 
     if(d.p_psi>PRESS_WARN_PSI){
       cls="warn";
-      msg.push(`Contact pressure EXTREME (${fmt(d.p_psi,0)} psi). Use wide pads to prevent point damage.`);
+      msg.push(`Contact pressure EXTREME (${fmt(d.p_psi,0)} psi). Use wider pads to prevent damage.`);
     }else if(d.p_psi>PRESS_OK_PSI){
-      msg.push(`Contact pressure moderate (${fmt(d.p_psi,0)} psi). Wider pads reduce risk further.`);
+      msg.push(`Contact pressure moderate (${fmt(d.p_psi,0)} psi). Wider pads reduce risk.`);
     }else{
-      msg.push(`Contact pressure relatively low (${fmt(d.p_psi,0)} psi) with current pad area.`);
+      msg.push(`Contact pressure relatively low (${fmt(d.p_psi,0)} psi).`);
     }
 
-    if(liftable) msg.push(`Lift condition met (τ_ratio=${fmt(d.tauRatio,2)}).`);
+    // Torque ratio display still useful
+    if(d.tauRatio>=1) msg.push(`Lift condition met (τ_ratio=${fmt(d.tauRatio,2)}).`);
     else { cls="warn"; msg.push(`Not enough torque (τ_ratio=${fmt(d.tauRatio,2)}). Increase CW or r_back.`); }
-
-    if(d.beamCompromised){
-      cls="warn";
-      msg.push(`Beam status: COMPROMISED (red).`);
-    }else if(!d.beamSafe){
-      msg.push(`Beam status: borderline (amber).`);
-    }else{
-      msg.push(`Beam status: safe (green).`);
-    }
 
     if(simMode.value==="liftMove"){
       const canMove=d.pullAvail_lb>=d.moveRes_lb;
@@ -620,77 +623,80 @@ I could not find this exact technique clearly written in surviving sources; it i
   }
 
   function updateOutputs(d){
+    // required CW display
     let cwDisplay;
     if(d.U==="imperial"){
       let cw_ton;
       if(tonType.value==="short") cw_ton=d.Wcw_lb/2000;
       else if(tonType.value==="long") cw_ton=d.Wcw_lb/2240;
       else cw_ton=d.Wcw_lb/2204.62262185;
-
       cwDisplay=`${fmt(cw_ton,2)} tons (${fmt(d.Wcw_lb,0)} lb)`;
-      $("maOut").textContent=`${fmt(d.MA,2)} ×`;
+      $("maOut").textContent=`${fmt(d.rB_ft/d.rF_ft,2)} ×`;
       $("stressOut").textContent=`${fmt(d.sigma_psi/1000,2)} ksi`;
       $("pressOut").textContent=`${fmt(d.p_psi,0)} psi`;
       $("moveResOut").textContent=`${fmt(d.moveRes_lb,0)} lb`;
       $("legOut").textContent = rigType.value==="aframe" ? `${fmt(d.legLoad_lb,0)} lb/leg` : "—";
+
+      // NEW: beam torque tension + lift force
+      const beamTxt = `${fmt(d.tauDemand_lbft,0)} lb·ft / cap ${fmt(d.tauCap_lbft,0)} lb·ft (${d.goNoGo ? "GO" : "NO-GO"})`;
+      $("beamTorqueOut").textContent = beamTxt;
+
+      $("forceLiftOut").textContent = `${fmt(d.F_lift_lb,0)} lb (at back end)`;
     }else{
       cwDisplay=`${fmt(d.Wcw_N/1000,1)} kN`;
-      $("maOut").textContent=`${fmt(d.MA,2)} ×`;
+      $("maOut").textContent=`${fmt(d.rB_ft/d.rF_ft,2)} ×`;
       $("stressOut").textContent=`${fmt(d.sigma_mpa,1)} MPa`;
       $("pressOut").textContent=`${fmt(d.p_mpa,2)} MPa`;
-      $("moveResOut").textContent=`${fmt(d.moveRes_N/1000,1)} kN`;
-      $("legOut").textContent = rigType.value==="aframe" ? `${fmt((d.R_N/2)/1000,1)} kN/leg` : "—";
+      $("moveResOut").textContent=`${fmt((d.moveRes_lb*LB_TO_N)/1000,1)} kN`;
+      $("legOut").textContent = rigType.value==="aframe" ? `${fmt(((d.R_lb*LB_TO_N)/2)/1000,1)} kN/leg` : "—";
+
+      const beamTxt = `${fmt(d.tauDemand_Nm/1000,1)} kN·m / cap ${fmt(d.tauCap_Nm/1000,1)} kN·m (${d.goNoGo ? "GO" : "NO-GO"})`;
+      $("beamTorqueOut").textContent = beamTxt;
+
+      $("forceLiftOut").textContent = `${fmt(d.F_lift_N/1000,1)} kN (at back end)`;
     }
     $("cwOut").textContent=cwDisplay;
 
+    // Equations live
     const eq=[];
-    eq.push(`TORQUE / LIFT:`);
-    eq.push(`  τ_block = W_b · r_front`);
-    eq.push(`  τ_cw    = W_cw · r_back`);
-    eq.push(`  Lift when τ_cw ≥ τ_block`);
-    eq.push(`  Required CW (balance): W_cw = W_b · (r_front / r_back)`);
+    eq.push(`LIFT FORCE NEEDED (back end):`);
+    eq.push(`  τ_block = W_block · r_front`);
+    eq.push(`  τ_back  = F_back · r_back`);
+    eq.push(`  Balance point: F_lift = (W_block · r_front) / r_back`);
     eq.push(``);
-    eq.push(`MECHANICAL ADVANTAGE: MA = r_back / r_front`);
-    eq.push(`REACTION (approx): R ≈ W_b + W_cw`);
-    eq.push(`BEAM: σ ≈ M/S,  M≈max(τ_block,τ_cw),  S≈(b·h²)/6`);
-    eq.push(`CONTACT: p = W_b / A_pad`);
-    eq.push(`MOVE: F_resist ≈ μ · W_b`);
-    eq.push(``);
-    eq.push(`BEAM COLOR LOGIC (demo):`);
-    eq.push(`  Mode: ${beamSafetyMode.value}`);
-    eq.push(`  torqueOK=${d.torqueOK}   stressOK=${d.stressOK}   stressBad=${d.stressBad}`);
+    eq.push(`BEAM GO/NO-GO TORQUE CHECK:`);
+    eq.push(`  τ_demand = max(τ_block, τ_back)`);
+    eq.push(`  τ_cap ≈ (σ_allow · S)/12`);
+    eq.push(`  GO if τ_demand ≤ τ_cap; else NO-GO`);
     eq.push(``);
     eq.push(`LIVE:`);
-    eq.push(`  W_b=${fmt(d.Wb_lb,0)} lb (${fmt(d.Wb_N/1000,1)} kN)`);
-    eq.push(`  r_front=${fmt(d.rF_ft,2)} ft (${fmt(d.rF_m,3)} m)`);
-    eq.push(`  r_back =${fmt(d.rB_ft,1)} ft (${fmt(d.rB_m,3)} m)`);
-    eq.push(`  τ_ratio=${fmt(d.tauRatio,3)}  (≥1 lifts)`);
-    eq.push(`  W_cw=${fmt(d.Wcw_lb,0)} lb`);
-    eq.push(`  MA=${fmt(d.MA,2)}`);
-    eq.push(`  σ≈${fmt(d.sigma_psi,0)} psi (${fmt(d.sigma_mpa,1)} MPa)`);
-    eq.push(`  p≈${fmt(d.p_psi,0)} psi`);
+    eq.push(`  W_block=${fmt(d.Wb_lb,0)} lb (${fmt(d.Wb_N/1000,1)} kN)`);
+    eq.push(`  r_front=${fmt(d.rF_ft,2)} ft`);
+    eq.push(`  r_back =${fmt(d.rB_ft,1)} ft`);
+    eq.push(`  τ_block=${fmt(d.tauBlock_lbft,0)} lb·ft`);
+    eq.push(`  F_lift=${fmt(d.F_lift_lb,0)} lb (back end force for lift)`);
+    eq.push(`  τ_demand=${fmt(d.tauDemand_lbft,0)} lb·ft`);
+    eq.push(`  τ_cap=${fmt(d.tauCap_lbft,0)} lb·ft  => ${d.goNoGo ? "GO" : "NO-GO"}`);
+    eq.push(`  Beam stress≈${fmt(d.sigma_psi,0)} psi (${fmt(d.sigma_mpa,1)} MPa)`);
+    eq.push(`  Pad pressure≈${fmt(d.p_psi,0)} psi`);
     eq.push(`  μ=${fmt(d.muVal,3)} → μW≈${fmt(d.moveRes_lb,0)} lb, pull=${fmt(d.pullAvail_lb,0)} lb`);
     eq.push(`  Block moved=${fmt(state.xMove,1)} ft`);
     $("eqBox").textContent=eq.join("\n");
 
-    // Explanation panel
-    const cw_req_ton = (tonType.value==="short") ? d.Wcw_req_lb/2000 :
-                       (tonType.value==="long")  ? d.Wcw_req_lb/2240 :
-                                                   d.Wcw_req_lb/2204.62262185;
+    // Explain panel
     const example=[];
-    example.push(`Lift condition:`)
-    example.push(`  W_cw · r_back ≥ W_block · r_front`)
-    example.push(`  W_cw = W_block · (r_front / r_back)`)
-    example.push(``)
-    example.push(`Current:`)
-    example.push(`  W_block=${fmt(d.tonsVal,0)} tons`)
-    example.push(`  r_front=${fmt(d.rF_ft,2)} ft`)
-    example.push(`  r_back =${fmt(d.rB_ft,1)} ft`)
-    example.push(`  MA=${fmt(d.MA,2)}`)
-    example.push(`  Required CW≈${fmt(cw_req_ton,2)} tons`)
-    example.push(`  τ_ratio=${fmt(d.tauRatio,2)} (≥1 lifts)`)
-    example.push(``)
-    example.push(`Beam color now: ${d.beamColor.toUpperCase()} (${beamSafetyMode.value})`)
+    example.push(`Lift condition (force form):`);
+    example.push(`  F_lift = (W_block · r_front) / r_back`);
+    example.push(``);
+    example.push(`Go/No-Go (beam torque):`);
+    example.push(`  τ_demand = max(W_block·r_front, F_back·r_back)`);
+    example.push(`  τ_cap ≈ (σ_allow·S)/12`);
+    example.push(``);
+    example.push(`Current:`);
+    example.push(`  W_block=${fmt(d.tonsVal,0)} tons`);
+    example.push(`  r_front=${fmt(d.rF_ft,2)} ft, r_back=${fmt(d.rB_ft,1)} ft`);
+    example.push(`  Force needed to lift ≈ ${d.U==="imperial" ? fmt(d.F_lift_lb,0)+" lb" : fmt(d.F_lift_N/1000,1)+" kN"} (at back end)`);
+    example.push(`  Beam: ${d.goNoGo ? "GO (green)" : "NO-GO (red)"} — τ_demand vs τ_cap`);
     $("explainMath").textContent=example.join("\n");
   }
 
@@ -720,11 +726,11 @@ I could not find this exact technique clearly written in surviving sources; it i
 
     const groundY=h-70;
 
-    // ground line
+    // ground
     ctx.beginPath(); ctx.moveTo(30,groundY); ctx.lineTo(w-30,groundY);
     ctx.lineWidth=4; ctx.strokeStyle="#1f8a3b"; ctx.stroke();
 
-    // geometry placement
+    // pivot
     const pivotX=210;
     const pivotY=groundY-240;
 
@@ -739,13 +745,13 @@ I could not find this exact technique clearly written in surviving sources; it i
     const beamX0=pivotX-frontPx;
     const beamX1=pivotX+backPx;
 
-    // Visual rocking
+    // rocking
     const flex=state.liftProgress;
     const maxFlexPx=16;
     const frontEndY = pivotY - (maxFlexPx*flex);
     const backEndY  = pivotY + (maxFlexPx*flex);
 
-    // Supports and apex
+    // supports
     let apexX=pivotX, apexY=pivotY;
     if(rigType.value==="single"){
       ctx.fillStyle="#111";
@@ -779,31 +785,25 @@ I could not find this exact technique clearly written in surviving sources; it i
       ctx.fillText("Apex / pivot plate", apexX-82, apexY-35);
     }
 
-    // Beam (COLOR-CODED)
+    // Beam (GO/NO-GO color)
     const nL=Number(logs.value)||4;
     const thick=(nL===4)?16:(nL===6)?20:24;
 
-    let beamStroke = "#1f8a3b"; // green
-    if(d.beamColor==="red") beamStroke = "#b91c1c";
-    else if(d.beamColor==="amber") beamStroke = "#b45309";
-
-    ctx.strokeStyle=beamStroke;
+    ctx.strokeStyle = (d.beamColor==="green") ? "#1f8a3b" : "#b91c1c";
     ctx.lineWidth=thick;
     ctx.beginPath();
     ctx.moveTo(beamX0, frontEndY);
     ctx.lineTo(beamX1, backEndY);
     ctx.stroke();
 
-    // Beam label
     ctx.lineWidth=1;
     ctx.fillStyle="#111"; ctx.font="15px Arial";
-    const beamStateText = (d.beamColor==="green") ? "SAFE (green)" : (d.beamColor==="red") ? "COMPROMISED (red)" : "BORDERLINE (amber)";
-    ctx.fillText(`Built-up beam (${logs.value} logs lashed) — ${beamStateText}`, (beamX0+beamX1)/2 - 220, pivotY - 26);
+    ctx.fillText(`Built-up beam (${logs.value} logs) — ${d.goNoGo ? "GO (green)" : "NO-GO (red)"}`, (beamX0+beamX1)/2 - 200, pivotY - 26);
 
     // labels
     ctx.fillStyle="#111"; ctx.font="13px Arial";
-    ctx.fillText(`Front arm r_front = ${fmt(d.rF_ft,2)} ft`, beamX0 + 10, pivotY - 92);
-    ctx.fillText(`Back arm r_back = ${fmt(d.rB_ft,1)} ft`, pivotX + 10, pivotY - 116);
+    ctx.fillText(`r_front=${fmt(d.rF_ft,2)} ft`, beamX0 + 10, pivotY - 92);
+    ctx.fillText(`r_back=${fmt(d.rB_ft,1)} ft`, pivotX + 10, pivotY - 116);
 
     // sling point
     const slingBaseX = beamX0 + 36;
@@ -836,7 +836,7 @@ I could not find this exact technique clearly written in surviving sources; it i
     ctx.fillStyle="#111"; ctx.font="13px Arial";
     ctx.fillText(`${tons.value}-ton block`, blockX-8, blockY+blockH+18);
 
-    // Counterweight: rope from beam end; CW follows beam end Y.
+    // Counterweight follows beam end
     const cwW=56, cwH=56;
     const beamEndX = beamX1;
     const beamEndY = backEndY;
@@ -844,14 +844,14 @@ I could not find this exact technique clearly written in surviving sources; it i
     const cwX = beamEndX - 30 - cwW/2;
     const cwY = beamEndY + 48;
 
-    // Rope: beam end -> CW top center
+    // rope to CW
     ctx.strokeStyle="#111"; ctx.lineWidth=2;
     ctx.beginPath();
     ctx.moveTo(beamEndX, beamEndY + 6);
     ctx.lineTo(cwX + cwW/2, cwY);
     ctx.stroke();
 
-    // Guide line from apex to CW (subtle)
+    // guide line
     ctx.strokeStyle="rgba(0,0,0,0.35)";
     ctx.lineWidth=2;
     ctx.beginPath();
@@ -859,7 +859,7 @@ I could not find this exact technique clearly written in surviving sources; it i
     ctx.lineTo(cwX + cwW/2, cwY);
     ctx.stroke();
 
-    // counterweight block
+    // CW block
     ctx.strokeStyle="#111"; ctx.lineWidth=2;
     ctx.strokeRect(cwX, cwY, cwW, cwH);
 
@@ -878,31 +878,31 @@ I could not find this exact technique clearly written in surviving sources; it i
     ctx.fillText("Counterweight", cwX-14, cwY+cwH+18);
     ctx.fillText(cwText, cwX+4, cwY+cwH+34);
 
-    // arm arrows
+    // arrows
     arrow(pivotX, pivotY-140, beamX1, pivotY-140, "r_back");
     arrow(beamX0, pivotY-110, pivotX, pivotY-110, "r_front");
 
     // info box
     const infoX=w-330, infoY=24;
     ctx.fillStyle="#f9fafb"; ctx.strokeStyle="#e5e7eb"; ctx.lineWidth=1;
-    ctx.fillRect(infoX, infoY, 300, 176);
-    ctx.strokeRect(infoX, infoY, 300, 176);
+    ctx.fillRect(infoX, infoY, 300, 186);
+    ctx.strokeRect(infoX, infoY, 300, 186);
     ctx.fillStyle="#111"; ctx.font="12px Arial";
-    ctx.fillText(`Mode: ${simMode.value==="liftMove" ? "Lift+Move (slide)" : "Lift only"}`, infoX+10, infoY+22);
-    ctx.fillText(`Rig: ${rigType.value==="aframe" ? "A-frame" : "Single mast"}`, infoX+10, infoY+40);
-    ctx.fillText(`Beam status: ${beamStateText}`, infoX+10, infoY+58);
-    ctx.fillText(`τ_ratio=${fmt(d.tauRatio,2)} (≥1 lifts)`, infoX+10, infoY+76);
-    ctx.fillText(`Beam stress≈${fmt(d.sigma_psi/1000,2)} ksi`, infoX+10, infoY+94);
-    ctx.fillText(`Pad pressure≈${fmt(d.p_psi,0)} psi`, infoX+10, infoY+112);
-    ctx.fillText(`Lift target=${fmt(d.liftTargetIn,1)} in, progress=${fmt(state.liftProgress,2)}`, infoX+10, infoY+130);
-    ctx.fillText(`Moved=${fmt(state.xMove,1)} ft`, infoX+10, infoY+148);
+    ctx.fillText(`Beam: ${d.goNoGo ? "GO (green)" : "NO-GO (red)"}`, infoX+10, infoY+22);
+    ctx.fillText(`τ_demand=${fmt(d.tauDemand_lbft,0)} lb·ft`, infoX+10, infoY+40);
+    ctx.fillText(`τ_cap≈${fmt(d.tauCap_lbft,0)} lb·ft`, infoX+10, infoY+58);
+    ctx.fillText(`Force needed to lift: ${fmt(d.F_lift_lb,0)} lb`, infoX+10, infoY+76);
+    ctx.fillText(`Mode: ${simMode.value==="liftMove" ? "Lift+Move (slide)" : "Lift only"}`, infoX+10, infoY+94);
+    ctx.fillText(`Lift target=${fmt(d.liftTargetIn,1)} in, progress=${fmt(state.liftProgress,2)}`, infoX+10, infoY+112);
+    ctx.fillText(`Moved=${fmt(state.xMove,1)} ft`, infoX+10, infoY+130);
     if(simMode.value==="liftMove"){
-      ctx.fillText(`μW≈${fmt(d.moveRes_lb,0)} lb, pull=${fmt(d.pullAvail_lb,0)} lb`, infoX+10, infoY+166);
+      ctx.fillText(`μW≈${fmt(d.moveRes_lb,0)} lb, pull=${fmt(d.pullAvail_lb,0)} lb`, infoX+10, infoY+148);
     }
+    ctx.fillText(`r_front=${fmt(d.rF_ft,2)} ft, r_back=${fmt(d.rB_ft,1)} ft`, infoX+10, infoY+166);
 
     ctx.fillStyle=(d.tauRatio>=1) ? "#14532d" : "#7f1d1d";
     ctx.font="13px Arial";
-    ctx.fillText((d.tauRatio>=1) ? "LIFT POSSIBLE" : "NOT ENOUGH TORQUE", infoX+170, infoY+22);
+    ctx.fillText((d.tauRatio>=1) ? "LIFT POSSIBLE" : "NOT ENOUGH TORQUE", infoX+165, infoY+22);
   }
 
   function computeAndRender(){
@@ -985,7 +985,7 @@ I could not find this exact technique clearly written in surviving sources; it i
   // Motion
   function advance(dt){
     const d=compute();
-    const liftable=d.tauRatio>=1;
+    const liftable=(d.tauRatio>=1) && d.goNoGo; // require both lift torque and beam GO
 
     if(!liftable){
       state.liftProgress=clamp(state.liftProgress-dt*1.6,0,1);
@@ -1060,7 +1060,7 @@ I could not find this exact technique clearly written in surviving sources; it i
 
   // Inputs
   [
-    rigType, simMode, units, tonType, tonsPreset, tons, liftIn, beamSafetyMode,
+    rigType, simMode, units, tonType, tonsPreset, tons, liftIn,
     rFront, rBack, cwTons, cwMode, logs, logDia, padArea, moveFt, mu, pullLb
   ].forEach(el=>{
     el.addEventListener("input", ()=>{
