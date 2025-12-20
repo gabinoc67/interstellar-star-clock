@@ -353,6 +353,17 @@
   const PRESS_WARN_PSI=6000;
   const PRESS_OK_PSI=2500;
 
+  // Canvas
+  const canvas=$("c");
+  const ctx=canvas.getContext("2d");
+  function resizeCanvas(){
+    const r=canvas.getBoundingClientRect();
+    canvas.width=Math.floor(r.width*devicePixelRatio);
+    canvas.height=Math.floor(r.height*devicePixelRatio);
+    ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+  }
+  window.addEventListener("resize", resizeCanvas);
+
   // Text drawing helper (prevents overlapping labels by drawing on white box)
   function labelBox(text, x, y, opts={}){
     const pad=6;
@@ -368,17 +379,6 @@
     ctx.fillStyle=opts.color || "#111";
     ctx.fillText(text, x+pad, y);
   }
-
-  // Canvas
-  const canvas=$("c");
-  const ctx=canvas.getContext("2d");
-  function resizeCanvas(){
-    const r=canvas.getBoundingClientRect();
-    canvas.width=Math.floor(r.width*devicePixelRatio);
-    canvas.height=Math.floor(r.height*devicePixelRatio);
-    ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
-  }
-  window.addEventListener("resize", resizeCanvas);
 
   // Inputs
   const rigType=$("rigType");
@@ -398,6 +398,41 @@
   const moveFt=$("moveFt");
   const mu=$("mu");
   const pullLb=$("pullLb");
+
+  // Capture DEFAULT UI VALUES ONCE (so Reset truly restores defaults)
+  const DEFAULTS = {};
+  function captureDefaults(){
+    const ids = ["rigType","simMode","units","tonType","tonsPreset","tons","liftIn","rFront","rBack","cwTons","cwMode","logs","logDia","padArea","moveFt","mu","pullLb"];
+    ids.forEach(id=>{
+      const el=$(id);
+      DEFAULTS[id]=el.value;
+    });
+  }
+  function restoreDefaults(){
+    Object.keys(DEFAULTS).forEach(id=>{
+      const el=$(id);
+      if(!el) return;
+      el.value = DEFAULTS[id];
+    });
+    // keep preset<->tons in sync after restore
+    syncPresetFromTons();
+
+    // restore button text/UI
+    $("liftToggleBtn").textContent="Lift (toggle)";
+    $("cycleBtn").textContent="Run cycles (Lift+Move)";
+
+    // restore motion state
+    state.liftToggle=false;
+    state.cycling=false;
+    state.oneStep=false;
+    state.phase="idle";
+    state.phaseT=0;
+    state.liftProgress=0;
+    state.xMove=0;
+    state.targetMove=0;
+
+    computeAndRender();
+  }
 
   // Presets
   $("front209").onclick=()=>{ rFront.value=2.09; computeAndRender(); };
@@ -470,6 +505,11 @@
     const tauCW_lbft = Wcw_lb*rB_ft;
     const tauRatio = tauCW_lbft / tauBlock_lbft;
 
+    // NEW: human force needed in addition to the counterweight to reach lift threshold
+    // (keeps your same simplifying model: CW contributes as a force at the back end)
+    const F_human_lb = Math.max(0, F_lift_lb - Wcw_lb);
+    const F_human_N = F_human_lb * LB_TO_N;
+
     // Beam torque demand
     const tauDemand_lbft = Math.max(tauBlock_lbft, tauCW_lbft);
 
@@ -513,6 +553,7 @@
       goNoGo,
       beamColor: goNoGo ? "#1f8a3b" : "#b91c1c",
       F_lift_lb, F_lift_N:F_lift_lb*LB_TO_N,
+      F_human_lb, F_human_N,
       Wcw_req_lb, Wcw_lb, Wcw_N:Wcw_lb*LB_TO_N,
       sec, sigma_psi, sigma_mpa,
       A_in2, p_psi, p_mpa,
@@ -536,6 +577,9 @@ Core lift physics:
 Force needed to just start lifting (balance):
   F_lift = (W_block · r_front) / r_back
 
+Human force needed (if counterweight is not enough):
+  F_human = max(0, F_lift − W_counterweight)
+
 Go/No-Go beam check:
   τ_demand = max(τ_block, τ_back)
   τ_cap ≈ (σ_allow · S)/12
@@ -553,6 +597,7 @@ If τ_demand ≤ τ_cap → GO (beam green), else NO-GO (beam red).`;
 
     msg.push(`Beam: τ_demand=${fmt(d.tauDemand_lbft,0)} lb·ft vs τ_cap≈${fmt(d.tauCap_lbft,0)} lb·ft.`);
     msg.push(`Force needed to lift (back end)≈${fmt(d.F_lift_lb,0)} lb.`);
+    msg.push(`Human force needed (with current counterweight)≈${fmt(d.F_human_lb,0)} lb.`);
 
     if(d.p_psi>PRESS_WARN_PSI){
       cls="warn";
@@ -609,6 +654,7 @@ If τ_demand ≤ τ_cap → GO (beam green), else NO-GO (beam red).`;
     eq.push(`LIFT FORCE NEEDED:`);
     eq.push(`  τ_block = W · r_front`);
     eq.push(`  F_lift  = (W · r_front) / r_back`);
+    eq.push(`  F_human = max(0, F_lift − W_counterweight)`);
     eq.push(``);
     eq.push(`BEAM GO/NO-GO:`);
     eq.push(`  τ_demand = max(τ_block, τ_back)`);
@@ -619,6 +665,7 @@ If τ_demand ≤ τ_cap → GO (beam green), else NO-GO (beam red).`;
     eq.push(`  r_front=${fmt(d.rF_ft,2)} ft, r_back=${fmt(d.rB_ft,1)} ft`);
     eq.push(`  τ_block=${fmt(d.tauBlock_lbft,0)} lb·ft`);
     eq.push(`  F_lift≈${fmt(d.F_lift_lb,0)} lb (back end)`);
+    eq.push(`  Human needed≈${fmt(d.F_human_lb,0)} lb (with current CW)`);
     eq.push(`  τ_demand=${fmt(d.tauDemand_lbft,0)} lb·ft`);
     eq.push(`  τ_cap≈${fmt(d.tauCap_lbft,0)} lb·ft => ${d.goNoGo ? "GO" : "NO-GO"}`);
     eq.push(`  Beam stress≈${fmt(d.sigma_psi,0)} psi`);
@@ -631,12 +678,14 @@ If τ_demand ≤ τ_cap → GO (beam green), else NO-GO (beam red).`;
     const lines=[];
     lines.push(`Lift condition:`);
     lines.push(`  F_lift = (W · r_front) / r_back`);
+    lines.push(`  F_human = max(0, F_lift − W_counterweight)`);
     lines.push(``);
     lines.push(`Current:`);
     lines.push(`  W_block=${fmt(d.tonsVal,0)} tons`);
     lines.push(`  r_front=${fmt(d.rF_ft,2)} ft`);
     lines.push(`  r_back =${fmt(d.rB_ft,1)} ft`);
     lines.push(`  Force needed ≈ ${d.U==="imperial" ? fmt(d.F_lift_lb,0)+" lb" : fmt(d.F_lift_N/1000,1)+" kN"}`);
+    lines.push(`  Human needed ≈ ${d.U==="imperial" ? fmt(d.F_human_lb,0)+" lb" : fmt(d.F_human_N/1000,2)+" kN"} (with current CW)`);
     lines.push(`  Beam GO/NO-GO: ${d.goNoGo ? "GO" : "NO-GO"}`);
     lines.push(``);
     lines.push(liftPossible ? "LIFT POSSIBLE (GREEN)" : "NO LIFT (RED)");
@@ -842,8 +891,8 @@ If τ_demand ≤ τ_cap → GO (beam green), else NO-GO (beam red).`;
     // info panel (boxed + spaced so no overlaps)
     const infoX=w-330, infoY=64;
     ctx.fillStyle="#f9fafb"; ctx.strokeStyle="#e5e7eb"; ctx.lineWidth=1;
-    ctx.fillRect(infoX, infoY, 300, 206);
-    ctx.strokeRect(infoX, infoY, 300, 206);
+    ctx.fillRect(infoX, infoY, 300, 230);
+    ctx.strokeRect(infoX, infoY, 300, 230);
 
     // rows of boxed labels inside
     let yy = infoY + 22;
@@ -851,6 +900,10 @@ If τ_demand ≤ τ_cap → GO (beam green), else NO-GO (beam red).`;
     labelBox(`τ_demand=${fmt(d.tauDemand_lbft,0)} lb·ft`, infoX+10, yy); yy+=24;
     labelBox(`τ_cap≈${fmt(d.tauCap_lbft,0)} lb·ft`, infoX+10, yy); yy+=24;
     labelBox(`Force needed to lift≈${fmt(d.F_lift_lb,0)} lb`, infoX+10, yy); yy+=24;
+
+    // NEW requested line (human force needed with counterweight)
+    labelBox(`Human needed (with CW)≈${fmt(d.F_human_lb,0)} lb`, infoX+10, yy); yy+=24;
+
     labelBox(`r_front=${fmt(d.rF_ft,2)} ft  |  r_back=${fmt(d.rB_ft,1)} ft`, infoX+10, yy); yy+=24;
     labelBox(`Stone=${fmt(d.tonsVal,0)} tons`, infoX+10, yy); yy+=24;
     labelBox(`Lift progress=${fmt(state.liftProgress,2)}  |  moved=${fmt(state.xMove,1)} ft`, infoX+10, yy);
@@ -922,18 +975,9 @@ If τ_demand ≤ τ_cap → GO (beam green), else NO-GO (beam red).`;
     $("cycleBtn").textContent="Stop cycles";
   };
 
+  // FIXED: Reset now restores all UI values back to the original defaults
   $("resetBtn").onclick=()=>{
-    state.liftToggle=false;
-    state.cycling=false;
-    state.oneStep=false;
-    state.phase="idle";
-    state.phaseT=0;
-    state.liftProgress=0;
-    state.xMove=0;
-    state.targetMove=0;
-    $("liftToggleBtn").textContent="Lift (toggle)";
-    $("cycleBtn").textContent="Run cycles (Lift+Move)";
-    computeAndRender();
+    restoreDefaults();
   };
 
   // Motion
@@ -1035,6 +1079,7 @@ If τ_demand ≤ τ_cap → GO (beam green), else NO-GO (beam red).`;
   // Init
   resizeCanvas();
   setPaperText();
+  captureDefaults();      // <-- must happen after the DOM inputs exist and have their initial values
   syncPresetFromTons();
   computeAndRender();
   requestAnimationFrame(tick);
