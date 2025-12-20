@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Forgotten Lever-Crane Simulator — Go/No-Go Beam Torque + Force Needed</title>
+<title>Forgotten Lever-Crane Simulator — Go/No-Go Beam Torque + Force Needed (Stone Visible)</title>
 <style>
   :root{
     --bg:#f5f7fb;
@@ -48,6 +48,7 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
     font-size:12px;white-space:pre-wrap;background:#0b1020;color:#e5e7eb;padding:10px;border-radius:12px;border:1px solid rgba(255,255,255,.08);line-height:1.25;
   }
+  canvas{width:100%;height:520px;border-radius:var(--radius);background:#fff;box-shadow:var(--shadow);}
   .underCanvas{
     margin-top:10px;
     background:var(--panel);
@@ -94,7 +95,6 @@
     font-size:12px;
     line-height:1.25;
   }
-  canvas{width:100%;height:520px;border-radius:var(--radius);background:#fff;box-shadow:var(--shadow);}
   .foot{margin-top:8px;font-size:12px;color:var(--muted);line-height:1.25;}
 </style>
 </head>
@@ -102,8 +102,8 @@
 <header>
   <h1>Forgotten Lever-Crane Simulator — Go/No-Go Beam Torque + Force Needed</h1>
   <div class="sub">
-    Go/No-Go beam coloring: <b style="color:#a7f3d0;">green</b> when torque is OK to lift; <b style="color:#fecaca;">red</b> when beam torque is too high (compromised).
-    Moving r_front and r_back shows torque increase/decrease and the force needed to lift.
+    Beam turns <b style="color:#86efac;">green</b> when torque is safe (GO) and <b style="color:#fecaca;">red</b> when torque is too high (NO-GO).
+    The stone always stays visible with a rope line connecting the beam to the selected stone.
   </div>
 </header>
 
@@ -304,8 +304,7 @@
     <textarea id="paperText" readonly></textarea>
 
     <div class="foot">
-      Beam color is a simple Go/No-Go check on beam torque capacity vs applied torque:
-      if applied torque exceeds capacity, beam turns red; otherwise green.
+      Beam color is a Go/No-Go check on <b>beam torque demand</b> vs estimated <b>beam torque capacity</b>.
     </div>
   </section>
 
@@ -314,29 +313,18 @@
     <canvas id="c"></canvas>
 
     <div class="underCanvas">
-      <h3>Why “lift a little + spread the load” matters (no cracks / ship loading / Stonehenge-style logic)</h3>
-      <p>
-        If you pull a multi-ton block by dragging it, the friction force is enormous and the block would tend to <b>scrape, chip, and gouge</b> surfaces.
-        Likewise, if you place bare logs directly under sharp contact points, the pressure concentrates and can leave <b>crush marks, spalls, or cracks</b>.
-        That’s why a practical ancient method would favor a cycle of <b>small controlled lift</b> plus <b>wide pads</b> and <b>controlled sliding/rolling</b>.
-      </p>
+      <h3>Why “lift a little + spread the load” matters</h3>
       <ul>
-        <li><b>Front arm longer</b> → more stone torque → harder to lift.</li>
-        <li><b>Back arm longer</b> → less force/counterweight needed.</li>
-        <li><b>Force needed to lift</b> at the back end: <b>F_lift = (W_block · r_front) / r_back</b>.</li>
-        <li><b>Go/No-Go</b> uses a beam torque capacity estimate (from beam stress limit × section modulus).</li>
+        <li><b>r_front up</b> → stone torque up → harder to lift.</li>
+        <li><b>r_back up</b> → force needed down (more leverage).</li>
+        <li><b>Force to lift</b>: <b>F_lift = (W · r_front) / r_back</b>.</li>
+        <li><b>Go/No-Go</b>: if beam torque demand exceeds capacity, beam turns red.</li>
       </ul>
     </div>
 
     <div class="explain">
       <h3>Can this method lift the selected stone?</h3>
-      <p>
-        <b>Yes — in principle</b>, if the counterweight/people force can supply enough torque, and if the beam torque is within safe capacity.
-      </p>
       <div class="math" id="explainMath">Loading…</div>
-      <p>
-        <b>Bottom line:</b> torque balance decides “can it lift.” Beam torque capacity decides “go/no-go.”
-      </p>
     </div>
 
     <div class="diagramWrap">
@@ -364,6 +352,22 @@
   const WOOD_ALLOW_MPA=40; // stress "allowable" demo
   const PRESS_WARN_PSI=6000;
   const PRESS_OK_PSI=2500;
+
+  // Text drawing helper (prevents overlapping labels by drawing on white box)
+  function labelBox(text, x, y, opts={}){
+    const pad=6;
+    const font=opts.font || "12px Arial";
+    ctx.font=font;
+    const w=ctx.measureText(text).width + pad*2;
+    const h=(opts.h || 18);
+    ctx.fillStyle=opts.bg || "rgba(255,255,255,0.92)";
+    ctx.strokeStyle=opts.border || "rgba(17,17,17,0.25)";
+    ctx.lineWidth=1;
+    ctx.fillRect(x, y-h+2, w, h);
+    ctx.strokeRect(x, y-h+2, w, h);
+    ctx.fillStyle=opts.color || "#111";
+    ctx.fillText(text, x+pad, y);
+  }
 
   // Canvas
   const canvas=$("c");
@@ -420,7 +424,7 @@
   function blockWeightLb(tonsVal,type){
     if(type==="short") return tonsVal*2000;
     if(type==="long") return tonsVal*2240;
-    return tonsVal*2204.62262185; // metric tonne (weight in lbf)
+    return tonsVal*2204.62262185; // metric tonne in lbf
   }
 
   function sectionFromLogs(nLogs,diaIn){
@@ -440,17 +444,15 @@
     const rF_ft=clamp(Number(rFront.value)||2.09,0.2,1000);
     const rB_ft=clamp(Number(rBack.value)||49.2,0.2,10000);
 
-    // weights
     const Wb_lb=blockWeightLb(tonsVal,tonType.value);
 
-    // Stone torque about pivot
+    // Stone torque
     const tauBlock_lbft=Wb_lb*rF_ft;
 
-    // Force needed at back end to just balance (people pull or CW rope tension at end)
-    // F_lift = (W_block * r_front) / r_back
+    // Force needed at back end to just start lifting
     const F_lift_lb = tauBlock_lbft / rB_ft;
 
-    // Auto CW uses exactly that balancing force as counterweight "weight"
+    // Auto CW uses that balancing force as CW "weight"
     const Wcw_req_lb = F_lift_lb;
 
     let Wcw_lb=Wcw_req_lb;
@@ -465,92 +467,57 @@
       cwTons.value=cw_ton.toFixed(2);
     }
 
-    // Counterweight torque
     const tauCW_lbft = Wcw_lb*rB_ft;
-    const tauRatio = tauCW_lbft / tauBlock_lbft; // ≥1 lift
+    const tauRatio = tauCW_lbft / tauBlock_lbft;
 
-    // Beam torque "demand" = max end torque being carried (same as max of the two torques)
+    // Beam torque demand
     const tauDemand_lbft = Math.max(tauBlock_lbft, tauCW_lbft);
 
-    // Beam section + bending capacity estimate
+    // Capacity from allowable stress
     const nLogs=Number(logs.value)||4;
     const diaIn=Math.max(6,Number(logDia.value)||12);
     const sec=sectionFromLogs(nLogs,diaIn);
 
-    // capacity based on allowable stress:
-    // M_allow = sigma_allow * S  (units: (psi)*(in^3)=lb*in)
-    // convert to lb*ft
-    const M_allow_lbin = (WOOD_ALLOW_MPA/PSI_TO_MPA) * sec.S; // psi = MPa / PSI_TO_MPA
+    const sigmaAllow_psi = (WOOD_ALLOW_MPA/PSI_TO_MPA);
+    const M_allow_lbin = sigmaAllow_psi * sec.S;
     const tauCap_lbft = M_allow_lbin / 12.0;
 
     const goNoGo = (tauDemand_lbft <= tauCap_lbft);
 
-    // Report stress too (still shown)
+    // Stress estimate
     const M_lbin = tauDemand_lbft*12;
     const sigma_psi = M_lbin/sec.S;
     const sigma_mpa = sigma_psi*PSI_TO_MPA;
 
-    // contact pressure
+    // Contact pressure
     const A_in2=Math.max(1,Number(padArea.value)||300);
     const p_psi=Wb_lb/A_in2;
     const p_mpa=p_psi*PSI_TO_MPA;
 
-    // move resistance
+    // Move resistance
     const muVal=Number(mu.value)||0.06;
     const moveRes_lb=muVal*Wb_lb;
     const pullAvail_lb=Math.max(0,Number(pullLb.value)||0);
 
-    // reactions
+    // Reactions
     const R_lb=Wb_lb+Wcw_lb;
     const legLoad_lb=R_lb/2;
 
     return {
-      U,
-      tonsVal,
-      Wb_lb,
-      rF_ft,
-      rB_ft,
-
-      tauBlock_lbft,
-      tauCW_lbft,
-      tauRatio,
-
-      // NEW outputs
+      U, tonsVal,
+      Wb_lb, Wb_N:Wb_lb*LB_TO_N,
+      rF_ft, rB_ft,
+      tauBlock_lbft, tauCW_lbft, tauRatio,
       tauDemand_lbft,
       tauCap_lbft,
       goNoGo,
-      beamColor: goNoGo ? "green" : "red",
-
-      // force needed to lift (at back end)
-      F_lift_lb,
-
-      // CW
-      Wcw_req_lb,
-      Wcw_lb,
-
-      // stress
-      sec,
-      sigma_psi,
-      sigma_mpa,
-
-      // contact
-      A_in2,
-      p_psi,
-      p_mpa,
-
-      // move
-      muVal,
-      moveRes_lb,
-      pullAvail_lb,
-
-      // other
-      R_lb,
-      legLoad_lb,
-
-      // conversions
-      Wb_N:Wb_lb*LB_TO_N,
-      Wcw_N:Wcw_lb*LB_TO_N,
-      F_lift_N:F_lift_lb*LB_TO_N,
+      beamColor: goNoGo ? "#1f8a3b" : "#b91c1c",
+      F_lift_lb, F_lift_N:F_lift_lb*LB_TO_N,
+      Wcw_req_lb, Wcw_lb, Wcw_N:Wcw_lb*LB_TO_N,
+      sec, sigma_psi, sigma_mpa,
+      A_in2, p_psi, p_mpa,
+      muVal, moveRes_lb, pullAvail_lb,
+      R_lb, legLoad_lb,
       tauDemand_Nm:tauDemand_lbft*LB_TO_N*FT_TO_M,
       tauCap_Nm:tauCap_lbft*LB_TO_N*FT_TO_M
     };
@@ -564,52 +531,37 @@
 
 Core lift physics:
   τ_block = W_block · r_front
-  Lift requires an opposing torque from counterweight or people force at the back end:
-  τ_back = F_back · r_back
+  τ_back  = F_back · r_back
 
-Force needed to just start lifting (balance point):
+Force needed to just start lifting (balance):
   F_lift = (W_block · r_front) / r_back
 
-Go/No-Go beam check (torque capacity):
-  Beam "demand torque" is the maximum torque it must carry:
-    τ_demand = max(τ_block, τ_back)
-  Beam torque capacity is estimated from allowable bending stress:
-    M_allow = σ_allow · S
-    τ_cap   = M_allow / 12  (convert lb·in to lb·ft)
-  If τ_demand ≤ τ_cap → GO (beam green)
-  Else → NO-GO (beam red)
-
-Changing r_front and r_back:
-  r_front up  → τ_block up  → harder lift (more force needed)
-  r_back  up  → needed force down (more mechanical advantage)
-`;
+Go/No-Go beam check:
+  τ_demand = max(τ_block, τ_back)
+  τ_cap ≈ (σ_allow · S)/12
+If τ_demand ≤ τ_cap → GO (beam green), else NO-GO (beam red).`;
     $("paperText").value=t;
   }
 
   function setStatus(d){
     const status=$("statusBox");
-    let cls="ok";
-    const msg=[];
+    const liftPossible = (d.tauRatio>=1) && d.goNoGo;
 
-    if(d.goNoGo){
-      msg.push(`GO: Beam torque OK (τ_demand ≤ τ_cap).`);
-    }else{
-      cls="warn";
-      msg.push(`NO-GO: Beam torque TOO HIGH (τ_demand > τ_cap). Increase logs/diameter, reduce r_front, or reduce load.`);
-    }
+    let cls = liftPossible ? "ok" : "warn";
+    const msg=[];
+    msg.push(liftPossible ? "LIFT POSSIBLE (GO)." : "NO LIFT (NO-GO).");
+
+    msg.push(`Beam: τ_demand=${fmt(d.tauDemand_lbft,0)} lb·ft vs τ_cap≈${fmt(d.tauCap_lbft,0)} lb·ft.`);
+    msg.push(`Force needed to lift (back end)≈${fmt(d.F_lift_lb,0)} lb.`);
 
     if(d.p_psi>PRESS_WARN_PSI){
       cls="warn";
-      msg.push(`Contact pressure EXTREME (${fmt(d.p_psi,0)} psi). Use wider pads to prevent damage.`);
+      msg.push(`Contact pressure EXTREME (${fmt(d.p_psi,0)} psi). Use wider pads.`);
     }else if(d.p_psi>PRESS_OK_PSI){
       msg.push(`Contact pressure moderate (${fmt(d.p_psi,0)} psi). Wider pads reduce risk.`);
     }else{
       msg.push(`Contact pressure relatively low (${fmt(d.p_psi,0)} psi).`);
     }
-
-    // Torque ratio display still useful
-    if(d.tauRatio>=1) msg.push(`Lift condition met (τ_ratio=${fmt(d.tauRatio,2)}).`);
-    else { cls="warn"; msg.push(`Not enough torque (τ_ratio=${fmt(d.tauRatio,2)}). Increase CW or r_back.`); }
 
     if(simMode.value==="liftMove"){
       const canMove=d.pullAvail_lb>=d.moveRes_lb;
@@ -623,7 +575,7 @@ Changing r_front and r_back:
   }
 
   function updateOutputs(d){
-    // required CW display
+    // Required CW
     let cwDisplay;
     if(d.U==="imperial"){
       let cw_ton;
@@ -637,11 +589,8 @@ Changing r_front and r_back:
       $("moveResOut").textContent=`${fmt(d.moveRes_lb,0)} lb`;
       $("legOut").textContent = rigType.value==="aframe" ? `${fmt(d.legLoad_lb,0)} lb/leg` : "—";
 
-      // NEW: beam torque tension + lift force
-      const beamTxt = `${fmt(d.tauDemand_lbft,0)} lb·ft / cap ${fmt(d.tauCap_lbft,0)} lb·ft (${d.goNoGo ? "GO" : "NO-GO"})`;
-      $("beamTorqueOut").textContent = beamTxt;
-
-      $("forceLiftOut").textContent = `${fmt(d.F_lift_lb,0)} lb (at back end)`;
+      $("beamTorqueOut").textContent = `${fmt(d.tauDemand_lbft,0)} / cap ${fmt(d.tauCap_lbft,0)} lb·ft (${d.goNoGo ? "GO" : "NO-GO"})`;
+      $("forceLiftOut").textContent = `${fmt(d.F_lift_lb,0)} lb`;
     }else{
       cwDisplay=`${fmt(d.Wcw_N/1000,1)} kN`;
       $("maOut").textContent=`${fmt(d.rB_ft/d.rF_ft,2)} ×`;
@@ -650,54 +599,48 @@ Changing r_front and r_back:
       $("moveResOut").textContent=`${fmt((d.moveRes_lb*LB_TO_N)/1000,1)} kN`;
       $("legOut").textContent = rigType.value==="aframe" ? `${fmt(((d.R_lb*LB_TO_N)/2)/1000,1)} kN/leg` : "—";
 
-      const beamTxt = `${fmt(d.tauDemand_Nm/1000,1)} kN·m / cap ${fmt(d.tauCap_Nm/1000,1)} kN·m (${d.goNoGo ? "GO" : "NO-GO"})`;
-      $("beamTorqueOut").textContent = beamTxt;
-
-      $("forceLiftOut").textContent = `${fmt(d.F_lift_N/1000,1)} kN (at back end)`;
+      $("beamTorqueOut").textContent = `${fmt(d.tauDemand_Nm/1000,1)} / cap ${fmt(d.tauCap_Nm/1000,1)} kN·m (${d.goNoGo ? "GO" : "NO-GO"})`;
+      $("forceLiftOut").textContent = `${fmt(d.F_lift_N/1000,1)} kN`;
     }
     $("cwOut").textContent=cwDisplay;
 
-    // Equations live
+    // Live equations
     const eq=[];
-    eq.push(`LIFT FORCE NEEDED (back end):`);
-    eq.push(`  τ_block = W_block · r_front`);
-    eq.push(`  τ_back  = F_back · r_back`);
-    eq.push(`  Balance point: F_lift = (W_block · r_front) / r_back`);
+    eq.push(`LIFT FORCE NEEDED:`);
+    eq.push(`  τ_block = W · r_front`);
+    eq.push(`  F_lift  = (W · r_front) / r_back`);
     eq.push(``);
-    eq.push(`BEAM GO/NO-GO TORQUE CHECK:`);
+    eq.push(`BEAM GO/NO-GO:`);
     eq.push(`  τ_demand = max(τ_block, τ_back)`);
     eq.push(`  τ_cap ≈ (σ_allow · S)/12`);
-    eq.push(`  GO if τ_demand ≤ τ_cap; else NO-GO`);
     eq.push(``);
     eq.push(`LIVE:`);
-    eq.push(`  W_block=${fmt(d.Wb_lb,0)} lb (${fmt(d.Wb_N/1000,1)} kN)`);
-    eq.push(`  r_front=${fmt(d.rF_ft,2)} ft`);
-    eq.push(`  r_back =${fmt(d.rB_ft,1)} ft`);
+    eq.push(`  Stone=${fmt(d.tonsVal,0)} tons, W=${fmt(d.Wb_lb,0)} lb`);
+    eq.push(`  r_front=${fmt(d.rF_ft,2)} ft, r_back=${fmt(d.rB_ft,1)} ft`);
     eq.push(`  τ_block=${fmt(d.tauBlock_lbft,0)} lb·ft`);
-    eq.push(`  F_lift=${fmt(d.F_lift_lb,0)} lb (back end force for lift)`);
+    eq.push(`  F_lift≈${fmt(d.F_lift_lb,0)} lb (back end)`);
     eq.push(`  τ_demand=${fmt(d.tauDemand_lbft,0)} lb·ft`);
-    eq.push(`  τ_cap=${fmt(d.tauCap_lbft,0)} lb·ft  => ${d.goNoGo ? "GO" : "NO-GO"}`);
-    eq.push(`  Beam stress≈${fmt(d.sigma_psi,0)} psi (${fmt(d.sigma_mpa,1)} MPa)`);
+    eq.push(`  τ_cap≈${fmt(d.tauCap_lbft,0)} lb·ft => ${d.goNoGo ? "GO" : "NO-GO"}`);
+    eq.push(`  Beam stress≈${fmt(d.sigma_psi,0)} psi`);
     eq.push(`  Pad pressure≈${fmt(d.p_psi,0)} psi`);
-    eq.push(`  μ=${fmt(d.muVal,3)} → μW≈${fmt(d.moveRes_lb,0)} lb, pull=${fmt(d.pullAvail_lb,0)} lb`);
     eq.push(`  Block moved=${fmt(state.xMove,1)} ft`);
     $("eqBox").textContent=eq.join("\n");
 
-    // Explain panel
-    const example=[];
-    example.push(`Lift condition (force form):`);
-    example.push(`  F_lift = (W_block · r_front) / r_back`);
-    example.push(``);
-    example.push(`Go/No-Go (beam torque):`);
-    example.push(`  τ_demand = max(W_block·r_front, F_back·r_back)`);
-    example.push(`  τ_cap ≈ (σ_allow·S)/12`);
-    example.push(``);
-    example.push(`Current:`);
-    example.push(`  W_block=${fmt(d.tonsVal,0)} tons`);
-    example.push(`  r_front=${fmt(d.rF_ft,2)} ft, r_back=${fmt(d.rB_ft,1)} ft`);
-    example.push(`  Force needed to lift ≈ ${d.U==="imperial" ? fmt(d.F_lift_lb,0)+" lb" : fmt(d.F_lift_N/1000,1)+" kN"} (at back end)`);
-    example.push(`  Beam: ${d.goNoGo ? "GO (green)" : "NO-GO (red)"} — τ_demand vs τ_cap`);
-    $("explainMath").textContent=example.join("\n");
+    // Explain panel with highlighted lift possible
+    const liftPossible = (d.tauRatio>=1) && d.goNoGo;
+    const lines=[];
+    lines.push(`Lift condition:`);
+    lines.push(`  F_lift = (W · r_front) / r_back`);
+    lines.push(``);
+    lines.push(`Current:`);
+    lines.push(`  W_block=${fmt(d.tonsVal,0)} tons`);
+    lines.push(`  r_front=${fmt(d.rF_ft,2)} ft`);
+    lines.push(`  r_back =${fmt(d.rB_ft,1)} ft`);
+    lines.push(`  Force needed ≈ ${d.U==="imperial" ? fmt(d.F_lift_lb,0)+" lb" : fmt(d.F_lift_N/1000,1)+" kN"}`);
+    lines.push(`  Beam GO/NO-GO: ${d.goNoGo ? "GO" : "NO-GO"}`);
+    lines.push(``);
+    lines.push(liftPossible ? "LIFT POSSIBLE (GREEN)" : "NO LIFT (RED)");
+    $("explainMath").textContent = lines.join("\n");
   }
 
   function arrow(x0,y0,x1,y1,text){
@@ -716,6 +659,17 @@ Changing r_front and r_back:
     ctx.closePath(); ctx.fill();
     ctx.font="12px Arial";
     ctx.fillText(text, (x0+x1)/2 - 30, y0 - 6);
+  }
+
+  function glowText(text, x, y, ok){
+    // Bright highlight: green glow if lift possible, red glow otherwise
+    ctx.save();
+    ctx.font="bold 16px Arial";
+    ctx.fillStyle = ok ? "#0f5132" : "#7f1d1d";
+    ctx.shadowColor = ok ? "rgba(34,197,94,0.95)" : "rgba(239,68,68,0.95)";
+    ctx.shadowBlur = 18;
+    ctx.fillText(text, x, y);
+    ctx.restore();
   }
 
   function draw(d){
@@ -761,11 +715,10 @@ Changing r_front and r_back:
       ctx.fillRect(pivotX-22, pivotY-22, 44, 44);
       ctx.strokeRect(pivotX-22, pivotY-22, 44, 44);
 
-      ctx.fillStyle="#111"; ctx.font="13px Arial";
-      ctx.fillText("Vertical mast", pivotX-55, groundY-10);
-      ctx.fillText("Pivot / yoke", pivotX-52, pivotY-35);
-
       apexX=pivotX; apexY=pivotY-2;
+
+      labelBox("Vertical mast", pivotX-75, groundY-10);
+      labelBox("Pivot / yoke", pivotX-74, pivotY-32);
     }else{
       const baseLeftX=pivotX-95, baseRightX=pivotX+95, baseY=groundY;
       apexX=pivotX; apexY=pivotY+10;
@@ -780,50 +733,42 @@ Changing r_front and r_back:
       ctx.fillRect(apexX-26, apexY-26, 52, 52);
       ctx.strokeRect(apexX-26, apexY-26, 52, 52);
 
-      ctx.fillStyle="#111"; ctx.font="13px Arial";
-      ctx.fillText("Two-mast A-frame", pivotX-72, groundY-10);
-      ctx.fillText("Apex / pivot plate", apexX-82, apexY-35);
+      labelBox("Two-mast A-frame", pivotX-98, groundY-10);
+      labelBox("Apex / pivot plate", apexX-104, apexY-32);
     }
 
-    // Beam (GO/NO-GO color)
+    // Beam
     const nL=Number(logs.value)||4;
     const thick=(nL===4)?16:(nL===6)?20:24;
 
-    ctx.strokeStyle = (d.beamColor==="green") ? "#1f8a3b" : "#b91c1c";
+    ctx.strokeStyle = d.beamColor;
     ctx.lineWidth=thick;
     ctx.beginPath();
     ctx.moveTo(beamX0, frontEndY);
     ctx.lineTo(beamX1, backEndY);
     ctx.stroke();
 
-    ctx.lineWidth=1;
-    ctx.fillStyle="#111"; ctx.font="15px Arial";
-    ctx.fillText(`Built-up beam (${logs.value} logs) — ${d.goNoGo ? "GO (green)" : "NO-GO (red)"}`, (beamX0+beamX1)/2 - 200, pivotY - 26);
+    // beam label (boxed so it doesn't overlap)
+    labelBox(`Beam logs: ${logs.value}  |  GO/NO-GO: ${d.goNoGo ? "GO" : "NO-GO"}`, Math.max(18, (beamX0+beamX1)/2 - 170), pivotY - 18);
 
-    // labels
-    ctx.fillStyle="#111"; ctx.font="13px Arial";
-    ctx.fillText(`r_front=${fmt(d.rF_ft,2)} ft`, beamX0 + 10, pivotY - 92);
-    ctx.fillText(`r_back=${fmt(d.rB_ft,1)} ft`, pivotX + 10, pivotY - 116);
-
-    // sling point
+    // sling point position (always visible)
     const slingBaseX = beamX0 + 36;
     const moveNowPx = state.xMove * pxPerFt;
     const slingX = slingBaseX + moveNowPx;
-
     const t = clamp((slingX - beamX0)/(beamX1 - beamX0), 0, 1);
     const beamYSling = frontEndY*(1-t) + backEndY*t;
 
     // lift amount
-    const liftPx = (d.liftTargetIn/12.0)*pxPerFt;
+    const liftPx = (clamp(Number(liftIn.value)||6,0.5,48)/12.0)*pxPerFt;
     const liftNow = state.liftProgress*liftPx;
 
-    // block
-    const blockW=78, blockH=78;
+    // STONE (always visible)
+    const blockW=92, blockH=92;
     const blockBottomY=groundY;
     const blockY = (blockBottomY - blockH) - liftNow;
     const blockX = slingX - blockW/2;
 
-    // sling line
+    // rope line from beam to stone (always)
     ctx.strokeStyle="#111"; ctx.lineWidth=2;
     ctx.beginPath();
     ctx.moveTo(slingX, beamYSling + 8);
@@ -832,9 +777,16 @@ Changing r_front and r_back:
 
     // stone block
     ctx.strokeStyle="#111"; ctx.lineWidth=2;
+    ctx.fillStyle="#f3f4f6";
+    ctx.fillRect(blockX, blockY, blockW, blockH);
     ctx.strokeRect(blockX, blockY, blockW, blockH);
-    ctx.fillStyle="#111"; ctx.font="13px Arial";
-    ctx.fillText(`${tons.value}-ton block`, blockX-8, blockY+blockH+18);
+
+    // label ON the stone with selected tons
+    ctx.fillStyle="#111";
+    ctx.font="bold 14px Arial";
+    ctx.fillText(`${fmt(d.tonsVal,0)} tons`, blockX + 10, blockY + 24);
+    ctx.font="12px Arial";
+    ctx.fillText(`STONE`, blockX + 10, blockY + 44);
 
     // Counterweight follows beam end
     const cwW=56, cwH=56;
@@ -851,7 +803,7 @@ Changing r_front and r_back:
     ctx.lineTo(cwX + cwW/2, cwY);
     ctx.stroke();
 
-    // guide line
+    // guide line from apex
     ctx.strokeStyle="rgba(0,0,0,0.35)";
     ctx.lineWidth=2;
     ctx.beginPath();
@@ -861,48 +813,50 @@ Changing r_front and r_back:
 
     // CW block
     ctx.strokeStyle="#111"; ctx.lineWidth=2;
+    ctx.fillStyle="#ffffff";
+    ctx.fillRect(cwX, cwY, cwW, cwH);
     ctx.strokeRect(cwX, cwY, cwW, cwH);
 
-    // CW label
-    ctx.fillStyle="#111"; ctx.font="13px Arial";
+    // CW label box
     let cwText;
     if(d.U==="imperial"){
       let cw_ton;
       if(tonType.value==="short") cw_ton=d.Wcw_lb/2000;
       else if(tonType.value==="long") cw_ton=d.Wcw_lb/2240;
       else cw_ton=d.Wcw_lb/2204.62262185;
-      cwText=`${fmt(cw_ton,2)} tons`;
+      cwText=`CW: ${fmt(cw_ton,2)} tons`;
     }else{
-      cwText=`${fmt(d.Wcw_N/1000,1)} kN`;
+      cwText=`CW: ${fmt(d.Wcw_N/1000,1)} kN`;
     }
-    ctx.fillText("Counterweight", cwX-14, cwY+cwH+18);
-    ctx.fillText(cwText, cwX+4, cwY+cwH+34);
+    labelBox("Counterweight", cwX-22, cwY+cwH+18);
+    labelBox(cwText, cwX-10, cwY+cwH+38);
 
-    // arrows
+    // arm arrows
     arrow(pivotX, pivotY-140, beamX1, pivotY-140, "r_back");
     arrow(beamX0, pivotY-110, pivotX, pivotY-110, "r_front");
 
-    // info box
-    const infoX=w-330, infoY=24;
-    ctx.fillStyle="#f9fafb"; ctx.strokeStyle="#e5e7eb"; ctx.lineWidth=1;
-    ctx.fillRect(infoX, infoY, 300, 186);
-    ctx.strokeRect(infoX, infoY, 300, 186);
-    ctx.fillStyle="#111"; ctx.font="12px Arial";
-    ctx.fillText(`Beam: ${d.goNoGo ? "GO (green)" : "NO-GO (red)"}`, infoX+10, infoY+22);
-    ctx.fillText(`τ_demand=${fmt(d.tauDemand_lbft,0)} lb·ft`, infoX+10, infoY+40);
-    ctx.fillText(`τ_cap≈${fmt(d.tauCap_lbft,0)} lb·ft`, infoX+10, infoY+58);
-    ctx.fillText(`Force needed to lift: ${fmt(d.F_lift_lb,0)} lb`, infoX+10, infoY+76);
-    ctx.fillText(`Mode: ${simMode.value==="liftMove" ? "Lift+Move (slide)" : "Lift only"}`, infoX+10, infoY+94);
-    ctx.fillText(`Lift target=${fmt(d.liftTargetIn,1)} in, progress=${fmt(state.liftProgress,2)}`, infoX+10, infoY+112);
-    ctx.fillText(`Moved=${fmt(state.xMove,1)} ft`, infoX+10, infoY+130);
-    if(simMode.value==="liftMove"){
-      ctx.fillText(`μW≈${fmt(d.moveRes_lb,0)} lb, pull=${fmt(d.pullAvail_lb,0)} lb`, infoX+10, infoY+148);
-    }
-    ctx.fillText(`r_front=${fmt(d.rF_ft,2)} ft, r_back=${fmt(d.rB_ft,1)} ft`, infoX+10, infoY+166);
+    // LIFT POSSIBLE highlight (bright)
+    const liftPossible = (d.tauRatio>=1) && d.goNoGo;
+    glowText(liftPossible ? "LIFT POSSIBLE" : "NO LIFT", w-260, 44, liftPossible);
 
-    ctx.fillStyle=(d.tauRatio>=1) ? "#14532d" : "#7f1d1d";
-    ctx.font="13px Arial";
-    ctx.fillText((d.tauRatio>=1) ? "LIFT POSSIBLE" : "NOT ENOUGH TORQUE", infoX+165, infoY+22);
+    // info panel (boxed + spaced so no overlaps)
+    const infoX=w-330, infoY=64;
+    ctx.fillStyle="#f9fafb"; ctx.strokeStyle="#e5e7eb"; ctx.lineWidth=1;
+    ctx.fillRect(infoX, infoY, 300, 206);
+    ctx.strokeRect(infoX, infoY, 300, 206);
+
+    // rows of boxed labels inside
+    let yy = infoY + 22;
+    labelBox(`GO/NO-GO: ${d.goNoGo ? "GO (green)" : "NO-GO (red)"}`, infoX+10, yy); yy+=24;
+    labelBox(`τ_demand=${fmt(d.tauDemand_lbft,0)} lb·ft`, infoX+10, yy); yy+=24;
+    labelBox(`τ_cap≈${fmt(d.tauCap_lbft,0)} lb·ft`, infoX+10, yy); yy+=24;
+    labelBox(`Force needed to lift≈${fmt(d.F_lift_lb,0)} lb`, infoX+10, yy); yy+=24;
+    labelBox(`r_front=${fmt(d.rF_ft,2)} ft  |  r_back=${fmt(d.rB_ft,1)} ft`, infoX+10, yy); yy+=24;
+    labelBox(`Stone=${fmt(d.tonsVal,0)} tons`, infoX+10, yy); yy+=24;
+    labelBox(`Lift progress=${fmt(state.liftProgress,2)}  |  moved=${fmt(state.xMove,1)} ft`, infoX+10, yy);
+
+    // small labels near sling / stone to show connection
+    labelBox("Sling / rope", slingX-44, beamYSling - 10);
   }
 
   function computeAndRender(){
@@ -985,9 +939,10 @@ Changing r_front and r_back:
   // Motion
   function advance(dt){
     const d=compute();
-    const liftable=(d.tauRatio>=1) && d.goNoGo; // require both lift torque and beam GO
+    const liftPossible = (d.tauRatio>=1) && d.goNoGo;
 
-    if(!liftable){
+    // If not possible, don't lift; settle down
+    if(!liftPossible){
       state.liftProgress=clamp(state.liftProgress-dt*1.6,0,1);
       state.liftToggle=false;
       if(state.cycling){
@@ -999,6 +954,7 @@ Changing r_front and r_back:
       return;
     }
 
+    // Lift-only toggle
     if(state.liftToggle && !state.cycling){
       state.liftProgress=clamp(state.liftProgress+dt*1.05,0,1);
       return;
@@ -1008,6 +964,7 @@ Changing r_front and r_back:
       return;
     }
 
+    // Cycle mode
     if(state.cycling){
       if(state.phase==="lifting"){
         state.liftProgress=clamp(state.liftProgress+dt*1.0,0,1);
