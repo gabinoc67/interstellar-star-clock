@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Satellite Time Dilation Simulator — UTC vs CST</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body{
+  margin:0;
+  font-family:system-ui,Segoe UI,Arial,sans-serif;
+  background:#0b0f14;
+  color:#e8eef6;
+}
+header{
+  padding:16px;
+  background:#101823;
+  border-bottom:1px solid #1f2c3c;
+}
+header h1{margin:0;font-size:20px;}
+header p{margin:6px 0 0;font-size:13px;color:#b6c2d2;}
+
+main{
+  display:grid;
+  grid-template-columns:420px 1fr;
+  gap:14px;
+  padding:14px;
+}
+
+.panel{
+  background:#101823;
+  border:1px solid #1f2c3c;
+  border-radius:12px;
+  padding:14px;
+}
+
+button{
+  width:100%;
+  padding:10px;
+  margin-top:8px;
+  border-radius:8px;
+  border:1px solid #2d4764;
+  background:#1a2a3d;
+  color:#e8eef6;
+  cursor:pointer;
+}
+button:hover{background:#233a55;}
+
+.toggle{
+  display:flex;
+  gap:8px;
+  margin-top:10px;
+}
+.toggle button{flex:1;}
+
+.stat{
+  margin-top:8px;
+  font-size:13px;
+}
+.stat span{color:#8fd3ff;}
+
+canvas{
+  background:#020617;
+  border-radius:12px;
+  border:1px solid #1f2c3c;
+}
+.explain{
+  font-size:13px;
+  line-height:1.5;
+  margin-top:10px;
+  color:#c9d4e5;
+}
+hr{
+  border:none;
+  border-top:1px solid #1f2c3c;
+  margin:12px 0;
+}
+</style>
+</head>
+
+<body>
+
+<header>
+  <h1>Satellite Time Dilation Simulator — UTC vs CST</h1>
+  <p>Visualizing gravitational + velocity time dilation and how CST removes clock patching</p>
+</header>
+
+<main>
+
+<!-- LEFT CONTROL PANEL -->
+<div class="panel">
+
+<h3>Simulation Controls</h3>
+
+<button onclick="startSim()">▶ Start</button>
+<button onclick="stopSim()">⏸ Stop</button>
+<button onclick="resetSim()">⟲ Reset</button>
+
+<hr>
+
+<h3>Time System</h3>
+<div class="toggle">
+  <button onclick="setMode('UTC')">UTC (with corrections)</button>
+  <button onclick="setMode('CST')">CST (no adjustments)</button>
+</div>
+
+<div class="stat">Mode: <span id="modeLabel">UTC</span></div>
+
+<hr>
+
+<h3>Live Clock Drift</h3>
+<div class="stat">Ground Clock: <span id="groundTime">0.000000</span> s</div>
+<div class="stat">Satellite Clock: <span id="satTime">0.000000</span> s</div>
+<div class="stat">Offset: <span id="offset">0.00</span> μs</div>
+
+<hr>
+
+<h3>Dilation Breakdown (GPS-like)</h3>
+<div class="stat">Gravity Gain: <span>+45 μs/day</span></div>
+<div class="stat">Velocity Loss: <span>−7 μs/day</span></div>
+<div class="stat">Net Drift: <span>+38 μs/day</span></div>
+
+<hr>
+
+<div class="explain">
+<b>How dilation works:</b><br>
+• Clocks higher in gravity tick faster.<br>
+• Moving clocks tick slower.<br>
+• GPS satellites experience both.<br><br>
+
+<b>UTC:</b> Satellite clocks must be pre-corrected or constantly adjusted.<br>
+<b>CST:</b> Time is synchronized globally, so offsets never accumulate.
+</div>
+
+</div>
+
+<!-- RIGHT VISUAL PANEL -->
+<div class="panel">
+
+<canvas id="simCanvas" width="640" height="640"></canvas>
+
+<div class="explain">
+<b>What you're seeing:</b><br>
+• Earth at center (ground clock reference)<br>
+• Satellite orbiting Earth<br>
+• Clock drift accumulates visibly in UTC mode<br>
+• CST mode keeps clocks phase-locked
+</div>
+
+</div>
+
+</main>
+
+<script>
+const canvas = document.getElementById("simCanvas");
+const ctx = canvas.getContext("2d");
+
+let running=false;
+let mode="UTC";
+
+let groundTime=0;
+let satTime=0;
+let offsetMicro=0;
+
+let angle=0;
+
+// constants (scaled)
+const dt=0.05; // seconds per tick
+const earthR=120;
+const orbitR=250;
+const center={x:320,y:320};
+
+// GPS drift rate (μs/day → μs/sec)
+const driftUTC = 38 / 86400;
+
+function setMode(m){
+  mode=m;
+  document.getElementById("modeLabel").textContent=m;
+}
+
+function startSim(){running=true;}
+function stopSim(){running=false;}
+function resetSim(){
+  running=false;
+  groundTime=0;
+  satTime=0;
+  offsetMicro=0;
+  angle=0;
+}
+
+function drawEarth(){
+  ctx.beginPath();
+  ctx.arc(center.x,center.y,earthR,0,Math.PI*2);
+  ctx.fillStyle="#0b3d91";
+  ctx.fill();
+}
+
+function drawOrbit(){
+  ctx.beginPath();
+  ctx.arc(center.x,center.y,orbitR,0,Math.PI*2);
+  ctx.strokeStyle="#1f2c3c";
+  ctx.stroke();
+}
+
+function drawSatellite(){
+  const x=center.x+orbitR*Math.cos(angle);
+  const y=center.y+orbitR*Math.sin(angle);
+  ctx.beginPath();
+  ctx.arc(x,y,8,0,Math.PI*2);
+  ctx.fillStyle="#fbbf24";
+  ctx.fill();
+}
+
+function update(){
+  if(running){
+    groundTime+=dt;
+
+    if(mode==="UTC"){
+      // satellite runs faster due to net dilation
+      satTime+=dt*(1+driftUTC*1e-6);
+      offsetMicro += driftUTC*dt;
+    } else {
+      // CST keeps clocks synchronized
+      satTime+=dt;
+      offsetMicro=0;
+    }
+
+    angle+=0.01;
+  }
+}
+
+function render(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  drawOrbit();
+  drawEarth();
+  drawSatellite();
+
+  document.getElementById("groundTime").textContent=groundTime.toFixed(6);
+  document.getElementById("satTime").textContent=satTime.toFixed(6);
+  document.getElementById("offset").textContent=offsetMicro.toFixed(2);
+}
+
+function loop(){
+  update();
+  render();
+  requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+
+</body>
+</html>
