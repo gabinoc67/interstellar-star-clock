@@ -166,7 +166,7 @@
     <div class="sw">
       <div>
         <b>Frozen lattice (no change)</b>
-        <div class="small">When ON: vrms = 0 and event cadence stops → “time undefined” operationally (ticks halt).</div>
+        <div class="small">When ON: v<sub>rms</sub> = 0 and event cadence stops → “time undefined” operationally (ticks halt).</div>
       </div>
       <div class="toggle" id="togFrozen" role="switch" aria-checked="false"><div class="knob"></div></div>
     </div>
@@ -245,7 +245,7 @@
     <label>Time-rate law used for the local clock</label>
     <select id="law">
       <option value="beer">Beer–Lambert: dτ/dt₀ = e^{−μx}</option>
-      <option value="gr">GR weak-field analog (for comparison): dτ/dt₀ ≈ √(1 − 2ψ) with ψ mapped from μx</option>
+      <option value="gr">GR weak-field analog (comparison): dτ/dt₀ ≈ √(1 − 2ψ), with ψ ≈ μx (clamped)</option>
     </select>
 
     <div class="sw">
@@ -272,9 +272,10 @@
       <button id="btnPause">Pause</button>
       <button id="btnStep">Step +1s</button>
     </div>
-    <div class="grid2" style="margin-top:10px">
+    <div class="grid3" style="margin-top:10px">
       <button id="btnReset">Reset</button>
       <button id="btnCopy">Copy Summary</button>
+      <button id="btnPrint">Print / Save Data</button>
     </div>
 
     <div class="callout">
@@ -332,9 +333,7 @@
 
 <script>
 (() => {
-  const c = 299792458;
   const EPS = 1e-15;
-
   const el = (id)=>document.getElementById(id);
 
   // Toggles
@@ -381,6 +380,7 @@
   const btnStep = el("btnStep");
   const btnReset = el("btnReset");
   const btnCopy = el("btnCopy");
+  const btnPrint = el("btnPrint");
 
   // Tabs
   const tabA = el("tabA"), tabB = el("tabB"), tabC = el("tabC");
@@ -429,7 +429,7 @@
     if (which==="A") tabA.classList.add("on");
     if (which==="B") tabB.classList.add("on");
     if (which==="C") tabC.classList.add("on");
-    renderAll(); // redraw
+    renderAll();
   }
   tabA.onclick=()=>setTab("A");
   tabB.onclick=()=>setTab("B");
@@ -448,14 +448,14 @@
 
   // Time-rate law
   // Beer: rate = exp(-mu x)
-  // GR analog: rate ≈ sqrt(1 - 2ψ) with ψ mapped from mu*x (bounded)
+  // GR analog (comparison): rate ≈ sqrt(1 - 2ψ), with ψ ≈ μx in weak-field first-order matching
+  // (clamped to keep sqrt positive / stable for the demo)
   function timeRate(mu, x){
     if (law.value === "beer"){
       return Math.exp(-mu * x);
     }
-    // GR analog mapping (teaching-only):
-    // Let ψ = clamp(mu*x / 4, 0, 0.49) so inside sqrt positive and shows curvature-like behavior
-    const psi = Math.min(0.49, Math.max(0, (mu * x) / 4));
+    // ✅ FIXED mapping: ψ ≈ μx (not μx/4), then clamp to keep 1-2ψ ≥ 0
+    const psi = Math.min(0.49, Math.max(0, (mu * x)));
     return Math.sqrt(Math.max(0, 1 - 2*psi));
   }
 
@@ -468,27 +468,28 @@
     lines.push("   - That means the event-based clock cannot advance (time becomes 'undefined' operationally).");
     lines.push("");
     lines.push("2) Mean free time tick:");
-    lines.push("   - τ_mft = λ / v_rms sets a minimal causal interval for local state updates.");
+    lines.push("   - τ_mft = λ / v_rms sets a minimal local cadence for state updates.");
     lines.push("   - Higher v_rms → smaller τ_mft → faster cadence of events.");
     lines.push("");
     lines.push("3) Beer–Lambert temporal attenuation:");
     lines.push("   - Flux attenuates into a medium: Φ(x) = Φ0 e^(−μx).");
     lines.push("   - If tick rate ν(x) ∝ Φ(x), then local time rate falls with depth.");
     lines.push("");
-    lines.push("4) Local time rate:");
+    lines.push("4) Local time rate (model switch):");
     lines.push("   - Beer mode uses: dτ/dt0 = e^(−μx).");
-    lines.push("   - GR-analog mode maps μx into a √(1 − 2ψ) form only for comparison.");
+    lines.push("   - GR-analog is a comparison overlay: dτ/dt0 ≈ √(1 − 2ψ).");
+    lines.push("     Here we map ψ ≈ μx (first-order matching to 1 − μx) and clamp for stability.");
     lines.push("");
-    lines.push("5) CST overlay:");
+    lines.push("5) CST overlay (synchronization / phase-lock display):");
     lines.push("   - Raw local clock τ_local drifts relative to reference τ_ref.");
-    lines.push("   - CST ON displays a synchronized clock τ_local,CST that stays aligned to τ_ref.");
-    lines.push("   - The 'CST correction' shows how much adjustment is required to remain coherent.");
+    lines.push("   - CST ON displays τ_local,CST phase-locked to τ_ref (a shared display convention).");
+    lines.push("   - 'CST correction' shows the offset needed to keep the display coherent.");
     lines.push("");
     lines.push("Try this:");
     lines.push(" - Turn Frozen lattice ON: notice N stops, τ_local stops.");
     lines.push(" - Turn it OFF, raise v_rms: event cadence increases.");
-    lines.push(" - Increase μ or depth x: flux and time-rate shrink exponentially.");
-    lines.push(" - Toggle CST: drift becomes a correction instead of an accumulating mismatch.");
+    lines.push(" - Increase μ or depth x: flux and time-rate shrink exponentially (Beer mode).");
+    lines.push(" - Toggle CST: raw drift becomes a correction instead of an accumulating mismatch.");
     explain.value = lines.join("\n");
   }
 
@@ -526,14 +527,10 @@
   // Event ticks (discrete)
   function advanceEvents(p, dt){
     if (!p.events) return;
-
-    // If frozen or no cadence, do nothing
     if (!isFinite(p.mft) || p.mft <= 0 || p.mft === Infinity) return;
 
-    // We let event opportunity scale with local time-rate (attenuation reduces ticks per ref second)
     // Effective mean-free tick interval in reference time:
-    //   dt0 per event ≈ τ_mft / rate
-    // If rate is very small, events become extremely rare.
+    // dt0 per event ≈ τ_mft / rate
     const eff = p.mft / Math.max(EPS, p.rate);
 
     tickAccumulator += dt;
@@ -557,7 +554,7 @@
 
     // advance reference time and ref clock
     t0 += dt;
-    tauRef += dt; // reference clock runs at 1
+    tauRef += dt;
 
     // advance local raw clock by its time rate
     tauLocal += p.rate * dt;
@@ -688,9 +685,8 @@
     const p = getParams();
     const phi0 = p.phi0;
     const mu = p.mu;
-    const maxX = Math.max(0.001, Number(inDepth.max)); // show full slider range
+    const maxX = Math.max(0.001, Number(inDepth.max));
 
-    // plot Φ(x) and rate(x) from 0..maxX
     const S = 240;
     const pts = [];
     for(let i=0;i<=S;i++){
@@ -753,33 +749,26 @@
     const pad=50, x0=pad, y0=h-pad, x1=w-14, y1=14;
     gridY(ctx,x0,y0,x1,y1,5);
 
-    // Show an intuitive "tick train" for last ~10 seconds
     const p = getParams();
     ctx.font="12px system-ui,Segoe UI,Arial";
     ctx.fillStyle="rgba(255,255,255,.85)";
-    ctx.fillText("Tick cadence view (events) — spacing grows when attenuation is strong or vrms is low", x0+10, y1+18);
+    ctx.fillText("Tick cadence view (events) — spacing grows when attenuation is strong or v_rms is low", x0+10, y1+18);
 
-    const span = 10; // seconds window
-    const tStart = Math.max(0, t0 - span);
-    const tEnd = t0;
+    const span = 10;
+    const pxPerSec = (x1-x0) / span;
 
-    // We can't reconstruct every tick time without storing; so we visualize cadence as effective tick interval now:
-    // effective dt per event = (λ/vrms) / rate
     const mft = p.mft;
     const eff = (isFinite(mft) ? (mft / Math.max(EPS,p.rate)) : Infinity);
 
-    // Draw baseline
-    ctx.strokeStyle="rgba(255,255,255,.18)";
-    ctx.beginPath(); ctx.moveTo(x0, (y0+y1)/2); ctx.lineTo(x1, (y0+y1)/2); ctx.stroke();
-
-    // Draw ticks from right to left with spacing = eff (capped)
     const mid = (y0+y1)/2;
-    const pxPerSec = (x1-x0) / span;
+    ctx.strokeStyle="rgba(255,255,255,.18)";
+    ctx.beginPath(); ctx.moveTo(x0, mid); ctx.lineTo(x1, mid); ctx.stroke();
+
+    // Draw tick train (visual only)
     let xPos = x1;
     let count = 0;
     const maxTicks = 250;
-
-    const effCap = Math.min(eff, 2.0); // cap so it's readable
+    const effCap = Math.min(eff, 2.0);
     while (xPos >= x0 && count < maxTicks){
       ctx.strokeStyle = "rgba(53,208,127,.85)";
       ctx.beginPath();
@@ -842,11 +831,9 @@
     bar(top+34, "Flux Φ(x) / Φ0", (p.phi / Math.max(EPS,p.phi0)), 1.0, "rgba(88,166,255,.85)");
     bar(top+34+(barH+gap), "Time-rate dτ/dt0", p.rate, 1.0, "rgba(242,193,78,.85)");
 
-    // mft (scaled)
     const mftShow = isFinite(p.mft) ? Math.min(p.mft, 2.0) : 2.0;
     bar(top+34+2*(barH+gap), "Mean free time τ_mft (capped at 2s)", mftShow, 2.0, "rgba(53,208,127,.65)");
 
-    // drift magnitude hint (scaled)
     const drift = tauLocal - tauRef;
     const driftAbs = Math.min(Math.abs(drift), 1.0);
     bar(top+34+3*(barH+gap), "Raw drift |τ_local − τ_ref| (capped at 1s)", driftAbs, 1.0, "rgba(255,90,102,.65)");
@@ -854,6 +841,147 @@
     ctx2.fillStyle="rgba(255,255,255,.6)";
     ctx2.font="12px system-ui,Segoe UI,Arial";
     ctx2.fillText("Tip: Increase μ or depth x to reduce Φ(x) and slow the local clock exponentially (Beer mode).", pad, h-18);
+  }
+
+  // --- Print / Save Data (NEW) ---
+  function escapeHtml(s){
+    return String(s)
+      .replaceAll("&","&amp;")
+      .replaceAll("<","&lt;")
+      .replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;")
+      .replaceAll("'","&#39;");
+  }
+
+  function makeCSV(){
+    // CSV includes current inputs and full history buffer
+    const p = getParams();
+    const headerMeta = [
+      ["timestamp_iso", new Date().toISOString()],
+      ["frozen_lattice", p.frozen],
+      ["law", law.value],
+      ["cst_on", p.cst],
+      ["events_on", p.events],
+      ["lambda_m", p.lambda],
+      ["vrms_mps", p.vrms],
+      ["mu_1pm", p.mu],
+      ["depth_m", p.depth],
+      ["phi0", p.phi0],
+      ["nu0_hz", p.nu0],
+      ["note", "History columns start after blank line"]
+    ];
+
+    let out = "key,value\n";
+    for (const [k,v] of headerMeta){
+      out += `${k},${String(v).replaceAll('"','""')}\n`;
+    }
+
+    out += "\n";
+    out += "t0_s,phi_x,rate_dtau_dt0,drift_raw_s,drift_cst_s\n";
+    for (let i=0;i<hist.t.length;i++){
+      const row = [
+        hist.t[i],
+        hist.phi[i],
+        hist.rate[i],
+        hist.drift[i],
+        hist.driftCST[i]
+      ].map(x => (isFinite(x) ? x : "")).join(",");
+      out += row + "\n";
+    }
+    return out;
+  }
+
+  function printData(){
+    const p = getParams();
+    const csv = makeCSV();
+
+    const html = `
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Simulator Data Printout</title>
+<style>
+  body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:18px;color:#111}
+  h1{font-size:18px;margin:0 0 10px}
+  .muted{color:#555;font-size:12.5px}
+  .box{border:1px solid #ccc;border-radius:10px;padding:12px;margin-top:12px}
+  table{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:8px}
+  th,td{border:1px solid #ddd;padding:6px 8px;text-align:left}
+  th{background:#f5f7fb}
+  textarea{width:100%;min-height:220px;margin-top:8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px}
+  button{padding:10px 12px;border-radius:10px;border:1px solid #999;background:#f5f5f5;cursor:pointer;font-weight:700}
+  .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+</style>
+</head>
+<body>
+  <h1>Time as Kinetic Cadence + Beer–Lambert Attenuation — Data Printout</h1>
+  <div class="muted">Generated: ${escapeHtml(new Date().toString())}</div>
+
+  <div class="box">
+    <b>Current settings</b>
+    <table>
+      <tr><th>Frozen lattice</th><td>${p.frozen ? "ON" : "OFF"}</td></tr>
+      <tr><th>Law</th><td>${law.value === "beer" ? "Beer–Lambert e^(−μx)" : "GR-analog √(1−2ψ), ψ≈μx (clamped)"}</td></tr>
+      <tr><th>CST overlay</th><td>${p.cst ? "ON (phase-locked display)" : "OFF"}</td></tr>
+      <tr><th>Event-count clock</th><td>${p.events ? "ON" : "OFF"}</td></tr>
+      <tr><th>λ (m)</th><td>${p.lambda}</td></tr>
+      <tr><th>v_rms (m/s)</th><td>${p.vrms}</td></tr>
+      <tr><th>τ_mft = λ/v_rms (s)</th><td>${isFinite(p.mft) ? p.mft : "Infinity"}</td></tr>
+      <tr><th>μ (1/m)</th><td>${p.mu}</td></tr>
+      <tr><th>x (m)</th><td>${p.depth}</td></tr>
+      <tr><th>Φ0</th><td>${p.phi0}</td></tr>
+      <tr><th>ν0 (Hz)</th><td>${p.nu0}</td></tr>
+      <tr><th>Φ(x)</th><td>${p.phi}</td></tr>
+      <tr><th>dτ/dt0</th><td>${p.rate}</td></tr>
+      <tr><th>t0 (s)</th><td>${t0}</td></tr>
+      <tr><th>τ_ref (s)</th><td>${tauRef}</td></tr>
+      <tr><th>τ_local raw (s)</th><td>${tauLocal}</td></tr>
+      <tr><th>drift raw (s)</th><td>${tauLocal - tauRef}</td></tr>
+      <tr><th>τ_local,CST (s)</th><td>${tauLocalCST}</td></tr>
+      <tr><th>CST correction (s)</th><td>${cstCorr}</td></tr>
+      <tr><th>N (events)</th><td>${N}</td></tr>
+      <tr><th>t from events N/ν0 (s)</th><td>${p.nu0>0 ? (N/p.nu0) : 0}</td></tr>
+    </table>
+
+    <div class="row">
+      <button onclick="window.print()">Print / Save as PDF</button>
+      <button onclick="downloadCSV()">Download CSV</button>
+    </div>
+
+    <div class="muted" style="margin-top:10px">
+      CSV contains the full rolling history buffer (up to ${HIST_MAX} rows).
+    </div>
+    <textarea id="csv" readonly>${escapeHtml(csv)}</textarea>
+  </div>
+
+<script>
+  function downloadCSV(){
+    const csv = document.getElementById('csv').value;
+    const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const ts = new Date().toISOString().replace(/[:.]/g,'-');
+    a.href = url;
+    a.download = 'kinetic_dilation_data_' + ts + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 500);
+  }
+</script>
+</body>
+</html>
+`;
+    const w = window.open("", "_blank", "noopener,noreferrer,width=980,height=740");
+    if (!w){
+      alert("Pop-up blocked. Allow pop-ups to print/save data.");
+      return;
+    }
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
   }
 
   // Run loop
@@ -896,7 +1024,7 @@
 `Kinetic Time + Beer–Lambert Simulator Summary
 
 Frozen lattice: ${p.frozen ? "ON (no operational ticks)" : "OFF"}
-Law: ${law.value === "beer" ? "Beer–Lambert rate e^(−μx)" : "GR analog √(1−2ψ) mapped from μx"}
+Law: ${law.value === "beer" ? "Beer–Lambert rate e^(−μx)" : "GR analog √(1−2ψ), ψ≈μx (clamped)"}
 CST: ${p.cst ? "ON (phase-locked display)" : "OFF"}
 Event-count clock: ${p.events ? "ON" : "OFF"}
 
@@ -931,6 +1059,9 @@ State:
       alert("Copy failed (browser permission).");
     }
   };
+
+  // NEW: print/save data
+  btnPrint.onclick = () => { running = false; printData(); };
 
   // Toggles click
   function toggleClick(node){
