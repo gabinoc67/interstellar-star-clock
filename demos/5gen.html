@@ -1,0 +1,1294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>RCS Polar (dBsm) + SAR Passes (Toy/SGP4) + CST/UTC + Flight Plans + Map + Timeline + Presentation Mode</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+:root{
+  --bg:#0b1220; --panel:#101a2f; --panel2:#0c1426; --line:#203156;
+  --ink:#eaf0ff; --muted:#9fb0d6; --accent:#58a6ff;
+  --good:#35d07f; --warn:#f2c14e; --bad:#ff5a66;
+  --radius:14px; --shadow:0 10px 28px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; color:var(--ink);
+  font-family:system-ui,Segoe UI,Arial,sans-serif;
+  background:radial-gradient(circle at 20% 0%, #101b35 0, var(--bg) 55%);
+}
+header{
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  padding:12px 16px; border-bottom:1px solid var(--line)
+}
+header .leftHead{display:flex; align-items:center; gap:12px; flex-wrap:wrap}
+header h1{margin:0;font-size:14px}
+.small{font-size:12px;color:var(--muted)}
+.badge{display:inline-block;padding:4px 8px;border-radius:999px;font-size:11px}
+.ok{background:rgba(53,208,127,.15);color:var(--good)}
+.warn{background:rgba(242,193,78,.15);color:var(--warn)}
+.bad{background:rgba(255,90,102,.15);color:var(--bad)}
+.mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
+
+.app{
+  display:grid;
+  grid-template-columns: 520px 1fr;
+  height:calc(100% - 56px);
+}
+.left{
+  background:linear-gradient(180deg,var(--panel),var(--panel2));
+  border-right:1px solid var(--line);
+  padding:12px; overflow:auto
+}
+.main{
+  display:grid;
+  grid-template-rows: 1fr 140px 360px;
+  gap:10px; padding:10px
+}
+.panel{
+  background:linear-gradient(180deg,var(--panel),var(--panel2));
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  padding:10px
+}
+.panel h3{margin:0 0 6px; font-size:14px; color:var(--accent)}
+.grid2{display:grid; grid-template-columns:1fr 1fr; gap:8px}
+.grid3{display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px}
+.row{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+
+label{font-size:12px;color:var(--muted)}
+select,input[type=range],input[type=text],input[type=number],textarea{
+  width:100%; background:#0b1630; color:var(--ink);
+  border:1px solid var(--line); border-radius:10px; padding:6px
+}
+textarea{min-height:70px; resize:vertical}
+button{
+  background:#152a52; color:#fff; border:1px solid var(--line);
+  border-radius:12px; padding:8px 10px; cursor:pointer
+}
+button:hover{background:#1b3566}
+button.ghost{background:transparent}
+button.ghost:hover{background:rgba(88,166,255,.12)}
+table{width:100%; border-collapse:collapse; font-size:12px}
+th,td{border-bottom:1px solid var(--line); padding:6px; text-align:left; vertical-align:top}
+th{color:var(--muted); font-weight:600}
+canvas{
+  width:100%; height:100%;
+  background:#071024; border:1px solid var(--line); border-radius:12px
+}
+hr{border:none;border-top:1px solid var(--line);margin:10px 0}
+.footer{
+  padding:8px 16px; border-top:1px solid var(--line);
+  color:var(--muted); font-size:12px
+}
+
+/* Presentation mode */
+body.presentation .app{grid-template-columns: 1fr;}
+body.presentation .left{display:none;}
+body.presentation .main{
+  grid-template-rows: 1fr 140px 360px;
+  padding:10px 16px;
+}
+body.presentation header .smallHint{display:none;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="leftHead">
+    <h1>RCS Polar (dBsm) • SAR Passes (Toy/SGP4) • CST/UTC • Flight Plans • Map • Timeline</h1>
+    <span id="detectBadge" class="badge warn">Sensor risk: moderate</span>
+    <span class="small smallHint">Educational model • not calibrated • not operational guidance</span>
+  </div>
+  <div class="row">
+    <button id="presentationBtn" class="ghost">Presentation Mode</button>
+  </div>
+</header>
+
+<div class="app">
+  <!-- LEFT -->
+  <aside class="left">
+
+    <div class="panel">
+      <h3>Manual vs Autopilot</h3>
+      <div class="grid2">
+        <div>
+          <label>Control Mode</label>
+          <select id="controlMode">
+            <option value="manual" selected>Manual</option>
+            <option value="autopilot">Autopilot (Waypoints)</option>
+          </select>
+        </div>
+        <div>
+          <label>Autopilot Smoothing</label>
+          <input id="apSmooth" type="range" min="0" max="100" value="35">
+        </div>
+      </div>
+      <div class="small">Manual uses sliders; Autopilot follows waypoint schedule.</div>
+    </div>
+
+    <div class="panel">
+      <h3>Vehicle / Signature Model</h3>
+      <div class="grid2">
+        <div>
+          <label>Shape Preset (illustrative)</label>
+          <select id="shape">
+            <option value="delta">Delta Wing</option>
+            <option value="diamond">Diamond Facet</option>
+            <option value="fuselage">Fuselage-like</option>
+            <option value="custom" selected>Custom Mix</option>
+          </select>
+        </div>
+        <div>
+          <label>Frequency</label>
+          <select id="freq">
+            <option value="1.2" selected>1.2 GHz (L-band)</option>
+            <option value="3.0">3.0 GHz (S-band)</option>
+            <option value="10.0">10.0 GHz (X-band)</option>
+          </select>
+        </div>
+
+        <div>
+          <label>Heading (°)</label>
+          <input id="heading" type="range" min="0" max="360" value="330">
+        </div>
+        <div>
+          <label>Bank (°)</label>
+          <input id="bank" type="range" min="-70" max="70" value="8">
+        </div>
+
+        <div>
+          <label>Pitch (°)</label>
+          <input id="pitch" type="range" min="-20" max="20" value="2">
+        </div>
+        <div>
+          <label>Altitude (km)</label>
+          <input id="alt" type="range" min="0.5" max="45" step="0.5" value="12">
+        </div>
+
+        <div>
+          <label>Mach (0.3 → 25)</label>
+          <input id="mach" type="range" min="0.3" max="25" step="0.1" value="1.4">
+        </div>
+        <div>
+          <label>Speed Buttons</label>
+          <div class="row">
+            <button id="slower">−</button>
+            <button id="faster">+</button>
+            <button id="mach10">Mach 10</button>
+          </div>
+        </div>
+
+        <div>
+          <label>Thermal Shield (theory %)</label>
+          <input id="thermalProt" type="range" min="0" max="100" value="45">
+        </div>
+        <div>
+          <label>Active EM Control (illustrative %)</label>
+          <input id="active" type="range" min="0" max="100" value="25">
+        </div>
+
+        <div>
+          <label>Surface Roughness / Diffuse Scatter (%)</label>
+          <input id="rough" type="range" min="0" max="100" value="35">
+        </div>
+        <div>
+          <label>Propulsion Mode (display)</label>
+          <select id="propMode">
+            <option value="fuel" selected>Jet Fuel</option>
+            <option value="scram">Scramjet</option>
+            <option value="field">Field Assist (theory)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="small">
+        Polar rings match your graphic exactly: <span class="mono">+10, 0, −10, −20, −30, −40, −50 dBsm</span>.
+        Speed is computed from Mach & altitude (ISA-ish approximation).
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Time: UTC vs CST (Invariant Sync)</h3>
+      <div class="grid2">
+        <div>
+          <label>Time Reference</label>
+          <select id="timeRef">
+            <option value="utc" selected>UTC</option>
+            <option value="cst">CST (Invariant Sync)</option>
+          </select>
+        </div>
+        <div>
+          <label>Time Zone Display</label>
+          <select id="tz">
+            <option>UTC−08</option><option selected>UTC−06</option><option>UTC−05</option>
+            <option>UTC+00</option><option>UTC+01</option><option>UTC+05:30</option><option>UTC+08</option>
+          </select>
+        </div>
+      </div>
+      <div class="small">Readout includes E = mc² and m = E/c² bookkeeping (illustrative only).</div>
+    </div>
+
+    <div class="panel">
+      <h3>SAR Pass Windows</h3>
+      <div class="grid2">
+        <div>
+          <label>Pass Mode</label>
+          <select id="passMode">
+            <option value="toy" selected>Toy scheduler (works now)</option>
+            <option value="sgp4">TLE + SGP4 (requires satellite.js)</option>
+          </select>
+        </div>
+        <div>
+          <label>Look Angle (deg)</label>
+          <select id="lookAngle">
+            <option>20</option><option>30</option><option selected>40</option><option>55</option>
+          </select>
+        </div>
+        <div>
+          <label>Observer Lat (deg)</label>
+          <input id="obsLat" type="number" value="34.9" step="0.1">
+        </div>
+        <div>
+          <label>Observer Lon (deg)</label>
+          <input id="obsLon" type="number" value="-117.9" step="0.1">
+        </div>
+      </div>
+
+      <div class="grid2" style="margin-top:8px">
+        <div>
+          <label>TLE Name (optional)</label>
+          <input id="tleName" type="text" value="Example Satellite">
+        </div>
+        <div>
+          <label>TLE Lines (2 lines)</label>
+          <textarea id="tleLines" class="mono">1 25544U 98067A   25200.50000000  .00010000  00000-0  20000-3 0  9990
+2 25544  51.6400  60.0000 0005000  10.0000  30.0000 15.50000000000000</textarea>
+        </div>
+      </div>
+
+      <div class="grid2" style="margin-top:8px">
+        <div>
+          <label>Optional: Paste satellite.js code here (minified)</label>
+          <textarea id="satjsPaste" class="mono" placeholder="Paste satellite.js minified code here, then click 'Load SGP4 Library'."></textarea>
+        </div>
+        <div>
+          <label>Actions</label>
+          <div class="row">
+            <button id="loadSatJs">Load SGP4 Library</button>
+            <button id="calcPasses">Compute Next 24h Passes</button>
+          </div>
+          <div id="sgp4Status" class="small" style="margin-top:6px">SGP4: not loaded (toy mode works)</div>
+          <div id="passes" class="small" style="margin-top:8px"></div>
+        </div>
+      </div>
+
+      <div class="small">
+        SGP4 mode uses your TLE if satellite.js is loaded. Visibility window uses elevation &gt; 10° horizon mask (simplified).
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Flight Plans (5 presets) + Upload</h3>
+      <div class="grid2">
+        <div>
+          <label>Departure</label>
+          <select id="dep"></select>
+        </div>
+        <div>
+          <label>Arrival</label>
+          <select id="arr"></select>
+        </div>
+      </div>
+
+      <div class="grid2" style="margin-top:8px">
+        <div>
+          <label>Preset Flight Plans</label>
+          <select id="fpExamples">
+            <option value="fp1" selected>Plan 1: Short test hop</option>
+            <option value="fp2">Plan 2: Coastal transit</option>
+            <option value="fp3">Plan 3: High-altitude run</option>
+            <option value="fp4">Plan 4: Multi-leg route</option>
+            <option value="fp5">Plan 5: Loiter box</option>
+          </select>
+        </div>
+        <div>
+          <label>Upload Flight Plan (JSON)</label>
+          <input id="fpUpload" type="file" accept=".json,application/json">
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:8px">
+        <button id="loadExample">Load Selected Preset</button>
+        <button id="clearPlan">Clear Plan</button>
+      </div>
+
+      <div class="small" style="margin-top:8px">
+        JSON format:
+        <span class="mono">{"waypoints":[{"lat":..,"lon":..,"alt_km":..,"mach":..,"dwell_s":..}, ...]}</span>
+      </div>
+
+      <div style="margin-top:10px; max-height:180px; overflow:auto; border:1px solid var(--line); border-radius:12px">
+        <table id="wpTable">
+          <thead>
+            <tr>
+              <th>#</th><th>Lat</th><th>Lon</th><th>Alt km</th><th>Mach</th><th>Dwell s</th><th>Auto bearing → next</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Run & Export</h3>
+      <div class="row">
+        <button id="start">Start</button>
+        <button id="pause">Pause</button>
+        <button id="reset">Reset</button>
+        <button id="exportCSV">Export CSV</button>
+      </div>
+      <div class="small">CSV includes time series + polar samples + pass window flags.</div>
+    </div>
+
+    <div class="panel">
+      <h3>Disclaimer</h3>
+      <div class="small">
+        Presentation simulator only. No claim of invisibility or real “shield” performance.
+        SGP4 mode computes visibility windows from TLE (if satellite.js is loaded).
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- RIGHT -->
+  <section class="main">
+    <div class="panel">
+      <h3>RCS Polar Plot (dBsm) — ring labels match your graphic</h3>
+      <canvas id="polar"></canvas>
+      <div class="small">
+        Angles labeled: 0° nose, 180° tail, 30/60/90/120/150 and 220/240/260/330.
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Pass Timeline (Next 24h)</h3>
+      <canvas id="timeline"></canvas>
+      <div class="small">
+        Bars show predicted windows. A vertical marker shows “now” within the 24h span.
+      </div>
+    </div>
+
+    <div class="grid3">
+      <div class="panel">
+        <h3>Map (Lat/Lon Path)</h3>
+        <canvas id="map"></canvas>
+        <div class="small">Simple equirectangular map projection (for visualization only).</div>
+      </div>
+
+      <div class="panel">
+        <h3>Thermal / Stability / Mode</h3>
+        <canvas id="thermal"></canvas>
+      </div>
+
+      <div class="panel">
+        <h3>Readout</h3>
+        <div id="readout" class="small"></div>
+        <hr>
+        <div class="small">
+          Safety: Educational visualization. Not calibrated and not intended for operational evasion guidance.
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="footer">
+  Use Presentation Mode for screenshots. Timeline + map help explain “time-windowed observation” and route context.
+</div>
+
+<script>
+/* ------------------------- Optional satellite.js loader (paste-based) ------------------------- */
+let SGP4_AVAILABLE = false;
+function setSgp4Status(msg){ document.getElementById('sgp4Status').textContent = msg; }
+function tryLoadSatJsFromPaste(){
+  const code = document.getElementById('satjsPaste').value.trim();
+  if(!code){ setSgp4Status("SGP4: paste satellite.js code first (toy mode works)"); return; }
+  try{
+    (0,eval)(code);
+    if(typeof satellite !== "undefined"){
+      SGP4_AVAILABLE = true;
+      setSgp4Status("SGP4: loaded ✓ (satellite.js available)");
+    }else{
+      setSgp4Status("SGP4: eval ran but `satellite` not found");
+    }
+  }catch(e){
+    setSgp4Status("SGP4: load failed — " + (e?.message || e));
+  }
+}
+
+/* ------------------------- Cities DB ------------------------- */
+const cities = [
+  {name:"USA — Edwards AFB", lat:34.905, lon:-117.883},
+  {name:"USA — Vandenberg", lat:34.732, lon:-120.568},
+  {name:"USA — Cape Canaveral", lat:28.392, lon:-80.607},
+  {name:"UK — Waddington", lat:53.175, lon:-0.523},
+  {name:"Japan — Misawa", lat:40.703, lon:141.368},
+  {name:"Australia — Woomera", lat:-31.199, lon:136.822},
+  {name:"Norway — Andøya", lat:69.293, lon:16.144},
+  {name:"UAE — Al Dhafra", lat:24.248, lon:54.547},
+  {name:"Pacific — Test Range", lat:20.0, lon:-155.0},
+  {name:"Atlantic — Test Corridor", lat:35.0, lon:-30.0},
+];
+
+/* ------------------------- Elements ------------------------- */
+const depSel = document.getElementById('dep');
+const arrSel = document.getElementById('arr');
+cities.forEach(c=>{
+  const o1=document.createElement('option'); o1.textContent=c.name; depSel.appendChild(o1);
+  const o2=document.createElement('option'); o2.textContent=c.name; arrSel.appendChild(o2);
+});
+depSel.value=cities[0].name;
+arrSel.value=cities[8].name;
+
+const polar=document.getElementById('polar');
+const timeline=document.getElementById('timeline');
+const map=document.getElementById('map');
+const thermal=document.getElementById('thermal');
+const ctxP=polar.getContext('2d');
+const ctxL=timeline.getContext('2d');
+const ctxM=map.getContext('2d');
+const ctxT=thermal.getContext('2d');
+
+const presentationBtn=document.getElementById('presentationBtn');
+
+const controlModeEl=document.getElementById('controlMode');
+const apSmoothEl=document.getElementById('apSmooth');
+
+const shapeEl=document.getElementById('shape');
+const freqEl=document.getElementById('freq');
+const headingEl=document.getElementById('heading');
+const pitchEl=document.getElementById('pitch');
+const bankEl=document.getElementById('bank');
+const machEl=document.getElementById('mach');
+const altEl=document.getElementById('alt');
+const thermalProtEl=document.getElementById('thermalProt');
+const activeEl=document.getElementById('active');
+const roughEl=document.getElementById('rough');
+const propModeEl=document.getElementById('propMode');
+
+const timeRefEl=document.getElementById('timeRef');
+const tzEl=document.getElementById('tz');
+
+const passModeEl=document.getElementById('passMode');
+const lookAngleEl=document.getElementById('lookAngle');
+const obsLatEl=document.getElementById('obsLat');
+const obsLonEl=document.getElementById('obsLon');
+const tleNameEl=document.getElementById('tleName');
+const tleLinesEl=document.getElementById('tleLines');
+const passesEl=document.getElementById('passes');
+
+const fpExamplesEl=document.getElementById('fpExamples');
+const fpUploadEl=document.getElementById('fpUpload');
+const wpTBody=document.querySelector('#wpTable tbody');
+
+const detectBadge=document.getElementById('detectBadge');
+const readout=document.getElementById('readout');
+
+let running=false;
+let simTime=0;
+let lastTs=0;
+
+/* ------------------------- State ------------------------- */
+let state={
+  lat:cities[0].lat,
+  lon:cities[0].lon,
+  heading:+headingEl.value,
+  mach:+machEl.value,
+  alt_km:+altEl.value,
+  segIdx:0,
+  segT:0
+};
+
+let waypoints=[];
+let pathTrace=[]; // array of {lat,lon}
+
+/* ------------------------- CSV buffers ------------------------- */
+let csvTimeRows=[["t_s","lat","lon","heading_deg","mach","alt_km","speed_mps","speed_kph","rcs_dbsm_front","sensor_risk","pass_active","time_ref","tz"]];
+let csvPolarRows=[["angle_deg","rcs_dbsm"]];
+
+/* ------------------------- Utils ------------------------- */
+function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
+function deg2rad(d){ return d*Math.PI/180; }
+function rad2deg(r){ return r*180/Math.PI; }
+function wrap360(d){ d%=360; if(d<0)d+=360; return d; }
+
+function bearingDeg(lat1,lon1,lat2,lon2){
+  const φ1=deg2rad(lat1), φ2=deg2rad(lat2);
+  const Δλ=deg2rad(lon2-lon1);
+  const y=Math.sin(Δλ)*Math.cos(φ2);
+  const x=Math.cos(φ1)*Math.sin(φ2) - Math.sin(φ1)*Math.cos(φ2)*Math.cos(Δλ);
+  return wrap360(rad2deg(Math.atan2(y,x)));
+}
+function moveAlong(lat,lon,bearing,dist_km){
+  const R=6371;
+  const δ=dist_km/R;
+  const θ=deg2rad(bearing);
+  const φ1=deg2rad(lat);
+  const λ1=deg2rad(lon);
+  const φ2=Math.asin(Math.sin(φ1)*Math.cos(δ)+Math.cos(φ1)*Math.sin(δ)*Math.cos(θ));
+  const λ2=λ1+Math.atan2(Math.sin(θ)*Math.sin(δ)*Math.cos(φ1), Math.cos(δ)-Math.sin(φ1)*Math.sin(φ2));
+  return {lat:rad2deg(φ2), lon:rad2deg(λ2)};
+}
+function tzOffsetMinutes(tzStr){
+  const s=tzStr.replace("UTC","");
+  const sign=s.includes("−")?-1:1;
+  const parts=s.replace("−","").replace("+","").split(":");
+  const hh=parseInt(parts[0]||"0",10);
+  const mm=parseInt(parts[1]||"0",10);
+  return sign*(hh*60+mm);
+}
+function fmtTime(d){
+  const pad=n=>String(n).padStart(2,"0");
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}Z`;
+}
+
+/* ------------------------- Atmosphere: speed of sound approximation ------------------------- */
+function speedOfSound(alt_km){
+  const h=clamp(alt_km,0,47);
+  let T;
+  if(h<11) T = 288.15 - 6.5*h;
+  else if(h<20) T = 216.65;
+  else if(h<32) T = 216.65 + 1.0*(h-20);
+  else T = 228.65 + 2.8*(h-32);
+  const gamma=1.4, R=287.05;
+  return Math.sqrt(gamma*R*T);
+}
+function machToSpeed(mach,alt_km){
+  const a = speedOfSound(alt_km);
+  const v = mach*a;
+  return {mps:v, kph:v*3.6};
+}
+
+/* ------------------------- RCS mapping / ring labels EXACT ------------------------- */
+const DBSM_OUTER = +10;
+const DBSM_INNER = -50;
+function rNormToDbsm(rNorm){
+  return DBSM_INNER + (DBSM_OUTER-DBSM_INNER)*clamp(rNorm,0,1);
+}
+function rcsNormAtAngle(angleDeg){
+  const freq=+freqEl.value;
+  const heading=+headingEl.value;
+  const rough=+roughEl.value/100;
+  const active=+activeEl.value/100;
+  const pitch=+pitchEl.value;
+  const bank=+bankEl.value;
+
+  const a = deg2rad(angleDeg-heading);
+
+  let base;
+  const preset=shapeEl.value;
+  if(preset==="delta"){
+    base = 0.58 + 0.18*Math.cos(2*a) + 0.06*Math.cos(6*a);
+  }else if(preset==="diamond"){
+    base = 0.54 + 0.22*Math.cos(4*a) + 0.05*Math.cos(8*a);
+  }else if(preset==="fuselage"){
+    base = 0.60 + 0.16*Math.cos(2*a) + 0.10*Math.cos(1*a);
+  }else{
+    base = 0.56 + 0.16*Math.cos(2*a) + 0.10*Math.cos(4*a) + 0.05*Math.cos(8*a);
+  }
+
+  // L-band spike style (educational)
+  const lBandBoost = clamp((1.6 - Math.abs(freq-1.2))/1.6, 0, 1);
+  const spike1 = Math.pow(Math.max(0, Math.cos(deg2rad(angleDeg-30))), 6);
+  const spike2 = Math.pow(Math.max(0, Math.cos(deg2rad(angleDeg-330))), 6);
+  const tail  = Math.pow(Math.max(0, Math.cos(deg2rad(angleDeg-180))), 4);
+
+  let spikes = lBandBoost*(0.22*(spike1+spike2) + 0.16*tail);
+
+  spikes *= (1 - 0.35*rough);
+  base   *= (1 + 0.10*rough);
+
+  const activeAtt = (1 - 0.25*active);
+  const att = 1 + 0.002*Math.abs(pitch) + 0.002*Math.abs(bank);
+
+  let r = (base + spikes) * att * activeAtt;
+  r = clamp(r, 0.12, 1.0);
+  return r;
+}
+function rcsDbsmAtAngle(angleDeg){
+  return rNormToDbsm(rcsNormAtAngle(angleDeg));
+}
+
+/* ------------------------- Pass windows ------------------------- */
+let passWindows=[]; // [{start:Date,end:Date,src:"toy"|"sgp4"}]
+let passWindowRange=null; // {start:Date,end:Date} for timeline reference
+
+function computePassWindowsToyNext24h(){
+  passWindows=[];
+  const now=new Date();
+  const end=new Date(now.getTime()+24*3600*1000);
+  passWindowRange={start:now,end:end};
+
+  const periodMin = 96;
+  const passDurMin = 6;
+  const lat = parseFloat(obsLatEl.value)||0;
+  const lon = parseFloat(obsLonEl.value)||0;
+  const phaseMin = (Math.abs(lat)*2 + Math.abs(lon)*0.7) % periodMin;
+
+  let t0 = new Date(now.getTime() + phaseMin*60*1000);
+  while(t0 < end){
+    const start = new Date(t0.getTime());
+    const endP  = new Date(t0.getTime() + passDurMin*60*1000);
+    passWindows.push({start, end:endP, src:"toy"});
+    t0 = new Date(t0.getTime() + periodMin*60*1000);
+  }
+  renderPasses();
+  drawTimeline();
+}
+
+function computePassWindowsSgp4Next24h(){
+  passWindows=[];
+  const now=new Date();
+  const end=new Date(now.getTime()+24*3600*1000);
+  passWindowRange={start:now,end:end};
+
+  if(!SGP4_AVAILABLE || typeof satellite==="undefined"){
+    setSgp4Status("SGP4: satellite.js not loaded — paste it and click Load");
+    computePassWindowsToyNext24h();
+    return;
+  }
+
+  const tleLines = tleLinesEl.value.trim().split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  if(tleLines.length < 2){
+    setSgp4Status("SGP4: please provide two TLE lines");
+    computePassWindowsToyNext24h();
+    return;
+  }
+
+  let satrec;
+  try{
+    satrec = satellite.twoline2satrec(tleLines[0], tleLines[1]);
+    setSgp4Status("SGP4: using provided TLE ✓");
+  }catch(e){
+    setSgp4Status("SGP4: TLE parse failed — " + (e?.message||e));
+    computePassWindowsToyNext24h();
+    return;
+  }
+
+  const obsLat = parseFloat(obsLatEl.value)||0;
+  const obsLon = parseFloat(obsLonEl.value)||0;
+  const observerGd = {
+    longitude: satellite.degreesToRadians(obsLon),
+    latitude:  satellite.degreesToRadians(obsLat),
+    height: 0.0
+  };
+
+  const stepSec = 30;
+  let inPass=false;
+  let passStart=null;
+
+  for(let t=now.getTime(); t<=end.getTime(); t+=stepSec*1000){
+    const time = new Date(t);
+    const pv = satellite.propagate(satrec, time);
+    if(!pv.position) continue;
+
+    const gmst = satellite.gstime(time);
+    const ecf = satellite.eciToEcf(pv.position, gmst);
+    const lookAngles = satellite.ecfToLookAngles(observerGd, ecf);
+    const elevationDeg = satellite.radiansToDegrees(lookAngles.elevation);
+
+    const visible = elevationDeg > 10;
+    if(visible && !inPass){
+      inPass=true;
+      passStart=new Date(t);
+    }
+    if(!visible && inPass){
+      inPass=false;
+      const passEnd=new Date(t);
+      if(passEnd - passStart > 2*60*1000){
+        passWindows.push({start:passStart, end:passEnd, src:"sgp4"});
+      }
+      passStart=null;
+    }
+  }
+  if(inPass && passStart){
+    passWindows.push({start:passStart, end:end, src:"sgp4"});
+  }
+
+  renderPasses();
+  drawTimeline();
+}
+
+function renderPasses(){
+  if(passWindows.length===0){
+    passesEl.textContent="No passes found (check inputs).";
+    return;
+  }
+  let html = `<div class="small">Next 24h windows (${passWindows[0].src.toUpperCase()}) • Look angle setting: ${lookAngleEl.value}° (display only)</div>`;
+  html += `<table><thead><tr><th>#</th><th>Start (UTC)</th><th>End (UTC)</th><th>Mode</th></tr></thead><tbody>`;
+  passWindows.slice(0,14).forEach((p,i)=>{
+    html += `<tr>
+      <td>${i+1}</td>
+      <td class="mono">${fmtTime(p.start)}</td>
+      <td class="mono">${fmtTime(p.end)}</td>
+      <td>${p.src}</td>
+    </tr>`;
+  });
+  html += `</tbody></table>`;
+  if(passWindows.length>14) html += `<div class="small">Showing first 14 of ${passWindows.length} windows.</div>`;
+  passesEl.innerHTML=html;
+}
+
+function isPassNow(){
+  const now=new Date();
+  return passWindows.some(p => now>=p.start && now<=p.end);
+}
+
+/* ------------------------- Timeline drawing ------------------------- */
+function drawTimeline(){
+  const w=timeline.width, h=timeline.height;
+  ctxL.clearRect(0,0,w,h);
+
+  // background
+  ctxL.fillStyle="#071024";
+  ctxL.fillRect(0,0,w,h);
+
+  // axis range
+  const now=new Date();
+  const start = passWindowRange?.start || new Date(now.getTime());
+  const end   = passWindowRange?.end   || new Date(now.getTime()+24*3600*1000);
+  const span  = end.getTime()-start.getTime();
+
+  // grid hours
+  ctxL.strokeStyle="#203156";
+  ctxL.fillStyle="#9fb0d6";
+  ctxL.font="12px system-ui";
+  for(let hr=0; hr<=24; hr+=2){
+    const x = (hr/24)*w;
+    ctxL.beginPath(); ctxL.moveTo(x,0); ctxL.lineTo(x,h); ctxL.stroke();
+    ctxL.fillText(`${hr}h`, x+2, 14);
+  }
+
+  // pass bars
+  ctxL.fillStyle="rgba(242,193,78,0.55)";
+  passWindows.forEach(p=>{
+    const x1 = ((p.start.getTime()-start.getTime())/span)*w;
+    const x2 = ((p.end.getTime()-start.getTime())/span)*w;
+    const ww = Math.max(2, x2-x1);
+    ctxL.fillRect(x1, 30, ww, h-45);
+  });
+
+  // now marker
+  const xn = ((now.getTime()-start.getTime())/span)*w;
+  ctxL.strokeStyle="rgba(110,243,166,0.9)";
+  ctxL.lineWidth=2;
+  ctxL.beginPath(); ctxL.moveTo(xn,0); ctxL.lineTo(xn,h); ctxL.stroke();
+  ctxL.lineWidth=1;
+
+  // labels
+  ctxL.fillStyle="#eaf0ff";
+  ctxL.fillText("Pass windows", 8, h-10);
+}
+
+/* ------------------------- Flight plans ------------------------- */
+function loadPreset(id){
+  if(id==="fp1"){
+    waypoints=[
+      {lat:34.905, lon:-117.883, alt_km:8,  mach:0.8, dwell_s:60},
+      {lat:35.100, lon:-118.200, alt_km:12, mach:1.2, dwell_s:120},
+      {lat:34.950, lon:-117.950, alt_km:10, mach:0.9, dwell_s:60},
+    ];
+  }else if(id==="fp2"){
+    waypoints=[
+      {lat:34.732, lon:-120.568, alt_km:10, mach:0.9, dwell_s:60},
+      {lat:33.900, lon:-118.400, alt_km:12, mach:1.4, dwell_s:30},
+      {lat:32.715, lon:-117.160, alt_km:12, mach:1.6, dwell_s:60},
+      {lat:31.900, lon:-116.800, alt_km:10, mach:1.2, dwell_s:60},
+    ];
+  }else if(id==="fp3"){
+    waypoints=[
+      {lat:34.905, lon:-117.883, alt_km:14, mach:1.8, dwell_s:60},
+      {lat:35.600, lon:-117.000, alt_km:22, mach:4.0, dwell_s:120},
+      {lat:36.200, lon:-116.200, alt_km:28, mach:6.5, dwell_s:120},
+      {lat:35.200, lon:-117.400, alt_km:16, mach:2.2, dwell_s:60},
+    ];
+  }else if(id==="fp4"){
+    waypoints=[
+      {lat:28.392, lon:-80.607, alt_km:10, mach:0.9, dwell_s:60},
+      {lat:30.000, lon:-70.000, alt_km:14, mach:2.0, dwell_s:60},
+      {lat:32.000, lon:-55.000, alt_km:20, mach:5.0, dwell_s:90},
+      {lat:35.000, lon:-30.000, alt_km:18, mach:3.0, dwell_s:90},
+    ];
+  }else{
+    waypoints=[
+      {lat:34.905, lon:-117.883, alt_km:12, mach:1.3, dwell_s:40},
+      {lat:35.050, lon:-117.883, alt_km:12, mach:1.3, dwell_s:40},
+      {lat:35.050, lon:-118.050, alt_km:12, mach:1.3, dwell_s:40},
+      {lat:34.905, lon:-118.050, alt_km:12, mach:1.3, dwell_s:40},
+      {lat:34.905, lon:-117.883, alt_km:12, mach:1.3, dwell_s:40},
+    ];
+  }
+  refreshWPTable();
+  resetToFirstWaypoint();
+}
+
+function resetToFirstWaypoint(){
+  pathTrace=[];
+  if(waypoints.length){
+    state.lat=waypoints[0].lat; state.lon=waypoints[0].lon;
+    state.alt_km=waypoints[0].alt_km; state.mach=waypoints[0].mach;
+    state.segIdx=0; state.segT=0;
+    pathTrace.push({lat:state.lat, lon:state.lon});
+  }
+}
+
+function refreshWPTable(){
+  wpTBody.innerHTML="";
+  for(let i=0;i<waypoints.length;i++){
+    const wp=waypoints[i];
+    const next=waypoints[i+1];
+    const bearing = next ? bearingDeg(wp.lat,wp.lon,next.lat,next.lon).toFixed(1)+"°" : "—";
+    const tr=document.createElement('tr');
+    tr.innerHTML = `
+      <td>${i+1}</td>
+      <td>${wp.lat.toFixed(3)}</td>
+      <td>${wp.lon.toFixed(3)}</td>
+      <td>${wp.alt_km.toFixed(1)}</td>
+      <td>${wp.mach.toFixed(1)}</td>
+      <td>${wp.dwell_s.toFixed(0)}</td>
+      <td>${bearing}</td>
+    `;
+    wpTBody.appendChild(tr);
+  }
+}
+
+fpUploadEl.addEventListener("change", async (e)=>{
+  const file=e.target.files?.[0];
+  if(!file) return;
+  const text=await file.text();
+  try{
+    const obj=JSON.parse(text);
+    if(!obj.waypoints || !Array.isArray(obj.waypoints)) throw new Error("Missing waypoints[]");
+    waypoints=obj.waypoints.map(w=>({
+      lat:+w.lat, lon:+w.lon, alt_km:+w.alt_km, mach:+w.mach, dwell_s:+w.dwell_s
+    })).filter(w=>[w.lat,w.lon,w.alt_km,w.mach,w.dwell_s].every(v=>Number.isFinite(v)));
+    refreshWPTable();
+    resetToFirstWaypoint();
+    controlModeEl.value="autopilot";
+  }catch(err){
+    alert("Flight plan JSON error: " + (err?.message||err));
+  }
+});
+
+/* ------------------------- Autopilot ------------------------- */
+function autopilotStep(dt){
+  if(waypoints.length<2) return;
+  const i=state.segIdx;
+  const wp=waypoints[i];
+  const next=waypoints[i+1];
+
+  if(state.segT < wp.dwell_s){
+    state.segT += dt;
+    state.alt_km = wp.alt_km;
+    state.mach = wp.mach;
+    return;
+  }
+
+  const brg = bearingDeg(state.lat,state.lon,next.lat,next.lon);
+
+  const s = (+apSmoothEl.value/100);
+  const delta = ((brg - state.heading + 540) % 360) - 180;
+  state.heading = wrap360(state.heading + delta*(0.10 + 0.50*s));
+
+  const speed = machToSpeed(state.mach, state.alt_km).mps;
+  const kmps = speed/1000;
+  const stepKm = kmps * dt;
+
+  const pos = moveAlong(state.lat,state.lon,state.heading,stepKm);
+  state.lat=pos.lat; state.lon=pos.lon;
+
+  // record trace occasionally
+  if(pathTrace.length===0 || Math.abs(state.lat - pathTrace[pathTrace.length-1].lat)>0.01 || Math.abs(state.lon - pathTrace[pathTrace.length-1].lon)>0.01){
+    pathTrace.push({lat:state.lat, lon:state.lon});
+    if(pathTrace.length>2500) pathTrace.shift();
+  }
+
+  // arrival check
+  const dLat = next.lat - state.lat;
+  const dLon = next.lon - state.lon;
+  const distApproxKm = Math.sqrt((dLat*111)**2 + (dLon*85)**2);
+  if(distApproxKm < 10){
+    state.segIdx = Math.min(state.segIdx+1, waypoints.length-2);
+    state.segT = 0;
+    state.lat = next.lat; state.lon = next.lon;
+    pathTrace.push({lat:state.lat, lon:state.lon});
+  }
+
+  state.alt_km += (next.alt_km - state.alt_km)*0.02;
+  state.mach   += (next.mach   - state.mach  )*0.02;
+}
+
+/* ------------------------- Sensor risk (educational) ------------------------- */
+function sensorRisk(passNow){
+  const mach=+machEl.value;
+  const prot=+thermalProtEl.value/100;
+  const active=+activeEl.value/100;
+  const rough=+roughEl.value/100;
+  let score = 22 + mach*2.5 + (1-prot)*24 + (1-active)*18 + rough*6 + (passNow?18:0);
+  score = clamp(score,0,100);
+  let label = score<35 ? "low" : score<65 ? "moderate" : "high";
+  return {score,label};
+}
+
+/* ------------------------- Draw: Polar ------------------------- */
+function drawPolar(){
+  const w=polar.width, h=polar.height;
+  ctxP.clearRect(0,0,w,h);
+  const cx=w/2, cy=h/2;
+  const R=Math.min(w,h)*0.40;
+
+  const rings=[+10,0,-10,-20,-30,-40,-50];
+  ctxP.strokeStyle="#203156"; ctxP.lineWidth=1;
+  ctxP.font="12px system-ui";
+  ctxP.fillStyle="#9fb0d6";
+
+  rings.forEach(db=>{
+    const rNorm = (db - DBSM_INNER) / (DBSM_OUTER - DBSM_INNER);
+    const rr = R*clamp(rNorm,0,1);
+    ctxP.beginPath(); ctxP.arc(cx,cy,rr,0,Math.PI*2); ctxP.stroke();
+    const label = (db>0?`+${db}`:`${db}`) + " dBsm";
+    ctxP.fillText(label, cx+6, cy-rr+14);
+  });
+
+  for(let a=0;a<360;a+=30){
+    ctxP.beginPath();
+    ctxP.moveTo(cx,cy);
+    ctxP.lineTo(cx+R*Math.cos(deg2rad(a)), cy+R*Math.sin(deg2rad(a)));
+    ctxP.stroke();
+  }
+
+  const labels = [
+    {a:0, text:"0° (Nose)"},
+    {a:30, text:"30°"},
+    {a:60, text:"60°"},
+    {a:90, text:"90°"},
+    {a:120, text:"120°"},
+    {a:150, text:"150°"},
+    {a:180, text:"180° (Tail)"},
+    {a:220, text:"220°"},
+    {a:240, text:"240°"},
+    {a:260, text:"260°"},
+    {a:330, text:"330°"},
+  ];
+  labels.forEach(L=>{
+    const x=cx+(R+14)*Math.cos(deg2rad(L.a));
+    const y=cy+(R+14)*Math.sin(deg2rad(L.a));
+    ctxP.fillText(L.text, x-24, y+4);
+  });
+
+  ctxP.strokeStyle="#6ef3a6";
+  ctxP.lineWidth=2;
+  ctxP.beginPath();
+
+  csvPolarRows.length=1;
+  for(let a=0;a<=360;a++){
+    const db = rcsDbsmAtAngle(a);
+    const rNorm = (db - DBSM_INNER) / (DBSM_OUTER - DBSM_INNER);
+    const rr = R*clamp(rNorm,0,1);
+    const x = cx + rr*Math.cos(deg2rad(a));
+    const y = cy + rr*Math.sin(deg2rad(a));
+    if(a===0) ctxP.moveTo(x,y); else ctxP.lineTo(x,y);
+    csvPolarRows.push([a, db.toFixed(2)]);
+  }
+  ctxP.stroke();
+  ctxP.lineWidth=1;
+}
+
+/* ------------------------- Draw: Map ------------------------- */
+function mapProject(lat,lon,w,h){
+  // equirectangular projection: lon -180..180 -> x 0..w, lat -90..90 -> y h..0
+  const x = ( (lon + 180) / 360 ) * w;
+  const y = ( (90 - lat) / 180 ) * h;
+  return {x,y};
+}
+
+function drawMap(){
+  const w=map.width, h=map.height;
+  ctxM.clearRect(0,0,w,h);
+
+  // background
+  ctxM.fillStyle="#071024";
+  ctxM.fillRect(0,0,w,h);
+
+  // graticule
+  ctxM.strokeStyle="#203156";
+  for(let lon=-180; lon<=180; lon+=60){
+    const p1=mapProject(90, lon, w,h);
+    const p2=mapProject(-90, lon, w,h);
+    ctxM.beginPath(); ctxM.moveTo(p1.x,p1.y); ctxM.lineTo(p2.x,p2.y); ctxM.stroke();
+  }
+  for(let lat=-60; lat<=60; lat+=30){
+    const p1=mapProject(lat, -180, w,h);
+    const p2=mapProject(lat, 180, w,h);
+    ctxM.beginPath(); ctxM.moveTo(p1.x,p1.y); ctxM.lineTo(p2.x,p2.y); ctxM.stroke();
+  }
+
+  // waypoint path (planned)
+  if(waypoints.length>=2){
+    ctxM.strokeStyle="rgba(88,166,255,0.75)";
+    ctxM.lineWidth=2;
+    ctxM.beginPath();
+    waypoints.forEach((wp,i)=>{
+      const p=mapProject(wp.lat, wp.lon, w,h);
+      if(i===0) ctxM.moveTo(p.x,p.y); else ctxM.lineTo(p.x,p.y);
+    });
+    ctxM.stroke();
+    ctxM.lineWidth=1;
+
+    // waypoint markers
+    ctxM.fillStyle="rgba(88,166,255,0.95)";
+    waypoints.forEach((wp,i)=>{
+      const p=mapProject(wp.lat, wp.lon, w,h);
+      ctxM.beginPath(); ctxM.arc(p.x,p.y,3,0,Math.PI*2); ctxM.fill();
+      ctxM.fillStyle="#9fb0d6";
+      ctxM.font="11px system-ui";
+      ctxM.fillText(String(i+1), p.x+5, p.y-5);
+      ctxM.fillStyle="rgba(88,166,255,0.95)";
+    });
+  }
+
+  // trace
+  if(pathTrace.length>=2){
+    ctxM.strokeStyle="rgba(110,243,166,0.85)";
+    ctxM.lineWidth=2;
+    ctxM.beginPath();
+    pathTrace.forEach((pt,i)=>{
+      const p=mapProject(pt.lat, pt.lon, w,h);
+      if(i===0) ctxM.moveTo(p.x,p.y); else ctxM.lineTo(p.x,p.y);
+    });
+    ctxM.stroke();
+    ctxM.lineWidth=1;
+  }
+
+  // current position
+  const cur=mapProject(state.lat, state.lon, w,h);
+  ctxM.fillStyle="#ffffff";
+  ctxM.beginPath(); ctxM.arc(cur.x,cur.y,4,0,Math.PI*2); ctxM.fill();
+
+  ctxM.fillStyle="#9fb0d6";
+  ctxM.font="12px system-ui";
+  ctxM.fillText(`Lat/Lon ${state.lat.toFixed(2)}, ${state.lon.toFixed(2)}`, 10, 18);
+}
+
+/* ------------------------- Draw: Thermal ------------------------- */
+function drawThermal(passNow){
+  const w=thermal.width, h=thermal.height;
+  ctxT.clearRect(0,0,w,h);
+
+  const mach=state.mach;
+  const prot=+thermalProtEl.value/100;
+  const alt=state.alt_km;
+
+  let heat = clamp((Math.pow(mach,3)/Math.pow(25,3)) * (1-0.65*prot) * (1-0.010*alt), 0, 1);
+  const bal = clamp(1 - (Math.abs(+bankEl.value)/80 + Math.abs(+pitchEl.value)/40)/2, 0, 1);
+
+  ctxT.fillStyle="#0b1630"; ctxT.fillRect(12,12,w-24,22);
+  ctxT.fillStyle="rgba(255,90,102,0.85)"; ctxT.fillRect(12,12,(w-24)*heat,22);
+  ctxT.fillStyle="#eaf0ff"; ctxT.font="12px system-ui";
+  ctxT.fillText(`Heat (relative): ${(heat*100).toFixed(0)}%`, 16, 28);
+
+  ctxT.fillStyle="#0b1630"; ctxT.fillRect(12,48,w-24,22);
+  ctxT.fillStyle="rgba(53,208,127,0.85)"; ctxT.fillRect(12,48,(w-24)*bal,22);
+  ctxT.fillStyle="#eaf0ff";
+  ctxT.fillText(`Stability / Balance: ${(bal*100).toFixed(0)}%`, 16, 64);
+
+  ctxT.fillStyle="#9fb0d6";
+  ctxT.fillText(`Propulsion: ${propModeEl.value} | Pass window: ${passNow ? "YES" : "no"}`, 12, 94);
+  ctxT.fillText(`Thermal: ${(prot*100).toFixed(0)}% | Active: ${(+activeEl.value).toFixed(0)}% | Rough: ${(+roughEl.value).toFixed(0)}%`, 12, 112);
+}
+
+/* ------------------------- Readout & badge ------------------------- */
+function updateReadout(){
+  const passNow=isPassNow();
+  const risk=sensorRisk(passNow);
+
+  detectBadge.textContent = `Sensor risk: ${risk.label} (${risk.score.toFixed(0)})`;
+  detectBadge.className = "badge " + (risk.label==="low"?"ok":risk.label==="moderate"?"warn":"bad");
+
+  const now=new Date();
+  const tzMin=tzOffsetMinutes(tzEl.value);
+  const local=new Date(now.getTime() + tzMin*60*1000);
+
+  const sp = machToSpeed(state.mach, state.alt_km);
+
+  // energy bookkeeping
+  const c = 299792458;
+  const prot=+thermalProtEl.value/100, active=+activeEl.value/100;
+  const P = (2e6 + 8e6*prot + 6e6*active); // illustrative
+  const E = P * 1;
+  const mEq = E/(c*c);
+
+  const rcsFront = rcsDbsmAtAngle(0);
+
+  readout.innerHTML = `
+    <b>Control:</b> ${controlModeEl.value.toUpperCase()}<br>
+    <b>Time:</b> ${timeRefEl.value.toUpperCase()} | UTC: <span class="mono">${fmtTime(now)}</span><br>
+    <b>Local:</b> <span class="mono">${local.getFullYear()}-${String(local.getMonth()+1).padStart(2,"0")}-${String(local.getDate()).padStart(2,"0")}
+      ${String(local.getHours()).padStart(2,"0")}:${String(local.getMinutes()).padStart(2,"0")}</span> (${tzEl.value})<br>
+    <hr>
+    <b>Lat/Lon:</b> ${state.lat.toFixed(3)}, ${state.lon.toFixed(3)}<br>
+    <b>Heading:</b> ${state.heading.toFixed(1)}° | <b>Alt:</b> ${state.alt_km.toFixed(1)} km<br>
+    <b>Mach:</b> ${state.mach.toFixed(1)} → <b>Speed:</b> ${sp.mps.toFixed(1)} m/s (${sp.kph.toFixed(0)} km/h)<br>
+    <b>RCS (illustrative):</b> front-aspect ≈ <span class="mono">${rcsFront.toFixed(2)} dBsm</span><br>
+    <b>Pass window:</b> ${passNow ? "<span class='badge warn'>ACTIVE</span>" : "no"} (${passModeEl.value})<br>
+    <hr>
+    <b>Energy bookkeeping:</b> P≈${(P/1e6).toFixed(2)} MW → E(1s)≈${(E/1e6).toFixed(2)} MJ → m=E/c²≈${mEq.toExponential(3)} kg
+  `;
+}
+
+/* ------------------------- CSV export ------------------------- */
+function exportCSV(){
+  let lines=[];
+  lines.push("TIME_SERIES");
+  lines.push(csvTimeRows.map(r=>r.join(",")).join("\n"));
+  lines.push("");
+  lines.push("POLAR_SAMPLES");
+  lines.push(csvPolarRows.map(r=>r.join(",")).join("\n"));
+  const csv = lines.join("\n");
+
+  const blob=new Blob([csv],{type:"text/csv"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="rcs_sar_cst_sgp4_map_timeline_export.csv";
+  a.click();
+}
+
+/* ------------------------- Main loop ------------------------- */
+function frame(ts){
+  if(!running){ lastTs=ts; return; }
+  const dt = Math.min(0.10, Math.max(0, (ts-lastTs)/1000));
+  lastTs = ts;
+  simTime += dt;
+
+  if(controlModeEl.value==="manual"){
+    state.heading = +headingEl.value;
+    state.mach = +machEl.value;
+    state.alt_km = +altEl.value;
+
+    // in manual mode, we still keep a small trace point for visuals
+    if(pathTrace.length===0 || Math.abs(state.lat - pathTrace[pathTrace.length-1].lat)>0.01 || Math.abs(state.lon - pathTrace[pathTrace.length-1].lon)>0.01){
+      pathTrace.push({lat:state.lat, lon:state.lon});
+      if(pathTrace.length>2500) pathTrace.shift();
+    }
+  }else{
+    autopilotStep(dt);
+    headingEl.value = wrap360(state.heading).toFixed(0);
+    machEl.value = clamp(state.mach,0.3,25).toFixed(1);
+    altEl.value = clamp(state.alt_km,0.5,45).toFixed(1);
+  }
+
+  drawPolar();
+  drawTimeline();
+  drawMap();
+  drawThermal(isPassNow());
+  updateReadout();
+
+  if(Math.floor(simTime*2)!==Math.floor((simTime-dt)*2)){
+    const passNow=isPassNow();
+    const risk=sensorRisk(passNow);
+    const rcs = rcsDbsmAtAngle(0);
+    const sp = machToSpeed(state.mach, state.alt_km);
+    csvTimeRows.push([
+      simTime.toFixed(2),
+      state.lat.toFixed(5),
+      state.lon.toFixed(5),
+      state.heading.toFixed(2),
+      state.mach.toFixed(2),
+      state.alt_km.toFixed(2),
+      sp.mps.toFixed(2),
+      sp.kph.toFixed(0),
+      rcs.toFixed(2),
+      risk.label,
+      passNow ? "1" : "0",
+      timeRefEl.value,
+      tzEl.value
+    ]);
+  }
+
+  requestAnimationFrame(frame);
+}
+
+/* ------------------------- Controls ------------------------- */
+document.getElementById('loadSatJs').onclick=tryLoadSatJsFromPaste;
+
+document.getElementById('calcPasses').onclick=()=>{
+  if(passModeEl.value==="toy") computePassWindowsToyNext24h();
+  else computePassWindowsSgp4Next24h();
+};
+
+document.getElementById('faster').onclick=()=>{ machEl.value=Math.min(25, (+machEl.value)+0.2); };
+document.getElementById('slower').onclick=()=>{ machEl.value=Math.max(0.3,(+machEl.value)-0.2); };
+document.getElementById('mach10').onclick=()=>{ machEl.value=10; };
+
+document.getElementById('loadExample').onclick=()=>{ loadPreset(fpExamplesEl.value); controlModeEl.value="autopilot"; };
+document.getElementById('clearPlan').onclick=()=>{ waypoints=[]; refreshWPTable(); };
+
+document.getElementById('start').onclick=()=>{
+  if(!running){
+    running=true;
+    requestAnimationFrame((ts)=>{ lastTs=ts; requestAnimationFrame(frame); });
+  }
+};
+document.getElementById('pause').onclick=()=>running=false;
+
+document.getElementById('reset').onclick=()=>{
+  running=false; simTime=0; lastTs=0;
+  csvTimeRows=[["t_s","lat","lon","heading_deg","mach","alt_km","speed_mps","speed_kph","rcs_dbsm_front","sensor_risk","pass_active","time_ref","tz"]];
+  pathTrace=[];
+
+  const dep = cities.find(c=>c.name===depSel.value) || cities[0];
+  state.lat=dep.lat; state.lon=dep.lon;
+  state.heading=+headingEl.value;
+  state.mach=+machEl.value;
+  state.alt_km=+altEl.value;
+  state.segIdx=0; state.segT=0;
+
+  drawPolar(); drawTimeline(); drawMap(); drawThermal(isPassNow()); updateReadout();
+};
+
+document.getElementById('exportCSV').onclick=exportCSV;
+
+passModeEl.onchange=()=>{
+  if(passModeEl.value==="toy") computePassWindowsToyNext24h();
+  else computePassWindowsSgp4Next24h();
+};
+
+presentationBtn.onclick=()=>{
+  document.body.classList.toggle("presentation");
+  presentationBtn.textContent = document.body.classList.contains("presentation") ? "Exit Presentation Mode" : "Presentation Mode";
+  // reflow sizes
+  setTimeout(resizeAll, 50);
+};
+
+/* ------------------------- Resize ------------------------- */
+function resizeAll(){
+  polar.width=polar.clientWidth; polar.height=polar.clientHeight;
+  timeline.width=timeline.clientWidth; timeline.height=timeline.clientHeight;
+  map.width=map.clientWidth; map.height=map.clientHeight;
+  thermal.width=thermal.clientWidth; thermal.height=thermal.clientHeight;
+}
+window.addEventListener('resize', ()=>{ resizeAll(); drawPolar(); drawTimeline(); drawMap(); drawThermal(isPassNow()); });
+
+/* ------------------------- Init ------------------------- */
+setSgp4Status("SGP4: not loaded (toy mode works)");
+loadPreset("fp1");
+resetToFirstWaypoint();
+computePassWindowsToyNext24h();
+resizeAll();
+drawPolar(); drawTimeline(); drawMap(); drawThermal(isPassNow()); updateReadout();
+</script>
+</body>
+</html>
