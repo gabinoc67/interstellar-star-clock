@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Hexagon Fix + Constraint View + CST Phase (φₛₜ) — Hex Lattice + Surplus/Collapse/Glyphs (Final)</title>
+<title>Hexagon Fix + Constraint View + CST Phase (φₛₜ) — Hex Lattice + Surplus/Collapse/Glyphs + Inspector</title>
 <style>
   :root{
     --bg:#0b0f14; --panel:#101823; --panel2:#0c131d; --line:#1f2c3c;
@@ -26,7 +26,7 @@
   .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid var(--btnb);background:var(--panel2);font-size:12px;}
   .small{font-size:12px;opacity:.9;line-height:1.4;}
   .log{
-    height:230px;overflow:auto;padding:10px;background:var(--panel2);
+    height:210px;overflow:auto;padding:10px;background:var(--panel2);
     border:1px solid var(--line);border-radius:10px;font-size:12px;line-height:1.35;
     white-space:pre-wrap;
   }
@@ -69,6 +69,17 @@
     user-select:none;
   }
   .switch input{transform:scale(1.05);}
+  .inspector{
+    margin-top:10px;
+    background:rgba(8,14,22,0.55);
+    border:1px solid rgba(45,71,100,0.70);
+    border-radius:12px;
+    padding:10px;
+  }
+  .inspector .title{font-weight:800;font-size:13px;letter-spacing:.2px;margin-bottom:6px;}
+  .kv{display:grid;grid-template-columns:120px 1fr;gap:4px 10px;font-size:12px;opacity:.92;}
+  .kv b{opacity:.92;}
+  .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;}
 </style>
 </head>
 
@@ -76,7 +87,7 @@
 <div class="wrap">
 
   <div class="panel">
-    <h2>Hexagon Fix + Systems Model + Hex Lattice Memory (Φ-HNS demo)</h2>
+    <h2>Hexagon Fix + Systems Model + Hex Lattice Memory (Φ-HNS) + Inspector</h2>
 
     <div class="row">
       <button id="step">+1 side</button>
@@ -107,7 +118,23 @@
         <input id="glyphView" type="checkbox" checked />
         Show Glyph Memory
       </label>
+    </div>
 
+    <div class="row">
+      <label class="switch" title="Click a hex node to inspect q,r, surplus, activation, lock, glyph.">
+        <input id="inspectOn" type="checkbox" checked />
+        Click-to-Inspect
+      </label>
+
+      <label class="switch" title="If pinned, selection will not change unless you click another node.">
+        <input id="pinSel" type="checkbox" />
+        Pin selection
+      </label>
+
+      <button id="unpin" title="Unpins the selection.">Unpin</button>
+    </div>
+
+    <div class="row">
       <button id="stressBtn" title="For demonstration: injects oscillatory stress so you can see propagation.">Failure Inject</button>
       <button id="clearMem" title="Clears all glyph locks and surplus memory in the lattice.">Clear Glyph Memory</button>
     </div>
@@ -141,18 +168,29 @@
 
     <h3>Φ-HNS Memory Controls (Surplus → Collapse → Glyph)</h3>
 
-    <label>Collapse threshold θϕ (lower = easier imprint): <span id="thetaVal"></span></label>
+    <label>Collapse threshold θϕ: <span id="thetaVal"></span></label>
     <input id="theta" type="range" min="0.20" max="1.00" step="0.01" value="0.62" />
 
-    <label>Surplus gain (how fast memory accumulates): <span id="gainVal"></span></label>
+    <label>Surplus gain: <span id="gainVal"></span></label>
     <input id="gain" type="range" min="0.20" max="2.00" step="0.01" value="1.00" />
 
-    <label>Surplus leak (memory decay rate): <span id="leakVal"></span></label>
+    <label>Surplus leak: <span id="leakVal"></span></label>
     <input id="leak" type="range" min="0.00" max="0.12" step="0.001" value="0.028" />
 
-    <div class="warn small" style="margin-top:10px;">
-      <b>Important:</b> This is a <b>systems demonstrator</b>. The lattice shows “field-like” coupling,
-      surplus accumulation, and collapse-based imprinting (glyph memory) in a way that is easy to see.
+    <div class="inspector" id="inspector">
+      <div class="title">Node Inspector</div>
+      <div class="kv" id="kv">
+        <div><b>Selected</b></div><div class="mono" id="selId">—</div>
+        <div><b>q,r</b></div><div class="mono" id="selQR">—</div>
+        <div><b>v (activation)</b></div><div class="mono" id="selV">—</div>
+        <div><b>surplus</b></div><div class="mono" id="selS">—</div>
+        <div><b>locked</b></div><div class="mono" id="selLock">—</div>
+        <div><b>glyph</b></div><div class="mono" id="selGlyph">—</div>
+        <div><b>dist→center</b></div><div class="mono" id="selDist">—</div>
+      </div>
+      <div class="small" style="margin-top:6px;opacity:.85;">
+        Tip: lower θϕ (≈0.35) + raise gain (≈1.30) to create glyph locks faster; raise φₛₜ to make locks more selective.
+      </div>
     </div>
 
     <h3>Step log</h3>
@@ -201,8 +239,20 @@
   const latticeViewEl = document.getElementById("latticeView");
   const glyphViewEl = document.getElementById("glyphView");
 
+  const inspectOnEl = document.getElementById("inspectOn");
+  const pinSelEl = document.getElementById("pinSel");
+  const unpinBtn = document.getElementById("unpin");
+
   const stressBtn = document.getElementById("stressBtn");
   const clearMemBtn = document.getElementById("clearMem");
+
+  const selIdEl = document.getElementById("selId");
+  const selQREl = document.getElementById("selQR");
+  const selVEl = document.getElementById("selV");
+  const selSEl = document.getElementById("selS");
+  const selLockEl = document.getElementById("selLock");
+  const selGlyphEl = document.getElementById("selGlyph");
+  const selDistEl = document.getElementById("selDist");
 
   const logEl = document.getElementById("log");
   const log = (t)=>{ logEl.textContent += t + "\n"; logEl.scrollTop = logEl.scrollHeight; };
@@ -210,7 +260,7 @@
   function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
   function lerp(a,b,t){ return a + (b-a)*t; }
 
-  // --------- Canvas roundRect fallback ----------
+  // roundRect fallback
   if(!CanvasRenderingContext2D.prototype.roundRect){
     CanvasRenderingContext2D.prototype.roundRect = function(x,y,w,h,r){
       r = Math.min(r, w/2, h/2);
@@ -225,7 +275,7 @@
     };
   }
 
-  // --------- Geometry helpers ----------
+  // geometry helpers
   function polygonVertices(cx, cy, rad, n){
     const pts=[];
     const offset = -Math.PI/6;
@@ -290,7 +340,7 @@
     matchPill.textContent = `Match: ${matchPct.toFixed(1)}%`;
   }
 
-  // --------- Pillars / stress model ----------
+  // pillars / stress model
   const pillars = [
     { key:"Maxwell",     label:"Maxwell\n(fields)",            short:"M" },
     { key:"Einstein",    label:"Einstein\n(spacetime)",        short:"E" },
@@ -304,7 +354,6 @@
   let t0 = performance.now();
 
   function stressColor(s){
-    // green -> yellow -> red
     if(s < 0.50){
       const t = s/0.50;
       const r = Math.round(lerp(42, 214, t));
@@ -350,7 +399,6 @@
       Feynman:    0.18 + 0.45*coarseness + 0.55*deco    + 0.08*overflow + 0.10*inj,
     };
 
-    // ring coupling of 6 pillars
     const keys = ["Maxwell","Einstein","Feynman","Turing","vonNeumann","Shannon"];
     const s0 = keys.map(k => base[k]);
 
@@ -373,23 +421,19 @@
     return { out, coarseness, overflow, kPressure, deco, match };
   }
 
-  // --------- TRUE HEX LATTICE + MEMORY ----------
+  // TRUE HEX LATTICE + MEMORY + INSPECT
   const HEX = {
     size: 14,
-    dirs: [
-      [ 1, 0],[ 1,-1],[ 0,-1],
-      [-1, 0],[-1, 1],[ 0, 1]
-    ]
+    dirs: [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]]
   };
-
   const GLYPHS = ["𝒮","𝒞","฀","𝒦","ϕ","⟡","⊕","∿","∞","◇","▣","✶"];
   const FALLBACKS = ["S","C","H","K","φ","*","+","~","∞","◇","▣","*"];
 
-  let lattice = {
-    nodes: [],
-    map: new Map(),
-    builtFor: { w:0, h:0, R:0, size:HEX.size }
-  };
+  let lattice = { nodes: [], map: new Map(), builtFor: { w:0, h:0, R:0, size:HEX.size } };
+
+  // selection state
+  let selected = { idx: -1, pinned: false };
+  let lastCenter = { cx:0, cy:0, R:0 };
 
   function keyQR(q,r){ return q + "," + r; }
   function axialToPixel(q,r,size){
@@ -399,7 +443,6 @@
   }
 
   function buildHexLattice(cx, cy, R){
-    // density is based on R but capped
     const size = clamp(Math.round(R/22), 10, 16);
     HEX.size = size;
 
@@ -429,8 +472,6 @@
         }
       }
     }
-
-    // neighbors
     for(const n of lattice.nodes){
       n.nei.length = 0;
       for(const [dq,dr] of HEX.dirs){
@@ -439,9 +480,23 @@
       }
     }
 
+    // if selected index is out of range, clear it
+    if(selected.idx >= lattice.nodes.length) selected.idx = -1;
+
     log(`LATTICE: built ${lattice.nodes.length} nodes (hex size=${size}px) inside domain.`);
-    log("Memory: surplus accumulates; when surplus ≥ θϕ → collapse → glyph locks.");
+    log("Click-to-Inspect: click a node to read (q,r,v,surplus,locked,glyph).");
     log("—");
+  }
+
+  function ensureLatticeBuilt(cx, cy, R, force=false){
+    const bf = lattice.builtFor;
+    const changed =
+      force ||
+      !lattice.nodes.length ||
+      bf.w !== canvas.clientWidth ||
+      bf.h !== canvas.clientHeight ||
+      Math.abs(bf.R - R) > 0.5;
+    if(changed) buildHexLattice(cx, cy, R);
   }
 
   function clearLatticeMemory(){
@@ -454,32 +509,15 @@
     }
   }
 
-  function ensureLatticeBuilt(cx, cy, R, force=false){
-    const bf = lattice.builtFor;
-    const changed =
-      force ||
-      !lattice.nodes.length ||
-      bf.w !== canvas.clientWidth ||
-      bf.h !== canvas.clientHeight ||
-      Math.abs(bf.R - R) > 0.5;
-
-    if(changed){
-      buildHexLattice(cx, cy, R);
-    }
-  }
-
   function injectSourcesToLattice(pillarPts, pillarStress, phi){
     if(!lattice.nodes.length) return;
 
     const influence = clamp(lattice.builtFor.R * 0.40, 120, 260);
     const inv2 = 1 / (influence*influence);
-
     const injScale = lerp(1.00, 0.70, phi);
 
     for(const node of lattice.nodes){
-      let s = 0;
-      let wsum = 0;
-
+      let s = 0, wsum = 0;
       for(let i=0;i<pillarPts.length;i++){
         const [px,py] = pillarPts[i];
         const dx = node.x - px, dy = node.y - py;
@@ -487,10 +525,7 @@
         wsum += w;
         s += w * pillarStress[i];
       }
-
       const src = (wsum > 0) ? (s/wsum) : 0;
-
-      // locked nodes still respond but more slowly
       const blend = node.locked ? 0.10 : 0.18;
       node.v = clamp(lerp(node.v, src * injScale, blend), 0, 1);
     }
@@ -517,22 +552,19 @@
     const tt = (performance.now() - t0)/1000;
     const osc = 0.5 + 0.5*Math.sin(tt*3.2);
     const amp = lerp(0.35, 0.18, phi);
-
     lattice.nodes[best].v = clamp(lattice.nodes[best].v + osc*amp, 0, 1);
   }
 
   function propagateLatticeAndMemory(phi){
-    if(!lattice.nodes.length) return { thetaEff: parseFloat(thetaEl.value), gainEff: parseFloat(gainEl.value) };
+    if(!lattice.nodes.length) return { thetaEff:+thetaEl.value, gainEff:+gainEl.value };
 
-    // phi increases damping + reduces coupling
     const coupling = lerp(0.28, 0.12, phi);
     const damping  = lerp(0.985, 0.92, phi);
 
-    const thetaBase = parseFloat(thetaEl.value);
-    const gain = parseFloat(gainEl.value);
-    const leak = parseFloat(leakEl.value);
+    const thetaBase = +thetaEl.value;
+    const gain = +gainEl.value;
+    const leak = +leakEl.value;
 
-    // stabilization effects
     const thetaEff = clamp(thetaBase + 0.08*phi, 0.20, 1.00);
     const gainEff  = gain * lerp(1.0, 0.78, phi);
     const leakEff  = leak * lerp(1.0, 0.75, phi);
@@ -554,7 +586,7 @@
       }
       for(const n of lattice.nodes) n.v = n.v2;
 
-      // surplus update
+      // surplus
       for(const n of lattice.nodes){
         const lockFactor = n.locked ? 0.25 : 1.0;
         const add = n.v * 0.030 * gainEff * lockFactor;
@@ -582,7 +614,6 @@
 
     const showGlyphs = glyphViewEl.checked;
 
-    // dots
     ctx.save();
     ctx.globalAlpha = 0.95;
 
@@ -593,9 +624,7 @@
 
       if(hot < 0.03 && !n.locked) continue;
 
-      const col = stressColor(clamp(hot, 0, 1));
-      ctx.fillStyle = col;
-
+      ctx.fillStyle = stressColor(clamp(hot, 0, 1));
       const r = (n.locked ? 2.3 : 1.4) + 2.0*hot;
       ctx.beginPath();
       ctx.arc(n.x, n.y, r, 0, Math.PI*2);
@@ -610,7 +639,6 @@
       }
     }
 
-    // glyphs (capped)
     if(showGlyphs){
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -626,6 +654,19 @@
         ctx.fillStyle = "rgba(7,16,25,0.90)";
         ctx.fillText(g, n.x, n.y);
       }
+    }
+
+    // highlight selected node
+    if(selected.idx >= 0 && lattice.nodes[selected.idx]){
+      const n = lattice.nodes[selected.idx];
+      ctx.save();
+      ctx.globalAlpha = 0.95;
+      ctx.strokeStyle = "rgba(232,238,246,0.85)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, 10, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.restore();
     }
 
     ctx.restore();
@@ -713,7 +754,93 @@
     return pts;
   }
 
-  // --------- Main draw ----------
+  // INSPECTOR helpers
+  function setInspector(idx){
+    if(idx < 0 || !lattice.nodes[idx]){
+      selIdEl.textContent = "—";
+      selQREl.textContent = "—";
+      selVEl.textContent = "—";
+      selSEl.textContent = "—";
+      selLockEl.textContent = "—";
+      selGlyphEl.textContent = "—";
+      selDistEl.textContent = "—";
+      return;
+    }
+
+    const n = lattice.nodes[idx];
+    selIdEl.textContent = String(idx);
+    selQREl.textContent = `${n.q}, ${n.r}`;
+    selVEl.textContent = n.v.toFixed(3);
+    selSEl.textContent = n.surplus.toFixed(3);
+    selLockEl.textContent = n.locked ? "true" : "false";
+    const g = n.glyph || (n.glyphIdx>=0 ? FALLBACKS[n.glyphIdx % FALLBACKS.length] : "");
+    selGlyphEl.textContent = n.locked ? g : "—";
+
+    const dx = n.x - lastCenter.cx;
+    const dy = n.y - lastCenter.cy;
+    selDistEl.textContent = Math.hypot(dx,dy).toFixed(1);
+  }
+
+  function pickNearestNode(px, py){
+    // fast reject: if lattice empty
+    if(!lattice.nodes.length) return -1;
+
+    // search best within radius
+    let best = -1;
+    let bestD2 = 1e18;
+
+    // selection radius scales with node size
+    const rPick = Math.max(10, HEX.size * 1.25);
+    const rPick2 = rPick*rPick;
+
+    for(let i=0;i<lattice.nodes.length;i++){
+      const n = lattice.nodes[i];
+      const dx = n.x - px, dy = n.y - py;
+      const d2 = dx*dx + dy*dy;
+      if(d2 < bestD2){
+        bestD2 = d2;
+        best = i;
+      }
+    }
+    if(bestD2 <= rPick2) return best;
+    return -1;
+  }
+
+  canvas.addEventListener("click", (ev) => {
+    if(!inspectOnEl.checked) return;
+    if(!latticeViewEl.checked) return;
+    if(!lattice.nodes.length) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const px = ev.clientX - rect.left;
+    const py = ev.clientY - rect.top;
+
+    // since ctx is setTransform(dpr,..), client coords match our drawing coords
+    const idx = pickNearestNode(px, py);
+    if(idx < 0) return;
+
+    selected.idx = idx;
+
+    if(pinSelEl.checked){
+      selected.pinned = true;
+    } else {
+      selected.pinned = false;
+    }
+
+    const n = lattice.nodes[idx];
+    log(`INSPECT: idx=${idx} q,r=(${n.q},${n.r}) v=${n.v.toFixed(3)} s=${n.surplus.toFixed(3)} locked=${n.locked} glyph=${n.glyph || ""}`);
+    log("—");
+    setInspector(idx);
+  });
+
+  unpinBtn.addEventListener("click", () => {
+    selected.pinned = false;
+    pinSelEl.checked = false;
+    log("Inspector: unpinned (selection can change only by clicking).");
+    log("—");
+  });
+
+  // main draw
   function draw(forceRebuild=false){
     const N = parseInt(NEl.value,10);
     const a = +aEl.value;
@@ -721,17 +848,13 @@
     const k = parseFloat(kEl.value);
     const phi = parseFloat(phiEl.value);
 
-    const theta = parseFloat(thetaEl.value);
-    const gain = parseFloat(gainEl.value);
-    const leak = parseFloat(leakEl.value);
-
     nVal.textContent = N;
     aVal.textContent = a;
     RVal.textContent = R;
 
-    thetaVal.textContent = theta.toFixed(2);
-    gainVal.textContent  = gain.toFixed(2);
-    leakVal.textContent  = leak.toFixed(3);
+    thetaVal.textContent = (+thetaEl.value).toFixed(2);
+    gainVal.textContent  = (+gainEl.value).toFixed(2);
+    leakVal.textContent  = (+leakEl.value).toFixed(3);
 
     phiBig.textContent = phi.toFixed(2);
 
@@ -743,9 +866,11 @@
       phiHint.textContent = "φₛₜ high: damping is strong → field stabilizes; collapse becomes selective (cleaner memory).";
     }
 
-    const w = canvas.clientWidth, h = canvas.clientHeight;
+    const w=canvas.clientWidth, h=canvas.clientHeight;
     ctx.clearRect(0,0,w,h);
     const cx=w/2, cy=h/2;
+
+    lastCenter = { cx, cy, R };
 
     // domain circle
     ctx.strokeStyle="#3a5678";
@@ -762,11 +887,11 @@
     updatePills(rr.regulated, N, matchPct);
 
     // polygon
-    const pts = polygonVertices(cx, cy, rr.rad, N);
+    const poly = polygonVertices(cx, cy, rr.rad, N);
     ctx.fillStyle = rr.regulated ? "#0f2236" : "#0d1a2a";
     ctx.strokeStyle = strokeForK(rr.regulated, k);
     ctx.lineWidth = 2;
-    drawPolygon(pts);
+    drawPolygon(poly);
 
     // mirror circle
     ctx.globalAlpha = 0.45;
@@ -777,21 +902,10 @@
     ctx.stroke();
     ctx.globalAlpha = 1;
 
-    // diagnostics
-    ctx.fillStyle="#e8eef6";
-    ctx.font="12px system-ui, Segoe UI, Arial";
-    const geomMsg = rr.regulated
-      ? `Clamp: a=${a.toFixed(0)} > R=${R.toFixed(0)} → s=(R/a)^k = ${rr.s.toFixed(3)} (k=${k.toFixed(2)})`
-      : `No clamp: a=${a.toFixed(0)} <= R=${R.toFixed(0)} → s=1.000 (k=${k.toFixed(2)})`;
-    ctx.fillText(geomMsg, 14, 18);
-    ctx.fillStyle="rgba(138,167,200,0.95)";
-    ctx.fillText(`Boundary refinement: N=${N} sides. Circle-likeness (area match) ≈ ${matchPct.toFixed(1)}%`, 14, 36);
-
-    // compute stresses (for sources and/or overlay)
+    // compute stresses
     const needLattice = latticeViewEl.checked;
     const needConstraint = constraintViewEl.checked;
     let stressPack = null;
-
     if(needLattice || needConstraint){
       stressPack = computeStresses({N,a,R,k,phi,regulated:rr.regulated});
     }
@@ -811,19 +925,22 @@
       const eff = propagateLatticeAndMemory(phi);
       drawLattice();
 
-      // status
       const lockedCount = lattice.nodes.reduce((acc,n)=>acc + (n.locked?1:0), 0);
       statusPill.textContent = `Status: nodes=${lattice.nodes.length} locked=${lockedCount}`;
 
-      // legend line
+      // keep inspector updated for selected node (even while values evolve)
+      if(selected.idx >= 0) setInspector(selected.idx);
+
+      // legend
       ctx.fillStyle = "rgba(232,238,246,0.78)";
       ctx.font = "12px system-ui, Segoe UI, Arial";
       ctx.fillText(
-        `Hex Lattice Memory: locked=${lockedCount}  θϕ≈${eff.thetaEff.toFixed(2)}  gain≈${eff.gainEff.toFixed(2)}  leak=${parseFloat(leakEl.value).toFixed(3)}`,
+        `Hex Lattice Memory: locked=${lockedCount}  θϕ≈${eff.thetaEff.toFixed(2)}  gain≈${eff.gainEff.toFixed(2)}  leak=${(+leakEl.value).toFixed(3)}`,
         14, 92
       );
     } else {
       statusPill.textContent = "Status: lattice OFF";
+      if(selected.idx >= 0) setInspector(selected.idx);
     }
 
     // constraint overlay
@@ -844,14 +961,13 @@
         14, 74
       );
     } else if(!needLattice){
-      // label only when lattice not filling screen
       ctx.fillStyle="rgba(232,238,246,0.92)";
       ctx.font="bold 13px system-ui, Segoe UI, Arial";
       ctx.fillText(`N=${N}`, cx-20, cy+4);
     }
   }
 
-  // --------- Resize ----------
+  // resize
   function resize(){
     const dpr=Math.max(1, window.devicePixelRatio || 1);
     canvas.width=Math.floor(canvas.clientWidth*dpr);
@@ -861,7 +977,7 @@
   }
   window.addEventListener("resize", resize);
 
-  // --------- Controls ----------
+  // controls
   function setN(v){
     v = clamp(v, 6, 240);
     NEl.value = String(v);
@@ -874,25 +990,22 @@
     log(`STEP: N=${N+1}. Circle-match ≈ ${circleMatchPercent(N+1).toFixed(2)}%`);
     log("—");
   };
-
   document.getElementById("step5").onclick = () => {
     const N = parseInt(NEl.value,10);
     setN(N+5);
     log(`STEP: N=${N+5}. Circle-match ≈ ${circleMatchPercent(N+5).toFixed(2)}%`);
     log("—");
   };
-
   document.getElementById("reset").onclick = () => {
     setN(6);
     logEl.textContent="";
-    log("RESET: N=6 (hexagon).");
-    log("Hex Lattice runs 6-neighbor coupling.");
-    log("Surplus accumulates; when surplus ≥ θϕ → collapse → glyph lock (memory).");
-    log("φₛₜ increases stabilization: less spread, cleaner memory.");
+    selected.idx = -1;
+    setInspector(-1);
+    log("RESET: N=6 (hexagon). Inspector cleared.");
+    log("Surplus accumulates; when surplus ≥ θϕ → collapse → glyph lock.");
     log("—");
     draw(true);
   };
-
   document.getElementById("auto").onclick = () => {
     let N = parseInt(NEl.value,10);
     for(let it=0; it<400; it++){
@@ -911,13 +1024,11 @@
     log("—");
     draw();
   });
-
   latticeViewEl.addEventListener("change", () => {
-    log(`Hex Lattice Substrate: ${latticeViewEl.checked ? "ON" : "OFF"}.`);
+    log(`Hex Lattice: ${latticeViewEl.checked ? "ON" : "OFF"}.`);
     log("—");
     draw(true);
   });
-
   glyphViewEl.addEventListener("change", () => {
     log(`Glyph display: ${glyphViewEl.checked ? "ON" : "OFF"}.`);
     log("—");
@@ -941,14 +1052,15 @@
     clearLatticeMemory();
     log("Memory cleared: all surplus + glyph locks reset.");
     log("—");
+    // keep selection but update inspector
+    setInspector(selected.idx);
     draw();
   });
 
   [NEl, aEl, REl, kEl, phiEl, thetaEl, gainEl, leakEl].forEach(el => el.addEventListener("input", () => draw()));
 
-  // --------- Animation loop ----------
+  // animation loop
   function tick(){
-    // Animate if lattice is on (living substrate) or failure injection is on.
     if(latticeViewEl.checked || stressInject){
       draw();
     }
@@ -956,9 +1068,9 @@
   }
 
   // init
-  log("INIT: Hex lattice substrate + surplus/collapse glyph memory enabled.");
-  log("Quick test: set θϕ≈0.35, gain≈1.30, leak≈0.02 → glyphs appear faster.");
-  log("Then raise φₛₜ toward 1.0 → propagation stabilizes (cleaner memory).");
+  log("INIT: Hex lattice substrate + glyph memory + node inspector.");
+  log("Try: θϕ≈0.35, gain≈1.30, leak≈0.02 → glyphs appear faster.");
+  log("Raise φₛₜ toward 1.0 → propagation stabilizes (cleaner, less noisy locks).");
   log("—");
 
   resize();
