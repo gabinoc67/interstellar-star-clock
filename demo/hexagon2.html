@@ -1,0 +1,969 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Hexagon Fix + Constraint View + CST Phase (φₛₜ) — Hex Lattice + Surplus/Collapse/Glyphs (Final)</title>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#101823; --panel2:#0c131d; --line:#1f2c3c;
+    --ink:#e8eef6; --btn:#1a2a3d; --btnb:#2d4764; --btnh:#233a55;
+    --warn:#b68b2e;
+  }
+  body{margin:0;font-family:system-ui,Segoe UI,Arial;background:var(--bg);color:var(--ink);}
+  .wrap{display:grid;grid-template-columns:420px 1fr;gap:12px;padding:12px;}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;}
+  h2{margin:0 0 10px;font-size:16px;}
+  h3{margin:12px 0 6px;font-size:13px;opacity:.95}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0;align-items:center;}
+  button{
+    background:var(--btn);color:var(--ink);border:1px solid var(--btnb);
+    border-radius:10px;padding:8px 10px;cursor:pointer;
+  }
+  button:hover{background:var(--btnh);}
+  label{display:block;font-size:12px;opacity:.9;margin-top:10px;}
+  input[type="range"]{width:100%;}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid var(--btnb);background:var(--panel2);font-size:12px;}
+  .small{font-size:12px;opacity:.9;line-height:1.4;}
+  .log{
+    height:230px;overflow:auto;padding:10px;background:var(--panel2);
+    border:1px solid var(--line);border-radius:10px;font-size:12px;line-height:1.35;
+    white-space:pre-wrap;
+  }
+  canvas{width:100%;height:calc(100vh - 24px);background:#070a0f;border-radius:12px;border:1px solid var(--line);}
+
+  .kbox{
+    margin-top:8px;
+    background:linear-gradient(90deg,#142235,#221a0a,#2b1506);
+    border:1px solid var(--btnb);
+    border-radius:12px;
+    padding:10px;
+  }
+  .kTop{display:flex;align-items:baseline;justify-content:space-between;gap:10px;}
+  .kBig{
+    font-weight:900;letter-spacing:.5px;font-size:22px;
+    padding:4px 10px;border-radius:10px;
+    border:1px solid rgba(255,255,255,.12);
+    background:rgba(0,0,0,.22);
+  }
+  .kHint{font-size:12px;opacity:.9;}
+  .meter{
+    margin-top:8px;height:10px;border-radius:999px;overflow:hidden;
+    background:rgba(0,0,0,.25);
+    border:1px solid rgba(255,255,255,.10);
+  }
+  .meterFill{
+    height:100%;width:0%;
+    background:linear-gradient(90deg,#3a5678,#b68b2e,#ff7a18);
+  }
+  .warn{
+    border-left:4px solid var(--warn);
+    background:#191203;
+    padding:10px;border-radius:10px;
+  }
+  .switch{
+    display:flex;align-items:center;gap:8px;
+    padding:6px 10px;border-radius:10px;
+    border:1px solid var(--btnb);background:var(--panel2);
+    font-size:12px;
+    user-select:none;
+  }
+  .switch input{transform:scale(1.05);}
+</style>
+</head>
+
+<body>
+<div class="wrap">
+
+  <div class="panel">
+    <h2>Hexagon Fix + Systems Model + Hex Lattice Memory (Φ-HNS demo)</h2>
+
+    <div class="row">
+      <button id="step">+1 side</button>
+      <button id="step5">+5 sides</button>
+      <button id="reset">Reset (N=6)</button>
+      <button id="auto">Auto → circle mirror</button>
+    </div>
+
+    <div class="row">
+      <span class="pill" id="nPill">N: 6</span>
+      <span class="pill" id="modePill">Mode: Geometry</span>
+      <span class="pill" id="matchPill">Match: —</span>
+      <span class="pill" id="statusPill">Status: —</span>
+    </div>
+
+    <div class="row">
+      <label class="switch" title="Shows limit-collision behavior (green→yellow→red) on the 6 pillar nodes.">
+        <input id="constraintView" type="checkbox" />
+        Constraint View (limits collide)
+      </label>
+
+      <label class="switch" title="Draws and runs a true hexagonal lattice substrate and propagates activation through it.">
+        <input id="latticeView" type="checkbox" checked />
+        Hex Lattice Substrate
+      </label>
+
+      <label class="switch" title="When ON, collapsed (locked) nodes display a glyph.">
+        <input id="glyphView" type="checkbox" checked />
+        Show Glyph Memory
+      </label>
+
+      <button id="stressBtn" title="For demonstration: injects oscillatory stress so you can see propagation.">Failure Inject</button>
+      <button id="clearMem" title="Clears all glyph locks and surplus memory in the lattice.">Clear Glyph Memory</button>
+    </div>
+
+    <label>Polygon sides N (6=hexagon, 7=heptagon, …): <span id="nVal"></span></label>
+    <input id="N" type="range" min="6" max="240" step="1" value="6" />
+
+    <label>Polygon “intent radius” a: <span id="aVal"></span></label>
+    <input id="a" type="range" min="80" max="420" value="260" />
+
+    <label>Container radius R: <span id="RVal"></span></label>
+    <input id="R" type="range" min="160" max="520" value="300" />
+
+    <label>Regulation strength k:</label>
+    <input id="k" type="range" min="0.50" max="2.50" step="0.01" value="1.10" />
+
+    <div class="kbox">
+      <div class="kTop">
+        <div class="kHint"><b>Strength</b> (k)</div>
+        <div class="kBig" id="kBig">1.10</div>
+      </div>
+      <div class="meter"><div class="meterFill" id="kFill"></div></div>
+      <div class="kHint" id="kText" style="margin-top:6px;"></div>
+    </div>
+
+    <label style="margin-top:12px;">CST Phase Alignment (φₛₜ): <span id="phiBig">0.00</span></label>
+    <input id="phi" type="range" min="0" max="1" step="0.01" value="0.00" />
+    <div class="small" id="phiHint" style="margin-top:6px;">
+      φₛₜ stabilizes coupling: less propagation + fewer chaotic collapse events.
+    </div>
+
+    <h3>Φ-HNS Memory Controls (Surplus → Collapse → Glyph)</h3>
+
+    <label>Collapse threshold θϕ (lower = easier imprint): <span id="thetaVal"></span></label>
+    <input id="theta" type="range" min="0.20" max="1.00" step="0.01" value="0.62" />
+
+    <label>Surplus gain (how fast memory accumulates): <span id="gainVal"></span></label>
+    <input id="gain" type="range" min="0.20" max="2.00" step="0.01" value="1.00" />
+
+    <label>Surplus leak (memory decay rate): <span id="leakVal"></span></label>
+    <input id="leak" type="range" min="0.00" max="0.12" step="0.001" value="0.028" />
+
+    <div class="warn small" style="margin-top:10px;">
+      <b>Important:</b> This is a <b>systems demonstrator</b>. The lattice shows “field-like” coupling,
+      surplus accumulation, and collapse-based imprinting (glyph memory) in a way that is easy to see.
+    </div>
+
+    <h3>Step log</h3>
+    <div class="log" id="log"></div>
+  </div>
+
+  <canvas id="c"></canvas>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+
+  const NEl = document.getElementById("N");
+  const aEl = document.getElementById("a");
+  const REl = document.getElementById("R");
+  const kEl = document.getElementById("k");
+  const phiEl = document.getElementById("phi");
+
+  const thetaEl = document.getElementById("theta");
+  const gainEl  = document.getElementById("gain");
+  const leakEl  = document.getElementById("leak");
+
+  const nVal = document.getElementById("nVal");
+  const aVal = document.getElementById("aVal");
+  const RVal = document.getElementById("RVal");
+
+  const thetaVal = document.getElementById("thetaVal");
+  const gainVal  = document.getElementById("gainVal");
+  const leakVal  = document.getElementById("leakVal");
+
+  const nPill = document.getElementById("nPill");
+  const modePill = document.getElementById("modePill");
+  const matchPill = document.getElementById("matchPill");
+  const statusPill = document.getElementById("statusPill");
+
+  const kBig  = document.getElementById("kBig");
+  const kFill = document.getElementById("kFill");
+  const kText = document.getElementById("kText");
+
+  const phiBig = document.getElementById("phiBig");
+  const phiHint = document.getElementById("phiHint");
+
+  const constraintViewEl = document.getElementById("constraintView");
+  const latticeViewEl = document.getElementById("latticeView");
+  const glyphViewEl = document.getElementById("glyphView");
+
+  const stressBtn = document.getElementById("stressBtn");
+  const clearMemBtn = document.getElementById("clearMem");
+
+  const logEl = document.getElementById("log");
+  const log = (t)=>{ logEl.textContent += t + "\n"; logEl.scrollTop = logEl.scrollHeight; };
+
+  function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
+  function lerp(a,b,t){ return a + (b-a)*t; }
+
+  // --------- Canvas roundRect fallback ----------
+  if(!CanvasRenderingContext2D.prototype.roundRect){
+    CanvasRenderingContext2D.prototype.roundRect = function(x,y,w,h,r){
+      r = Math.min(r, w/2, h/2);
+      this.beginPath();
+      this.moveTo(x+r,y);
+      this.arcTo(x+w,y,x+w,y+h,r);
+      this.arcTo(x+w,y+h,x,y+h,r);
+      this.arcTo(x,y+h,x,y,r);
+      this.arcTo(x,y,x+w,y,r);
+      this.closePath();
+      return this;
+    };
+  }
+
+  // --------- Geometry helpers ----------
+  function polygonVertices(cx, cy, rad, n){
+    const pts=[];
+    const offset = -Math.PI/6;
+    for(let i=0;i<n;i++){
+      const ang = (Math.PI*2)*(i/n) + offset;
+      pts.push([cx + rad*Math.cos(ang), cy + rad*Math.sin(ang)]);
+    }
+    return pts;
+  }
+
+  function drawPolygon(pts){
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  function circleMatchPercent(N){
+    const ratio = (N * Math.sin((2*Math.PI)/N)) / (2*Math.PI);
+    return 100 * ratio;
+  }
+
+  function regulatedRadius(a, R, k){
+    if(a <= R) return { rad: a, regulated:false, s:1.0 };
+    const s = Math.pow(R / a, k);
+    return { rad: a * s, regulated:true, s };
+  }
+
+  function strokeForK(regulated, k){
+    const t = clamp((k - 0.50)/2.00, 0, 1);
+    const cool = {r:69,g:103,b:132};
+    const warm = {r:182,g:139,b:46};
+    const r = Math.round(cool.r*(1-t) + warm.r*t);
+    const g = Math.round(cool.g*(1-t) + warm.g*t);
+    const b = Math.round(cool.b*(1-t) + warm.b*t);
+    const a = regulated ? (0.75 + 0.20*t) : (0.55 + 0.20*t);
+    return `rgba(${r},${g},${b},${a})`;
+  }
+
+  function updateKUI(regulated){
+    const k = parseFloat(kEl.value);
+    kBig.textContent = k.toFixed(2);
+
+    const pct = clamp(((k - 0.50) / 2.00) * 100, 0, 100);
+    kFill.style.width = pct.toFixed(1) + "%";
+
+    let label = "Soft clamp (gentle regulation).";
+    if(k >= 1.00 && k < 1.50) label = "Balanced clamp.";
+    if(k >= 1.50 && k < 2.10) label = "Strong clamp.";
+    if(k >= 2.10) label = "Very strong clamp.";
+    if(regulated) label += " (ACTIVE)";
+    kText.textContent = label;
+  }
+
+  function updatePills(regulated, N, matchPct){
+    nPill.textContent = `N: ${N}`;
+    modePill.textContent = `Mode: ${regulated ? "Regulation" : "Geometry"}`;
+    modePill.style.borderColor = regulated ? "#b68b2e" : "#2d4764";
+    modePill.style.background  = regulated ? "#221a0a" : "#0c131d";
+    matchPill.textContent = `Match: ${matchPct.toFixed(1)}%`;
+  }
+
+  // --------- Pillars / stress model ----------
+  const pillars = [
+    { key:"Maxwell",     label:"Maxwell\n(fields)",            short:"M" },
+    { key:"Einstein",    label:"Einstein\n(spacetime)",        short:"E" },
+    { key:"Shannon",     label:"Shannon\n(info)",             short:"S" },
+    { key:"vonNeumann",  label:"von Neumann\n(computation)",   short:"V" },
+    { key:"Turing",      label:"Turing\n(algorithms)",         short:"T" },
+    { key:"Feynman",     label:"Feynman\n(quantum)",           short:"F" },
+  ];
+
+  let stressInject = false;
+  let t0 = performance.now();
+
+  function stressColor(s){
+    // green -> yellow -> red
+    if(s < 0.50){
+      const t = s/0.50;
+      const r = Math.round(lerp(42, 214, t));
+      const g = Math.round(lerp(163, 166, t));
+      const b = Math.round(lerp(74, 58, t));
+      return `rgb(${r},${g},${b})`;
+    } else {
+      const t = (s-0.50)/0.50;
+      const r = Math.round(lerp(214, 208, t));
+      const g = Math.round(lerp(166, 74, t));
+      const b = Math.round(lerp(58, 74, t));
+      return `rgb(${r},${g},${b})`;
+    }
+  }
+  function stressLabel(s){
+    if(s < 0.50) return "OK";
+    if(s < 0.75) return "NEAR LIMIT";
+    return "LIMIT HIT";
+  }
+
+  function computeStresses({N,a,R,k,phi,regulated}){
+    const match = circleMatchPercent(N)/100;
+    const coarseness = clamp(1 - match, 0, 1);
+    const overflow = clamp((a - R)/Math.max(1,R), 0, 1);
+    const kPressure = clamp(Math.abs(k - 1.0)/1.5, 0, 1);
+    const clampActive = regulated ? 1 : 0;
+
+    const deco = (1 - phi);
+    const damp = lerp(1.0, 0.55, phi);
+
+    let inj = 0;
+    if(stressInject){
+      const tt = (performance.now() - t0) / 1000;
+      inj = 0.5 + 0.5*Math.sin(tt*2.3);
+    }
+
+    const base = {
+      Maxwell:    0.15 + 0.55*overflow + 0.25*coarseness + 0.10*inj,
+      Einstein:   0.18 + 0.60*overflow + 0.30*deco      + 0.06*clampActive + 0.08*inj,
+      Shannon:    0.14 + 0.50*coarseness + 0.40*deco    + 0.08*overflow + 0.06*inj,
+      vonNeumann: 0.16 + 0.55*kPressure + 0.20*deco     + 0.08*clampActive + 0.07*inj,
+      Turing:     0.16 + 0.45*kPressure + 0.35*coarseness + 0.10*inj,
+      Feynman:    0.18 + 0.45*coarseness + 0.55*deco    + 0.08*overflow + 0.10*inj,
+    };
+
+    // ring coupling of 6 pillars
+    const keys = ["Maxwell","Einstein","Feynman","Turing","vonNeumann","Shannon"];
+    const s0 = keys.map(k => base[k]);
+
+    const steps = 2;
+    const c = lerp(0.22, 0.12, phi);
+    let s = s0.slice();
+    for(let it=0; it<steps; it++){
+      const next = s.slice();
+      for(let i=0;i<keys.length;i++){
+        const left = s[(i-1+keys.length)%keys.length];
+        const right = s[(i+1)%keys.length];
+        const coupled = (s[i] + c*(left + right)) / (1 + 2*c);
+        next[i] = clamp(coupled * damp, 0, 1);
+      }
+      s = next;
+    }
+
+    const out = {};
+    for(let i=0;i<keys.length;i++) out[keys[i]] = s[i];
+    return { out, coarseness, overflow, kPressure, deco, match };
+  }
+
+  // --------- TRUE HEX LATTICE + MEMORY ----------
+  const HEX = {
+    size: 14,
+    dirs: [
+      [ 1, 0],[ 1,-1],[ 0,-1],
+      [-1, 0],[-1, 1],[ 0, 1]
+    ]
+  };
+
+  const GLYPHS = ["𝒮","𝒞","฀","𝒦","ϕ","⟡","⊕","∿","∞","◇","▣","✶"];
+  const FALLBACKS = ["S","C","H","K","φ","*","+","~","∞","◇","▣","*"];
+
+  let lattice = {
+    nodes: [],
+    map: new Map(),
+    builtFor: { w:0, h:0, R:0, size:HEX.size }
+  };
+
+  function keyQR(q,r){ return q + "," + r; }
+  function axialToPixel(q,r,size){
+    const x = size * Math.sqrt(3) * (q + r/2);
+    const y = size * 1.5 * r;
+    return [x,y];
+  }
+
+  function buildHexLattice(cx, cy, R){
+    // density is based on R but capped
+    const size = clamp(Math.round(R/22), 10, 16);
+    HEX.size = size;
+
+    lattice.nodes = [];
+    lattice.map = new Map();
+    lattice.builtFor = { w:canvas.clientWidth, h:canvas.clientHeight, R, size };
+
+    const max = Math.ceil(R / (size*1.15));
+    for(let r=-max; r<=max; r++){
+      for(let q=-max; q<=max; q++){
+        const [dx,dy] = axialToPixel(q,r,size);
+        const d = Math.hypot(dx,dy);
+        if(d <= R - size*0.3){
+          const idx = lattice.nodes.length;
+          lattice.map.set(keyQR(q,r), idx);
+          lattice.nodes.push({
+            q,r,
+            x: cx + dx,
+            y: cy + dy,
+            v: 0, v2: 0,
+            surplus: 0, s2: 0,
+            locked: false,
+            glyph: "",
+            glyphIdx: -1,
+            nei: []
+          });
+        }
+      }
+    }
+
+    // neighbors
+    for(const n of lattice.nodes){
+      n.nei.length = 0;
+      for(const [dq,dr] of HEX.dirs){
+        const j = lattice.map.get(keyQR(n.q + dq, n.r + dr));
+        if(j !== undefined) n.nei.push(j);
+      }
+    }
+
+    log(`LATTICE: built ${lattice.nodes.length} nodes (hex size=${size}px) inside domain.`);
+    log("Memory: surplus accumulates; when surplus ≥ θϕ → collapse → glyph locks.");
+    log("—");
+  }
+
+  function clearLatticeMemory(){
+    if(!lattice.nodes.length) return;
+    for(const n of lattice.nodes){
+      n.surplus = 0;
+      n.locked = false;
+      n.glyph = "";
+      n.glyphIdx = -1;
+    }
+  }
+
+  function ensureLatticeBuilt(cx, cy, R, force=false){
+    const bf = lattice.builtFor;
+    const changed =
+      force ||
+      !lattice.nodes.length ||
+      bf.w !== canvas.clientWidth ||
+      bf.h !== canvas.clientHeight ||
+      Math.abs(bf.R - R) > 0.5;
+
+    if(changed){
+      buildHexLattice(cx, cy, R);
+    }
+  }
+
+  function injectSourcesToLattice(pillarPts, pillarStress, phi){
+    if(!lattice.nodes.length) return;
+
+    const influence = clamp(lattice.builtFor.R * 0.40, 120, 260);
+    const inv2 = 1 / (influence*influence);
+
+    const injScale = lerp(1.00, 0.70, phi);
+
+    for(const node of lattice.nodes){
+      let s = 0;
+      let wsum = 0;
+
+      for(let i=0;i<pillarPts.length;i++){
+        const [px,py] = pillarPts[i];
+        const dx = node.x - px, dy = node.y - py;
+        const w = Math.exp(-(dx*dx + dy*dy) * inv2);
+        wsum += w;
+        s += w * pillarStress[i];
+      }
+
+      const src = (wsum > 0) ? (s/wsum) : 0;
+
+      // locked nodes still respond but more slowly
+      const blend = node.locked ? 0.10 : 0.18;
+      node.v = clamp(lerp(node.v, src * injScale, blend), 0, 1);
+    }
+  }
+
+  function injectFailure(phi){
+    if(!stressInject || !lattice.nodes.length) return;
+
+    const R = lattice.builtFor.R;
+    const cx = canvas.clientWidth/2;
+    const cy = canvas.clientHeight/2;
+    const targetX = cx + R*0.35;
+    const targetY = cy - R*0.20;
+
+    let best = -1, bestD = 1e18;
+    for(let i=0;i<lattice.nodes.length;i++){
+      const n = lattice.nodes[i];
+      const dx = n.x-targetX, dy = n.y-targetY;
+      const d2 = dx*dx + dy*dy;
+      if(d2 < bestD){ bestD = d2; best = i; }
+    }
+    if(best < 0) return;
+
+    const tt = (performance.now() - t0)/1000;
+    const osc = 0.5 + 0.5*Math.sin(tt*3.2);
+    const amp = lerp(0.35, 0.18, phi);
+
+    lattice.nodes[best].v = clamp(lattice.nodes[best].v + osc*amp, 0, 1);
+  }
+
+  function propagateLatticeAndMemory(phi){
+    if(!lattice.nodes.length) return { thetaEff: parseFloat(thetaEl.value), gainEff: parseFloat(gainEl.value) };
+
+    // phi increases damping + reduces coupling
+    const coupling = lerp(0.28, 0.12, phi);
+    const damping  = lerp(0.985, 0.92, phi);
+
+    const thetaBase = parseFloat(thetaEl.value);
+    const gain = parseFloat(gainEl.value);
+    const leak = parseFloat(leakEl.value);
+
+    // stabilization effects
+    const thetaEff = clamp(thetaBase + 0.08*phi, 0.20, 1.00);
+    const gainEff  = gain * lerp(1.0, 0.78, phi);
+    const leakEff  = leak * lerp(1.0, 0.75, phi);
+
+    const microSteps = 2;
+
+    for(let step=0; step<microSteps; step++){
+      // diffusion
+      for(let i=0;i<lattice.nodes.length;i++){
+        const n = lattice.nodes[i];
+        let avg = 0;
+        const m = n.nei.length || 1;
+        for(const j of n.nei) avg += lattice.nodes[j].v;
+        avg /= m;
+
+        const stiff = n.locked ? 0.65 : 1.0;
+        const mixed = n.v + (coupling*stiff)*(avg - n.v);
+        n.v2 = clamp(mixed * damping, 0, 1);
+      }
+      for(const n of lattice.nodes) n.v = n.v2;
+
+      // surplus update
+      for(const n of lattice.nodes){
+        const lockFactor = n.locked ? 0.25 : 1.0;
+        const add = n.v * 0.030 * gainEff * lockFactor;
+        const dec = n.surplus * leakEff;
+        n.s2 = clamp(n.surplus + add - dec, 0, 1.25);
+      }
+
+      // collapse
+      for(const n of lattice.nodes){
+        n.surplus = n.s2;
+        if(!n.locked && n.surplus >= thetaEff){
+          n.locked = true;
+          const idx = Math.abs((n.q*31 + n.r*17) % GLYPHS.length);
+          n.glyphIdx = idx;
+          n.glyph = GLYPHS[idx] || "";
+        }
+      }
+    }
+
+    return { thetaEff, gainEff };
+  }
+
+  function drawLattice(){
+    if(!lattice.nodes.length) return;
+
+    const showGlyphs = glyphViewEl.checked;
+
+    // dots
+    ctx.save();
+    ctx.globalAlpha = 0.95;
+
+    for(const n of lattice.nodes){
+      const s = n.v;
+      const mem = clamp(n.surplus, 0, 1);
+      const hot = Math.max(s, mem*0.85);
+
+      if(hot < 0.03 && !n.locked) continue;
+
+      const col = stressColor(clamp(hot, 0, 1));
+      ctx.fillStyle = col;
+
+      const r = (n.locked ? 2.3 : 1.4) + 2.0*hot;
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, r, 0, Math.PI*2);
+      ctx.fill();
+
+      if(n.locked){
+        ctx.strokeStyle = "rgba(232,238,246,0.40)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, r+1.6, 0, Math.PI*2);
+        ctx.stroke();
+      }
+    }
+
+    // glyphs (capped)
+    if(showGlyphs){
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = "900 11px system-ui, Segoe UI, Arial";
+
+      let drawn = 0;
+      const MAX_GLYPHS = 320;
+      for(const n of lattice.nodes){
+        if(!n.locked) continue;
+        if(drawn++ > MAX_GLYPHS) break;
+
+        const g = n.glyph || FALLBACKS[(n.glyphIdx>=0 ? n.glyphIdx : 0) % FALLBACKS.length];
+        ctx.fillStyle = "rgba(7,16,25,0.90)";
+        ctx.fillText(g, n.x, n.y);
+      }
+    }
+
+    ctx.restore();
+  }
+
+  function drawConstraintOverlay(cx, cy, R, rr, stressPack){
+    const rad = Math.min(rr.rad, R*0.78);
+    const pts = polygonVertices(cx, cy, rad, 6);
+
+    // edges
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    ctx.strokeStyle = "rgba(120,150,180,0.35)";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
+
+    const order = ["Maxwell","Einstein","Feynman","Turing","vonNeumann","Shannon"];
+
+    for(let i=0;i<6;i++){
+      const key = order[i];
+      const s = stressPack.out[key];
+      const [x,y] = pts[i];
+
+      const col = stressColor(s);
+      const r = 16;
+
+      ctx.save();
+      ctx.globalAlpha = 0.22;
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(x,y,r+10,0,Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+
+      ctx.fillStyle = col;
+      ctx.strokeStyle = "rgba(255,255,255,0.22)";
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(x,y,r,0,Math.PI*2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = "#071019";
+      ctx.font = "900 13px system-ui, Segoe UI, Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const short = pillars.find(p=>p.key===key)?.short || key[0];
+      ctx.fillText(short, x, y);
+
+      // label box
+      ctx.textAlign = "left";
+      ctx.textBaseline = "alphabetic";
+      ctx.font = "12px system-ui, Segoe UI, Arial";
+      const label = pillars.find(p=>p.key===key)?.label || key;
+      const lines = label.split("\n");
+
+      const bx = x + 20;
+      const by = y - 10;
+      const w = 130;
+      const h = 44;
+
+      ctx.fillStyle = "rgba(12,19,29,0.80)";
+      ctx.strokeStyle = "rgba(45,71,100,0.60)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(bx, by, w, h, 8);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = "rgba(232,238,246,0.92)";
+      ctx.fillText(lines[0], bx+8, by+18);
+      ctx.fillStyle = "rgba(232,238,246,0.72)";
+      ctx.fillText(lines[1] || "", bx+8, by+34);
+
+      ctx.fillStyle = "rgba(232,238,246,0.70)";
+      ctx.font = "11px system-ui, Segoe UI, Arial";
+      ctx.fillText(`${stressLabel(s)} (${Math.round(s*100)}%)`, bx+8, by+50);
+    }
+
+    return pts;
+  }
+
+  // --------- Main draw ----------
+  function draw(forceRebuild=false){
+    const N = parseInt(NEl.value,10);
+    const a = +aEl.value;
+    const R = +REl.value;
+    const k = parseFloat(kEl.value);
+    const phi = parseFloat(phiEl.value);
+
+    const theta = parseFloat(thetaEl.value);
+    const gain = parseFloat(gainEl.value);
+    const leak = parseFloat(leakEl.value);
+
+    nVal.textContent = N;
+    aVal.textContent = a;
+    RVal.textContent = R;
+
+    thetaVal.textContent = theta.toFixed(2);
+    gainVal.textContent  = gain.toFixed(2);
+    leakVal.textContent  = leak.toFixed(3);
+
+    phiBig.textContent = phi.toFixed(2);
+
+    if(phi < 0.20){
+      phiHint.textContent = "φₛₜ low: strong coupling → wider spread + more collapse events.";
+    } else if(phi < 0.60){
+      phiHint.textContent = "φₛₜ moderate: partial phase-locking reduces propagation and collapse density.";
+    } else {
+      phiHint.textContent = "φₛₜ high: damping is strong → field stabilizes; collapse becomes selective (cleaner memory).";
+    }
+
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    ctx.clearRect(0,0,w,h);
+    const cx=w/2, cy=h/2;
+
+    // domain circle
+    ctx.strokeStyle="#3a5678";
+    ctx.lineWidth=2;
+    ctx.beginPath();
+    ctx.arc(cx,cy,R,0,Math.PI*2);
+    ctx.stroke();
+
+    // clamp
+    const rr = regulatedRadius(a, R, k);
+    updateKUI(rr.regulated);
+
+    const matchPct = circleMatchPercent(N);
+    updatePills(rr.regulated, N, matchPct);
+
+    // polygon
+    const pts = polygonVertices(cx, cy, rr.rad, N);
+    ctx.fillStyle = rr.regulated ? "#0f2236" : "#0d1a2a";
+    ctx.strokeStyle = strokeForK(rr.regulated, k);
+    ctx.lineWidth = 2;
+    drawPolygon(pts);
+
+    // mirror circle
+    ctx.globalAlpha = 0.45;
+    ctx.strokeStyle = "rgba(232,238,246,0.35)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(cx,cy,rr.rad,0,Math.PI*2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // diagnostics
+    ctx.fillStyle="#e8eef6";
+    ctx.font="12px system-ui, Segoe UI, Arial";
+    const geomMsg = rr.regulated
+      ? `Clamp: a=${a.toFixed(0)} > R=${R.toFixed(0)} → s=(R/a)^k = ${rr.s.toFixed(3)} (k=${k.toFixed(2)})`
+      : `No clamp: a=${a.toFixed(0)} <= R=${R.toFixed(0)} → s=1.000 (k=${k.toFixed(2)})`;
+    ctx.fillText(geomMsg, 14, 18);
+    ctx.fillStyle="rgba(138,167,200,0.95)";
+    ctx.fillText(`Boundary refinement: N=${N} sides. Circle-likeness (area match) ≈ ${matchPct.toFixed(1)}%`, 14, 36);
+
+    // compute stresses (for sources and/or overlay)
+    const needLattice = latticeViewEl.checked;
+    const needConstraint = constraintViewEl.checked;
+    let stressPack = null;
+
+    if(needLattice || needConstraint){
+      stressPack = computeStresses({N,a,R,k,phi,regulated:rr.regulated});
+    }
+
+    // lattice
+    if(needLattice && stressPack){
+      ensureLatticeBuilt(cx, cy, R, forceRebuild);
+
+      const rad = Math.min(rr.rad, R*0.78);
+      const pillarPts = polygonVertices(cx, cy, rad, 6);
+      const order = ["Maxwell","Einstein","Feynman","Turing","vonNeumann","Shannon"];
+      const pillarStress = order.map(k => stressPack.out[k] ?? 0);
+
+      injectSourcesToLattice(pillarPts, pillarStress, phi);
+      injectFailure(phi);
+
+      const eff = propagateLatticeAndMemory(phi);
+      drawLattice();
+
+      // status
+      const lockedCount = lattice.nodes.reduce((acc,n)=>acc + (n.locked?1:0), 0);
+      statusPill.textContent = `Status: nodes=${lattice.nodes.length} locked=${lockedCount}`;
+
+      // legend line
+      ctx.fillStyle = "rgba(232,238,246,0.78)";
+      ctx.font = "12px system-ui, Segoe UI, Arial";
+      ctx.fillText(
+        `Hex Lattice Memory: locked=${lockedCount}  θϕ≈${eff.thetaEff.toFixed(2)}  gain≈${eff.gainEff.toFixed(2)}  leak=${parseFloat(leakEl.value).toFixed(3)}`,
+        14, 92
+      );
+    } else {
+      statusPill.textContent = "Status: lattice OFF";
+    }
+
+    // constraint overlay
+    if(needConstraint && stressPack){
+      drawConstraintOverlay(cx, cy, R, rr, stressPack);
+
+      const sVals = Object.values(stressPack.out);
+      const maxS = Math.max(...sVals);
+
+      ctx.fillStyle = "rgba(232,238,246,0.92)";
+      ctx.font = "bold 13px system-ui, Segoe UI, Arial";
+      ctx.fillText(`Collision severity: ${Math.round(maxS*100)}% (φₛₜ=${phi.toFixed(2)})`, 14, 56);
+
+      ctx.fillStyle = "rgba(232,238,246,0.70)";
+      ctx.font = "12px system-ui, Segoe UI, Arial";
+      ctx.fillText(
+        `Drivers: overflow=${Math.round(stressPack.overflow*100)}%, coarseness=${Math.round(stressPack.coarseness*100)}%, decoherence-like=${Math.round(stressPack.deco*100)}%`,
+        14, 74
+      );
+    } else if(!needLattice){
+      // label only when lattice not filling screen
+      ctx.fillStyle="rgba(232,238,246,0.92)";
+      ctx.font="bold 13px system-ui, Segoe UI, Arial";
+      ctx.fillText(`N=${N}`, cx-20, cy+4);
+    }
+  }
+
+  // --------- Resize ----------
+  function resize(){
+    const dpr=Math.max(1, window.devicePixelRatio || 1);
+    canvas.width=Math.floor(canvas.clientWidth*dpr);
+    canvas.height=Math.floor(canvas.clientHeight*dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    draw(true);
+  }
+  window.addEventListener("resize", resize);
+
+  // --------- Controls ----------
+  function setN(v){
+    v = clamp(v, 6, 240);
+    NEl.value = String(v);
+    draw();
+  }
+
+  document.getElementById("step").onclick = () => {
+    const N = parseInt(NEl.value,10);
+    setN(N+1);
+    log(`STEP: N=${N+1}. Circle-match ≈ ${circleMatchPercent(N+1).toFixed(2)}%`);
+    log("—");
+  };
+
+  document.getElementById("step5").onclick = () => {
+    const N = parseInt(NEl.value,10);
+    setN(N+5);
+    log(`STEP: N=${N+5}. Circle-match ≈ ${circleMatchPercent(N+5).toFixed(2)}%`);
+    log("—");
+  };
+
+  document.getElementById("reset").onclick = () => {
+    setN(6);
+    logEl.textContent="";
+    log("RESET: N=6 (hexagon).");
+    log("Hex Lattice runs 6-neighbor coupling.");
+    log("Surplus accumulates; when surplus ≥ θϕ → collapse → glyph lock (memory).");
+    log("φₛₜ increases stabilization: less spread, cleaner memory.");
+    log("—");
+    draw(true);
+  };
+
+  document.getElementById("auto").onclick = () => {
+    let N = parseInt(NEl.value,10);
+    for(let it=0; it<400; it++){
+      const m = circleMatchPercent(N);
+      if(m >= 99.6) break;
+      N += 1;
+      if(N >= 240) break;
+    }
+    setN(N);
+    log(`AUTO: N→${N}. Circle-match ≈ ${circleMatchPercent(N).toFixed(2)}%`);
+    log("—");
+  };
+
+  constraintViewEl.addEventListener("change", () => {
+    log(`Constraint View: ${constraintViewEl.checked ? "ON" : "OFF"}.`);
+    log("—");
+    draw();
+  });
+
+  latticeViewEl.addEventListener("change", () => {
+    log(`Hex Lattice Substrate: ${latticeViewEl.checked ? "ON" : "OFF"}.`);
+    log("—");
+    draw(true);
+  });
+
+  glyphViewEl.addEventListener("change", () => {
+    log(`Glyph display: ${glyphViewEl.checked ? "ON" : "OFF"}.`);
+    log("—");
+    draw();
+  });
+
+  stressBtn.addEventListener("click", () => {
+    stressInject = !stressInject;
+    stressBtn.textContent = stressInject ? "Failure Inject: ON" : "Failure Inject";
+    log(`Failure Inject: ${stressInject ? "ON" : "OFF"}.`);
+    log("—");
+    draw();
+  });
+
+  clearMemBtn.addEventListener("click", () => {
+    if(!lattice.nodes.length){
+      log("Memory clear requested, but lattice not built yet. Turn on Hex Lattice first.");
+      log("—");
+      return;
+    }
+    clearLatticeMemory();
+    log("Memory cleared: all surplus + glyph locks reset.");
+    log("—");
+    draw();
+  });
+
+  [NEl, aEl, REl, kEl, phiEl, thetaEl, gainEl, leakEl].forEach(el => el.addEventListener("input", () => draw()));
+
+  // --------- Animation loop ----------
+  function tick(){
+    // Animate if lattice is on (living substrate) or failure injection is on.
+    if(latticeViewEl.checked || stressInject){
+      draw();
+    }
+    requestAnimationFrame(tick);
+  }
+
+  // init
+  log("INIT: Hex lattice substrate + surplus/collapse glyph memory enabled.");
+  log("Quick test: set θϕ≈0.35, gain≈1.30, leak≈0.02 → glyphs appear faster.");
+  log("Then raise φₛₜ toward 1.0 → propagation stabilizes (cleaner memory).");
+  log("—");
+
+  resize();
+  tick();
+})();
+</script>
+</body>
+</html>
