@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Warp Engine 2D Simulator — E=mc² ⇄ m=E/c² + Vacuum Fusion + Coolant</title>
+<style>
+  :root{
+    --bg:#050815;
+    --panel:#111735;
+    --ink:#eaf0ff;
+    --muted:#9fa8d6;
+    --accent:#8fb4ff;
+    --grid:#1d264e;
+    --border:#1c2750;
+    --ok:#35e6a2;
+    --warn:#ffd15a;
+    --bad:#ff6b8b;
+    --cool:#6bd1ff;
+    --heat:#ffcc66;
+    --ent:#b26bff;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif}
+  .wrap{max-width:1500px;margin:0 auto;padding:14px}
+  header{
+    padding:12px 16px 16px;border-radius:16px;
+    background:radial-gradient(circle at top left,#3b82f6 0,#020617 42%,#000 100%);
+    border:1px solid rgba(148,163,184,0.4); margin-bottom:12px;
+  }
+  header h1{margin:0 0 6px;font-size:20px;letter-spacing:.04em;text-transform:uppercase}
+  header p{margin:2px 0;font-size:13px;color:var(--muted)}
+  .grid{display:grid;grid-template-columns:360px 1fr;gap:12px;align-items:flex-start}
+  .panel{
+    background:var(--panel);border:1px solid var(--border);border-radius:16px;
+    padding:12px 14px;box-shadow:0 18px 40px rgba(15,23,42,0.65);
+  }
+  .panel h2{margin:0 0 8px;font-size:15px}
+  .group{border:1px dashed rgba(148,163,184,0.35);border-radius:12px;padding:10px;margin-bottom:10px}
+  label{display:block;font-size:12px;color:var(--muted);margin:6px 0 4px}
+  input[type="range"]{width:100%}
+  .row{display:flex;justify-content:space-between;gap:8px;align-items:center}
+  .badge{
+    padding:2px 8px;border-radius:999px;font-size:11px;border:1px solid rgba(148,163,184,0.55);
+    color:#e5e7eb;white-space:nowrap
+  }
+  .badge.ok{border-color:var(--ok);color:var(--ok)}
+  .badge.warn{border-color:var(--warn);color:var(--warn)}
+  .badge.bad{border-color:var(--bad);color:var(--bad)}
+  button{
+    width:100%;margin-top:8px;padding:8px 10px;border-radius:999px;
+    border:1px solid rgba(148,163,184,0.5);background:#020617;color:#e5e7eb;cursor:pointer;font-size:12px
+  }
+  button:hover{background:#02081f}
+  .btnRow{display:flex;gap:8px}
+  .btnRow button{width:100%}
+  canvas{
+    width:100%;height:auto;display:block;background:#020617;border:1px solid var(--grid);
+    border-radius:12px
+  }
+  .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace}
+  .tele{font-size:12px;color:var(--muted);line-height:1.35}
+  .tele .mono{color:#e5e7eb}
+  .gauge{height:6px;border-radius:999px;background:#020617;overflow:hidden;border:1px solid rgba(148,163,184,0.25)}
+  .fill{height:100%;width:0%;background:linear-gradient(90deg,#22c55e,#eab308,#ef4444)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Warp Engine 2D Simulator</h1>
+    <p>Runs in any browser. Shows moving parts + coolant flow + shield + live <span class="mono">E=mc² ⇄ m=E/c²</span> conversions (concept model).</p>
+  </header>
+
+  <div class="grid">
+    <div class="panel">
+      <h2>Controls</h2>
+
+      <div class="group">
+        <div class="row">
+          <div class="tele">Warp Factor</div>
+          <span class="badge ok" id="b_warp">4</span>
+        </div>
+        <input id="warp" type="range" min="1" max="10" step="1" value="4">
+        <label>Nuclear Power Fraction</label>
+        <input id="nuclear" type="range" min="0" max="1" step="0.01" value="0.65">
+        <label>Vacuum Fusion Fraction</label>
+        <input id="vacfus" type="range" min="0" max="1" step="0.01" value="0.35">
+        <label>Shield Emphasis</label>
+        <input id="shieldEmph" type="range" min="0" max="1" step="0.01" value="0.50">
+      </div>
+
+      <div class="group">
+        <div class="row">
+          <div class="tele">Water Coolant Flow</div>
+          <span class="badge" id="b_flow">0.65</span>
+        </div>
+        <input id="coolFlow" type="range" min="0" max="1" step="0.01" value="0.65">
+        <div class="row" style="margin-top:8px">
+          <div class="tele">Radiator Effectiveness</div>
+          <span class="badge" id="b_eff">0.70</span>
+        </div>
+        <input id="coolEff" type="range" min="0" max="1" step="0.01" value="0.70">
+      </div>
+
+      <div class="btnRow">
+        <button id="start" style="border-color:rgba(74,222,128,0.8);color:#bbf7d0;">Start</button>
+        <button id="pause">Pause</button>
+      </div>
+      <button id="reset">Reset Streams</button>
+
+      <h2 style="margin-top:12px">Telemetry</h2>
+      <div class="group tele">
+        <div class="row"><span>Status</span><span class="badge" id="b_status">RUNNING</span></div>
+        <div class="row"><span>Shield</span><span class="mono" id="t_shield">—</span></div>
+        <div class="gauge"><div class="fill" id="g_shield"></div></div>
+
+        <div style="height:8px"></div>
+        <div class="row"><span>Core Temp</span><span class="mono" id="t_coreT">—</span></div>
+        <div class="gauge"><div class="fill" id="g_coreT"></div></div>
+
+        <div style="height:8px"></div>
+        <div class="row"><span>Coolant Temp</span><span class="mono" id="t_coolT">—</span></div>
+        <div class="gauge"><div class="fill" id="g_coolT"></div></div>
+
+        <div style="height:10px"></div>
+        <div class="mono" id="t_conv1">Ė = — J/s</div>
+        <div class="mono" id="t_conv2">ṁ = Ė/c² = — kg/s</div>
+        <div class="mono" id="t_conv3">m_eff (stored) = — kg</div>
+        <div class="mono" id="t_conv4">ρ_shell = — kg/m³</div>
+        <div class="mono" id="t_conv5">Δκ (proxy) = —</div>
+        <div class="mono" id="t_conv6">v_warp (proxy) = — c</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Engine View</h2>
+      <canvas id="cv" width="1200" height="780"></canvas>
+      <div class="tele" style="margin-top:8px">
+        Visual zones: Intake → Compression → Coils → <span class="mono">E=mc²</span> core → Hull shell <span class="mono">m=E/c²</span> → Nozzle, plus shield & coolant loop.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  // ---- Constants ----
+  const C = 299792458;
+  const C2 = C*C;
+  const G  = 6.67430e-11;
+
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+
+  const el = (id)=>document.getElementById(id);
+  const warpEl = el('warp');
+  const nucEl  = el('nuclear');
+  const vacEl  = el('vacfus');
+  const shEl   = el('shieldEmph');
+  const flowEl = el('coolFlow');
+  const effEl  = el('coolEff');
+
+  const bWarp = el('b_warp'), bFlow = el('b_flow'), bEff = el('b_eff'), bStatus = el('b_status');
+  const tShield = el('t_shield'), tCoreT=el('t_coreT'), tCoolT=el('t_coolT');
+  const gShield = el('g_shield'), gCoreT=el('g_coreT'), gCoolT=el('g_coolT');
+
+  const t1=el('t_conv1'), t2=el('t_conv2'), t3=el('t_conv3'), t4=el('t_conv4'), t5=el('t_conv5'), t6=el('t_conv6');
+
+  const startBtn=el('start'), pauseBtn=el('pause'), resetBtn=el('reset');
+
+  let running = true;
+
+  // ---- Engine geometry (2D drawing) ----
+  const engine = {
+    x0: 120, y: 390,
+    len: 760, r: 120,
+    nozzleLen: 170,
+    nozzleR0: 62,
+    nozzleR1: 16
+  };
+
+  // ---- State ----
+  let coreTemp = 200;
+  let coolTemp = 30;
+  const tauStore = 10;
+
+  let E_dot=0, m_dot=0, m_eff=0, rhoShell=0, dKappa=0, vWarpC=0, shieldFrac=0;
+
+  // moving particles
+  const parts = []; // {x,y,vx,vy,life,kind}
+
+  function clamp(v,a,b){ return Math.max(a, Math.min(b,v)); }
+  function sci(x){
+    if(!isFinite(x)) return '—';
+    const ax=Math.abs(x);
+    if(ax===0) return '0';
+    return x.toExponential(2);
+  }
+
+  function warpFactor(){ return parseInt(warpEl.value,10); }
+  function fieldRadiusMult(w){
+    return 1.2 + (2.6-1.2)*((w-1)/9);
+  }
+  function heatLevel(w){
+    return 0.35 + (1.0-0.35)*((w-1)/9);
+  }
+  function localSpeedFrac(w){
+    return clamp(0.20 + 0.08*(w-1), 0.20, 0.92);
+  }
+  function gammaSR(w){
+    const v = localSpeedFrac(w);
+    return 1/Math.sqrt(Math.max(1e-12, 1 - v*v));
+  }
+
+  function normalizePowerFractions(){
+    let n = parseFloat(nucEl.value)||0;
+    let v = parseFloat(vacEl.value)||0;
+    const s = n+v;
+    if(s < 1e-6){ n=0.5; v=0.5; }
+    else { n/=s; v/=s; }
+    // keep sliders visually close to what user did, but enforce sum=1 internally
+    return {n,v};
+  }
+
+  function shellVolume(R_major, r_minor){
+    // V ≈ 2 π² R r²
+    return 2*Math.PI*Math.PI*R_major*r_minor*r_minor;
+  }
+
+  function resetStreams(){
+    parts.length = 0;
+  }
+
+  // ---- Simulation step ----
+  function step(dt){
+    const w = warpFactor();
+    bWarp.textContent = String(w);
+    bFlow.textContent = (parseFloat(flowEl.value)||0).toFixed(2);
+    bEff.textContent  = (parseFloat(effEl.value)||0).toFixed(2);
+
+    const {n:fracN, v:fracV} = normalizePowerFractions();
+    const shieldEmph = clamp(parseFloat(shEl.value)||0,0,1);
+    const flow = clamp(parseFloat(flowEl.value)||0,0,1);
+    const eff  = clamp(parseFloat(effEl.value)||0,0,1);
+
+    // Power model (concept)
+    const REACTOR_BASE_W = 2e14;
+    const hl = heatLevel(w);
+    const powerScale = (0.30 + 0.70*((w-1)/9))*hl;
+    const P_total = REACTOR_BASE_W * powerScale;
+    const P_nuc = P_total * fracN;
+    const P_vac = P_total * fracV;
+
+    // A) E-dot
+    E_dot = P_nuc + P_vac;
+
+    // B) mass conversion rate m = E/c²
+    m_dot = E_dot / C2;
+
+    // stored effective mass
+    m_eff = m_dot * tauStore;
+
+    // shell geometry
+    const fr = fieldRadiusMult(w);
+    const R_major = (engine.len + engine.nozzleLen) * 0.5;
+    const r_minor = (engine.r*2) * fr * 0.25;
+    const Vs = shellVolume(R_major, r_minor);
+    rhoShell = Vs > 0 ? (m_eff / Vs) : 0;
+
+    // Shield fraction
+    const shieldRaw = (fr - 1.2)/(2.6-1.2);
+    shieldFrac = clamp(shieldRaw + 0.30*shieldEmph, 0, 1);
+
+    // curvature proxy + split (front bias)
+    const rChar = Math.max(1e-6, r_minor*2);
+    const frontBias = 1.0 + 0.20*((w-1)/9)*(1.0 - shieldEmph);
+    const mFront = m_eff*(frontBias/(frontBias+1));
+    const mRear  = m_eff*(1/(frontBias+1));
+    const kF = G*mFront/(rChar*rChar);
+    const kR = G*mRear /(rChar*rChar);
+    dKappa = (kR - kF);
+
+    // warp velocity proxy
+    const KAPPA_NORM = 1e-7;
+    vWarpC = clamp(0.30*(dKappa/KAPPA_NORM), -5, 5);
+
+    // Thermal model
+    const heatIn  = 3e-12 * E_dot * hl; // scaled
+    const heatOut = 220 * flow * eff * (coreTemp - coolTemp);
+    coreTemp += (heatIn - heatOut) * dt * 0.0006;
+
+    const coolantGain = 0.045*flow*Math.max(0, coreTemp - coolTemp);
+    const coolantRad  = 0.060*eff*Math.max(0, coolTemp - 25);
+    coolTemp += (coolantGain - coolantRad) * dt;
+
+    coreTemp = clamp(coreTemp, 20, 2200);
+    coolTemp = clamp(coolTemp, 0, 600);
+
+    // spawn particles
+    if(Math.random() < 0.25 + 0.05*w){
+      parts.push({x:engine.x0-40, y:engine.y + (Math.random()*2-1)*engine.r*0.55, vx:140+30*w, vy:(Math.random()*2-1)*14, life:0, kind:'intake'});
+    }
+    if(Math.random() < 0.18*flow){
+      parts.push({x:engine.x0+40, y:engine.y+engine.r-20 + (Math.random()*2-1)*10, vx:140+20*w, vy:(Math.random()*2-1)*6, life:0, kind:'coolant'});
+    }
+    if(Math.random() < 0.14*hl){
+      parts.push({x:engine.x0+engine.len*0.70 + (Math.random()*2-1)*30, y:engine.y + (Math.random()*2-1)*engine.r*0.35, vx:80+20*w, vy:(Math.random()*2-1)*25, life:0, kind:'heat'});
+    }
+    if(Math.random() < 0.22 + 0.04*w){
+      parts.push({x:engine.x0+engine.len+engine.nozzleLen-10, y:engine.y + (Math.random()*2-1)*engine.r*0.22, vx:260+55*w, vy:(Math.random()*2-1)*22, life:0, kind:'plasma'});
+    }
+
+    // update particles
+    for(const p of parts){
+      p.life += dt;
+      p.x += p.vx*dt;
+      p.y += p.vy*dt;
+
+      if(p.kind==='intake')  p.y += Math.sin((p.x+p.y)*0.01)*14*dt;
+      if(p.kind==='coolant') p.y += Math.sin(p.life*8)*18*dt;
+      if(p.kind==='plasma')  p.y += Math.sin(p.life*10)*22*dt;
+    }
+    // cull
+    for(let i=parts.length-1;i>=0;i--){
+      const p=parts[i];
+      if(p.life>6 || p.x>cv.width+200 || p.y<-200 || p.y>cv.height+200) parts.splice(i,1);
+    }
+
+    // Telemetry UI
+    const sCol = (coreTemp>1400)?'bad':(coreTemp>900)?'warn':'ok';
+    bStatus.textContent = running ? 'RUNNING' : 'PAUSED';
+    bStatus.className = 'badge ' + (running?'ok':'warn');
+
+    tShield.textContent = (shieldFrac*100).toFixed(1)+'%';
+    gShield.style.width = (shieldFrac*100).toFixed(0)+'%';
+
+    tCoreT.textContent = coreTemp.toFixed(0)+' °C';
+    gCoreT.style.width = clamp(coreTemp/2200,0,1)*100+'%';
+
+    tCoolT.textContent = coolTemp.toFixed(0)+' °C';
+    gCoolT.style.width = clamp(coolTemp/600,0,1)*100+'%';
+
+    t1.textContent = `Ė = ${sci(E_dot)} J/s`;
+    t2.textContent = `ṁ = Ė/c² = ${sci(m_dot)} kg/s`;
+    t3.textContent = `m_eff (stored) = ${sci(m_eff)} kg`;
+    t4.textContent = `ρ_shell = ${sci(rhoShell)} kg/m³`;
+    t5.textContent = `Δκ (proxy) = ${sci(dKappa)}`;
+    t6.textContent = `v_warp (proxy) = ${vWarpC.toFixed(2)} c`;
+  }
+
+  // ---- Drawing ----
+  function draw(t){
+    ctx.clearRect(0,0,cv.width,cv.height);
+
+    // background grid
+    ctx.save();
+    ctx.globalAlpha = 0.25;
+    ctx.strokeStyle = '#1d264e';
+    for(let x=0;x<cv.width;x+=40){
+      ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,cv.height); ctx.stroke();
+    }
+    for(let y=0;y<cv.height;y+=40){
+      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(cv.width,y); ctx.stroke();
+    }
+    ctx.restore();
+
+    // Warp field rings
+    const w = warpFactor();
+    const fr = fieldRadiusMult(w);
+    const ringBase = engine.r*0.35*fr;
+    const cxRing = engine.x0 + engine.len*0.62;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(51,225,181,0.55)';
+    ctx.lineWidth = 2;
+    for(let i=0;i<6;i++){
+      const rx = ringBase*(1+0.22*i);
+      const ry = ringBase*0.85*(1+0.10*i);
+      ctx.beginPath();
+      ctx.ellipse(cxRing, engine.y, rx, ry, 0, 0, Math.PI*2);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Engine body
+    ctx.fillStyle = '#2a334d';
+    roundRect(ctx, engine.x0, engine.y-engine.r, engine.len, engine.r*2, 18, true, false);
+    ctx.strokeStyle = '#22305c';
+    ctx.lineWidth = 2;
+    roundRect(ctx, engine.x0, engine.y-engine.r, engine.len, engine.r*2, 18, false, true);
+
+    // Intake fan (moving)
+    const fanX = engine.x0 - 30;
+    const fanY = engine.y;
+    drawFan(fanX, fanY, 28, t*0.004*(1+0.6*((w-1)/9)));
+
+    // Nozzle
+    const nozX0 = engine.x0+engine.len;
+    const nozX1 = nozX0 + engine.nozzleLen;
+    ctx.fillStyle = '#9bb4ff';
+    ctx.beginPath();
+    ctx.moveTo(nozX0, engine.y-engine.nozzleR0);
+    ctx.lineTo(nozX1, engine.y-engine.nozzleR1);
+    ctx.lineTo(nozX1, engine.y+engine.nozzleR1);
+    ctx.lineTo(nozX0, engine.y+engine.nozzleR0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#22305c';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Coolant loop
+    ctx.strokeStyle = '#6bd1ff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    const yLoop = engine.y + engine.r - 16;
+    ctx.moveTo(engine.x0+10, yLoop);
+    for(let x=engine.x0+10; x<nozX0-10; x+=32){
+      ctx.lineTo(x+16, yLoop+6);
+      ctx.lineTo(x+32, yLoop);
+    }
+    ctx.stroke();
+
+    // Reactor core with E=mc² and m=E/c²
+    const coreX = engine.x0 + engine.len*0.70;
+    ctx.fillStyle = '#f5f0c8';
+    ctx.beginPath(); ctx.arc(coreX, engine.y, 26, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#d0c86b'; ctx.lineWidth=2; ctx.stroke();
+
+    ctx.fillStyle='#11131a';
+    ctx.font='11px system-ui';
+    ctx.textAlign='center';
+    ctx.textBaseline='middle';
+    ctx.fillText('E=mc²', coreX, engine.y-7);
+    ctx.fillText('m=E/c²', coreX, engine.y+7);
+
+    // Shield ring
+    const sh = shieldFrac;
+    const shieldR = engine.r + 26 + 30*sh;
+    ctx.save();
+    ctx.strokeStyle = sh < 0.7 ? 'rgba(138,255,155,0.55)' : 'rgba(255,209,90,0.60)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.ellipse(engine.x0+engine.len*0.50, engine.y, engine.len*0.56, shieldR, 0, 0, Math.PI*2);
+    ctx.stroke();
+    ctx.restore();
+
+    // Plasma cone
+    const plen = 90 + (260-90)*((w-1)/9);
+    const prad = 10 + (36-10)*((w-1)/9);
+    ctx.save();
+    const g = ctx.createLinearGradient(nozX1, engine.y, nozX1+plen, engine.y);
+    g.addColorStop(0, 'rgba(255,220,168,0.65)');
+    g.addColorStop(0.3,'rgba(255,220,168,0.32)');
+    g.addColorStop(1, 'rgba(255,220,168,0.02)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(nozX1, engine.y-prad);
+    ctx.lineTo(nozX1+plen, engine.y-prad*0.35);
+    ctx.lineTo(nozX1+plen, engine.y+prad*0.35);
+    ctx.lineTo(nozX1, engine.y+prad);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // Particles
+    for(const p of parts){
+      if(p.kind==='intake'){
+        ctx.fillStyle = '#8fb4ff';
+        ctx.fillRect(p.x, p.y, 3, 2);
+      }else if(p.kind==='coolant'){
+        ctx.fillStyle = '#6bd1ff';
+        dot(p.x,p.y,2.2);
+      }else if(p.kind==='heat'){
+        ctx.fillStyle = '#ffcc66';
+        dot(p.x,p.y,2.2);
+      }else if(p.kind==='plasma'){
+        ctx.fillStyle = '#ffcc66';
+        dot(p.x,p.y,2.0);
+      }
+    }
+
+    // Labels
+    ctx.fillStyle = '#eaf0ff';
+    ctx.font='12px system-ui';
+    ctx.textAlign='left'; ctx.textBaseline='top';
+    ctx.fillText('Intake', engine.x0-70, engine.y-engine.r-46);
+    ctx.fillText('Compression', engine.x0+140, engine.y-engine.r-46);
+    ctx.fillText('Coils / Field Shapers', engine.x0+360, engine.y-engine.r-46);
+    ctx.fillText('E=mc² Core', coreX-30, engine.y-engine.r-46);
+    ctx.fillText('m=E/c² Shell (effective)', engine.x0+engine.len*0.50-80, engine.y+engine.r+24);
+    ctx.fillText('Coolant Loop', engine.x0+40, engine.y+engine.r+44);
+
+    // small info box
+    ctx.save();
+    ctx.globalAlpha = 0.90;
+    ctx.fillStyle = 'rgba(2,6,23,0.85)';
+    roundRect(ctx, 18, 18, 360, 86, 12, true, false);
+    ctx.strokeStyle='rgba(148,163,184,0.35)'; ctx.lineWidth=1;
+    roundRect(ctx, 18, 18, 360, 86, 12, false, true);
+    ctx.fillStyle = '#eaf0ff';
+    ctx.font='12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+    ctx.fillText(`Ė=${sci(E_dot)} J/s`, 30, 30);
+    ctx.fillText(`ṁ=Ė/c²=${sci(m_dot)} kg/s`, 30, 48);
+    ctx.fillText(`v_warp≈${vWarpC.toFixed(2)} c (proxy)`, 30, 66);
+    ctx.restore();
+
+    function dot(x,y,r){
+      ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+    }
+  }
+
+  function roundRect(ctx, x, y, w, h, r, fill, stroke){
+    const rr = Math.min(r, w/2, h/2);
+    ctx.beginPath();
+    ctx.moveTo(x+rr,y);
+    ctx.arcTo(x+w,y,x+w,y+h,rr);
+    ctx.arcTo(x+w,y+h,x,y+h,rr);
+    ctx.arcTo(x,y+h,x,y,rr);
+    ctx.arcTo(x,y,x+w,y,rr);
+    ctx.closePath();
+    if(fill) ctx.fill();
+    if(stroke) ctx.stroke();
+  }
+
+  function drawFan(x,y,r,ang){
+    ctx.save();
+    ctx.translate(x,y);
+    ctx.fillStyle='#a4b2d8';
+    ctx.beginPath(); ctx.arc(0,0,r,0,Math.PI*2); ctx.fill();
+    for(let i=0;i<6;i++){
+      const a = ang + i*(Math.PI*2/6);
+      const r1=r*0.45, r2=r*1.5;
+      ctx.fillStyle='#c7d4ff';
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a)*r1, Math.sin(a)*r1);
+      ctx.lineTo(Math.cos(a+0.18)*r2, Math.sin(a+0.18)*r2);
+      ctx.lineTo(Math.cos(a+0.36)*r1, Math.sin(a+0.36)*r1);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // ---- loop ----
+  let last = performance.now();
+  function loop(now){
+    const dt = Math.min(0.05, (now-last)/1000);
+    last = now;
+    if(running) step(dt);
+    draw(now);
+    requestAnimationFrame(loop);
+  }
+
+  // ---- buttons ----
+  startBtn.onclick = ()=>{ running=true; bStatus.textContent='RUNNING'; };
+  pauseBtn.onclick = ()=>{ running=false; bStatus.textContent='PAUSED'; };
+  resetBtn.onclick = ()=>{ resetStreams(); coreTemp=200; coolTemp=30; };
+
+  // show slider badges
+  function refreshBadges(){
+    bWarp.textContent = warpEl.value;
+    bFlow.textContent = (parseFloat(flowEl.value)||0).toFixed(2);
+    bEff.textContent  = (parseFloat(effEl.value)||0).toFixed(2);
+  }
+  [warpEl, flowEl, effEl].forEach(x=>x.addEventListener('input', refreshBadges));
+  refreshBadges();
+
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
