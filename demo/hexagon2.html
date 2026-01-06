@@ -9,6 +9,10 @@
     --bg:#0b0f14; --panel:#101823; --panel2:#0c131d; --line:#1f2c3c;
     --ink:#e8eef6; --btn:#1a2a3d; --btnb:#2d4764; --btnh:#233a55;
     --warn:#b68b2e;
+
+    /* Dyson Sphere ring colors */
+    --dysonRing: rgba(255, 200, 60, 0.62);
+    --dysonRing2: rgba(255, 200, 60, 0.18);
   }
   body{margin:0;font-family:system-ui,Segoe UI,Arial;background:var(--bg);color:var(--ink);}
   .wrap{display:grid;grid-template-columns:420px 1fr;gap:12px;padding:12px;}
@@ -79,6 +83,23 @@
   .inspector .title{font-weight:800;font-size:13px;letter-spacing:.2px;margin-bottom:6px;}
   .kv{display:grid;grid-template-columns:120px 1fr;gap:4px 10px;font-size:12px;opacity:.92;}
   .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;}
+
+  /* Dyson Sphere mini card */
+  .dysonBox{
+    margin-top:10px;
+    border:1px solid var(--btnb);
+    background:rgba(9,14,22,0.55);
+    border-radius:12px;
+    padding:10px;
+  }
+  .dyRow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;}
+  .dyRead{
+    margin-top:6px;
+    font-size:12px;
+    opacity:.92;
+    line-height:1.35;
+  }
+  .dyRead b{opacity:1}
 </style>
 </head>
 
@@ -104,7 +125,16 @@
 
     <div class="row">
       <label class="switch"><input id="constraintView" type="checkbox" /> Constraint View</label>
+
+      <!-- Keep this toggle (already exists) -->
       <label class="switch"><input id="latticeView" type="checkbox" checked /> Hex Lattice</label>
+
+      <!-- NEW: lattice clipped to circle toggle -->
+      <label class="switch" title="When ON, lattice drawing is clipped strictly inside the domain circle.">
+        <input id="latticeClip" type="checkbox" checked />
+        Lattice in Circle
+      </label>
+
       <label class="switch"><input id="glyphView" type="checkbox" checked /> Glyph Memory</label>
     </div>
 
@@ -129,6 +159,31 @@
     <div class="row">
       <button id="stressBtn">Failure Inject</button>
       <button id="clearMem">Clear Glyph Memory</button>
+    </div>
+
+    <!-- NEW: Dyson Sphere controls -->
+    <div class="dysonBox">
+      <h3 style="margin:0 0 6px;">Dyson Sphere (Outer Boundary)</h3>
+      <div class="row" style="margin:6px 0 0;">
+        <label class="switch" title="Draw an outer boundary ring representing a Dyson sphere / capture shell.">
+          <input id="dysonOn" type="checkbox" />
+          Dyson Sphere
+        </label>
+      </div>
+
+      <label>Dyson radius scale: <span id="dysonScaleVal"></span></label>
+      <input id="dysonScale" type="range" min="1.10" max="3.00" step="0.01" value="2.20" />
+
+      <label>Capture fraction (%): <span id="dysonCapVal"></span></label>
+      <input id="dysonCap" type="range" min="0" max="100" step="1" value="100" />
+
+      <label>Star luminosity (W):</label>
+      <input id="dysonLum" type="number" value="3.828e26" step="1e24" style="width:180px;" />
+
+      <div class="dyRead" id="dysonRead">
+        <div><b>Captured power:</b> <span id="dysonPower">—</span></div>
+        <div><b>Flux at shell:</b> <span id="dysonFlux">—</span></div>
+      </div>
     </div>
 
     <label>Polygon sides N: <span id="nVal"></span></label>
@@ -209,6 +264,7 @@
 
   const constraintViewEl=$("constraintView");
   const latticeViewEl=$("latticeView");
+  const latticeClipEl=$("latticeClip"); // NEW
   const glyphViewEl=$("glyphView");
   const nestedHexEl=$("nestedHex");
   const spiralOnEl=$("spiralOn");
@@ -219,6 +275,16 @@
 
   const stressBtn=$("stressBtn");
   const clearMemBtn=$("clearMem");
+
+  // Dyson UI
+  const dysonOnEl=$("dysonOn");
+  const dysonScaleEl=$("dysonScale");
+  const dysonScaleValEl=$("dysonScaleVal");
+  const dysonCapEl=$("dysonCap");
+  const dysonCapValEl=$("dysonCapVal");
+  const dysonLumEl=$("dysonLum");
+  const dysonPowerEl=$("dysonPower");
+  const dysonFluxEl=$("dysonFlux");
 
   const selIdEl=$("selId"), selQREl=$("selQR"), selVEl=$("selV"), selSEl=$("selS"),
         selLockEl=$("selLock"), selGlyphEl=$("selGlyph"), selDistEl=$("selDist");
@@ -297,6 +363,79 @@
     modePill.style.borderColor=regulated?"#b68b2e":"#2d4764";
     modePill.style.background=regulated?"#221a0a":"#0c131d";
     matchPill.textContent=`Match: ${matchPct.toFixed(1)}%`;
+  }
+
+  // ---------- Dyson Sphere helpers ----------
+  function fmtSI(x){
+    if(!isFinite(x)) return "—";
+    const ax=Math.abs(x);
+    if(ax>=1e24) return (x/1e24).toFixed(3)+"e24";
+    if(ax>=1e18) return (x/1e18).toFixed(3)+"e18";
+    if(ax>=1e12) return (x/1e12).toFixed(3)+"e12";
+    if(ax>=1e9)  return (x/1e9 ).toFixed(3)+"e9";
+    if(ax>=1e6)  return (x/1e6 ).toFixed(3)+"e6";
+    if(ax>=1e3)  return (x/1e3 ).toFixed(3)+"e3";
+    return x.toFixed(3);
+  }
+  function updateDysonUI(){
+    dysonScaleValEl.textContent = (+dysonScaleEl.value).toFixed(2) + "×R";
+    dysonCapValEl.textContent = (+dysonCapEl.value).toFixed(0);
+
+    const cap = (+dysonCapEl.value)/100;
+    const L = Number(dysonLumEl.value);
+    const captured = L * cap;
+
+    // Flux uses shell area = 4πr^2. We only have pixels here, so interpret "scale×R" as radius proxy.
+    // Provide a consistent "relative flux" value:
+    const rRel = +dysonScaleEl.value; // in units of R
+    const areaRel = 4*Math.PI*rRel*rRel;
+    const fluxRel = L / areaRel;
+
+    dysonPowerEl.textContent = fmtSI(captured) + " W";
+    dysonFluxEl.textContent  = fmtSI(fluxRel) + " W / (4π (R·scale)^2)";
+  }
+
+  function drawDysonSphere(cx,cy,R){
+    if(!dysonOnEl.checked) return;
+
+    const scale = +dysonScaleEl.value;
+    const dyR = R * scale;
+
+    ctx.save();
+    // outer ring
+    ctx.globalAlpha = 1;
+    ctx.beginPath();
+    ctx.arc(cx,cy,dyR,0,Math.PI*2);
+    ctx.lineWidth = Math.max(2, R*0.022);
+    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--dysonRing') || "rgba(255,200,60,.62)";
+    ctx.stroke();
+
+    // halo
+    ctx.globalAlpha = 0.9;
+    ctx.beginPath();
+    ctx.arc(cx,cy,dyR + ctx.lineWidth*2.1,0,Math.PI*2);
+    ctx.lineWidth = ctx.lineWidth*2.2;
+    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--dysonRing2') || "rgba(255,200,60,.18)";
+    ctx.stroke();
+
+    // small ticks
+    ctx.globalAlpha = 0.55;
+    ctx.lineWidth = 1.3;
+    ctx.strokeStyle = "rgba(255,225,140,0.35)";
+    const ticks=24;
+    for(let i=0;i<ticks;i++){
+      const a = (i/ticks)*Math.PI*2;
+      const x1 = cx + (dyR-8)*Math.cos(a);
+      const y1 = cy + (dyR-8)*Math.sin(a);
+      const x2 = cx + (dyR+8)*Math.cos(a);
+      const y2 = cy + (dyR+8)*Math.sin(a);
+      ctx.beginPath();
+      ctx.moveTo(x1,y1);
+      ctx.lineTo(x2,y2);
+      ctx.stroke();
+    }
+
+    ctx.restore();
   }
 
   // ---------- Pillars ----------
@@ -533,7 +672,17 @@
   function drawLattice(){
     const showGlyphs=glyphViewEl.checked;
 
-    ctx.save();
+    // OPTIONAL CLIP: strictly inside circle domain
+    if(latticeClipEl.checked){
+      const cx=lastCenter.cx, cy=lastCenter.cy, R=lastCenter.R;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx,cy,R-1,0,Math.PI*2);
+      ctx.clip();
+    } else {
+      ctx.save();
+    }
+
     ctx.globalAlpha=0.95;
 
     for(const n of lattice.nodes){
@@ -619,7 +768,6 @@
       const d2=dx*dx+dy*dy;
       if(d2<bestD2){bestD2=d2; best=i;}
     }
-    // require closeness so clicks don't pick random far node
     const rPick=Math.max(10, HEX.size*1.25);
     if(bestD2 <= rPick*rPick) return best;
     return -1;
@@ -629,13 +777,20 @@
     if(!spiralOnEl.checked) return;
     if(!lattice.nodes.length) return;
 
-    // Spiral params (paper-style)
-    const turns = 3.2;               // how many turns
-    const samples = 220;             // points in the spiral
+    // clip spiral also if latticeClip is on
+    if(latticeClipEl.checked){
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx,cy,R-1,0,Math.PI*2);
+      ctx.clip();
+    } else {
+      ctx.save();
+    }
+
+    const turns = 3.2;
+    const samples = 220;
     const rMax = R*0.92;
 
-    // Build spiral points, snap each to nearest lattice node,
-    // then draw polyline through snapped nodes.
     let path = [];
     let lastIdx = -1;
 
@@ -646,7 +801,6 @@
       const px = cx + rad*Math.cos(ang);
       const py = cy + rad*Math.sin(ang);
 
-      // snap to nearest lattice node (fast enough at ~1k nodes)
       let best=-1, bestD2=1e18;
       for(let j=0;j<lattice.nodes.length;j++){
         const n=lattice.nodes[j];
@@ -660,11 +814,9 @@
       }
     }
 
-    // draw
-    ctx.save();
     ctx.globalAlpha = 0.65;
     ctx.lineWidth = 2.0;
-    ctx.strokeStyle = "rgba(182,139,46,0.75)"; // warm spiral
+    ctx.strokeStyle = "rgba(182,139,46,0.75)";
     ctx.beginPath();
     for(let i=0;i<path.length;i++){
       const n=lattice.nodes[path[i]];
@@ -673,7 +825,6 @@
     }
     ctx.stroke();
 
-    // small markers
     ctx.globalAlpha = 0.85;
     ctx.fillStyle = "rgba(232,238,246,0.20)";
     for(let i=0;i<path.length;i+=14){
@@ -791,10 +942,15 @@
     else if(phi<0.60) phiHint.textContent="φₛₜ moderate: partial phase-locking reduces spread + collapse density.";
     else phiHint.textContent="φₛₜ high: strong damping → more selective memory.";
 
+    updateDysonUI();
+
     const w=canvas.clientWidth, h=canvas.clientHeight;
     ctx.clearRect(0,0,w,h);
     const cx=w/2, cy=h/2;
     lastCenter={cx,cy,R};
+
+    // Dyson sphere (draw first so everything else is inside)
+    drawDysonSphere(cx,cy,R);
 
     // domain circle
     ctx.strokeStyle="#3a5678";
@@ -838,7 +994,6 @@
     if(needLattice && stressPack){
       ensureLatticeBuilt(cx,cy,R,forceRebuild);
 
-      // use 6 pillar points as sources
       const rad=Math.min(rr.rad,R*0.78);
       const pillarPts=polygonVertices(cx,cy,rad,6);
       const order=["Maxwell","Einstein","Feynman","Turing","vonNeumann","Shannon"];
@@ -850,16 +1005,13 @@
       const eff=propagateLatticeAndMemory(phi);
       drawLattice();
 
-      // spiral trace (snapped to lattice nodes)
       drawLatticeSpiral(cx,cy,R);
 
       const lockedCount=lattice.nodes.reduce((acc,n)=>acc+(n.locked?1:0),0);
       statusPill.textContent=`Status: nodes=${lattice.nodes.length} locked=${lockedCount}`;
 
-      // keep inspector live
       if(selected.idx>=0) setInspector(selected.idx);
 
-      // legend line
       ctx.fillStyle="rgba(232,238,246,0.78)";
       ctx.font="12px system-ui, Segoe UI, Arial";
       ctx.fillText(
@@ -942,8 +1094,14 @@
   };
 
   // sliders update
-  [NEl,aEl,REl,kEl,phiEl,thetaEl,gainEl,leakEl].forEach(el=>el.addEventListener("input",()=>draw()));
-  [constraintViewEl,latticeViewEl,glyphViewEl,nestedHexEl,spiralOnEl,inspectOnEl,pinSelEl].forEach(el=>el.addEventListener("change",()=>draw(true)));
+  [NEl,aEl,REl,kEl,phiEl,thetaEl,gainEl,leakEl,dysonScaleEl,dysonCapEl,dysonLumEl].forEach(el=>{
+    el.addEventListener("input",()=>draw());
+  });
+
+  // toggles
+  [constraintViewEl,latticeViewEl,latticeClipEl,glyphViewEl,nestedHexEl,spiralOnEl,inspectOnEl,pinSelEl,dysonOnEl].forEach(el=>{
+    el.addEventListener("change",()=>draw(true));
+  });
 
   // resize
   function resize(){
@@ -955,7 +1113,7 @@
   }
   window.addEventListener("resize",resize);
 
-  // animation loop (only redraw continuously if needed)
+  // animation loop
   function tick(){
     const animate = latticeViewEl.checked || stressInject;
     if(animate) draw();
@@ -964,6 +1122,8 @@
 
   // init
   log("INIT: Turn ON/OFF Nested Hexagons + Spiral Trace to match the paper diagrams.");
+  log("NEW: 'Lattice in Circle' clips lattice strictly inside the domain circle.");
+  log("NEW: Dyson Sphere toggle adds an outer boundary ring (global shell reference).");
   log("If sliders feel ‘not working’, turn Failure Inject OFF (stops constant redraw).");
   log("—");
   resize();
