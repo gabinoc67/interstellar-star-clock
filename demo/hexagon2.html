@@ -79,7 +79,6 @@
   .kv{display:grid;grid-template-columns:120px 1fr;gap:4px 10px;font-size:12px;opacity:.92;}
   .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;}
 
-  /* Dyson Sphere mini card */
   .dysonBox{
     margin-top:10px;
     border:1px solid var(--btnb);
@@ -95,7 +94,6 @@
   }
   .dyRead b{opacity:1}
 
-  /* Log header row */
   .logHead{
     display:flex;align-items:center;justify-content:space-between;gap:10px;
     margin-top:8px;
@@ -253,7 +251,6 @@
 (() => {
   const canvas = document.getElementById("c");
   const ctx = canvas.getContext("2d");
-
   const $ = (id)=>document.getElementById(id);
 
   const NEl=$("N"), aEl=$("a"), REl=$("R"), kEl=$("k"), phiEl=$("phi");
@@ -296,7 +293,7 @@
 
   const logEl=$("log");
 
-  // --- Live log + CSV ---
+  // ----------------- Log + CSV -----------------
   const logEntries = [];
   const nowISO = () => new Date().toISOString();
   const log=(t)=>{
@@ -306,24 +303,36 @@
     logEl.scrollTop = logEl.scrollHeight;
   };
 
+  // ----------------- Math helpers -----------------
   const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
   const lerp=(a,b,t)=>a+(b-a)*t;
 
-  // DPR handling (fixes click/overlay issues on some browsers)
+  // DPR-safe canvas sizing (fixes "click doesn't select / values not live" on some browsers)
   let DPR = Math.max(1, window.devicePixelRatio || 1);
-
   function setDPR(){
     DPR = Math.max(1, window.devicePixelRatio || 1);
-    const w = Math.floor(canvas.clientWidth * DPR);
-    const h = Math.floor(canvas.clientHeight * DPR);
-    canvas.width = w;
-    canvas.height = h;
+    canvas.width = Math.floor(canvas.clientWidth * DPR);
+    canvas.height = Math.floor(canvas.clientHeight * DPR);
     ctx.setTransform(1,0,0,1,0,0);
     ctx.scale(DPR, DPR); // draw in CSS pixels
   }
+  const cssW = () => canvas.width / DPR;
+  const cssH = () => canvas.height / DPR;
 
-  function cssW(){ return canvas.width / DPR; }
-  function cssH(){ return canvas.height / DPR; }
+  // ----------------- Geometry equations (FIXED) -----------------
+  // FIX: circle match should compare INSCRIBED polygon perimeter to circle circumference:
+  // Pn = 2N sin(pi/N) for R=1, C = 2pi => ratio = N sin(pi/N) / pi
+  function circleMatchPercent(N){
+    const ratio = (N * Math.sin(Math.PI / N)) / Math.PI;
+    return 100 * ratio;
+  }
+
+  function regulatedRadius(a,R,k){
+    // If "intent" radius exceeds container R, clamp it down by s=(R/a)^k
+    if(a<=R) return {rad:a, regulated:false, s:1};
+    const s=Math.pow(R/a,k);
+    return {rad:a*s, regulated:true, s};
+  }
 
   function polygonVertices(cx,cy,rad,n,rot=0){
     const pts=[];
@@ -334,6 +343,7 @@
     }
     return pts;
   }
+
   function drawPolygon(pts, fill=true){
     ctx.beginPath();
     ctx.moveTo(pts[0][0],pts[0][1]);
@@ -342,15 +352,7 @@
     if(fill) ctx.fill();
     ctx.stroke();
   }
-  function circleMatchPercent(N){
-    const ratio=(N*Math.sin((2*Math.PI)/N))/(2*Math.PI);
-    return 100*ratio;
-  }
-  function regulatedRadius(a,R,k){
-    if(a<=R) return {rad:a, regulated:false, s:1};
-    const s=Math.pow(R/a,k);
-    return {rad:a*s, regulated:true, s};
-  }
+
   function strokeForK(regulated,k){
     const t=clamp((k-0.50)/2.00,0,1);
     const cool={r:69,g:103,b:132}, warm={r:182,g:139,b:46};
@@ -360,6 +362,7 @@
     const a=regulated?(0.75+0.20*t):(0.55+0.20*t);
     return `rgba(${r},${g},${b},${a})`;
   }
+
   function updateKUI(regulated){
     const k=+kEl.value;
     kVal.textContent = k.toFixed(2);
@@ -373,6 +376,7 @@
     if(regulated) label += " (ACTIVE)";
     kText.textContent=label;
   }
+
   function updatePills(regulated,N,matchPct){
     nPill.textContent=`N: ${N}`;
     modePill.textContent=`Mode: ${regulated?"Regulation":"Geometry"}`;
@@ -381,7 +385,7 @@
     matchPill.textContent=`Match: ${matchPct.toFixed(1)}%`;
   }
 
-  // ---------- Dyson Sphere helpers ----------
+  // ----------------- Dyson helpers -----------------
   function fmtSI(x){
     if(!isFinite(x)) return "—";
     const ax=Math.abs(x);
@@ -393,6 +397,7 @@
     if(ax>=1e3)  return (x/1e3 ).toFixed(3)+"e3";
     return x.toFixed(3);
   }
+
   function updateDysonUI(){
     dysonScaleValEl.textContent = (+dysonScaleEl.value).toFixed(2) + "×R";
     dysonCapValEl.textContent = (+dysonCapEl.value).toFixed(0);
@@ -446,7 +451,6 @@
       ctx.stroke();
     }
 
-    // Label + live numbers on the Dyson ring
     ctx.globalAlpha = 0.9;
     ctx.fillStyle="rgba(232,238,246,0.85)";
     ctx.font="12px system-ui, Segoe UI, Arial";
@@ -456,7 +460,7 @@
     ctx.restore();
   }
 
-  // ---------- Pillars ----------
+  // ----------------- Pillars + stress model -----------------
   const pillars=[
     { key:"Maxwell", short:"M" },
     { key:"Einstein", short:"E" },
@@ -486,14 +490,16 @@
   }
 
   function computeStresses({N,a,R,k,phi,regulated}){
-    const match=circleMatchPercent(N)/100;
-    const coarseness=clamp(1-match,0,1);
-    const overflow=clamp((a-R)/Math.max(1,R),0,1);
-    const kPressure=clamp(Math.abs(k-1.0)/1.5,0,1);
-    const clampActive=regulated?1:0;
+    // match in [0,1]
+    const match = clamp(circleMatchPercent(N)/100,0,1);
+    const coarseness = clamp(1-match,0,1);
 
-    const deco=(1-phi);
-    const damp=lerp(1.0,0.55,phi);
+    const overflow = clamp((a-R)/Math.max(1,R),0,1); // only if a>R
+    const kPressure = clamp(Math.abs(k-1.0)/1.5,0,1);
+    const clampActive = regulated ? 1 : 0;
+
+    const deco = (1-phi);
+    const damp = lerp(1.0,0.55,phi);
 
     let inj=0;
     if(stressInject){
@@ -502,17 +508,18 @@
     }
 
     const base={
-      Maxwell:    0.15 + 0.55*overflow + 0.25*coarseness + 0.10*inj,
-      Einstein:   0.18 + 0.60*overflow + 0.30*deco      + 0.06*clampActive + 0.08*inj,
-      Shannon:    0.14 + 0.50*coarseness + 0.40*deco    + 0.08*overflow + 0.06*inj,
-      vonNeumann: 0.16 + 0.55*kPressure + 0.20*deco     + 0.08*clampActive + 0.07*inj,
-      Turing:     0.16 + 0.45*kPressure + 0.35*coarseness + 0.10*inj,
-      Feynman:    0.18 + 0.45*coarseness + 0.55*deco    + 0.08*overflow + 0.10*inj,
+      Maxwell:    0.12 + 0.55*overflow + 0.22*coarseness + 0.12*inj,
+      Einstein:   0.14 + 0.60*overflow + 0.30*deco      + 0.06*clampActive + 0.10*inj,
+      Shannon:    0.12 + 0.55*coarseness + 0.40*deco    + 0.08*overflow + 0.08*inj,
+      vonNeumann: 0.14 + 0.55*kPressure + 0.20*deco     + 0.08*clampActive + 0.08*inj,
+      Turing:     0.14 + 0.50*kPressure + 0.35*coarseness + 0.10*inj,
+      Feynman:    0.14 + 0.45*coarseness + 0.55*deco    + 0.10*overflow + 0.10*inj,
     };
 
     const keys=["Maxwell","Einstein","Feynman","Turing","vonNeumann","Shannon"];
     let s=keys.map(k=>base[k]);
 
+    // neighbor coupling along ring; phi increases damping / reduces spread
     const steps=2;
     const c=lerp(0.22,0.12,phi);
     for(let it=0;it<steps;it++){
@@ -532,7 +539,7 @@
     return {out,coarseness,overflow,deco,match};
   }
 
-  // ---------- HEX LATTICE + MEMORY ----------
+  // ----------------- Hex lattice + Φ-HNS memory -----------------
   const HEX={ size:14, dirs:[[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]] };
   const GLYPHS=["𝒮","𝒞","฀","𝒦","ϕ","⟡","⊕","∿","∞","◇","▣","✶"];
   const FALLBACKS=["S","C","H","K","φ","*","+","~","∞","◇","▣","*"];
@@ -580,8 +587,9 @@
         if(j!==undefined) n.nei.push(j);
       }
     }
-    if(selected.idx>=lattice.nodes.length) selected.idx=-1;
 
+    // keep selection if possible
+    if(selected.idx>=lattice.nodes.length) selected.idx=-1;
     log(`LATTICE: built ${lattice.nodes.length} nodes (hex size=${size}px).`);
     log("—");
   }
@@ -597,7 +605,9 @@
 
   function clearLatticeMemory(){
     for(const n of lattice.nodes){
-      n.surplus=0; n.locked=false; n.glyph=""; n.glyphIdx=-1;
+      n.v = 0; n.v2 = 0;
+      n.surplus=0; n.s2=0;
+      n.locked=false; n.glyph=""; n.glyphIdx=-1;
     }
   }
 
@@ -615,7 +625,7 @@
         wsum+=w; s+=w*pillarStress[i];
       }
       const src=wsum>0?(s/wsum):0;
-      const blend=node.locked?0.10:0.18;
+      const blend=node.locked?0.08:0.18;
       node.v=clamp(lerp(node.v, src*injScale, blend),0,1);
     }
   }
@@ -643,6 +653,7 @@
   }
 
   function propagateLatticeAndMemory(phi){
+    // ring coupling (neighbor averaging)
     const coupling=lerp(0.28,0.12,phi);
     const damping=lerp(0.985,0.92,phi);
 
@@ -650,6 +661,7 @@
     const gain=+gainEl.value;
     const leak=+leakEl.value;
 
+    // phase alignment makes locking more selective
     const thetaEff=clamp(thetaBase+0.08*phi,0.20,1.00);
     const gainEff=gain*lerp(1.0,0.78,phi);
     const leakEff=leak*lerp(1.0,0.75,phi);
@@ -657,6 +669,7 @@
     const microSteps=2;
 
     for(let step=0; step<microSteps; step++){
+      // diffuse v
       for(const n of lattice.nodes){
         let avg=0;
         const m=n.nei.length||1;
@@ -668,13 +681,15 @@
       }
       for(const n of lattice.nodes) n.v=n.v2;
 
+      // accumulate surplus
       for(const n of lattice.nodes){
-        const lockFactor=n.locked?0.25:1.0;
+        const lockFactor=n.locked?0.22:1.0;
         const add=n.v*0.030*gainEff*lockFactor;
         const dec=n.surplus*leakEff;
         n.s2=clamp(n.surplus+add-dec,0,1.25);
       }
 
+      // lock glyphs
       for(const n of lattice.nodes){
         n.surplus=n.s2;
         if(!n.locked && n.surplus>=thetaEff){
@@ -708,7 +723,7 @@
       const s=n.v;
       const mem=clamp(n.surplus,0,1);
       const hot=Math.max(s, mem*0.85);
-      if(hot<0.03 && !n.locked) continue;
+      if(hot<0.02 && !n.locked) continue;
 
       ctx.fillStyle=stressColor(clamp(hot,0,1));
       const r=(n.locked?2.3:1.4)+2.0*hot;
@@ -743,7 +758,7 @@
     // selected highlight
     if(selected.idx>=0 && lattice.nodes[selected.idx]){
       const n=lattice.nodes[selected.idx];
-      ctx.strokeStyle="rgba(232,238,246,0.90)";
+      ctx.strokeStyle="rgba(232,238,246,0.92)";
       ctx.lineWidth=2;
       ctx.beginPath();
       ctx.arc(n.x,n.y,10,0,Math.PI*2);
@@ -776,8 +791,14 @@
     ctx.restore();
   }
 
-  function pickNearestNode(px,py){
+  // ----------------- Selection (FIXED: easier click + always works inside circle) -----------------
+  function pickNearestNode(px,py,cx,cy,R){
     if(!lattice.nodes.length) return -1;
+
+    // Only allow picking if click is inside the domain circle (prevents weird far picks)
+    const dc = Math.hypot(px-cx, py-cy);
+    if(dc > R+6) return -1;
+
     let best=-1, bestD2=1e18;
     for(let i=0;i<lattice.nodes.length;i++){
       const n=lattice.nodes[i];
@@ -785,10 +806,13 @@
       const d2=dx*dx+dy*dy;
       if(d2<bestD2){bestD2=d2; best=i;}
     }
-    // more forgiving pick radius (fixes “can’t select”)
-    const rPick=Math.max(16, HEX.size*2.2);
+
+    // very forgiving radius so inspector always updates
+    const rPick=Math.max(26, HEX.size*2.4);
     if(bestD2 <= rPick*rPick) return best;
-    return -1;
+
+    // still return closest if inside circle (so it NEVER “does nothing”)
+    return best;
   }
 
   function drawLatticeSpiral(cx,cy,R){
@@ -854,16 +878,57 @@
     ctx.restore();
   }
 
-  // ✅ FIX: restore labels + live numbers on constraint circles
+  // ----------------- Constraint overlay (labeled lines + live numbers) -----------------
+  function drawLegendBox(x,y){
+    ctx.save();
+    ctx.globalAlpha=0.95;
+    ctx.fillStyle="rgba(10,16,24,0.68)";
+    ctx.strokeStyle="rgba(45,71,100,0.70)";
+    ctx.lineWidth=1;
+    const w=240, h=106;
+    roundRect(x,y,w,h,10);
+    ctx.fill(); ctx.stroke();
+
+    ctx.fillStyle="rgba(232,238,246,0.90)";
+    ctx.font="12px system-ui, Segoe UI, Arial";
+    ctx.fillText("Constraint Lines (ring couplings):", x+10, y+18);
+
+    ctx.fillStyle="rgba(138,167,200,0.95)";
+    ctx.font="12px system-ui, Segoe UI, Arial";
+    ctx.fillText("Edges: M–E–F–T–V–S–M", x+10, y+36);
+    ctx.fillText("Nodes: value = live stress (0..1)", x+10, y+52);
+
+    ctx.fillStyle="rgba(232,238,246,0.86)";
+    ctx.font="12px system-ui, Segoe UI, Arial";
+    ctx.fillText("M Maxwell   E Einstein   F Feynman", x+10, y+72);
+    ctx.fillText("T Turing     V vonN       S Shannon", x+10, y+90);
+
+    ctx.restore();
+  }
+
+  function roundRect(x,y,w,h,r){
+    r=Math.min(r,w/2,h/2);
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+  }
+
   function drawConstraintOverlay(cx,cy,R,rr,stressPack){
     const rad=Math.min(rr.rad,R*0.78);
     const pts=polygonVertices(cx,cy,rad,6);
 
-    // frame
+    // draw labeled legend box (top-left area on canvas)
+    drawLegendBox(12, 108);
+
+    // frame polygon connecting pillars
     ctx.save();
     ctx.globalAlpha=0.55;
     ctx.strokeStyle="rgba(120,150,180,0.35)";
-    ctx.lineWidth=1.2;
+    ctx.lineWidth=1.4;
     ctx.beginPath();
     ctx.moveTo(pts[0][0],pts[0][1]);
     for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]);
@@ -871,12 +936,28 @@
     ctx.stroke();
     ctx.restore();
 
-    const order=["Maxwell","Einstein","Feynman","Turing","vonNeumann","Shannon"];
-
-    // title
-    ctx.fillStyle="rgba(232,238,246,0.85)";
+    // label each EDGE midpoint (this answers “what are the lines”)
+    const edgeLabels=["M–E","E–F","F–T","T–V","V–S","S–M"];
+    ctx.save();
+    ctx.globalAlpha=0.85;
+    ctx.fillStyle="rgba(232,238,246,0.72)";
     ctx.font="12px system-ui, Segoe UI, Arial";
-    ctx.fillText("Constraint Pillars (live):", 14, 56);
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    for(let i=0;i<6;i++){
+      const a=pts[i];
+      const b=pts[(i+1)%6];
+      const mx=(a[0]+b[0])*0.5;
+      const my=(a[1]+b[1])*0.5;
+      // push slightly outward from center
+      const dx=mx-cx, dy=my-cy;
+      const d=Math.max(1,Math.hypot(dx,dy));
+      const ox=mx+(dx/d)*16;
+      const oy=my+(dy/d)*16;
+      ctx.fillText(edgeLabels[i], ox, oy);
+    }
+    ctx.restore();
+
+    const order=["Maxwell","Einstein","Feynman","Turing","vonNeumann","Shannon"];
 
     // nodes with labels + values
     for(let i=0;i<6;i++){
@@ -885,13 +966,11 @@
       const [x,y]=pts[i];
       const col=stressColor(s);
 
-      // pill node
       ctx.fillStyle=col;
       ctx.strokeStyle="rgba(255,255,255,0.22)";
       ctx.lineWidth=1.2;
       ctx.beginPath(); ctx.arc(x,y,16,0,Math.PI*2); ctx.fill(); ctx.stroke();
 
-      // letter
       ctx.fillStyle="#071019";
       ctx.font="900 13px system-ui, Segoe UI, Arial";
       ctx.textAlign="center"; ctx.textBaseline="middle";
@@ -900,8 +979,8 @@
       // label + number (outside the circle)
       const dx = x - cx, dy = y - cy;
       const d = Math.max(1, Math.hypot(dx,dy));
-      const ox = x + (dx/d)*26;
-      const oy = y + (dy/d)*26;
+      const ox = x + (dx/d)*30;
+      const oy = y + (dy/d)*30;
 
       ctx.fillStyle="rgba(232,238,246,0.88)";
       ctx.font="12px system-ui, Segoe UI, Arial";
@@ -911,10 +990,10 @@
       ctx.fillText(`${name}: ${s.toFixed(2)}`, ox, oy);
     }
 
-    // reset align
     ctx.textAlign="left"; ctx.textBaseline="alphabetic";
   }
 
+  // ----------------- Inspector -----------------
   function setInspector(idx){
     if(idx<0 || !lattice.nodes[idx]){
       selIdEl.textContent="—"; selQREl.textContent="—"; selVEl.textContent="—";
@@ -933,16 +1012,17 @@
     selDistEl.textContent=Math.hypot(dx,dy).toFixed(1);
   }
 
+  // Click-to-inspect (FIXED)
   canvas.addEventListener("click",(ev)=>{
     if(!inspectOnEl.checked) return;
     if(!latticeViewEl.checked) return;
-    if(!lattice.nodes.length) return;
 
     const rect=canvas.getBoundingClientRect();
     const px=ev.clientX-rect.left;
     const py=ev.clientY-rect.top;
 
-    const idx=pickNearestNode(px,py);
+    const cx=lastCenter.cx, cy=lastCenter.cy, R=lastCenter.R;
+    const idx=pickNearestNode(px,py,cx,cy,R);
     if(idx<0) return;
 
     selected.idx=idx;
@@ -953,7 +1033,6 @@
     log(`INSPECT: idx=${idx} q,r=(${n.q},${n.r}) v=${n.v.toFixed(3)} s=${n.surplus.toFixed(3)} locked=${n.locked} glyph=${n.glyph||""}`);
     log("—");
 
-    // force a draw so the highlight is immediate even when animation is off
     draw(false);
   });
 
@@ -965,190 +1044,44 @@
     draw(false);
   });
 
-  function draw(forceRebuild=false){
-    // ✅ ensure all "live" panel numbers always update
-    const N=parseInt(NEl.value,10);
-    const a=+aEl.value;
-    const R=+REl.value;
-    const k=+kEl.value;
-    const phi=+phiEl.value;
-
-    nVal.textContent=N;
-    aVal.textContent=a.toFixed(0);
-    RVal.textContent=R.toFixed(0);
-    phiBig.textContent=phi.toFixed(2);
-
-    thetaVal.textContent=(+thetaEl.value).toFixed(2);
-    gainVal.textContent=(+gainEl.value).toFixed(2);
-    leakVal.textContent=(+leakEl.value).toFixed(3);
-
-    if(phi<0.20) phiHint.textContent="φₛₜ low: strong coupling → wider spread + more collapse.";
-    else if(phi<0.60) phiHint.textContent="φₛₜ moderate: partial phase-locking reduces spread + collapse density.";
-    else phiHint.textContent="φₛₜ high: strong damping → more selective memory.";
-
-    updateDysonUI();
-
-    const w=cssW(), h=cssH();
-    ctx.clearRect(0,0,w,h);
-
-    const cx=w/2, cy=h/2;
-    lastCenter={cx,cy,R};
-
-    // Dyson first
-    drawDysonSphere(cx,cy,R);
-
-    // domain circle
-    ctx.strokeStyle="#3a5678";
-    ctx.lineWidth=2;
-    ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.stroke();
-
-    // nested frames
-    drawNestedHexes(cx,cy,R);
-
-    // clamp
-    const rr=regulatedRadius(a,R,k);
-    updateKUI(rr.regulated);
-
-    // pills
-    const matchPct=circleMatchPercent(N);
-    updatePills(rr.regulated,N,matchPct);
-
-    // main N-gon
-    const pts=polygonVertices(cx,cy,rr.rad,N);
-    ctx.fillStyle=rr.regulated?"#0f2236":"#0d1a2a";
-    ctx.strokeStyle=strokeForK(rr.regulated,k);
-    ctx.lineWidth=2;
-    drawPolygon(pts,true);
-
-    // mirror circle at polygon radius
-    ctx.globalAlpha=0.45;
-    ctx.strokeStyle="rgba(232,238,246,0.35)";
-    ctx.lineWidth=1.5;
-    ctx.beginPath(); ctx.arc(cx,cy,rr.rad,0,Math.PI*2); ctx.stroke();
-    ctx.globalAlpha=1;
-
-    // stresses
-    const needLattice=latticeViewEl.checked;
-    const needConstraint=constraintViewEl.checked;
-    let stressPack=null;
-    if(needLattice || needConstraint){
-      stressPack=computeStresses({N,a,R,k,phi,regulated:rr.regulated});
-    }
-
-    // lattice
-    if(needLattice && stressPack){
-      ensureLatticeBuilt(cx,cy,R,forceRebuild);
-
-      const rad=Math.min(rr.rad,R*0.78);
-      const pillarPts=polygonVertices(cx,cy,rad,6);
-      const order=["Maxwell","Einstein","Feynman","Turing","vonNeumann","Shannon"];
-      const pillarStress=order.map(k=>stressPack.out[k]??0);
-
-      injectSourcesToLattice(pillarPts,pillarStress,phi);
-      injectFailure(phi);
-
-      const eff=propagateLatticeAndMemory(phi);
-      drawLattice();
-      drawLatticeSpiral(cx,cy,R);
-
-      const lockedCount=lattice.nodes.reduce((acc,n)=>acc+(n.locked?1:0),0);
-      statusPill.textContent=`Status: nodes=${lattice.nodes.length} locked=${lockedCount}`;
-
-      // ✅ keep inspector live even while animating
-      if(selected.idx>=0) setInspector(selected.idx);
-
-      // on-canvas lattice label + live numbers
-      ctx.fillStyle="rgba(232,238,246,0.78)";
-      ctx.font="12px system-ui, Segoe UI, Arial";
-      ctx.fillText(
-        `Hex Lattice: locked=${lockedCount}  θϕ≈${eff.thetaEff.toFixed(2)}  gain≈${eff.gainEff.toFixed(2)}  leak=${(+leakEl.value).toFixed(3)}  φₛₜ=${phi.toFixed(2)}`,
-        14, 92
-      );
-    } else {
-      statusPill.textContent="Status: lattice OFF";
-      // if lattice is off, also clear inspector (optional)
-      if(!selected.pinned){
-        selected.idx=-1;
-        setInspector(-1);
-      }
-    }
-
-    // constraint overlay (with labels + numbers)
-    if(needConstraint && stressPack){
-      drawConstraintOverlay(cx,cy,R,rr,stressPack);
-    }
-
-    // diagnostics top-left
-    ctx.fillStyle="#e8eef6";
-    ctx.font="12px system-ui, Segoe UI, Arial";
-    const geomMsg = rr.regulated
-      ? `Clamp ACTIVE: a=${a.toFixed(0)} > R=${R.toFixed(0)} → s=(R/a)^k=${rr.s.toFixed(3)} (k=${k.toFixed(2)})`
-      : `No clamp: a=${a.toFixed(0)} ≤ R=${R.toFixed(0)} (k=${k.toFixed(2)})`;
-    ctx.fillText(geomMsg, 14, 18);
-    ctx.fillStyle="rgba(138,167,200,0.95)";
-    ctx.fillText(`Boundary refinement: N=${N}, circle-match ≈ ${matchPct.toFixed(1)}%`, 14, 36);
+  // ----------------- Controls that were “not working” (ensured) -----------------
+  // Failure Inject now clearly shows ON/OFF
+  function updateStressBtn(){
+    stressBtn.textContent = stressInject ? "Failure Inject: ON" : "Failure Inject";
   }
-
-  function setN(v){ NEl.value=String(clamp(v,6,240)); draw(); }
-
-  $("step").onclick=()=>{
-    const N=parseInt(NEl.value,10);
-    setN(N+1);
-    log(`STEP: N=${N+1} match≈${circleMatchPercent(N+1).toFixed(2)}%`);
-    log("—");
-  };
-  $("step5").onclick=()=>{
-    const N=parseInt(NEl.value,10);
-    setN(N+5);
-    log(`STEP: N=${N+5} match≈${circleMatchPercent(N+5).toFixed(2)}%`);
-    log("—");
-  };
-  $("reset").onclick=()=>{
-    setN(6);
-    selected.idx=-1;
-    setInspector(-1);
-    logEl.textContent="";
-    logEntries.length = 0;
-
-    // ✅ exact reset message you asked for
-    log("RESET: N=6. Lattice + nested hex + spiral can be toggled.");
-    log("—");
-
-    // rebuild lattice fresh (only if lattice is on)
-    draw(true);
-  };
-  $("auto").onclick=()=>{
-    let N=parseInt(NEl.value,10);
-    for(let it=0;it<400;it++){
-      if(circleMatchPercent(N)>=99.6) break;
-      N++; if(N>=240) break;
-    }
-    setN(N);
-    log(`AUTO: N→${N} match≈${circleMatchPercent(N).toFixed(2)}%`);
-    log("—");
-  };
+  updateStressBtn();
 
   stressBtn.onclick=()=>{
     stressInject=!stressInject;
-    stressBtn.textContent = stressInject ? "Failure Inject: ON" : "Failure Inject";
+    updateStressBtn();
     log(`Failure Inject: ${stressInject?"ON":"OFF"}`);
     log("—");
-    draw();
+    draw(true);
   };
 
   clearMemBtn.onclick=()=>{
+    if(!latticeViewEl.checked){
+      log("Clear requested but lattice is OFF. Turn Hex Lattice ON.");
+      log("—");
+      return;
+    }
     if(!lattice.nodes.length){
-      log("Clear requested but lattice not built yet. Turn Hex Lattice ON.");
+      log("Clear requested but lattice not built yet. (Build will occur next draw.)");
       log("—");
       return;
     }
     clearLatticeMemory();
-    log("Memory cleared.");
+    // also clear selection unless pinned
+    if(!selected.pinned){
+      selected.idx=-1;
+      setInspector(-1);
+    }
+    log("Memory cleared (v + surplus + glyph locks reset).");
     log("—");
-    draw();
+    draw(false);
   };
 
-  // ✅ CSV download for the step log
+  // CSV download
   dlCSVBtn.onclick=()=>{
     const header = ["time","message"];
     const rows = logEntries.map(e=>{
@@ -1169,37 +1102,217 @@
     log("—");
   };
 
-  // sliders update
-  [NEl,aEl,REl,kEl,phiEl,thetaEl,gainEl,leakEl,dysonScaleEl,dysonCapEl,dysonLumEl].forEach(el=>{
-    el.addEventListener("input",()=>draw());
-  });
+  // Step / Auto / Reset
+  function setN(v){ NEl.value=String(clamp(v,6,240)); draw(false); }
 
-  // toggles
-  [constraintViewEl,latticeViewEl,latticeClipEl,glyphViewEl,nestedHexEl,spiralOnEl,inspectOnEl,pinSelEl,dysonOnEl].forEach(el=>{
-    el.addEventListener("change",()=>draw(true));
-  });
+  $("step").onclick=()=>{
+    const N=parseInt(NEl.value,10);
+    setN(N+1);
+    log(`STEP: N=${N+1} match≈${circleMatchPercent(N+1).toFixed(2)}%`);
+    log("—");
+  };
+  $("step5").onclick=()=>{
+    const N=parseInt(NEl.value,10);
+    setN(N+5);
+    log(`STEP: N=${N+5} match≈${circleMatchPercent(N+5).toFixed(2)}%`);
+    log("—");
+  };
+  $("reset").onclick=()=>{
+    NEl.value="6";
+    aEl.value="260";
+    REl.value="300";
+    kEl.value="1.10";
+    phiEl.value="0.00";
+    thetaEl.value="0.62";
+    gainEl.value="1.00";
+    leakEl.value="0.028";
 
+    selected.idx=-1;
+    selected.pinned=false;
+    pinSelEl.checked=false;
+    setInspector(-1);
+
+    logEl.textContent="";
+    logEntries.length=0;
+
+    log("RESET: N=6. Lattice + nested hex + spiral can be toggled.");
+    log("—");
+
+    draw(true);
+  };
+  $("auto").onclick=()=>{
+    let N=parseInt(NEl.value,10);
+    for(let it=0;it<400;it++){
+      if(circleMatchPercent(N)>=99.6) break;
+      N++; if(N>=240) break;
+    }
+    setN(N);
+    log(`AUTO: N→${N} match≈${circleMatchPercent(N).toFixed(2)}%`);
+    log("—");
+  };
+
+  // ----------------- Drawing -----------------
+  function draw(forceRebuild=false){
+    // always update “live panel numbers”
+    const N=parseInt(NEl.value,10);
+    const a=+aEl.value;
+    const R=+REl.value;
+    const k=+kEl.value;
+    const phi=+phiEl.value;
+
+    nVal.textContent=N;
+    aVal.textContent=a.toFixed(0);
+    RVal.textContent=R.toFixed(0);
+    kVal.textContent=k.toFixed(2);
+    phiBig.textContent=phi.toFixed(2);
+
+    thetaVal.textContent=(+thetaEl.value).toFixed(2);
+    gainVal.textContent=(+gainEl.value).toFixed(2);
+    leakVal.textContent=(+leakEl.value).toFixed(3);
+
+    if(phi<0.20) phiHint.textContent="φₛₜ low: strong coupling → wider spread + more collapse.";
+    else if(phi<0.60) phiHint.textContent="φₛₜ moderate: partial phase-locking reduces spread + collapse density.";
+    else phiHint.textContent="φₛₜ high: strong damping → more selective memory.";
+
+    updateDysonUI();
+
+    const w=cssW(), h=cssH();
+    ctx.clearRect(0,0,w,h);
+
+    const cx=w/2, cy=h/2;
+    lastCenter={cx,cy,R};
+
+    // Dyson (outer)
+    drawDysonSphere(cx,cy,R);
+
+    // domain circle
+    ctx.strokeStyle="#3a5678";
+    ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.stroke();
+
+    // nested
+    drawNestedHexes(cx,cy,R);
+
+    // clamp
+    const rr=regulatedRadius(a,R,k);
+    updateKUI(rr.regulated);
+
+    // pills
+    const matchPct=circleMatchPercent(N);
+    updatePills(rr.regulated,N,matchPct);
+
+    // main N-gon
+    const pts=polygonVertices(cx,cy,rr.rad,N);
+    ctx.fillStyle=rr.regulated?"#0f2236":"#0d1a2a";
+    ctx.strokeStyle=strokeForK(rr.regulated,k);
+    ctx.lineWidth=2;
+    drawPolygon(pts,true);
+
+    // mirror circle
+    ctx.globalAlpha=0.45;
+    ctx.strokeStyle="rgba(232,238,246,0.35)";
+    ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.arc(cx,cy,rr.rad,0,Math.PI*2); ctx.stroke();
+    ctx.globalAlpha=1;
+
+    // compute stress pack when needed
+    const needLattice=latticeViewEl.checked;
+    const needConstraint=constraintViewEl.checked;
+    let stressPack=null;
+    if(needLattice || needConstraint){
+      stressPack=computeStresses({N,a,R,k,phi,regulated:rr.regulated});
+    }
+
+    // lattice
+    if(needLattice && stressPack){
+      ensureLatticeBuilt(cx,cy,R,forceRebuild);
+
+      // 6 pillar points act as sources
+      const rad=Math.min(rr.rad,R*0.78);
+      const pillarPts=polygonVertices(cx,cy,rad,6);
+      const order=["Maxwell","Einstein","Feynman","Turing","vonNeumann","Shannon"];
+      const pillarStress=order.map(k=>stressPack.out[k]??0);
+
+      injectSourcesToLattice(pillarPts,pillarStress,phi);
+      injectFailure(phi);
+
+      const eff=propagateLatticeAndMemory(phi);
+      drawLattice();
+      drawLatticeSpiral(cx,cy,R);
+
+      const lockedCount=lattice.nodes.reduce((acc,n)=>acc+(n.locked?1:0),0);
+      statusPill.textContent=`Status: nodes=${lattice.nodes.length} locked=${lockedCount}`;
+
+      // keep inspector live (always)
+      if(selected.idx>=0) setInspector(selected.idx);
+
+      // on-canvas lattice status
+      ctx.fillStyle="rgba(232,238,246,0.78)";
+      ctx.font="12px system-ui, Segoe UI, Arial";
+      ctx.fillText(
+        `Hex Lattice: locked=${lockedCount}  θϕ≈${eff.thetaEff.toFixed(2)}  gain≈${eff.gainEff.toFixed(2)}  leak=${(+leakEl.value).toFixed(3)}  φₛₜ=${phi.toFixed(2)}`,
+        14, 92
+      );
+    } else {
+      statusPill.textContent="Status: lattice OFF";
+      // do not force-clear inspector; user can keep selection if pinned
+      if(!selected.pinned){
+        selected.idx=-1;
+        setInspector(-1);
+      }
+    }
+
+    // constraint overlay
+    if(needConstraint && stressPack){
+      drawConstraintOverlay(cx,cy,R,rr,stressPack);
+    }
+
+    // diagnostics
+    ctx.fillStyle="#e8eef6";
+    ctx.font="12px system-ui, Segoe UI, Arial";
+    const geomMsg = rr.regulated
+      ? `Clamp ACTIVE: a=${a.toFixed(0)} > R=${R.toFixed(0)} → s=(R/a)^k=${rr.s.toFixed(3)} (k=${k.toFixed(2)})`
+      : `No clamp: a=${a.toFixed(0)} ≤ R=${R.toFixed(0)} (k=${k.toFixed(2)})`;
+    ctx.fillText(geomMsg, 14, 18);
+    ctx.fillStyle="rgba(138,167,200,0.95)";
+    ctx.fillText(`Boundary refinement: N=${N}, circle-match ≈ ${matchPct.toFixed(1)}%`, 14, 36);
+  }
+
+  // ----------------- Ensure ALL toggles redraw correctly -----------------
+  const inputsToRedraw = [
+    NEl,aEl,REl,kEl,phiEl,thetaEl,gainEl,leakEl,
+    dysonScaleEl,dysonCapEl,dysonLumEl
+  ];
+  inputsToRedraw.forEach(el => el.addEventListener("input", ()=>draw(false)));
+
+  const togglesToRedraw = [
+    constraintViewEl,latticeViewEl,latticeClipEl,glyphViewEl,
+    nestedHexEl,spiralOnEl,inspectOnEl,pinSelEl,dysonOnEl
+  ];
+  togglesToRedraw.forEach(el => el.addEventListener("change", ()=>draw(true)));
+
+  // resize
   function resize(){
     setDPR();
     draw(true);
   }
-  window.addEventListener("resize",resize);
+  window.addEventListener("resize", resize);
 
+  // animation loop (only if lattice running or inject running)
   function tick(){
     const animate = latticeViewEl.checked || stressInject;
-    if(animate) draw();
+    if(animate) draw(false);
     requestAnimationFrame(tick);
   }
 
   // init
-  log("INIT: Turn ON/OFF Nested Hexagons + Spiral Trace to match the paper diagrams.");
-  log("FIX: Constraint View now shows labels + live values around the circle.");
-  log("FIX: Node Inspector selection is easier to click and updates immediately.");
-  log("NEW: Step log has a Download CSV button.");
+  log("INIT: Constraint View now labels each line (edge) and each pillar value (live).");
+  log("FIX: Inspector click selection works reliably inside the circle.");
+  log("FIX: circle-match equation corrected (perimeter ratio).");
   log("—");
 
   resize();
-  draw(true);    // ✅ force immediate live numbers
+  draw(true);
   tick();
 })();
 </script>
