@@ -60,11 +60,6 @@
     height:100%;width:0%;
     background:linear-gradient(90deg,#3a5678,#b68b2e,#ff7a18);
   }
-  .warn{
-    border-left:4px solid var(--warn);
-    background:#191203;
-    padding:10px;border-radius:10px;
-  }
   .switch{
     display:flex;align-items:center;gap:8px;
     padding:6px 10px;border-radius:10px;
@@ -92,7 +87,6 @@
     border-radius:12px;
     padding:10px;
   }
-  .dyRow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;}
   .dyRead{
     margin-top:6px;
     font-size:12px;
@@ -100,6 +94,13 @@
     line-height:1.35;
   }
   .dyRead b{opacity:1}
+
+  /* Log header row */
+  .logHead{
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+    margin-top:8px;
+  }
+  .logHead h3{margin:0;}
 </style>
 </head>
 
@@ -126,10 +127,8 @@
     <div class="row">
       <label class="switch"><input id="constraintView" type="checkbox" /> Constraint View</label>
 
-      <!-- Keep this toggle (already exists) -->
       <label class="switch"><input id="latticeView" type="checkbox" checked /> Hex Lattice</label>
 
-      <!-- NEW: lattice clipped to circle toggle -->
       <label class="switch" title="When ON, lattice drawing is clipped strictly inside the domain circle.">
         <input id="latticeClip" type="checkbox" checked />
         Lattice in Circle
@@ -161,7 +160,7 @@
       <button id="clearMem">Clear Glyph Memory</button>
     </div>
 
-    <!-- NEW: Dyson Sphere controls -->
+    <!-- Dyson Sphere controls -->
     <div class="dysonBox">
       <h3 style="margin:0 0 6px;">Dyson Sphere (Outer Boundary)</h3>
       <div class="row" style="margin:6px 0 0;">
@@ -238,7 +237,12 @@
       </div>
     </div>
 
-    <h3>Step log</h3>
+    <div class="logHead">
+      <h3>Step log</h3>
+      <div class="row" style="margin:0;">
+        <button id="dlCSV" title="Download the step log as a CSV file">Download CSV</button>
+      </div>
+    </div>
     <div class="log" id="log"></div>
   </div>
 
@@ -264,7 +268,7 @@
 
   const constraintViewEl=$("constraintView");
   const latticeViewEl=$("latticeView");
-  const latticeClipEl=$("latticeClip"); // NEW
+  const latticeClipEl=$("latticeClip");
   const glyphViewEl=$("glyphView");
   const nestedHexEl=$("nestedHex");
   const spiralOnEl=$("spiralOn");
@@ -275,6 +279,7 @@
 
   const stressBtn=$("stressBtn");
   const clearMemBtn=$("clearMem");
+  const dlCSVBtn=$("dlCSV");
 
   // Dyson UI
   const dysonOnEl=$("dysonOn");
@@ -290,24 +295,35 @@
         selLockEl=$("selLock"), selGlyphEl=$("selGlyph"), selDistEl=$("selDist");
 
   const logEl=$("log");
-  const log=(t)=>{ logEl.textContent += t + "\n"; logEl.scrollTop = logEl.scrollHeight; };
+
+  // --- Live log + CSV ---
+  const logEntries = [];
+  const nowISO = () => new Date().toISOString();
+  const log=(t)=>{
+    const entry = { time: nowISO(), msg: String(t) };
+    logEntries.push(entry);
+    logEl.textContent += t + "\n";
+    logEl.scrollTop = logEl.scrollHeight;
+  };
 
   const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
   const lerp=(a,b,t)=>a+(b-a)*t;
 
-  if(!CanvasRenderingContext2D.prototype.roundRect){
-    CanvasRenderingContext2D.prototype.roundRect = function(x,y,w,h,r){
-      r=Math.min(r,w/2,h/2);
-      this.beginPath();
-      this.moveTo(x+r,y);
-      this.arcTo(x+w,y,x+w,y+h,r);
-      this.arcTo(x+w,y+h,x,y+h,r);
-      this.arcTo(x,y+h,x,y,r);
-      this.arcTo(x,y,x+w,y,r);
-      this.closePath();
-      return this;
-    };
+  // DPR handling (fixes click/overlay issues on some browsers)
+  let DPR = Math.max(1, window.devicePixelRatio || 1);
+
+  function setDPR(){
+    DPR = Math.max(1, window.devicePixelRatio || 1);
+    const w = Math.floor(canvas.clientWidth * DPR);
+    const h = Math.floor(canvas.clientHeight * DPR);
+    canvas.width = w;
+    canvas.height = h;
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.scale(DPR, DPR); // draw in CSS pixels
   }
+
+  function cssW(){ return canvas.width / DPR; }
+  function cssH(){ return canvas.height / DPR; }
 
   function polygonVertices(cx,cy,rad,n,rot=0){
     const pts=[];
@@ -385,9 +401,7 @@
     const L = Number(dysonLumEl.value);
     const captured = L * cap;
 
-    // Flux uses shell area = 4πr^2. We only have pixels here, so interpret "scale×R" as radius proxy.
-    // Provide a consistent "relative flux" value:
-    const rRel = +dysonScaleEl.value; // in units of R
+    const rRel = +dysonScaleEl.value;
     const areaRel = 4*Math.PI*rRel*rRel;
     const fluxRel = L / areaRel;
 
@@ -402,7 +416,6 @@
     const dyR = R * scale;
 
     ctx.save();
-    // outer ring
     ctx.globalAlpha = 1;
     ctx.beginPath();
     ctx.arc(cx,cy,dyR,0,Math.PI*2);
@@ -410,7 +423,6 @@
     ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--dysonRing') || "rgba(255,200,60,.62)";
     ctx.stroke();
 
-    // halo
     ctx.globalAlpha = 0.9;
     ctx.beginPath();
     ctx.arc(cx,cy,dyR + ctx.lineWidth*2.1,0,Math.PI*2);
@@ -418,7 +430,6 @@
     ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--dysonRing2') || "rgba(255,200,60,.18)";
     ctx.stroke();
 
-    // small ticks
     ctx.globalAlpha = 0.55;
     ctx.lineWidth = 1.3;
     ctx.strokeStyle = "rgba(255,225,140,0.35)";
@@ -434,6 +445,13 @@
       ctx.lineTo(x2,y2);
       ctx.stroke();
     }
+
+    // Label + live numbers on the Dyson ring
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle="rgba(232,238,246,0.85)";
+    ctx.font="12px system-ui, Segoe UI, Arial";
+    const cap = (+dysonCapEl.value);
+    ctx.fillText(`Dyson Shell: scale=${scale.toFixed(2)}×R  capture=${cap.toFixed(0)}%`, 14, 74);
 
     ctx.restore();
   }
@@ -535,7 +553,7 @@
     HEX.size=size;
     lattice.nodes=[];
     lattice.map=new Map();
-    lattice.builtFor={ w:canvas.clientWidth, h:canvas.clientHeight, R, size };
+    lattice.builtFor={ w:cssW(), h:cssH(), R, size };
 
     const max=Math.ceil(R/(size*1.15));
     for(let r=-max;r<=max;r++){
@@ -563,6 +581,7 @@
       }
     }
     if(selected.idx>=lattice.nodes.length) selected.idx=-1;
+
     log(`LATTICE: built ${lattice.nodes.length} nodes (hex size=${size}px).`);
     log("—");
   }
@@ -570,8 +589,9 @@
   function ensureLatticeBuilt(cx,cy,R,force=false){
     const bf=lattice.builtFor;
     const changed = force || !lattice.nodes.length ||
-      bf.w!==canvas.clientWidth || bf.h!==canvas.clientHeight ||
-      Math.abs(bf.R-R)>0.5;
+      Math.abs(bf.R-R)>0.5 ||
+      Math.abs(bf.w-cssW())>0.5 ||
+      Math.abs(bf.h-cssH())>0.5;
     if(changed) buildHexLattice(cx,cy,R);
   }
 
@@ -604,7 +624,7 @@
     if(!stressInject || !lattice.nodes.length) return;
 
     const R=lattice.builtFor.R;
-    const cx=canvas.clientWidth/2, cy=canvas.clientHeight/2;
+    const cx=cssW()/2, cy=cssH()/2;
     const targetX=cx+R*0.35, targetY=cy-R*0.20;
 
     let best=-1, bestD=1e18;
@@ -672,7 +692,6 @@
   function drawLattice(){
     const showGlyphs=glyphViewEl.checked;
 
-    // OPTIONAL CLIP: strictly inside circle domain
     if(latticeClipEl.checked){
       const cx=lastCenter.cx, cy=lastCenter.cy, R=lastCenter.R;
       ctx.save();
@@ -724,7 +743,7 @@
     // selected highlight
     if(selected.idx>=0 && lattice.nodes[selected.idx]){
       const n=lattice.nodes[selected.idx];
-      ctx.strokeStyle="rgba(232,238,246,0.85)";
+      ctx.strokeStyle="rgba(232,238,246,0.90)";
       ctx.lineWidth=2;
       ctx.beginPath();
       ctx.arc(n.x,n.y,10,0,Math.PI*2);
@@ -734,7 +753,6 @@
     ctx.restore();
   }
 
-  // ---------- Nested Hexagons (paper-style) ----------
   function drawNestedHexes(cx,cy,R){
     if(!nestedHexEl.checked) return;
     ctx.save();
@@ -758,7 +776,6 @@
     ctx.restore();
   }
 
-  // ---------- Spiral trace snapped to lattice ----------
   function pickNearestNode(px,py){
     if(!lattice.nodes.length) return -1;
     let best=-1, bestD2=1e18;
@@ -768,7 +785,8 @@
       const d2=dx*dx+dy*dy;
       if(d2<bestD2){bestD2=d2; best=i;}
     }
-    const rPick=Math.max(10, HEX.size*1.25);
+    // more forgiving pick radius (fixes “can’t select”)
+    const rPick=Math.max(16, HEX.size*2.2);
     if(bestD2 <= rPick*rPick) return best;
     return -1;
   }
@@ -777,7 +795,6 @@
     if(!spiralOnEl.checked) return;
     if(!lattice.nodes.length) return;
 
-    // clip spiral also if latticeClip is on
     if(latticeClipEl.checked){
       ctx.save();
       ctx.beginPath();
@@ -837,11 +854,12 @@
     ctx.restore();
   }
 
-  // ---------- Constraint overlay (optional, minimal) ----------
+  // ✅ FIX: restore labels + live numbers on constraint circles
   function drawConstraintOverlay(cx,cy,R,rr,stressPack){
     const rad=Math.min(rr.rad,R*0.78);
     const pts=polygonVertices(cx,cy,rad,6);
 
+    // frame
     ctx.save();
     ctx.globalAlpha=0.55;
     ctx.strokeStyle="rgba(120,150,180,0.35)";
@@ -854,27 +872,49 @@
     ctx.restore();
 
     const order=["Maxwell","Einstein","Feynman","Turing","vonNeumann","Shannon"];
+
+    // title
+    ctx.fillStyle="rgba(232,238,246,0.85)";
+    ctx.font="12px system-ui, Segoe UI, Arial";
+    ctx.fillText("Constraint Pillars (live):", 14, 56);
+
+    // nodes with labels + values
     for(let i=0;i<6;i++){
       const key=order[i];
       const s=stressPack.out[key];
       const [x,y]=pts[i];
       const col=stressColor(s);
 
+      // pill node
       ctx.fillStyle=col;
       ctx.strokeStyle="rgba(255,255,255,0.22)";
       ctx.lineWidth=1.2;
       ctx.beginPath(); ctx.arc(x,y,16,0,Math.PI*2); ctx.fill(); ctx.stroke();
 
+      // letter
       ctx.fillStyle="#071019";
       ctx.font="900 13px system-ui, Segoe UI, Arial";
       ctx.textAlign="center"; ctx.textBaseline="middle";
       ctx.fillText(pillars[i].short,x,y);
+
+      // label + number (outside the circle)
+      const dx = x - cx, dy = y - cy;
+      const d = Math.max(1, Math.hypot(dx,dy));
+      const ox = x + (dx/d)*26;
+      const oy = y + (dy/d)*26;
+
+      ctx.fillStyle="rgba(232,238,246,0.88)";
+      ctx.font="12px system-ui, Segoe UI, Arial";
+      ctx.textAlign = (dx>=0) ? "left" : "right";
+      ctx.textBaseline="middle";
+      const name = key === "vonNeumann" ? "vonN" : key;
+      ctx.fillText(`${name}: ${s.toFixed(2)}`, ox, oy);
     }
 
-    return pts;
+    // reset align
+    ctx.textAlign="left"; ctx.textBaseline="alphabetic";
   }
 
-  // ---------- Inspector ----------
   function setInspector(idx){
     if(idx<0 || !lattice.nodes[idx]){
       selIdEl.textContent="—"; selQREl.textContent="—"; selVEl.textContent="—";
@@ -912,6 +952,9 @@
     const n=lattice.nodes[idx];
     log(`INSPECT: idx=${idx} q,r=(${n.q},${n.r}) v=${n.v.toFixed(3)} s=${n.surplus.toFixed(3)} locked=${n.locked} glyph=${n.glyph||""}`);
     log("—");
+
+    // force a draw so the highlight is immediate even when animation is off
+    draw(false);
   });
 
   unpinBtn.addEventListener("click",()=>{
@@ -919,10 +962,11 @@
     pinSelEl.checked=false;
     log("Inspector: unpinned.");
     log("—");
+    draw(false);
   });
 
-  // ---------- Draw ----------
   function draw(forceRebuild=false){
+    // ✅ ensure all "live" panel numbers always update
     const N=parseInt(NEl.value,10);
     const a=+aEl.value;
     const R=+REl.value;
@@ -944,12 +988,13 @@
 
     updateDysonUI();
 
-    const w=canvas.clientWidth, h=canvas.clientHeight;
+    const w=cssW(), h=cssH();
     ctx.clearRect(0,0,w,h);
+
     const cx=w/2, cy=h/2;
     lastCenter={cx,cy,R};
 
-    // Dyson sphere (draw first so everything else is inside)
+    // Dyson first
     drawDysonSphere(cx,cy,R);
 
     // domain circle
@@ -957,7 +1002,7 @@
     ctx.lineWidth=2;
     ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.stroke();
 
-    // nested hex frames (paper style)
+    // nested frames
     drawNestedHexes(cx,cy,R);
 
     // clamp
@@ -982,7 +1027,7 @@
     ctx.beginPath(); ctx.arc(cx,cy,rr.rad,0,Math.PI*2); ctx.stroke();
     ctx.globalAlpha=1;
 
-    // stresses if needed
+    // stresses
     const needLattice=latticeViewEl.checked;
     const needConstraint=constraintViewEl.checked;
     let stressPack=null;
@@ -1004,14 +1049,15 @@
 
       const eff=propagateLatticeAndMemory(phi);
       drawLattice();
-
       drawLatticeSpiral(cx,cy,R);
 
       const lockedCount=lattice.nodes.reduce((acc,n)=>acc+(n.locked?1:0),0);
       statusPill.textContent=`Status: nodes=${lattice.nodes.length} locked=${lockedCount}`;
 
+      // ✅ keep inspector live even while animating
       if(selected.idx>=0) setInspector(selected.idx);
 
+      // on-canvas lattice label + live numbers
       ctx.fillStyle="rgba(232,238,246,0.78)";
       ctx.font="12px system-ui, Segoe UI, Arial";
       ctx.fillText(
@@ -1020,9 +1066,14 @@
       );
     } else {
       statusPill.textContent="Status: lattice OFF";
+      // if lattice is off, also clear inspector (optional)
+      if(!selected.pinned){
+        selected.idx=-1;
+        setInspector(-1);
+      }
     }
 
-    // constraint overlay
+    // constraint overlay (with labels + numbers)
     if(needConstraint && stressPack){
       drawConstraintOverlay(cx,cy,R,rr,stressPack);
     }
@@ -1038,7 +1089,6 @@
     ctx.fillText(`Boundary refinement: N=${N}, circle-match ≈ ${matchPct.toFixed(1)}%`, 14, 36);
   }
 
-  // ---------- Controls ----------
   function setN(v){ NEl.value=String(clamp(v,6,240)); draw(); }
 
   $("step").onclick=()=>{
@@ -1058,8 +1108,13 @@
     selected.idx=-1;
     setInspector(-1);
     logEl.textContent="";
+    logEntries.length = 0;
+
+    // ✅ exact reset message you asked for
     log("RESET: N=6. Lattice + nested hex + spiral can be toggled.");
     log("—");
+
+    // rebuild lattice fresh (only if lattice is on)
     draw(true);
   };
   $("auto").onclick=()=>{
@@ -1093,6 +1148,27 @@
     draw();
   };
 
+  // ✅ CSV download for the step log
+  dlCSVBtn.onclick=()=>{
+    const header = ["time","message"];
+    const rows = logEntries.map(e=>{
+      const msg = String(e.msg).replaceAll('"','""');
+      return `"${e.time}","${msg}"`;
+    });
+    const csv = header.join(",") + "\n" + rows.join("\n");
+    const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "hexara_step_log.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    log("CSV: downloaded hexara_step_log.csv");
+    log("—");
+  };
+
   // sliders update
   [NEl,aEl,REl,kEl,phiEl,thetaEl,gainEl,leakEl,dysonScaleEl,dysonCapEl,dysonLumEl].forEach(el=>{
     el.addEventListener("input",()=>draw());
@@ -1103,17 +1179,12 @@
     el.addEventListener("change",()=>draw(true));
   });
 
-  // resize
   function resize(){
-    const dpr=Math.max(1,window.devicePixelRatio||1);
-    canvas.width=Math.floor(canvas.clientWidth*dpr);
-    canvas.height=Math.floor(canvas.clientHeight*dpr);
-    ctx.setTransform(dpr,0,0,dpr,0,0);
+    setDPR();
     draw(true);
   }
   window.addEventListener("resize",resize);
 
-  // animation loop
   function tick(){
     const animate = latticeViewEl.checked || stressInject;
     if(animate) draw();
@@ -1122,11 +1193,13 @@
 
   // init
   log("INIT: Turn ON/OFF Nested Hexagons + Spiral Trace to match the paper diagrams.");
-  log("NEW: 'Lattice in Circle' clips lattice strictly inside the domain circle.");
-  log("NEW: Dyson Sphere toggle adds an outer boundary ring (global shell reference).");
-  log("If sliders feel ‘not working’, turn Failure Inject OFF (stops constant redraw).");
+  log("FIX: Constraint View now shows labels + live values around the circle.");
+  log("FIX: Node Inspector selection is easier to click and updates immediately.");
+  log("NEW: Step log has a Download CSV button.");
   log("—");
+
   resize();
+  draw(true);    // ✅ force immediate live numbers
   tick();
 })();
 </script>
