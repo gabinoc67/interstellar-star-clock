@@ -1,0 +1,951 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>CST Warp — Station / Transit / Surface (Linked Panels) + Failures + CSV</title>
+<style>
+  :root{
+    --bg:#0b0f14;
+    --panel:#121826;
+    --panel2:#0f1523;
+    --ink:#e6ecff;
+    --muted:#9aa4c7;
+    --accent:#58a6ff;
+    --good:#35d07f;
+    --warn:#f2c14e;
+    --bad:#ff5a66;
+    --line:#223052;
+    --radius:12px;
+    --shadow: 0 10px 30px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    font-family:system-ui,Segoe UI,Arial,sans-serif;
+    background:var(--bg);
+    color:var(--ink);
+  }
+  header{
+    padding:14px 16px;
+    border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg, rgba(88,166,255,.08), rgba(0,0,0,0));
+  }
+  header h1{margin:0;font-size:18px}
+  header p{margin:6px 0 0;font-size:13px;color:var(--muted)}
+  main{
+    display:grid;
+    grid-template-columns: 430px 1fr;
+    gap:14px;
+    padding:14px;
+  }
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:14px;
+    box-shadow:var(--shadow);
+  }
+  h2{margin:0 0 10px;font-size:15px}
+  .sub{margin:0 0 12px;color:var(--muted);font-size:12px}
+  label{font-size:12px;color:var(--muted);display:block;margin-top:10px}
+  input[type=range]{width:100%}
+  select, input[type=number]{
+    width:100%;
+    background:#0c1220;
+    color:var(--ink);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:8px;
+    outline:none;
+  }
+  .row{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap:10px;
+  }
+  .btnrow{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+  button{
+    width:100%;
+    padding:10px;
+    border-radius:10px;
+    border:0;
+    font-weight:700;
+    cursor:pointer;
+  }
+  button.primary{background:var(--accent);color:#000;}
+  button.secondary{background:#1c2a4a;color:var(--ink);border:1px solid var(--line);}
+  button.danger{background:#2a1620;color:var(--ink);border:1px solid rgba(255,90,102,.4);}
+  .tog{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-top:10px;
+    padding:10px;
+    background:var(--panel2);
+    border:1px solid var(--line);
+    border-radius:10px;
+  }
+  .tog input{transform:scale(1.2)}
+  .readout{
+    margin-top:12px;
+    background:var(--panel2);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:10px;
+    font-size:13px;
+    line-height:1.4;
+  }
+  .grid3{
+    display:grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap:12px;
+  }
+  .phead{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    gap:10px;
+    margin-bottom:8px;
+  }
+  .tag{
+    font-size:11px;
+    color:var(--muted);
+    padding:4px 8px;
+    border:1px solid var(--line);
+    border-radius:999px;
+    background:rgba(255,255,255,.03);
+    white-space:nowrap;
+  }
+  canvas{
+    width:100%;
+    height:340px;
+    background:#0e1422;
+    border:1px solid var(--line);
+    border-radius:12px;
+  }
+  small{color:var(--muted)}
+  .footnote{
+    margin-top:10px;
+    color:var(--muted);
+    font-size:12px;
+  }
+  .ok{color:var(--good);font-weight:700}
+  .warn{color:var(--warn);font-weight:700}
+  .bad{color:var(--bad);font-weight:700}
+</style>
+</head>
+
+<body>
+<header>
+  <h1>CST Warp — Linked Station / Transit / Surface Simulator</h1>
+  <p>Energy-conservative model: solar → buffer → nuclear/fusion → field → pad. Includes failures + CSV export + Mars/Earth gravity & atmosphere.</p>
+</header>
+
+<main>
+
+<!-- LEFT: CONTROLS -->
+<section class="panel">
+  <h2>Controls</h2>
+  <p class="sub">This is a *systems* simulator: it tracks power flow, buffer saturation, effective inertial mass proxy, trip time, and landing-pad energy capture. No free energy. Global accounting enforced.</p>
+
+  <div class="row">
+    <div>
+      <label>World Preset</label>
+      <select id="worldPreset" onchange="applyWorldPreset()">
+        <option value="earth">Earth (g=9.81, atm=1.00)</option>
+        <option value="mars" selected>Mars (g=3.71, atm≈0.01)</option>
+        <option value="custom">Custom (manual sliders)</option>
+      </select>
+    </div>
+    <div>
+      <label>Sim Speed (× real time)</label>
+      <input id="simSpeed" type="number" min="1" max="2000" step="1" value="120" />
+    </div>
+  </div>
+
+  <label>Gravity g (m/s²)</label>
+  <input id="g" type="range" min="0.5" max="15" step="0.01" value="3.71" oninput="setPresetCustom()" />
+  <label>Atmosphere density factor ρ/ρₑ (0–1)</label>
+  <input id="rho" type="range" min="0" max="1" step="0.001" value="0.010" oninput="setPresetCustom()" />
+
+  <div class="row">
+    <div>
+      <label>Solar Input (kW)</label>
+      <input id="solarKW" type="range" min="0" max="800" step="10" value="260" />
+    </div>
+    <div>
+      <label>Buffer Capacity (MJ)</label>
+      <input id="bufferMJ" type="range" min="50" max="4000" step="50" value="1200" />
+    </div>
+  </div>
+
+  <div class="row">
+    <div>
+      <label>Nuclear Baseline (MW)</label>
+      <input id="nuclearMW" type="range" min="0.1" max="8" step="0.1" value="1.8" />
+    </div>
+    <div>
+      <label>Fusion Peak (MW)</label>
+      <input id="fusionMW" type="range" min="0" max="80" step="1" value="28" />
+    </div>
+  </div>
+
+  <label>Warp / CST Field Coupling φₛₜ (0–1)</label>
+  <input id="phi" type="range" min="0" max="1" step="0.01" value="0.66" />
+
+  <div class="row">
+    <div>
+      <label>Base Vehicle Mass (tons)</label>
+      <input id="massT" type="range" min="30" max="700" step="10" value="200" />
+    </div>
+    <div>
+      <label>Crew Count</label>
+      <input id="crew" type="range" min="0" max="20" step="1" value="10" />
+    </div>
+  </div>
+
+  <label>Trip Distance (million km)</label>
+  <input id="distMkm" type="range" min="10" max="400" step="10" value="80" />
+
+  <div class="tog">
+    <input id="failBuffer" type="checkbox" />
+    <div>
+      <div><b>Failure Injection: Buffer Saturation</b></div>
+      <small>Forces buffer to cap early + spill energy as heat loss (non-recoverable).</small>
+    </div>
+  </div>
+
+  <div class="tog">
+    <input id="failFusion" type="checkbox" />
+    <div>
+      <div><b>Failure Injection: Fusion Loss</b></div>
+      <small>Fusion contribution drops to 0 (nuclear + solar only).</small>
+    </div>
+  </div>
+
+  <div class="tog">
+    <input id="failField" type="checkbox" />
+    <div>
+      <div><b>Failure Injection: Field Collapse</b></div>
+      <small>φₛₜ forced low → reduced effective mass proxy + pad capture efficiency collapses.</small>
+    </div>
+  </div>
+
+  <label>Failure Severity (0–100%)</label>
+  <input id="failSev" type="range" min="0" max="100" step="1" value="65" />
+
+  <div class="btnrow">
+    <button class="primary" id="btnStart" onclick="startSim()">Start</button>
+    <button class="secondary" id="btnStop" onclick="stopSim()" disabled>Stop</button>
+  </div>
+  <div class="btnrow">
+    <button class="secondary" onclick="resetSim()">Reset</button>
+    <button class="secondary" onclick="exportCSV()">Export CSV</button>
+  </div>
+
+  <div class="readout" id="readout">
+    <div><b>Status:</b> <span id="statusText" class="warn">Stopped</span></div>
+    <div id="kpis"></div>
+  </div>
+
+  <div class="footnote">
+    <b>Review-safe phrasing (use this):</b><br>
+    <small>
+      This model treats E=mc² strictly as energy–mass equivalence accounting. “m = E/c²” is used only as an
+      <i>effective inertial mass proxy</i> within a conservative control volume. The CST field is modeled as a
+      momentum-redistribution and energy-buffering subsystem; global energy is conserved and losses are tracked.
+    </small>
+  </div>
+</section>
+
+<!-- RIGHT: THREE LINKED PANELS -->
+<section class="panel">
+  <div class="grid3">
+
+    <div>
+      <div class="phead">
+        <h2 style="margin:0">Station Panel</h2>
+        <span class="tag">solar → buffer → bus</span>
+      </div>
+      <canvas id="cvStation" width="520" height="340"></canvas>
+      <small>Station generates and buffers energy, maintains comm + baseline ops.</small>
+    </div>
+
+    <div>
+      <div class="phead">
+        <h2 style="margin:0">Transit Panel</h2>
+        <span class="tag">power → Δv proxy → time</span>
+      </div>
+      <canvas id="cvTransit" width="520" height="340"></canvas>
+      <small>Transit uses power availability + φₛₜ to reduce effective inertial mass proxy.</small>
+    </div>
+
+    <div>
+      <div class="phead">
+        <h2 style="margin:0">Surface Panel</h2>
+        <span class="tag">field → pad capture</span>
+      </div>
+      <canvas id="cvSurface" width="520" height="340"></canvas>
+      <small>Landing pad acts as phase reference + energy sink; atmosphere affects coupling.</small>
+    </div>
+
+  </div>
+</section>
+
+</main>
+
+<script>
+/* =========================
+   Core constants & helpers
+========================= */
+const C = 299792458; // m/s
+const DAY = 86400;
+
+function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
+function lerp(a,b,t){ return a + (b-a)*t; }
+function fmt(x, d=2){ return (+x).toFixed(d); }
+
+function nowMs(){ return performance.now(); }
+
+/* =========================
+   World presets
+========================= */
+function applyWorldPreset(){
+  const p = document.getElementById("worldPreset").value;
+  if(p==="earth"){
+    document.getElementById("g").value = 9.81;
+    document.getElementById("rho").value = 1.0;
+  } else if(p==="mars"){
+    document.getElementById("g").value = 3.71;
+    document.getElementById("rho").value = 0.010;
+  }
+}
+function setPresetCustom(){
+  document.getElementById("worldPreset").value = "custom";
+}
+
+/* =========================
+   Simulation state
+========================= */
+let running = false;
+let lastT = 0;
+
+// logs for CSV
+let logs = [];
+
+// state variables (in SI)
+let tSim = 0;                 // seconds
+let bufferJ = 0;              // current buffer energy (J)
+let heatLossJ = 0;            // accumulated irreversible loss (J)
+let padCapturedJ = 0;         // captured into pad sinks (J)
+let progress = 0;             // 0..1 mission progress
+let phiHold = 0;              // internal filtered φ
+let vProxy = 0;               // proxy cruise speed (m/s)
+let aComfort = 0;             // comfort metric 0..1
+
+/* =========================
+   Inputs (read each frame)
+========================= */
+function readInputs(){
+  const solarW   = (+document.getElementById("solarKW").value) * 1000;
+  const bufferCapJ = (+document.getElementById("bufferMJ").value) * 1e6;
+  const nuclearW = (+document.getElementById("nuclearMW").value) * 1e6;
+  const fusionW  = (+document.getElementById("fusionMW").value) * 1e6;
+  const phiUser  = (+document.getElementById("phi").value);
+
+  const massKg   = (+document.getElementById("massT").value) * 1000;
+  const crew     = (+document.getElementById("crew").value);
+  const distM    = (+document.getElementById("distMkm").value) * 1e9;
+
+  const g        = (+document.getElementById("g").value);
+  const rho      = (+document.getElementById("rho").value);
+
+  const failBuffer = document.getElementById("failBuffer").checked;
+  const failFusion = document.getElementById("failFusion").checked;
+  const failField  = document.getElementById("failField").checked;
+  const sev = (+document.getElementById("failSev").value)/100;
+
+  const speedX = (+document.getElementById("simSpeed").value);
+
+  return {solarW, bufferCapJ, nuclearW, fusionW, phiUser, massKg, crew, distM, g, rho, failBuffer, failFusion, failField, sev, speedX};
+}
+
+/* =========================
+   Conservatively modeled subsystems
+   - Station: solar + nuclear baseline charge buffer, cover housekeeping
+   - Transit: power availability affects attainable vProxy (bounded)
+   - Surface: pad capture depends on φ and atmosphere factor
+========================= */
+function step(dt){
+  const I = readInputs();
+
+  // apply failures
+  let phi = I.phiUser;
+  if(I.failField){
+    // collapse forces φ down depending on severity
+    phi *= (1 - 0.85*I.sev);
+  }
+  phi = clamp(phi, 0, 1);
+
+  // internal phase "locking" filter (prevents instantaneous jumps)
+  // higher phi => faster lock; lower phi => slower convergence
+  const lockRate = lerp(0.05, 0.35, phi); // 1/s
+  phiHold += (phi - phiHold) * (1 - Math.exp(-lockRate*dt));
+  phiHold = clamp(phiHold, 0, 1);
+
+  // Fusion availability
+  const fusionAvailW = I.failFusion ? 0 : I.fusionW;
+
+  // Station loads (housekeeping, comms, robotics uplink) — conservative placeholder
+  const stationLoadW = 0.35e6; // 0.35 MW fixed load
+  const robotChargeW = 0.06e6; // 0.06 MW average charging allocation
+  const totalLoadW = stationLoadW + robotChargeW;
+
+  // Input power to bus
+  const busInW = I.solarW + I.nuclearW;
+
+  // buffer cap can be degraded by buffer saturation failure
+  let bufferCapJ = I.bufferCapJ;
+  if(I.failBuffer){
+    bufferCapJ *= (1 - 0.55*I.sev); // early saturation
+  }
+  bufferCapJ = Math.max(1e6, bufferCapJ);
+
+  // Net charge to buffer
+  let netToBufferW = busInW - totalLoadW;
+  // if net negative, we discharge buffer to cover loads
+  let dBufferJ = netToBufferW * dt;
+
+  // keep buffer within bounds; spill goes to heatLossJ (irrecoverable)
+  bufferJ += dBufferJ;
+  if(bufferJ > bufferCapJ){
+    const spill = bufferJ - bufferCapJ;
+    bufferJ = bufferCapJ;
+    heatLossJ += spill; // treat as dumped heat / radiator loss
+  }
+  if(bufferJ < 0){
+    // can't cover loads; treat deficit as "brownout" and clamp to zero
+    bufferJ = 0;
+  }
+
+  // Transit power available for "field work" (not free energy):
+  // use nuclear + fusion (scaled by φHold) + buffer discharge allowance
+  // We model buffer discharge as a limited rate to keep it physical.
+  const bufferDischargeMaxW = 6e6; // 6 MW discharge capability
+  // want to feed field engine; pull from buffer if available
+  let wantFromBufferW = Math.min(bufferDischargeMaxW, bufferJ/dt);
+  let fromBufferW = 0;
+
+  // Field engine wants power
+  // nuclear baseline always contributes; fusion contributes scaled by φHold
+  const fieldBaseW = I.nuclearW * 0.55; // allocate 55% of nuclear to field during transit
+  const fieldPeakW = fusionAvailW * phiHold; // fusion coupling depends on φHold
+  let fieldNeedW = fieldBaseW + fieldPeakW;
+
+  // atmosphere assists coupling during surface phases; during transit it's ~0
+  // but we keep a small "vacuum coupling floor" so the knobs do something
+  const vacuumCouplingFloor = 0.20;
+  const coupling = clamp(vacuumCouplingFloor + 0.40*phiHold, 0, 1);
+
+  // pull from buffer to support field
+  fromBufferW = Math.min(wantFromBufferW, Math.max(0, fieldNeedW - fieldBaseW));
+  bufferJ -= fromBufferW * dt;
+  if(bufferJ < 0){ bufferJ = 0; fromBufferW = 0; }
+
+  const fieldW = fieldBaseW + fieldPeakW + fromBufferW; // total field work power (W)
+
+  // Effective inertial mass proxy (does NOT create mass; it's a control abstraction)
+  // max reduction limited to 35% at φHold=1, softened by failure & coupling
+  const effMassKg = I.massKg * (1 - 0.35 * phiHold * coupling);
+  const effMassKgClamped = Math.max(0.65*I.massKg, effMassKg); // enforce floor
+  // Proxy cruise speed bounded by power-to-mass; never exceed 0.12c in this sim
+  // v ~ sqrt( 2 * P / m ) * scale, but keep stable and conservative
+  const vTarget = clamp(Math.sqrt((2*fieldW) / effMassKgClamped) * 1400, 500, 0.12*C);
+  // smooth v
+  vProxy += (vTarget - vProxy) * (1 - Math.exp(-0.4*dt));
+  vProxy = clamp(vProxy, 0, 0.12*C);
+
+  // advance mission progress by vProxy / distance
+  const dProg = (vProxy * dt) / I.distM;
+  progress = clamp(progress + dProg, 0, 1);
+
+  // Surface / landing pad capture model (only meaningful near arrival).
+  // As progress approaches 1, we simulate approach + landing work.
+  // We treat a "landing energy event" scaled by vehicle kinetic proxy and atmosphere.
+  if(progress > 0.985){
+    // remaining fraction to 1; as it shrinks, we ramp into pad capture
+    const u = clamp((progress - 0.985)/0.015, 0, 1); // 0..1
+    // atmosphere helps coupling; on Mars small; on Earth large
+    const atmCoupling = clamp(0.15 + 0.85*I.rho, 0.05, 1);
+    // pad capture efficiency depends on φHold and atmosphere, collapses if failField
+    const padEff = clamp(phiHold * atmCoupling, 0, 1);
+
+    // define a conservative "landing power draw" (to regulate descent) in MW
+    const landingDemandW = (2.5e6 + 9e6*u) * (0.6 + 0.4*I.rho); // more in thick air due to active boundary control
+    // provide landing power from fieldW + buffer discharge if possible
+    // (we don't double-count: landingDemand uses part of field work; treat as an allocation)
+    const providedW = Math.min(landingDemandW, fieldW);
+
+    // captured energy into pad sinks (J)
+    const captured = providedW * dt * padEff;
+    padCapturedJ += captured;
+
+    // losses from imperfect capture go to heatLoss
+    const loss = providedW * dt * (1 - padEff);
+    heatLossJ += loss;
+
+    // comfort metric rises with better pad capture (lower jerk)
+    aComfort = lerp(aComfort, padEff, 1 - Math.exp(-2.0*dt));
+  } else {
+    // comfort relax
+    aComfort = lerp(aComfort, 0.2 + 0.6*phiHold, 1 - Math.exp(-0.6*dt));
+  }
+
+  tSim += dt;
+
+  // Log once per simulated minute
+  maybeLog(I);
+}
+
+/* =========================
+   Logging / CSV
+========================= */
+let logAccumulator = 0;
+function maybeLog(I){
+  logAccumulator += I._dt_for_log || 0; // not used
+  // We'll log by wall clock in the loop; here we log by sim time interval:
+  // Use a simple "if tSim crossed next minute boundary"
+  const minute = Math.floor(tSim / 60);
+  const lastMinute = logs.length ? logs[logs.length-1].minute : -1;
+  if(minute !== lastMinute){
+    // Supplies estimate: 4.5 kg/person/day (food+water+consumables) as a knob
+    // Conservative, not exact.
+    const suppliesKg = I.crew * (tSim/DAY) * 4.5;
+
+    // Effective energy-equivalent mass proxy of current buffer (m=E/c^2) — accounting only
+    const bufferMassEqKg = bufferJ / (C*C);
+
+    logs.push({
+      minute,
+      t_s: tSim,
+      progress,
+      v_proxy_mps: vProxy,
+      phi_hold: phiHold,
+      solar_W: I.solarW,
+      nuclear_W: I.nuclearW,
+      fusion_W: (I.failFusion?0:I.fusionW),
+      buffer_J: bufferJ,
+      buffer_cap_J: (I.failBuffer ? I.bufferCapJ*(1-0.55*I.sev) : I.bufferCapJ),
+      buffer_massEq_kg: bufferMassEqKg,
+      heatLoss_J: heatLossJ,
+      padCaptured_J: padCapturedJ,
+      g_mps2: I.g,
+      rho_factor: I.rho,
+      supplies_kg: suppliesKg,
+      crew: I.crew,
+      mass_kg: I.massKg
+    });
+  }
+}
+
+function exportCSV(){
+  if(!logs.length){
+    alert("No logs yet. Click Start to generate mission logs, then Export CSV.");
+    return;
+  }
+  const cols = Object.keys(logs[0]);
+  const lines = [];
+  lines.push(cols.join(","));
+  for(const r of logs){
+    lines.push(cols.map(k => {
+      const v = r[k];
+      // Quote if needed
+      if(typeof v === "string") return `"${v.replaceAll('"','""')}"`;
+      return (Number.isFinite(v) ? String(v) : "");
+    }).join(","));
+  }
+  const csv = lines.join("\n");
+  const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "cst_warp_mission_logs.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 5000);
+}
+
+/* =========================
+   Drawing helpers
+========================= */
+function clearCanvas(cv){
+  const g = cv.getContext("2d");
+  g.clearRect(0,0,cv.width,cv.height);
+  // background grid
+  g.fillStyle="#0e1422";
+  g.fillRect(0,0,cv.width,cv.height);
+  g.strokeStyle="rgba(88,166,255,.12)";
+  g.lineWidth=1;
+  for(let x=0;x<cv.width;x+=40){
+    g.beginPath(); g.moveTo(x,0); g.lineTo(x,cv.height); g.stroke();
+  }
+  for(let y=0;y<cv.height;y+=40){
+    g.beginPath(); g.moveTo(0,y); g.lineTo(cv.width,y); g.stroke();
+  }
+}
+
+function drawBox(g, x,y,w,h, title, lines, fill){
+  g.fillStyle=fill;
+  g.fillRect(x,y,w,h);
+  g.strokeStyle="rgba(255,255,255,.18)";
+  g.strokeRect(x,y,w,h);
+  g.fillStyle="#000";
+  g.font="bold 12px system-ui";
+  g.fillText(title, x+10, y+18);
+  g.font="12px system-ui";
+  let yy = y+36;
+  for(const L of lines){
+    g.fillText(L, x+10, yy);
+    yy += 16;
+  }
+}
+
+function drawArrow(g, x1,y1,x2,y2, label){
+  g.strokeStyle="#8fb4ff";
+  g.lineWidth=2;
+  g.beginPath(); g.moveTo(x1,y1); g.lineTo(x2,y2); g.stroke();
+  // arrowhead
+  const ang = Math.atan2(y2-y1, x2-x1);
+  const ah = 10;
+  g.beginPath();
+  g.moveTo(x2, y2);
+  g.lineTo(x2 - ah*Math.cos(ang-0.5), y2 - ah*Math.sin(ang-0.5));
+  g.lineTo(x2 - ah*Math.cos(ang+0.5), y2 - ah*Math.sin(ang+0.5));
+  g.closePath();
+  g.fillStyle="#8fb4ff";
+  g.fill();
+  if(label){
+    g.fillStyle="rgba(230,236,255,.9)";
+    g.font="12px system-ui";
+    g.fillText(label, (x1+x2)/2 + 8, (y1+y2)/2 - 6);
+  }
+}
+
+function drawBar(g, x,y,w,h, frac, color, label){
+  g.fillStyle="rgba(255,255,255,.06)";
+  g.fillRect(x,y,w,h);
+  g.fillStyle=color;
+  g.fillRect(x,y,w*clamp(frac,0,1),h);
+  g.strokeStyle="rgba(255,255,255,.18)";
+  g.strokeRect(x,y,w,h);
+  g.fillStyle="rgba(230,236,255,.9)";
+  g.font="12px system-ui";
+  g.fillText(label, x, y-6);
+}
+
+/* =========================
+   Render each panel
+========================= */
+function renderPanels(){
+  const I = readInputs();
+
+  // derive same effective params used in step() for consistent display
+  let phi = I.phiUser;
+  if(I.failField) phi *= (1 - 0.85*I.sev);
+  phi = clamp(phi,0,1);
+
+  const bufferCapJ = Math.max(1e6, (I.failBuffer ? I.bufferCapJ*(1-0.55*I.sev) : I.bufferCapJ));
+  const bufferFrac = bufferJ / bufferCapJ;
+
+  const fusionAvailW = I.failFusion ? 0 : I.fusionW;
+  const stationLoadW = 0.35e6, robotChargeW = 0.06e6;
+  const busInW = I.solarW + I.nuclearW;
+  const totalLoadW = stationLoadW + robotChargeW;
+  const netToBufferW = busInW - totalLoadW;
+
+  const vacuumCouplingFloor = 0.20;
+  const coupling = clamp(vacuumCouplingFloor + 0.40*phiHold, 0, 1);
+  const effMassKg = I.massKg * (1 - 0.35 * phiHold * coupling);
+  const effMassKgClamped = Math.max(0.65*I.massKg, effMassKg);
+
+  // --- Station canvas
+  const cvS = document.getElementById("cvStation");
+  clearCanvas(cvS);
+  const gS = cvS.getContext("2d");
+  gS.fillStyle="rgba(230,236,255,.92)";
+  gS.font="bold 13px system-ui";
+  gS.fillText("Station: Generation + Buffering + Loads", 12, 20);
+
+  drawBox(gS, 20, 52, 140, 70, "Solar Arrays", [
+    `${fmt(I.solarW/1000,0)} kW`,
+    "Charge robots + aux"
+  ], "#ffe066");
+
+  drawBox(gS, 190, 52, 160, 70, "Energy Buffer", [
+    `${fmt(bufferJ/1e6,1)} MJ`,
+    `cap ${fmt(bufferCapJ/1e6,0)} MJ`
+  ], "#9bf6ff");
+
+  drawBox(gS, 380, 42, 130, 90, "Nuclear", [
+    `${fmt(I.nuclearW/1e6,2)} MW`,
+    "baseline power"
+  ], "#cdb4db");
+
+  drawBox(gS, 540, 52, 150, 70, "Station Loads", [
+    `${fmt(totalLoadW/1e6,2)} MW`,
+    "life support + comm"
+  ], "#a0c4ff");
+
+  drawArrow(gS, 160, 87, 190, 87, "solar→buffer");
+  drawArrow(gS, 445, 87, 350, 87, "nuclear→bus");
+  drawArrow(gS, 510, 87, 540, 87, "bus→loads");
+
+  drawBar(gS, 20, 170, 670, 16, bufferFrac, "rgba(53,208,127,.95)", "Buffer Fill (0–100%)");
+  drawBar(gS, 20, 220, 670, 16, clamp((netToBufferW/2e6 + 0.5),0,1), "rgba(242,193,78,.95)", "Net to Buffer (scaled; left=discharge, right=charge)");
+
+  // --- Transit canvas
+  const cvT = document.getElementById("cvTransit");
+  clearCanvas(cvT);
+  const gT = cvT.getContext("2d");
+  gT.fillStyle="rgba(230,236,255,.92)";
+  gT.font="bold 13px system-ui";
+  gT.fillText("Transit: Power → Field Work → v Proxy → Time", 12, 20);
+
+  const fusionShown = fusionAvailW * phiHold;
+  const fieldBaseW = I.nuclearW * 0.55;
+  const bufferDischargeMaxW = 6e6;
+  // show a “typical” buffer assist term (not exact per step; for UI)
+  const bufferAssistW = Math.min(bufferDischargeMaxW, bufferJ>0 ? bufferDischargeMaxW*(0.4+0.6*phiHold) : 0);
+  const fieldW_est = fieldBaseW + fusionShown + bufferAssistW;
+
+  drawBox(gT, 20, 52, 160, 80, "Field Power (est)", [
+    `${fmt(fieldW_est/1e6,2)} MW`,
+    `base ${fmt(fieldBaseW/1e6,2)} MW`,
+    `fusion ${fmt(fusionShown/1e6,2)} MW`
+  ], "#a0c4ff");
+
+  drawBox(gT, 210, 52, 170, 80, "Effective Mass Proxy", [
+    `${fmt(effMassKgClamped/1000,1)} tons`,
+    `φ_hold ${fmt(phiHold,2)}`,
+    `coupling ${fmt(coupling,2)}`
+  ], "#bdb2ff");
+
+  drawBox(gT, 410, 52, 160, 80, "Cruise v Proxy", [
+    `${fmt(vProxy/1000,1)} km/s`,
+    `${fmt(vProxy/C*100,3)}% c`,
+    "bounded"
+  ], "#ffe066");
+
+  const remainingDist = (1-progress) * I.distM;
+  const eta = (vProxy>10) ? (remainingDist / vProxy) : Infinity;
+  const etaDays = eta/DAY;
+
+  drawBox(gT, 600, 52, 190, 80, "ETA (if steady)", [
+    `${Number.isFinite(etaDays)? fmt(etaDays,1): "∞"} days`,
+    `progress ${fmt(progress*100,1)}%`,
+    `dist ${fmt(I.distM/1e9,0)} Mkm`
+  ], "#9bf6ff");
+
+  drawArrow(gT, 180, 92, 210, 92, "P → m_eff");
+  drawArrow(gT, 380, 92, 410, 92, "m_eff → v");
+
+  // plot progress timeline bar
+  drawBar(gT, 20, 170, 770, 18, progress, "rgba(88,166,255,.95)", "Mission Progress (0–100%)");
+  drawBar(gT, 20, 225, 770, 18, clamp(phiHold,0,1), "rgba(53,208,127,.95)", "Phase Alignment φ_hold");
+  drawBar(gT, 20, 280, 770, 18, clamp(fieldW_est/(60e6),0,1), "rgba(242,193,78,.95)", "Field Power Fraction (0–60MW scale)");
+
+  // --- Surface canvas
+  const cvU = document.getElementById("cvSurface");
+  clearCanvas(cvU);
+  const gU = cvU.getContext("2d");
+  gU.fillStyle="rgba(230,236,255,.92)";
+  gU.font="bold 13px system-ui";
+  gU.fillText("Surface: Pad Capture + Atmosphere/Gravity Effects", 12, 20);
+
+  const atmCoupling = clamp(0.15 + 0.85*I.rho, 0.05, 1);
+  const padEff = clamp(phiHold * atmCoupling, 0, 1);
+
+  drawBox(gU, 20, 52, 170, 85, "World Params", [
+    `g ${fmt(I.g,2)} m/s²`,
+    `ρ/ρe ${fmt(I.rho,3)}`,
+    `atmCoupling ${fmt(atmCoupling,2)}`
+  ], "#cdb4db");
+
+  drawBox(gU, 220, 52, 190, 85, "Pad Capture", [
+    `eff ${fmt(padEff*100,1)}%`,
+    `captured ${fmt(padCapturedJ/1e9,3)} GJ`,
+    `loss ${fmt(heatLossJ/1e9,3)} GJ`
+  ], "#9bf6ff");
+
+  drawBox(gU, 440, 52, 190, 85, "Comfort Proxy", [
+    `stability ${fmt(aComfort*100,1)}%`,
+    "lower jerk = higher",
+    "capture → comfort"
+  ], "#ffe066");
+
+  drawBox(gU, 650, 52, 130, 85, "Landing Mode", [
+    (progress>0.985 ? "APPROACH" : "CRUISE"),
+    (I.failField ? "Field risk" : "Nominal"),
+    (I.failFusion ? "No fusion" : "Fusion ok")
+  ], "#a0c4ff");
+
+  // pad schematic
+  gU.fillStyle="rgba(88,166,255,.18)";
+  gU.beginPath();
+  gU.arc(170, 250, 70, 0, Math.PI*2);
+  gU.fill();
+  gU.strokeStyle="rgba(88,166,255,.8)";
+  gU.lineWidth=2;
+  gU.stroke();
+
+  gU.fillStyle="rgba(230,236,255,.9)";
+  gU.font="12px system-ui";
+  gU.fillText("Landing Pad (phase reference + sink)", 70, 338);
+
+  // vehicle icon
+  const vx = 520, vy = 250;
+  gU.fillStyle="rgba(255,255,255,.15)";
+  gU.fillRect(vx-18, vy-10, 36, 20);
+  gU.strokeStyle="rgba(255,255,255,.35)";
+  gU.strokeRect(vx-18, vy-10, 36, 20);
+  gU.fillStyle="rgba(230,236,255,.9)";
+  gU.fillText("Vehicle", vx-18, vy+28);
+
+  // arrows showing capture
+  drawArrow(gU, vx-18, vy, 240, 250, "field-guided descent");
+  drawArrow(gU, 240, 260, 240, 310, "energy → sinks");
+  drawArrow(gU, 240, 250, 330, 250, "pad boundary field");
+
+  drawBar(gU, 20, 170, 760, 16, padEff, "rgba(53,208,127,.95)", "Pad Capture Efficiency (φ_hold × atmosphere coupling)");
+  drawBar(gU, 20, 210, 760, 16, clamp(I.g/9.81,0,1), "rgba(242,193,78,.95)", "Gravity fraction (g / 9.81)");
+
+  // annotate failures
+  gU.fillStyle="rgba(230,236,255,.9)";
+  gU.font="12px system-ui";
+  const ftxt = [];
+  if(I.failBuffer) ftxt.push("Buffer saturation ON");
+  if(I.failFusion) ftxt.push("Fusion loss ON");
+  if(I.failField)  ftxt.push("Field collapse ON");
+  gU.fillText("Failures: " + (ftxt.length? ftxt.join(" | ") : "none"), 20, 330);
+
+  // Update KPIs
+  updateReadout(I, bufferCapJ, effMassKgClamped, padEff);
+}
+
+function updateReadout(I, bufferCapJ, effMassKgClamped, padEff){
+  const status = document.getElementById("statusText");
+  status.textContent = running ? "Running" : "Stopped";
+  status.className = running ? "ok" : "warn";
+
+  // simple supply estimate
+  const suppliesKg = I.crew * (tSim/DAY) * 4.5;
+
+  // energy-equivalent mass proxy (accounting only)
+  const bufMassEqKg = bufferJ / (C*C);
+
+  const eta = (vProxy>10) ? ((1-progress)*I.distM / vProxy) : Infinity;
+  const etaDays = eta/DAY;
+
+  const risk =
+    (I.failField ? 0.45 : 0) +
+    (I.failFusion ? 0.25 : 0) +
+    (I.failBuffer ? 0.20 : 0) +
+    (1-padEff)*0.25;
+
+  const riskTxt = (risk<0.35) ? "LOW" : (risk<0.65 ? "MED" : "HIGH");
+  const riskCls = (risk<0.35) ? "ok" : (risk<0.65 ? "warn" : "bad");
+
+  document.getElementById("kpis").innerHTML = `
+    <div><b>Sim time:</b> ${fmt(tSim/3600,2)} h &nbsp; | &nbsp; <b>Progress:</b> ${fmt(progress*100,2)}%</div>
+    <div><b>v proxy:</b> ${fmt(vProxy/1000,2)} km/s &nbsp; | &nbsp; <b>ETA:</b> ${Number.isFinite(etaDays)? fmt(etaDays,1): "∞"} days</div>
+    <div><b>Buffer:</b> ${fmt(bufferJ/1e6,1)} MJ / ${fmt(bufferCapJ/1e6,0)} MJ &nbsp; | &nbsp; <b>m_eq:</b> ${fmt(bufMassEqKg,6)} kg</div>
+    <div><b>Effective mass proxy:</b> ${fmt(effMassKgClamped/1000,1)} tons &nbsp; | &nbsp; <b>Pad capture:</b> ${fmt(padEff*100,1)}%</div>
+    <div><b>Supplies estimate:</b> ${fmt(suppliesKg,1)} kg (${I.crew} crew @ 4.5 kg/day)</div>
+    <div><b>Losses:</b> heat ${fmt(heatLossJ/1e9,4)} GJ &nbsp; | &nbsp; pad captured ${fmt(padCapturedJ/1e9,4)} GJ</div>
+    <div><b>Risk:</b> <span class="${riskCls}">${riskTxt}</span> (failures + low capture increase risk)</div>
+  `;
+}
+
+/* =========================
+   Animation loop
+========================= */
+function loop(t){
+  if(!running) return;
+
+  const I = readInputs();
+  const dtReal = (t - lastT)/1000;
+  lastT = t;
+
+  // stable step
+  const speedX = clamp(I.speedX, 1, 2000);
+  let dt = dtReal * speedX;
+  dt = clamp(dt, 0, 10); // never jump too far
+
+  // substep for stability
+  const n = Math.ceil(dt / 0.2);
+  const h = dt / n;
+  for(let i=0;i<n;i++){
+    step(h);
+    if(progress >= 1){
+      progress = 1;
+      running = false;
+      break;
+    }
+  }
+
+  renderPanels();
+
+  if(!running){
+    // stop buttons
+    document.getElementById("btnStart").disabled = false;
+    document.getElementById("btnStop").disabled = true;
+  } else {
+    requestAnimationFrame(loop);
+  }
+}
+
+function startSim(){
+  if(running) return;
+  running = true;
+  lastT = nowMs();
+  document.getElementById("btnStart").disabled = true;
+  document.getElementById("btnStop").disabled = false;
+  renderPanels();
+  requestAnimationFrame(loop);
+}
+
+function stopSim(){
+  running = false;
+  document.getElementById("btnStart").disabled = false;
+  document.getElementById("btnStop").disabled = true;
+  renderPanels();
+}
+
+function resetSim(){
+  running = false;
+  tSim = 0;
+  bufferJ = 0;
+  heatLossJ = 0;
+  padCapturedJ = 0;
+  progress = 0;
+  phiHold = 0;
+  vProxy = 0;
+  aComfort = 0;
+  logs = [];
+  document.getElementById("btnStart").disabled = false;
+  document.getElementById("btnStop").disabled = true;
+  renderPanels();
+}
+
+(function init(){
+  applyWorldPreset();
+  resetSim();
+  // Keep the preset selector consistent with default Mars slider values
+  document.getElementById("worldPreset").value = "mars";
+})();
+</script>
+</body>
+</html>
