@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>CST Scientific Calculator — + Dyson Sphere (Global Memory Toggle)</title>
+<style>
+  :root{
+    --bg:#0b1220;--panel:#121a2e;--ink:#e8eeff;--muted:#aab4d6;--accent:#7aa7ff;--ok:#34e6a2;--warn:#ffd166;--bad:#ff6b8b;--border:#22325e;
+    --btn:#182241;--btn2:#1d2750;--btnOp:#253268;--btnEq:#2b7a4b;--btnAct:#3b82f6;--chip:#0f1630;--card:#0f162c;
+    --dyson:#b48bff;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    background:radial-gradient(1400px 900px at 70% 0%,#121a2e 0%,#0b1220 60%,#08101d 100%);
+    color:var(--ink);
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial;
+  }
+  a{color:var(--accent);text-decoration:none}
+  .wrap{max-width:1200px;margin:24px auto;padding:16px}
+  h1{margin:0 0 8px;font-size:clamp(22px,3.2vw,32px)}
+  p.lead{margin:0 0 14px;color:var(--muted)}
+  .grid{display:grid;grid-template-columns:420px 1fr;gap:16px}
+  @media (max-width:980px){.grid{grid-template-columns:1fr}}
+
+  /* --- Dyson UI --- */
+  .topbar{
+    display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;
+    margin-bottom:10px;
+  }
+  .dysonBox{
+    display:flex;align-items:center;gap:10px;
+    background:rgba(15,22,48,.75);
+    border:1px solid var(--border);
+    border-radius:14px;
+    padding:10px 12px;
+    box-shadow:0 8px 30px rgba(0,0,0,.25);
+  }
+  .switch{
+    width:56px;height:30px;border-radius:999px;position:relative;flex:0 0 auto;
+    background:#1a2450;border:1px solid var(--border);cursor:pointer;
+  }
+  .switch::after{
+    content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;
+    background:#9aa7d6;transition:transform .18s ease, background .18s ease;
+  }
+  .switch.on{background:rgba(180,139,255,.20);border-color:rgba(180,139,255,.55)}
+  .switch.on::after{transform:translateX(26px);background:var(--dyson)}
+  .dysonText b{display:block;font-size:13px;color:var(--ink)}
+  .dysonText small{display:block;font-size:11px;color:var(--muted);margin-top:2px;max-width:540px}
+  .dysonStats{
+    display:flex;gap:10px;flex-wrap:wrap;margin-top:6px
+  }
+  .stat{
+    background:#0f1630;border:1px solid var(--border);border-radius:999px;
+    padding:6px 10px;font-size:12px;color:var(--muted)
+  }
+  .stat strong{color:var(--ink);font-family:ui-monospace,Consolas,Menlo,monospace;font-weight:700}
+
+  /* --- Calculator --- */
+  .calc{
+    position:relative;
+    background:linear-gradient(180deg,#121a2e,#0e1529);
+    border:1px solid var(--border);
+    border-radius:16px;
+    padding:12px;
+    box-shadow:0 8px 30px rgba(0,0,0,.35);
+    overflow:hidden;
+  }
+
+  /* Dyson ring overlay (visual boundary) */
+  .dysonRingWrap{
+    position:absolute;inset:-40px;pointer-events:none;
+    opacity:.85;
+    transition:opacity .2s ease;
+  }
+  .dysonRingWrap.off{opacity:.12}
+  .dysonRingLabel{
+    position:absolute;left:12px;top:10px;
+    font-size:12px;color:rgba(180,139,255,.95);
+    background:rgba(11,18,32,.65);
+    border:1px solid rgba(180,139,255,.35);
+    padding:6px 8px;border-radius:10px;
+  }
+  .display{display:flex;gap:8px;align-items:center;position:relative}
+  .screen{flex:1;background:#0b1122;border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:20px;min-height:48px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.03)}
+  .screen input{width:100%;background:transparent;color:var(--ink);border:0;outline:0;font-size:20px}
+  .mode{display:flex;gap:8px}
+  .chip{background:var(--chip);border:1px solid var(--border);border-radius:999px;padding:6px 10px;font-size:12px;cursor:pointer;user-select:none}
+  .chip.active{outline:2px solid var(--accent)}
+
+  .keypad{margin-top:10px;display:grid;grid-template-columns:repeat(6,1fr);gap:8px;position:relative}
+  .btn{border:1px solid var(--border);background:var(--btn);color:var(--ink);padding:12px 8px;border-radius:10px;cursor:pointer;text-align:center;user-select:none}
+  .btn.op{background:var(--btnOp)}
+  .btn.eq{background:var(--btnEq)}
+  .btn.act{background:var(--btnAct)}
+  .btn:active{transform:translateY(1px)}
+
+  .side{display:grid;gap:12px}
+  .card{background:linear-gradient(180deg,#0d1427,#0a1223);border:1px solid var(--border);border-radius:14px;padding:12px}
+  .card h3{margin:0 0 8px;font-size:16px;color:#d9e4ff}
+  .steps{max-height:260px;overflow:auto;line-height:1.45}
+  .steps .step{background:var(--card);border:1px dashed var(--border);padding:8px;border-radius:8px;margin:6px 0;color:#cfe1ff}
+  .history{max-height:124px;overflow:auto}
+  .history .item{padding:6px;border-bottom:1px dashed var(--border);font-family:ui-monospace,Consolas,Menlo,monospace;color:#cfe1ff}
+  .demos{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+  .demo{padding:10px;background:var(--chip);border:1px solid var(--border);border-radius:10px;cursor:pointer}
+  .demo:hover{outline:2px solid #29417a}
+  .muted{color:var(--muted)}
+
+  .actions{display:flex;gap:8px;flex-wrap:wrap}
+  .actions .btn{padding:10px 12px}
+
+  .printable{background:#fff;color:#111;padding:16px;border-radius:12px}
+  .printable h2{margin:0 0 6px}
+  .printable pre{white-space:pre-wrap}
+
+  @media print{
+    body{background:#fff}
+    .wrap{margin:0;max-width:none}
+    .grid{grid-template-columns:1fr}
+    .card,.calc{box-shadow:none}
+    .actions,.topbar{display:none}
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+
+    <div class="topbar">
+      <div>
+        <h1>CST Scientific Calculator</h1>
+        <p class="lead">
+          Symbols • Steps • 10 Demonstrations • Print Results.
+          Now includes <strong>Dyson Sphere</strong> (global memory boundary): toggle ON/OFF to see stable vs leaky memory behavior.
+        </p>
+      </div>
+
+      <div class="dysonBox" aria-label="Dyson Sphere toggle">
+        <div id="dysonSwitch" class="switch on" role="switch" aria-checked="true" tabindex="0"></div>
+        <div class="dysonText">
+          <b>Dyson Sphere Memory</b>
+          <small id="dysonExplain">
+            ON = closed boundary: Memory (M, History, Mode) is conserved & persisted. OFF = open boundary: Memory leaks/decays and history is short-lived.
+          </small>
+          <div class="dysonStats">
+            <div class="stat">Mode: <strong id="dysonMode">ON</strong></div>
+            <div class="stat">Budget: <strong id="dysonBudget">—</strong></div>
+            <div class="stat">Writes: <strong id="dysonWrites">—</strong></div>
+            <div class="stat">Leaks: <strong id="dysonLeaks">—</strong></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <section class="calc" aria-label="scientific calculator">
+
+        <!-- Dyson ring boundary overlay -->
+        <div id="dysonRingWrap" class="dysonRingWrap">
+          <div class="dysonRingLabel" id="dysonRingLabel">Dyson Boundary: CLOSED (global memory conserved)</div>
+          <svg viewBox="0 0 520 720" preserveAspectRatio="none" style="width:100%;height:100%">
+            <defs>
+              <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur stdDeviation="6" result="b"/>
+                <feMerge>
+                  <feMergeNode in="b"/>
+                  <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+              </filter>
+              <linearGradient id="dyG" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="rgba(180,139,255,.18)"/>
+                <stop offset="1" stop-color="rgba(180,139,255,.75)"/>
+              </linearGradient>
+            </defs>
+            <ellipse cx="260" cy="360" rx="235" ry="320"
+              fill="none" stroke="url(#dyG)" stroke-width="6" filter="url(#glow)"/>
+            <ellipse cx="260" cy="360" rx="205" ry="290"
+              fill="none" stroke="rgba(180,139,255,.35)" stroke-width="2"/>
+          </svg>
+        </div>
+
+        <div class="display">
+          <div class="screen"><input id="expr" aria-label="expression input" placeholder="Type or tap: e.g., sin(30) + √(3)^2 - π/4"/></div>
+          <div class="mode">
+            <span id="degBtn" class="chip active" role="button" tabindex="0">DEG</span>
+            <span id="radBtn" class="chip" role="button" tabindex="0">RAD</span>
+          </div>
+        </div>
+
+        <div class="keypad" id="keypad">
+          <!-- Row 1 -->
+          <div class="btn act" data-k="AC">AC</div>
+          <div class="btn act" data-k="⌫">⌫</div>
+          <div class="btn op" data-k="(">(</div>
+          <div class="btn op" data-k=")">)</div>
+          <div class="btn op" data-k=","><span>,</span></div>
+          <div class="btn op" data-k="%">%</div>
+
+          <!-- Row 2 functions -->
+          <div class="btn" data-k="sin(">sin</div>
+          <div class="btn" data-k="cos(">cos</div>
+          <div class="btn" data-k="tan(">tan</div>
+          <div class="btn" data-k="ln(">ln</div>
+          <div class="btn" data-k="log(">log</div>
+          <div class="btn op" data-k="^">^</div>
+
+          <!-- Row 3 functions -->
+          <div class="btn" data-k="asin(">asin</div>
+          <div class="btn" data-k="acos(">acos</div>
+          <div class="btn" data-k="atan(">atan</div>
+          <div class="btn" data-k="sqrt(">√</div>
+          <div class="btn" data-k="abs(">abs</div>
+          <div class="btn" data-k="exp(">exp</div>
+
+          <!-- Row 4 numbers/operators -->
+          <div class="btn" data-k="7">7</div>
+          <div class="btn" data-k="8">8</div>
+          <div class="btn" data-k="9">9</div>
+          <div class="btn op" data-k="/">÷</div>
+          <div class="btn" data-k="pi">π</div>
+          <div class="btn" data-k="e">e</div>
+
+          <div class="btn" data-k="4">4</div>
+          <div class="btn" data-k="5">5</div>
+          <div class="btn" data-k="6">6</div>
+          <div class="btn op" data-k="*">×</div>
+          <div class="btn" data-k="^2">x²</div>
+          <div class="btn" data-k="1/">1/x</div>
+
+          <div class="btn" data-k="1">1</div>
+          <div class="btn" data-k="2">2</div>
+          <div class="btn" data-k="3">3</div>
+          <div class="btn op" data-k="-">−</div>
+          <div class="btn act" data-k="MS">MS</div>
+          <div class="btn act" data-k="MR">MR</div>
+
+          <div class="btn" data-k="0">0</div>
+          <div class="btn" data-k=".">.</div>
+          <div class="btn op" data-k="+">+</div>
+          <div class="btn eq" data-k="=">=</div>
+          <div class="btn act" data-k="M+">M+</div>
+          <div class="btn act" data-k="MC">MC</div>
+        </div>
+
+        <div class="actions" style="margin-top:10px">
+          <button class="btn" id="showSteps">Solve & Show Steps</button>
+          <button class="btn" id="addHist">Add to History</button>
+          <button class="btn" id="printBtn">Print Result</button>
+          <button class="btn" id="clearBtn">Clear Results</button>
+          <span class="muted">Tip: Enter = evaluate • ↑/↓ = cycle history • Dyson ON persists memory</span>
+        </div>
+
+      </section>
+
+      <aside class="side">
+        <div class="card">
+          <h3>Step-by-Step Solution</h3>
+          <div id="steps" class="steps" aria-live="polite"></div>
+        </div>
+        <div class="card">
+          <h3>History</h3>
+          <div id="history" class="history"></div>
+        </div>
+        <div class="card">
+          <h3>10 Demonstrations (click to load)</h3>
+          <div class="demos" id="demos" role="list"></div>
+          <p class="muted" style="margin-top:6px">Each demo auto-fills input + shows an explanation in the steps.</p>
+        </div>
+        <div class="card">
+          <h3>Printable Summary</h3>
+          <div id="printArea" class="printable">
+            <h2>Calculation Summary</h2>
+            <div><strong>Expression:</strong> <span id="pExpr">—</span></div>
+            <div><strong>Result:</strong> <span id="pRes">—</span></div>
+            <div><strong>Mode:</strong> <span id="pMode">DEG</span></div>
+            <h3>Steps</h3>
+            <pre id="pSteps">(Run a calculation to populate this section.)</pre>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Built-in Tests</h3>
+          <div class="actions">
+            <button class="btn" id="runTests">Run Tests</button>
+          </div>
+          <div id="testOutput" class="steps" style="max-height:180px"></div>
+        </div>
+        <div class="card">
+          <h3>Symbols Palette</h3>
+          <div class="demos" id="symbolsPalette"></div>
+          <p class="muted" style="margin-top:6px">Click to insert symbol at cursor.</p>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+(function(){
+  const $ = (id)=>document.getElementById(id);
+
+  // ---- UI ----
+  const exprEl = $('expr');
+  const stepsEl = $('steps');
+  const histEl  = $('history');
+  const keypad  = $('keypad');
+  const degBtn  = $('degBtn');
+  const radBtn  = $('radBtn');
+  const printBtn= $('printBtn');
+  const clearBtn= $('clearBtn');
+  const runTestsBtn = $('runTests');
+  const testOutput = $('testOutput');
+  const showStepsBtn = $('showSteps');
+  const addHistBtn = $('addHist');
+
+  const pExpr = $('pExpr');
+  const pRes  = $('pRes');
+  const pMode = $('pMode');
+  const pSteps= $('pSteps');
+  const demosEl = $('demos');
+  const paletteEl = $('symbolsPalette');
+
+  // Dyson UI
+  const dysonSwitch = $('dysonSwitch');
+  const dysonModeEl = $('dysonMode');
+  const dysonBudgetEl = $('dysonBudget');
+  const dysonWritesEl = $('dysonWrites');
+  const dysonLeaksEl  = $('dysonLeaks');
+  const dysonExplain  = $('dysonExplain');
+  const dysonRingWrap = $('dysonRingWrap');
+  const dysonRingLabel= $('dysonRingLabel');
+
+  if(!exprEl){ console.error('Calculator init failed: #expr missing'); return; }
+
+  // ---- Dyson Sphere global memory layer ----
+  // ON  => persists Mode/Memory/History using localStorage + low leak
+  // OFF => no localStorage persistence + higher leak/decay + short history
+  const LSKEY = 'CST_CALC_DYSON_V1';
+
+  const VAULT = {
+    dysonOn: true,
+    budget: 0.72,  // 0..1
+    writes: 0,
+    leaks:  0,
+    // persisted state
+    DEG: true,
+    memory: 0,
+    history: [], // {expr,res}
+    // last printable
+    printable: {expr:'—', res:'—', mode:'DEG', steps:'(Run a calculation to populate this section.)'}
+  };
+
+  function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
+  function fmtPct(x){ return Math.round(clamp(x,0,1)*100) + '%'; }
+
+  function saveVault(){
+    if(!VAULT.dysonOn) return; // open system doesn't persist
+    try{
+      localStorage.setItem(LSKEY, JSON.stringify({
+        dysonOn: VAULT.dysonOn,
+        budget: VAULT.budget,
+        writes: VAULT.writes,
+        leaks: VAULT.leaks,
+        DEG: VAULT.DEG,
+        memory: VAULT.memory,
+        history: VAULT.history.slice(0,80),
+        printable: VAULT.printable
+      }));
+    }catch(e){}
+  }
+
+  function loadVault(){
+    try{
+      const raw = localStorage.getItem(LSKEY);
+      if(!raw) return;
+      const obj = JSON.parse(raw);
+      if(typeof obj !== 'object' || obj===null) return;
+      // Keep defaults if missing
+      if(typeof obj.dysonOn === 'boolean') VAULT.dysonOn = obj.dysonOn;
+      if(typeof obj.budget === 'number') VAULT.budget = clamp(obj.budget,0,1);
+      if(typeof obj.writes === 'number') VAULT.writes = Math.max(0, obj.writes|0);
+      if(typeof obj.leaks  === 'number') VAULT.leaks  = Math.max(0, obj.leaks|0);
+      if(typeof obj.DEG === 'boolean') VAULT.DEG = obj.DEG;
+      if(typeof obj.memory === 'number') VAULT.memory = obj.memory;
+      if(Array.isArray(obj.history)) VAULT.history = obj.history.slice(0,80);
+      if(obj.printable && typeof obj.printable === 'object') VAULT.printable = obj.printable;
+    }catch(e){}
+  }
+
+  function applyLeakPerCompute(){
+    // Dyson OFF: leak memory and budget; history short and lossy
+    if(VAULT.dysonOn){
+      // Closed boundary: mild stabilization
+      VAULT.budget = clamp(VAULT.budget + 0.015, 0, 1);
+      return;
+    }
+    VAULT.leaks++;
+    // leak memory register toward 0
+    VAULT.memory *= 0.85;
+    // budget drops more
+    VAULT.budget = clamp(VAULT.budget - 0.06, 0, 1);
+    // decay history confidence by trimming aggressively
+    VAULT.history = VAULT.history.slice(0, 8); // keep only most recent 8
+  }
+
+  function vaultWrite(){
+    VAULT.writes++;
+    // writes cost budget; Dyson ON accounts but stabilizes overall
+    VAULT.budget = clamp(VAULT.budget + (VAULT.dysonOn ? 0.02 : -0.02), 0, 1);
+  }
+
+  function updateDysonUI(){
+    dysonSwitch.classList.toggle('on', VAULT.dysonOn);
+    dysonSwitch.setAttribute('aria-checked', String(VAULT.dysonOn));
+    dysonModeEl.textContent = VAULT.dysonOn ? 'ON' : 'OFF';
+    dysonBudgetEl.textContent = fmtPct(VAULT.budget);
+    dysonWritesEl.textContent = String(VAULT.writes);
+    dysonLeaksEl.textContent  = String(VAULT.leaks);
+
+    dysonRingWrap.classList.toggle('off', !VAULT.dysonOn);
+    dysonRingLabel.textContent = VAULT.dysonOn
+      ? 'Dyson Boundary: CLOSED (global memory conserved)'
+      : 'Dyson Boundary: OPEN (memory leaks / more static)';
+
+    dysonExplain.textContent = VAULT.dysonOn
+      ? 'ON = closed boundary: Mode, M register, History persist (stable global memory).'
+      : 'OFF = open boundary: Memory decays, history is short-lived (more static / retyping).';
+  }
+
+  function toggleDyson(){
+    VAULT.dysonOn = !VAULT.dysonOn;
+    // If turning ON, start persisting immediately
+    if(VAULT.dysonOn){
+      VAULT.budget = clamp(Math.max(VAULT.budget, 0.55), 0, 1);
+      saveVault();
+    }else{
+      // If turning OFF, stop persisting (but don't erase saved data—so you can compare)
+      // Open system begins leaking right away:
+      VAULT.budget = clamp(VAULT.budget - 0.08, 0, 1);
+    }
+    updateDysonUI();
+    renderModeFromVault();
+    renderHistoryFromVault();
+  }
+
+  dysonSwitch.addEventListener('click', toggleDyson);
+  dysonSwitch.addEventListener('keydown', (e)=>{
+    if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); toggleDyson(); }
+  });
+
+  // ---- Calculator state ----
+  let DEG = true; // will be overwritten by vault load
+  let memory = 0;
+  let history = [];
+  let histIndex = -1;
+
+  // Demos
+  const demos = [
+    { name:"Quadratic (x=?)", expr:"(-b + sqrt(b^2 - 4*a*c)) / (2*a)", fill:{a:1,b:-3,c:2}, note:"Quadratic formula for a=1, b=−3, c=2 → plus root (x=2)." },
+    { name:"Trig mix", expr:"sin(30) + cos(60) + tan(45)", note:"DEG mode: 0.5 + 0.5 + 1 = 2." },
+    { name:"Log rules", expr:"ln(e^2) + log(1000) - ln(e)", note:"ln(e^2)=2, log10(1000)=3, ln(e)=1 → 4." },
+    { name:"CST Energy", expr:"(m/rho) * (c * CSTr * TCST)^2", fill:{m:1.2,rho:0.8,c:299792458,CSTr:0.97,TCST:1.03}, note:"E=(m/ρ)(c·CSTᵣ·Tᴄsᴛ)² sample." },
+    { name:"Vector magnitude", expr:"sqrt(3^2 + 4^2)", note:"→ 5" },
+    { name:"Compound interest", expr:"P * (1 + r/n)^(n*t)", fill:{P:1000,r:0.05,n:12,t:10}, note:"P(1+r/n)^{nt}" },
+    { name:"Angle identity", expr:"sin(2*30)", note:"sin(60)=√3/2≈0.866 (DEG)" },
+    { name:"Degrees↔Radians", expr:"sin(pi/6) + cos(pi/3)", note:"RAD inputs: 0.5+0.5=1" },
+    { name:"Percent & power", expr:"200 * 15% + 2^5", note:"30 + 32 = 62" },
+    { name:"Gamma-like (exp/ln)", expr:"exp(ln(5)) + ln(e)", note:"5 + 1 = 6" }
+  ];
+
+  // Render demo buttons
+  demosEl.innerHTML = '';
+  demos.forEach((d,i)=>{
+    const div=document.createElement('div');
+    div.className='demo';
+    div.setAttribute('role','button');
+    div.setAttribute('tabindex','0');
+    div.dataset.index = String(i);
+    div.textContent = (i+1)+'. '+d.name;
+    div.title = d.note || '';
+    div.addEventListener('click', onDemoActivate);
+    div.addEventListener('keydown', (e)=>{ if(e.key==='Enter' || e.key===' '){ onDemoActivate(e); e.preventDefault(); }});
+    demosEl.appendChild(div);
+  });
+
+  function onDemoActivate(e){
+    const item = e.target.closest('.demo');
+    if(!item || !demosEl.contains(item)) return;
+    const idx = Number(item.dataset.index);
+    const d = demos[idx];
+    if(!d) return;
+    const filled = applyFill(d.expr, d.fill||{});
+    exprEl.value = filled;
+    stepsEl.innerHTML = '';
+    addStep('Demo loaded: '+d.name);
+    if(d.note) addStep('Note: '+d.note);
+    compute(true);
+    exprEl.focus();
+  }
+
+  // Symbols palette
+  const symbols = ['π','√','±','∑','∫','θ','λ','μ','σ','Ω','∞','≈','≤','≥','≠','×','÷','→','←','°'];
+  paletteEl.innerHTML='';
+  symbols.forEach(sym=>{
+    const b=document.createElement('div');
+    b.className='demo';
+    b.textContent = sym;
+    b.setAttribute('role','button'); b.setAttribute('tabindex','0');
+    b.addEventListener('click',()=> insertText(sym));
+    b.addEventListener('keydown',(e)=>{ if(e.key==='Enter' || e.key===' ') { insertText(sym); e.preventDefault(); }});
+    paletteEl.appendChild(b);
+  });
+
+  function applyFill(expr, fill){
+    let out = expr;
+    Object.entries(fill||{}).forEach(([k,v])=>{
+      const re = new RegExp('\\b'+k+'\\b','g');
+      out = out.replace(re, String(v));
+    });
+    return out;
+  }
+
+  // Mode toggles
+  function setMode(deg){
+    DEG = deg;
+    VAULT.DEG = DEG;
+    if(pMode) pMode.textContent = DEG? 'DEG':'RAD';
+    degBtn.classList.toggle('active',DEG);
+    radBtn.classList.toggle('active',!DEG);
+    saveVault();
+  }
+  degBtn.onclick=()=>setMode(true);
+  radBtn.onclick=()=>setMode(false);
+
+  // Keypad input
+  keypad.addEventListener('click', (e)=>{
+    const target = e.target.closest('.btn');
+    if(!target) return;
+    const k = target.getAttribute('data-k');
+    handleKey(k);
+  });
+
+  function insertText(t){
+    const s = exprEl.selectionStart ?? exprEl.value.length;
+    const e = exprEl.selectionEnd ?? exprEl.value.length;
+    const v = exprEl.value;
+    exprEl.value = v.slice(0,s) + t + v.slice(e);
+    const pos = s + t.length;
+    exprEl.setSelectionRange(pos,pos);
+    exprEl.focus();
+  }
+
+  function handleKey(k){
+    if(k==='AC'){ exprEl.value=''; stepsEl.innerHTML=''; return; }
+    if(k==='⌫'){
+      const s=exprEl.selectionStart??exprEl.value.length; const e=exprEl.selectionEnd??s;
+      if(s!==e){ exprEl.value = exprEl.value.slice(0,s)+exprEl.value.slice(e); exprEl.setSelectionRange(s,s); return; }
+      exprEl.value = exprEl.value.slice(0,exprEl.value.length-1); return;
+    }
+    if(k==='='){ compute(true); return; }
+
+    if(k==='MS'){
+      const r = Number(safeCompute(exprEl.value, DEG).result ?? 0);
+      memory = r;
+      VAULT.memory = memory;
+      vaultWrite(); saveVault();
+      toast('Stored (MS): '+memory);
+      updateDysonUI();
+      return;
+    }
+    if(k==='MR'){ insertText(String(memory)); return; }
+    if(k==='M+'){
+      const r = Number(safeCompute(exprEl.value, DEG).result ?? 0);
+      memory += r;
+      VAULT.memory = memory;
+      vaultWrite(); saveVault();
+      toast('M = '+memory);
+      updateDysonUI();
+      return;
+    }
+    if(k==='MC'){
+      memory=0; VAULT.memory=0;
+      vaultWrite(); saveVault();
+      toast('Memory cleared (MC)');
+      updateDysonUI();
+      return;
+    }
+
+    if(k==='^2'){ insertText('^2'); return; }
+    if(k==='1/'){
+      const v = exprEl.value; const s=exprEl.selectionStart??v.length; const e=exprEl.selectionEnd??s;
+      const sel = s!==e? v.slice(s,e) : lastToken(v);
+      const start = s!==e? s : v.lastIndexOf(sel);
+      exprEl.value = v.slice(0,start)+'1/('+sel+')'+v.slice(start+sel.length);
+      exprEl.setSelectionRange(start+5+sel.length, start+5+sel.length);
+      return;
+    }
+    insertText(k);
+  }
+
+  function lastToken(v){
+    const m = v.match(/[a-zA-Zπe0-9_.]+(?=[^a-zA-Z0-9_.]*$)/);
+    return m? m[0] : '';
+  }
+
+  // Keyboard shortcuts
+  exprEl.addEventListener('keydown', (ev)=>{
+    if(ev.key==='Enter'){ ev.preventDefault(); compute(true); }
+    if(ev.key==='ArrowUp'){ cycleHistory(-1); ev.preventDefault(); }
+    if(ev.key==='ArrowDown'){ cycleHistory(1); ev.preventDefault(); }
+  });
+
+  function cycleHistory(dir){
+    if(!history.length) return;
+    if(histIndex===-1) histIndex = history.length-1; else histIndex = (histIndex+dir+history.length)%history.length;
+    const item = history[histIndex];
+    exprEl.value = item.expr;
+  }
+
+  // Buttons
+  showStepsBtn.onclick=()=>compute(true);
+  addHistBtn.onclick=()=>{ addHistory(exprEl.value, safeCompute(exprEl.value, DEG).result); };
+
+  function compute(){
+    const input = (exprEl.value||'').trim();
+    stepsEl.innerHTML = '';
+    if(!input){ addStep('Enter an expression to evaluate.'); return; }
+
+    // Dyson leak/stability applied per compute
+    applyLeakPerCompute();
+
+    const {result, steps, error} = safeCompute(input, DEG);
+    if(error){ addStep('Error: '+error); updateDysonUI(); saveVault(); return; }
+
+    addStep('Input: '+input);
+    steps.forEach(s=> addStep(s));
+    addStep('Result = '+result);
+
+    // Printable area
+    if(pExpr) pExpr.textContent = input;
+    if(pRes)  pRes.textContent  = result;
+    if(pMode) pMode.textContent = DEG ? 'DEG' : 'RAD';
+    if(pSteps) pSteps.textContent = ['Input: '+input, ...steps, 'Result = '+result].join('\n');
+
+    // vault printable
+    VAULT.printable = {
+      expr: input,
+      res: result,
+      mode: DEG ? 'DEG' : 'RAD',
+      steps: (['Input: '+input, ...steps, 'Result = '+result].join('\n'))
+    };
+
+    addHistory(input, result);
+    updateDysonUI();
+    saveVault();
+    return result;
+  }
+
+  function addStep(text){
+    const div=document.createElement('div');
+    div.className='step';
+    div.textContent = text;
+    stepsEl.appendChild(div);
+    stepsEl.scrollTop = stepsEl.scrollHeight;
+  }
+
+  function addHistory(expr, res){
+    if(!expr) return;
+
+    // Open system (Dyson OFF): short history and more loss
+    // Closed system (Dyson ON): long history and persisted
+    const maxLen = VAULT.dysonOn ? 40 : 10;
+
+    history.unshift({expr, res, ts:new Date()});
+    history = history.slice(0, maxLen);
+    histIndex = -1;
+
+    // Sync vault
+    VAULT.history = history.slice(0, maxLen);
+    vaultWrite();
+
+    renderHistoryFromVault();
+  }
+
+  function renderHistoryFromVault(){
+    histEl.innerHTML='';
+    (history||[]).forEach((h)=>{
+      const item=document.createElement('div');
+      item.className='item';
+      item.textContent = h.expr+' = '+h.res;
+      item.title = (h.ts ? new Date(h.ts).toLocaleString() : '');
+      item.addEventListener('click',()=>{ exprEl.value = h.expr; });
+      histEl.appendChild(item);
+    });
+  }
+
+  function toast(msg){ addStep(msg); }
+
+  // -------------- Core engine --------------
+  function safeCompute(input, degMode=true){
+    const steps=[];
+    try{
+      let expr = input
+        .replace(/π/g,'pi')
+        .replace(/×/g,'*')
+        .replace(/÷/g,'/')
+        .replace(/\^/g,'**')
+        .replace(/√/g,'sqrt');
+
+      // Percent: convert number% -> (number/100)
+      expr = expr.replace(/(\d+(?:\.\d+)?)\s*%/g,'($1/100)');
+
+      steps.push('Normalized: '+expr);
+
+      // DEG conversion for sin/cos/tan only (not asin/acos/atan)
+      if(degMode){
+        expr = expr.replace(/\bsin\s*\(/g,'sind(')
+                   .replace(/\bcos\s*\(/g,'cosd(')
+                   .replace(/\btan\s*\(/g,'tand(');
+        steps.push('DEG mode: converted sin/cos/tan → sind/cosd/tand');
+      }
+
+      const scope = buildScope();
+
+      // A tiny “Dyson noise” effect: OFF mode makes steps a bit “noisier” in presentation
+      // (Result stays correct; this is just an informational step.)
+      if(!VAULT.dysonOn){
+        steps.push('Dyson OFF: open-boundary mode (memory may decay; history is short-lived).');
+      }else{
+        steps.push('Dyson ON: closed-boundary mode (history + M register persist).');
+      }
+
+      const preview = simplifyPreview(expr, scope);
+      steps.push(...preview.logs);
+
+      const fn = new Function(...Object.keys(scope), 'return ('+preview.expr+')');
+      const result = fn(...Object.values(scope));
+      steps.push('Evaluated: '+preview.expr+' → '+formatNumber(result));
+      return {result: formatNumber(result), steps, normalized: preview.expr};
+    }catch(err){
+      return {result:null, steps, error: err.message};
+    }
+  }
+
+  function buildScope(){
+    const toRad = (x)=> Number(x)*Math.PI/180;
+    const sind = (x)=> Math.sin(toRad(x));
+    const cosd = (x)=> Math.cos(toRad(x));
+    const tand = (x)=> Math.tan(toRad(x));
+    return {
+      // constants
+      pi: Math.PI, e: Math.E, c: 299792458,
+      // core math
+      sqrt: Math.sqrt, abs: Math.abs, exp: Math.exp, floor: Math.floor, ceil: Math.ceil, round: Math.round,
+      ln: Math.log, log: (x)=> Math.log10(Number(x)),
+      // trig (radians)
+      sin: Math.sin, cos: Math.cos, tan: Math.tan,
+      asin: Math.asin, acos: Math.acos, atan: Math.atan,
+      // trig (degrees)
+      sind, cosd, tand,
+      // demo vars (placeholders, demos substitute numerically)
+      a: undefined, b: undefined, c: undefined, rho: undefined, CSTr: undefined, TCST: undefined, m: undefined, n: undefined, t: undefined, P: undefined, r: undefined
+    };
+  }
+
+  function simplifyPreview(expr, scope){
+    const logs=[]; let e = expr;
+    const fnMap = ['sqrt','abs','exp','ln','log','sind','cosd','tand','sin','cos','tan','asin','acos','atan'];
+    for(let k=0;k<6;k++){
+      let changed=false;
+      for(const fn of fnMap){
+        const re = new RegExp('\\b'+fn+'\\(([-+]?\\d+(?:\\.\\d+)?)\\)','g');
+        e = e.replace(re, (_,num)=>{
+          try{
+            const F = new Function(...Object.keys(scope), 'return '+fn+'('+num+')');
+            const out = F(...Object.values(scope));
+            const pretty = formatNumber(out);
+            logs.push(`${fn}(${num}) → ${pretty}`);
+            changed=true; return String(pretty);
+          }catch{ return fn+'('+num+')'; }
+        });
+      }
+      if(!changed) break;
+    }
+    return {expr:e, logs};
+  }
+
+  function formatNumber(x){
+    const n = Number(x);
+    if(!isFinite(n)) return String(x);
+    const ax = Math.abs(n);
+    if(ax!==0 && (ax<1e-6 || ax>=1e10)) return n.toExponential(8);
+    return Number(n.toFixed(12)).toString();
+  }
+
+  // Printing (no external fonts)
+  function buildPrintHtml(){
+    const styles = `
+      <style>
+        :root{ --mono: ui-monospace, Menlo, Consolas, "Liberation Mono", monospace; }
+        body{font-family:system-ui,Segoe UI,Arial,sans-serif; margin:20px; color:#111}
+        h2{margin:0 0 8px}
+        pre{white-space:pre-wrap;background:#f7f7f9;border:1px solid #e5e7eb;border-radius:8px;padding:12px;font-family:var(--mono)}
+        .meta{margin:6px 0}
+        .meta strong{display:inline-block;min-width:90px}
+      </style>`;
+    const safe = (s)=> String(s||'').replace(/[&<>]/g, m=> ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]));
+    const pv = VAULT.printable || {};
+    return `<!doctype html><html><head><meta charset="utf-8">${styles}</head><body>`+
+           `<h2>Calculation Summary</h2>`+
+           `<div class="meta"><strong>Expression:</strong> ${safe(pv.expr || '—')}</div>`+
+           `<div class="meta"><strong>Result:</strong> ${safe(pv.res || '—')}</div>`+
+           `<div class="meta"><strong>Mode:</strong> ${safe(pv.mode || (DEG?'DEG':'RAD'))}</div>`+
+           `<div class="meta"><strong>Dyson:</strong> ${safe(VAULT.dysonOn?'ON (closed memory)':'OFF (open/leaky)')}</div>`+
+           `<h3>Steps</h3>`+
+           `<pre>${safe(pv.steps || '')}</pre>`+
+           `</body></html>`;
+  }
+
+  function printSummary(){
+    const html = buildPrintHtml();
+    const iframe = document.createElement('iframe');
+    iframe.style.position='fixed'; iframe.style.right='0'; iframe.style.bottom='0';
+    iframe.style.width='0'; iframe.style.height='0'; iframe.style.border='0';
+    iframe.srcdoc = html;
+    iframe.onload = () => {
+      try{ const w = iframe.contentWindow; w.focus(); w.print(); }catch(err){ console.error('Print failed:', err); }
+      setTimeout(()=>{ if(iframe.parentNode) iframe.parentNode.removeChild(iframe); }, 500);
+    };
+    document.body.appendChild(iframe);
+  }
+  printBtn.addEventListener('click', printSummary);
+
+  // Clear Results
+  clearBtn.addEventListener('click', ()=>{
+    exprEl.value=''; stepsEl.innerHTML=''; histEl.innerHTML='';
+    if(pExpr) pExpr.textContent='—';
+    if(pRes)  pRes.textContent='—';
+    if(pMode) pMode.textContent = (DEG? 'DEG':'RAD');
+    if(pSteps) pSteps.textContent='(Run a calculation to populate this section.)';
+
+    // Clear local UI history
+    history = [];
+    VAULT.history = [];
+    VAULT.printable = {expr:'—', res:'—', mode:(DEG?'DEG':'RAD'), steps:'(Run a calculation to populate this section.)'};
+    vaultWrite(); updateDysonUI(); saveVault();
+  });
+
+  // ---- Built-in Tests ----
+  function logTest(msg, pass){
+    const d=document.createElement('div'); d.className='step';
+    d.style.borderColor = pass? 'rgba(52,230,162,.4)': 'rgba(255,107,139,.5)';
+    d.textContent = (pass? '✔ ' : '✘ ') + msg;
+    testOutput.appendChild(d);
+    testOutput.scrollTop = testOutput.scrollHeight;
+  }
+  function approxEq(a,b,eps=1e-9){ return Math.abs(a-b) <= eps*(1+Math.max(Math.abs(a),Math.abs(b))); }
+
+  function runTests(){
+    testOutput.innerHTML='';
+    let r1 = Number(safeCompute('sin(30)+cos(60)+tan(45)', true).result);
+    logTest('sin(30)+cos(60)+tan(45) (DEG) == 2 → '+r1, approxEq(r1,2));
+
+    let r2 = Number(safeCompute('sin(pi/6)+cos(pi/3)', false).result);
+    logTest('sin(pi/6)+cos(pi/3) (RAD) == 1 → '+r2, approxEq(r2,1));
+
+    let r3 = Number(safeCompute('200*15% + 2^5', true).result);
+    logTest('200*15% + 2^5 == 62 → '+r3, approxEq(r3,62));
+
+    let r4 = Number(safeCompute('sqrt(3^2 + 4^2)', true).result);
+    logTest('sqrt(3^2+4^2) == 5 → '+r4, approxEq(r4,5));
+
+    let r5 = Number(safeCompute('ln(e^2) + log(1000) - ln(e)', true).result);
+    logTest('ln(e^2)+log(1000)-ln(e) == 4 → '+r5, approxEq(r5,4));
+
+    let r6 = Number(safeCompute('(-(-3) + sqrt((-3)^2 - 4*1*2)) / (2*1)', true).result);
+    logTest('Quadratic (+) root == 2 → '+r6, approxEq(r6,2));
+  }
+  runTestsBtn.addEventListener('click', runTests);
+
+  // ---- History cycling ----
+  function cycleHistory(dir){
+    if(!history.length) return;
+    if(histIndex===-1) histIndex = history.length-1;
+    else histIndex = (histIndex+dir+history.length)%history.length;
+    exprEl.value = history[histIndex].expr;
+  }
+
+  // ---- Boot: load vault if Dyson ON persisted ----
+  loadVault();
+
+  // Apply loaded vault state
+  function renderModeFromVault(){
+    DEG = !!VAULT.DEG;
+    memory = Number(VAULT.memory || 0);
+    setMode(DEG);
+  }
+
+  function bootHistoryFromVault(){
+    history = Array.isArray(VAULT.history) ? VAULT.history.slice(0) : [];
+    renderHistoryFromVault();
+  }
+
+  // Load printable into side panel (optional)
+  function bootPrintable(){
+    const pv = VAULT.printable || {};
+    if(pExpr) pExpr.textContent = pv.expr || '—';
+    if(pRes)  pRes.textContent  = pv.res  || '—';
+    if(pMode) pMode.textContent = pv.mode || (DEG?'DEG':'RAD');
+    if(pSteps)pSteps.textContent= pv.steps|| '(Run a calculation to populate this section.)';
+  }
+
+  renderModeFromVault();
+  bootHistoryFromVault();
+  bootPrintable();
+  updateDysonUI();
+
+  // If Dyson OFF, we do NOT overwrite vault from storage automatically.
+  // But we DO keep whatever was loaded in UI so you can compare,
+  // then it will start leaking as you compute.
+
+  // Make switch reflect VAULT.dysonOn after load
+  dysonSwitch.classList.toggle('on', VAULT.dysonOn);
+  dysonSwitch.setAttribute('aria-checked', String(VAULT.dysonOn));
+  dysonRingWrap.classList.toggle('off', !VAULT.dysonOn);
+  dysonRingLabel.textContent = VAULT.dysonOn
+    ? 'Dyson Boundary: CLOSED (global memory conserved)'
+    : 'Dyson Boundary: OPEN (memory leaks / more static)';
+
+})();
+});
+</script>
+</body>
+</html>
