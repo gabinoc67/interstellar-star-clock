@@ -213,14 +213,15 @@
     <div>
       <h1>SPR-C — Sentient Proton Robot (Emotion Chip • Creator Imprint • Gates) + Dyson Sphere Vault</h1>
       <p class="sub">
-        You asked for a <b>Dyson Sphere storage panel</b>: this version adds a <b>Vault Inspector</b> that shows exactly what is written to global memory
-        (emotion imprint, last scenario, last decision + gate results, and “recipes” learned). It also adds working <b>Math / Algorithm</b> buttons.
+        You asked for a <b>Dyson Sphere storage panel</b>: this version includes a <b>Vault Inspector</b> that shows exactly what is written to global memory
+        (emotion imprint, last scenario, last decision + gate results, and “recipes” learned). It also adds working <b>Math / Algorithm</b> buttons and
+        now includes <b>prune + decay</b> so vault memory doesn’t get messy.
       </p>
       <div class="pillbar">
         <span class="pill">Emotion Chip: Compassion • Joy • Fear • Anger (Creator Imprint)</span>
         <span class="pill">Entanglement particles: left/right swarms (always moving)</span>
         <span class="pill">Dyson Sphere Vault: global memory boundary (persist vs leak)</span>
-        <span class="pill">Pipeline: Perception → Decision → LLC → ASS → AEL → ArmGate → LegGate → Execute → Log → Update</span>
+        <span class="pill">Vault Hygiene: decay scores + merge duplicates + prune old/weak entries</span>
       </div>
     </div>
 
@@ -362,7 +363,7 @@
       </div>
     </section>
 
-    <!-- Right column: Console + Controls + Dyson Vault + Math -->
+    <!-- Right column -->
     <section class="card">
       <header><h2>Console + Controls + Dyson Vault Inspector</h2></header>
       <div class="body">
@@ -595,7 +596,18 @@
 <script>
 (function(){
   /* ================= Dyson Sphere Vault (Global Memory) ================= */
-  const LSKEY = 'SPR_C_DYSON_VAULT_V2';
+  const LSKEY = 'SPR_C_DYSON_VAULT_V3_PRUNE_DECAY';
+
+  // ---- Vault hygiene settings (PRUNE + DECAY) ----
+  const HYGIENE = {
+    ASS_MAX: 60,                 // hard cap on stored recipes
+    KEEP_TOP: 45,                // keep best N after pruning (leaves room for new)
+    MIN_SCORE: 0.18,             // drop recipes weaker than this
+    MAX_AGE_DAYS: 30,            // drop recipes older than this
+    DECAY_PER_TICK: 0.985,       // applied on each scenario click (closed boundary)
+    DECAY_OFF_PER_TICK: 0.965,   // stronger decay when Dyson OFF (RAM-only drift)
+    RECENCY_BOOST: 0.02          // small boost to the recipe you just used/learned
+  };
 
   const VAULT_DEFAULT = {
     dysonOn: true,
@@ -615,7 +627,8 @@
     lastGates: {trainOrError:null, posOrNeg:null, mood:null, arm:null, leg:null},
 
     // Learned “recipes” (ASS) & promoted cache (LLC)
-    ASS: [], // list of {scenarioId, signature, score, A, f, phi, savedAt}
+    // Each recipe: {scenarioId, signature, score, A, f, phi, hits, createdAt, lastSeen, savedAt}
+    ASS: [],
     LLC: {signature:null, scenarioId:null, A:null, f:null, phi:null, savedAt:null}
   };
 
@@ -624,17 +637,23 @@
   function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
   function fmtPct(x){ return Math.round(clamp(x,0,1)*100) + '%'; }
   function nowISO(){ return new Date().toISOString(); }
+  function daysBetween(isoA, isoB){
+    const a = isoA ? new Date(isoA).getTime() : 0;
+    const b = isoB ? new Date(isoB).getTime() : 0;
+    if(!a || !b) return 0;
+    return Math.abs(b-a)/(1000*60*60*24);
+  }
 
   function safeJSONParse(raw){
     try{ return JSON.parse(raw); }catch(e){ return null; }
   }
+
   function loadVault(){
     const raw = localStorage.getItem(LSKEY);
     if(!raw) return;
     const obj = safeJSONParse(raw);
     if(!obj || typeof obj !== 'object') return;
 
-    // Merge carefully
     if(typeof obj.dysonOn === 'boolean') VAULT.dysonOn = obj.dysonOn;
     if(typeof obj.budget === 'number') VAULT.budget = clamp(obj.budget,0,1);
     if(typeof obj.writes === 'number') VAULT.writes = Math.max(0, obj.writes|0);
@@ -657,21 +676,119 @@
     }
 
     if(Array.isArray(obj.ASS)){
-      VAULT.ASS = obj.ASS.slice(0,60).filter(x=>x && typeof x==='object');
+      VAULT.ASS = obj.ASS
+        .slice(0, HYGIENE.ASS_MAX)
+        .filter(x=>x && typeof x==='object')
+        .map(x=>({
+          scenarioId: String(x.scenarioId || ''),
+          signature: String(x.signature || ''),
+          score: (typeof x.score==='number') ? clamp(x.score,0,1) : 0,
+          A: (typeof x.A==='number') ? x.A : 0,
+          f: (typeof x.f==='number') ? x.f : 0,
+          phi: (typeof x.phi==='number') ? x.phi : 0,
+          hits: (typeof x.hits==='number') ? Math.max(1, x.hits|0) : 1,
+          createdAt: x.createdAt || x.savedAt || nowISO(),
+          lastSeen: x.lastSeen || x.savedAt || nowISO(),
+          savedAt: x.savedAt || x.createdAt || nowISO()
+        }))
+        .filter(r=>r.signature);
     }
+
     if(obj.LLC && typeof obj.LLC==='object'){
       VAULT.LLC = Object.assign({}, VAULT.LLC, obj.LLC);
     }
   }
+
   function saveVault(){
     if(!VAULT.dysonOn) return; // Open boundary: no persistence
     localStorage.setItem(LSKEY, JSON.stringify(VAULT));
   }
 
+  /* ================= PRUNE + DECAY (Vault hygiene) ================= */
+  function mergeBySignature(){
+    // Merge duplicates: keep best score, accumulate hits, keep newest lastSeen/savedAt.
+    const map = new Map();
+    for(const r of VAULT.ASS){
+      if(!r || !r.signature) continue;
+      const key = r.signature;
+      const prev = map.get(key);
+      if(!prev){
+        map.set(key, {...r});
+      }else{
+        const best = (r.score > prev.score) ? r : prev;
+        const merged = {
+          ...best,
+          hits: (prev.hits||1) + (r.hits||1),
+          createdAt: prev.createdAt || r.createdAt || best.createdAt,
+          lastSeen: (new Date(prev.lastSeen||0) > new Date(r.lastSeen||0)) ? prev.lastSeen : r.lastSeen,
+          savedAt: (new Date(prev.savedAt||0) > new Date(r.savedAt||0)) ? prev.savedAt : r.savedAt
+        };
+        map.set(key, merged);
+      }
+    }
+    VAULT.ASS = Array.from(map.values());
+  }
+
+  function decayScores(dysonOn){
+    const decay = dysonOn ? HYGIENE.DECAY_PER_TICK : HYGIENE.DECAY_OFF_PER_TICK;
+    const now = nowISO();
+    for(const r of VAULT.ASS){
+      // age-based additional decay (older decays a bit faster)
+      const age = daysBetween(r.lastSeen || r.savedAt || now, now);
+      const ageFactor = clamp(1 - 0.003*age, 0.85, 1); // gentle
+      r.score = clamp(r.score * decay * ageFactor, 0, 1);
+    }
+  }
+
+  function pruneASS(){
+    const now = nowISO();
+
+    // drop too old / too weak
+    VAULT.ASS = VAULT.ASS.filter(r=>{
+      const age = daysBetween(r.lastSeen || r.savedAt || now, now);
+      if(age > HYGIENE.MAX_AGE_DAYS) return false;
+      if(r.score < HYGIENE.MIN_SCORE) return false;
+      return true;
+    });
+
+    // keep top by score, tie-break by lastSeen recency, then hits
+    VAULT.ASS.sort((a,b)=>{
+      const ds = (b.score - a.score);
+      if(Math.abs(ds) > 1e-9) return ds;
+      const ta = new Date(a.lastSeen||0).getTime();
+      const tb = new Date(b.lastSeen||0).getTime();
+      if(tb !== ta) return tb - ta;
+      return (b.hits||0) - (a.hits||0);
+    });
+
+    // keep best N, but still respect hard cap
+    VAULT.ASS = VAULT.ASS.slice(0, Math.min(HYGIENE.KEEP_TOP, HYGIENE.ASS_MAX));
+  }
+
+  function hygieneTick(reason){
+    // called each scenario click and each vault write
+    mergeBySignature();
+    decayScores(VAULT.dysonOn);
+    pruneASS();
+
+    // If LLC points to a signature that got pruned, clear LLC to prevent stale inspector
+    if(VAULT.LLC && VAULT.LLC.signature){
+      const ok = VAULT.ASS.some(r=>r.signature===VAULT.LLC.signature);
+      if(!ok){
+        VAULT.LLC = {signature:null, scenarioId:null, A:null, f:null, phi:null, savedAt:null};
+      }
+    }
+
+    if(reason) log(`Vault hygiene: decay+merge+prune (${reason})`, 'meta');
+  }
+
   function vaultWrite(reason){
     VAULT.writes++;
-    // closed boundary slowly increases stability
     VAULT.budget = clamp(VAULT.budget + 0.02, 0, 1);
+
+    // hygiene before saving so stored data stays clean
+    hygieneTick('pre-save');
+
     saveVault();
     updateDysonUI();
     updateVaultInspector();
@@ -680,11 +797,12 @@
 
   function applyLeakTick(){
     if(VAULT.dysonOn){
-      // closed boundary self-repairs
       VAULT.budget = clamp(VAULT.budget + 0.015, 0, 1);
+      // still do a light hygiene tick even when ON (keeps scores from exploding)
+      hygieneTick('scenario tick (Dyson ON)');
       return;
     }
-    // open boundary leaks and drifts toward neutral
+
     VAULT.leaks++;
     VAULT.budget = clamp(VAULT.budget - 0.06, 0, 1);
 
@@ -694,6 +812,9 @@
     VAULT.emotion.joy   = clamp(VAULT.emotion.joy   + (target - VAULT.emotion.joy  )*rate, 0, 1);
     VAULT.emotion.fear  = clamp(VAULT.emotion.fear  + (target - VAULT.emotion.fear )*rate, 0, 1);
     VAULT.emotion.anger = clamp(VAULT.emotion.anger + (target - VAULT.emotion.anger)*rate, 0, 1);
+
+    // hygiene tick when OFF (RAM-only): decay more aggressive
+    hygieneTick('scenario tick (Dyson OFF)');
 
     updateDysonUI();
     updateVaultInspector();
@@ -708,7 +829,6 @@
   }
 
   /* ================= DOM Refs ================= */
-  // Dyson UI
   const dysonSwitch = document.getElementById('dysonSwitch');
   const dysonModeEl = document.getElementById('dysonMode');
   const dysonBudgetEl = document.getElementById('dysonBudget');
@@ -720,7 +840,6 @@
   const dysonRingLabelBrain = document.getElementById('dysonRingLabelBrain');
   const dysonRingLabelBody  = document.getElementById('dysonRingLabelBody');
 
-  // Brain refs
   const leftG = document.getElementById('leftParticles');
   const rightG = document.getElementById('rightParticles');
   const bridge = document.getElementById('bridge');
@@ -742,13 +861,11 @@
   const waveMoodNeg = document.getElementById('waveMoodNeg');
   const chipCore = document.getElementById('chipCore');
 
-  // Console + lists
   const consoleEl  = document.getElementById('console');
   const scenariosEl= document.getElementById('scenarios');
   const coreList   = document.getElementById('coreList');
   const gateList   = document.getElementById('gateList');
 
-  // Buttons
   const resetBtn = document.getElementById('resetBtn');
   const clearVaultBtn = document.getElementById('clearVaultBtn');
   const btnMath = document.getElementById('btnMath');
@@ -760,7 +877,6 @@
   const tabStored = document.getElementById('tabStored');
   const mathBox = document.getElementById('mathBox');
 
-  // Vault inspector fields
   const vDyson = document.getElementById('vDyson');
   const vBudget = document.getElementById('vBudget');
   const vWrites = document.getElementById('vWrites');
@@ -772,7 +888,6 @@
   const vASS = document.getElementById('vASS');
   const vLLC = document.getElementById('vLLC');
 
-  // Emotion sliders
   const slComp = document.getElementById('slComp');
   const slJoy  = document.getElementById('slJoy');
   const slFear = document.getElementById('slFear');
@@ -785,7 +900,6 @@
   const presetNoComp = document.getElementById('presetNoComp');
   const normalizeBtn = document.getElementById('normalize');
 
-  // Body refs
   const loopRArm = document.getElementById('loopRArm');
   const loopLArm = document.getElementById('loopLArm');
   const loopRLeg = document.getElementById('loopRLeg');
@@ -800,13 +914,11 @@
   const cmdWalkR = document.getElementById('cmdWalkR');
   const cmdWalkL = document.getElementById('cmdWalkL');
 
-  // HUD lamps
   const gateArmL = document.getElementById('gateArmL');
   const gateArmR = document.getElementById('gateArmR');
   const gateLegL = document.getElementById('gateLegL');
   const gateLegR = document.getElementById('gateLegR');
 
-  // Pipeline
   const pipe = document.getElementById('pipe');
   const bodyLog = document.getElementById('bodyLog');
   const pipeSteps = ['perc','dec','llc','ass','ael','arm','leg','exec','log','upd'];
@@ -827,7 +939,6 @@
   function log(lines, cls='ai'){
     const time=new Date().toLocaleTimeString();
     const arr = Array.isArray(lines)?lines:[lines];
-    // Dyson OFF => shorter console
     if(!VAULT.dysonOn){
       const maxRows = 80;
       while(consoleEl.childNodes.length > maxRows) consoleEl.removeChild(consoleEl.firstChild);
@@ -897,7 +1008,10 @@
     return `Train/Error=${g.trainOrError ?? '—'} | Pos/Neg=${g.posOrNeg ?? '—'} | Mood=${g.mood ?? '—'} | Arm=${g.arm ?? '—'} | Leg=${g.leg ?? '—'}`;
   }
   function prettyRecipe(r){
-    return `${r.signature}  score=${r.score.toFixed(2)}  A=${r.A.toFixed(2)} f=${r.f.toFixed(2)} φ=${r.phi.toFixed(2)}  (${r.scenarioId})`;
+    const age = daysBetween(r.lastSeen || r.savedAt, nowISO()).toFixed(1);
+    return `${r.signature}
+  score=${r.score.toFixed(2)} hits=${r.hits||1} age(d)=${age}
+  A=${r.A.toFixed(2)} f=${r.f.toFixed(2)} φ=${r.phi.toFixed(2)}  (${r.scenarioId})`;
   }
 
   function updateVaultInspector(){
@@ -920,8 +1034,11 @@
     vEmotion.textContent = prettyEmotion(VAULT.emotion);
 
     if(VAULT.ASS.length){
-      const last = VAULT.ASS.slice(-6).map(prettyRecipe).join('\n');
-      vASS.textContent = `count=${VAULT.ASS.length}\n(last 6)\n` + last;
+      const last = VAULT.ASS.slice(0,6).map(prettyRecipe).join('\n\n');
+      vASS.textContent =
+        `count=${VAULT.ASS.length} (sorted best→worst)\n` +
+        `hygiene: decay + merge duplicates + prune weak/old\n\n` +
+        last;
     }else{
       vASS.textContent = 'count=0';
     }
@@ -936,7 +1053,6 @@
   function toggleDyson(){
     VAULT.dysonOn = !VAULT.dysonOn;
     if(VAULT.dysonOn){
-      // when turning ON, immediately persist the current vault state
       VAULT.budget = clamp(Math.max(VAULT.budget, 0.55), 0, 1);
       saveVault();
       log('Dyson boundary CLOSED: vault persistence enabled.', 'meta');
@@ -997,7 +1113,7 @@
     requestAnimationFrame(animate);
   })();
 
-  /* ================= Emotion Chip (stored in VAULT.emotion) ================= */
+  /* ================= Emotion Chip ================= */
   const emotion = VAULT.emotion; // reference
 
   const scenarioWeights = {
@@ -1014,7 +1130,6 @@
   };
 
   function normalizeChip(){
-    // L1-like cap so positives or negatives don't dominate past 1.2 total
     const pos = emotion.comp + emotion.joy + 1e-9;
     const neg = emotion.fear + emotion.anger + 1e-9;
     const scalePos = pos>1.2? 1.2/pos : 1.0;
@@ -1097,7 +1212,6 @@
     return {moodGood};
   }
 
-  // Emotion chip influence: value in [-0.28, +0.28]
   function emotionInfluence(scenarioId){
     const w = scenarioWeights[scenarioId] || {help:0, caution:0};
     let base = 0.28*emotion.comp + 0.12*emotion.joy - 0.20*emotion.fear - 0.15*emotion.anger;
@@ -1107,7 +1221,7 @@
   }
 
   function stageFinal(posNeg, mood, scenarioId){
-    let rnd=Math.random(); // base
+    let rnd=Math.random();
     if(posNeg.positive && mood.moodGood) rnd+=0.12;
     if(!posNeg.positive && !mood.moodGood) rnd-=0.12;
 
@@ -1128,7 +1242,6 @@
     return YES?'YES':'NO';
   }
 
-  /* Body gates */
   function stageArmGate(scenarioId){
     const bias = 0.1*emotion.comp - 0.05*emotion.anger + ((scenarioId==='child'||scenarioId==='aid')?0.05:0);
     const useRight = (Math.random() + bias) >= 0.5;
@@ -1149,7 +1262,6 @@
 
   /* ================= Learning memory (ASS + LLC) ================= */
   function contextSignature(scenarioId, armRight, legRight){
-    // deterministic-ish signature: scenario + gates + coarse imprint bins
     const c = Math.round(emotion.comp*10);
     const j = Math.round(emotion.joy*10);
     const f = Math.round(emotion.fear*10);
@@ -1158,43 +1270,63 @@
   }
 
   function synthRecipe(scenarioId, armRight, legRight, decisionYES){
-    // simple “recipe” for demo; derived from imprint + gates
     const baseA = 0.40 + 0.50*emotion.joy + 0.30*emotion.comp - 0.20*emotion.fear;
     const baseF = 0.90 + 0.60*emotion.fear + 0.15*(scenarioId==='fragile');
     const baseP = 0.55 + 0.25*emotion.comp - 0.10*emotion.anger;
 
-    // gate small perturbations
     const A = clamp(baseA + (armRight?0.03:-0.03) + (decisionYES?0.05:-0.05), 0.05, 1.50);
     const f = clamp(baseF + (legRight?0.02:-0.02), 0.20, 2.50);
     const phi = clamp(baseP + (decisionYES?0.06:-0.04), 0.00, 1.00);
 
-    // score: tie to “budget” and decision
     const score = clamp((decisionYES?0.65:0.35) + 0.20*VAULT.budget + 0.10*(emotion.comp - emotion.fear), 0, 1);
-
     return {A, f, phi, score};
   }
 
+  function touchRecipe(signature){
+    const now = nowISO();
+    const r = VAULT.ASS.find(x=>x.signature===signature);
+    if(!r) return;
+    r.hits = (r.hits||1) + 1;
+    r.lastSeen = now;
+    r.score = clamp(r.score + HYGIENE.RECENCY_BOOST, 0, 1);
+  }
+
   function rememberRecipe(scenarioId, armRight, legRight, decisionYES){
-    // Only learn on YES; and only persist if Dyson ON
     const signature = contextSignature(scenarioId, armRight, legRight);
     const rec = synthRecipe(scenarioId, armRight, legRight, decisionYES);
-    const item = {
-      scenarioId,
-      signature,
-      score: rec.score,
-      A: rec.A,
-      f: rec.f,
-      phi: rec.phi,
-      savedAt: nowISO()
-    };
+    const now = nowISO();
 
-    // update in-memory ASS/LLC (even if Dyson OFF; just not persisted)
-    VAULT.ASS.push(item);
-    if(VAULT.ASS.length>60) VAULT.ASS.splice(0, VAULT.ASS.length-60);
+    // If already exists, reinforce instead of duplicating.
+    const existing = VAULT.ASS.find(r=>r.signature===signature);
+    if(existing){
+      existing.hits = (existing.hits||1) + 1;
+      existing.lastSeen = now;
+      // Keep best parameters (or gently move toward new)
+      existing.A = (existing.A*0.7 + rec.A*0.3);
+      existing.f = (existing.f*0.7 + rec.f*0.3);
+      existing.phi = (existing.phi*0.7 + rec.phi*0.3);
+      existing.score = clamp(Math.max(existing.score, rec.score) + HYGIENE.RECENCY_BOOST, 0, 1);
+      existing.savedAt = now;
+    }else{
+      VAULT.ASS.push({
+        scenarioId,
+        signature,
+        score: rec.score,
+        A: rec.A,
+        f: rec.f,
+        phi: rec.phi,
+        hits: 1,
+        createdAt: now,
+        lastSeen: now,
+        savedAt: now
+      });
+    }
 
-    // Promote best-of-last to LLC
-    VAULT.LLC = {signature, scenarioId, A:rec.A, f:rec.f, phi:rec.phi, savedAt:item.savedAt};
+    // Promote to LLC (cache of latest reinforced context)
+    VAULT.LLC = {signature, scenarioId, A:rec.A, f:rec.f, phi:rec.phi, savedAt: now};
 
+    // Hygiene now to merge + sort + prune
+    hygieneTick('after learn');
     updateVaultInspector();
 
     if(VAULT.dysonOn){
@@ -1242,7 +1374,6 @@
     setPipe('dec'); log('Decision: select policy.','meta'); await wait(220);
     setPipe('llc'); log('LLC: on-limb cache lookup (fast).','meta'); await wait(200);
 
-    // show LLC hit if present
     if(VAULT.LLC && VAULT.LLC.signature){
       log(`LLC HIT: ${VAULT.LLC.signature}`, 'meta');
     } else {
@@ -1251,10 +1382,9 @@
 
     setPipe('ass'); log('ASS: fetch nearest success recipe (A–f–φ).','meta'); await wait(210);
 
-    // show last recipe if any
     if(VAULT.ASS.length){
-      const last = VAULT.ASS[VAULT.ASS.length-1];
-      log(`ASS TIP: A=${last.A.toFixed(2)} f=${last.f.toFixed(2)} φ=${last.phi.toFixed(2)} score=${last.score.toFixed(2)}`, 'meta');
+      const best = VAULT.ASS[0];
+      log(`ASS BEST: score=${best.score.toFixed(2)} hits=${best.hits||1} | A=${best.A.toFixed(2)} f=${best.f.toFixed(2)} φ=${best.phi.toFixed(2)}`, 'meta');
     } else {
       log('ASS empty: no recipes learned yet.', 'meta');
     }
@@ -1403,11 +1533,7 @@
 Normalization cap:
   pos = C+J, neg=F+A
   if pos>1.2 => scalePos=1.2/pos
-  if neg>1.2 => scaleNeg=1.2/neg
-
-Dyson OFF drift (per scenario):
-  budget -= 0.06
-  emotion -> toward 0.25 at rate 0.12 each tick`;
+  if neg>1.2 => scaleNeg=1.2/neg`;
     }
 
     if(which==='algo'){
@@ -1418,29 +1544,34 @@ A) Dyson tick
   - If Dyson OFF: leaks++ and emotion drifts toward neutral
   - If Dyson ON: budget self-repairs slightly
 
-B) Brain
+B) Vault hygiene (NEW)
+  - Merge duplicates by signature
+  - Decay scores each scenario click
+  - Prune weak/old entries (min score + max age)
+  - Keep top N recipes
+
+C) Brain
   1) Train/Error flip
   2) Pos/Neg flip
-  3) Mood flip (sets beat spacing)
+  3) Mood flip
   4) Final gate uses rnd + alignment + emoBias
 
-C) Body gates
+D) Body gates
   5) Arm gate (bias from compassion/anger + scenario)
   6) Leg gate (bias from joy/fear + scenario)
 
-D) Pipeline
+E) Pipeline
   Perception -> Decision -> LLC -> ASS -> AEL -> Arm -> Leg -> Execute/Skip -> Log -> Update
 
-E) Learning
+F) Learning
   - If decision YES:
-      synth recipe (A,f,phi,score)
-      push to ASS (max 60)
+      reinforce/learn recipe (A,f,phi,score)
       promote to LLC
-  - If Dyson ON: save to localStorage as global memory (vault write)`;
+  - If Dyson ON: persist to localStorage (vault write)`;
     }
 
     if(which==='stored'){
-      const stored =
+      mathBox.textContent =
 `What Dyson Sphere stores (when ON):
 
 - dysonOn, budget, writes, leaks
@@ -1450,21 +1581,19 @@ E) Learning
     lastDecision, lastRnd, lastEmoBias
     lastGates {trainOrError, posOrNeg, mood, arm, leg}
 - learned memory:
-    ASS[]  (up to 60 recipes)
-    LLC    (one promoted cache)
+    ASS[] recipes (merged + decayed + pruned)
+      fields: signature, score, hits, createdAt, lastSeen, A, f, phi
+    LLC cache (one promoted signature)
 
 When Dyson is OFF:
 - nothing is persisted to localStorage
-- memory drifts toward neutral over time`;
-      mathBox.textContent = stored;
+- imprint drifts; recipes exist only in RAM and decay faster`;
     }
   }
 
   tabMath.onclick = ()=>setTab('math');
   tabAlgo.onclick = ()=>setTab('algo');
   tabStored.onclick = ()=>setTab('stored');
-
-  // “math / algorithm / what stored” buttons also select tabs (your request)
   btnMath.onclick = ()=>setTab('math');
   btnAlgorithm.onclick = ()=>setTab('algo');
   btnWhatStored.onclick = ()=>setTab('stored');
@@ -1475,7 +1604,7 @@ When Dyson is OFF:
     if(busy) return;
     busy=true;
 
-    // Dyson tick at scenario start
+    // Dyson tick at scenario start (includes hygiene tick)
     applyLeakTick();
     normalizeChip();
     updateSliderDisplays();
@@ -1486,7 +1615,6 @@ When Dyson is OFF:
     resetVisual();
     idleHum();
 
-    // update vault “last scenario” fields immediately (even if Dyson OFF; panel shows RAM state)
     VAULT.lastScenarioId = s.id;
     VAULT.lastScenarioName = s.name;
 
@@ -1496,20 +1624,16 @@ When Dyson is OFF:
 
     blink(coreN);
 
-    // Brain gates
     stageTrainOrError();
     const g2=stagePositiveNegative();
     const g3=stageMood();
     const final=stageFinal(g2,g3,s.id);
 
-    // Body gates
     const armG = stageArmGate(s.id);
     const legG = stageLegGate(s.id);
 
-    // Persist last gate summary in inspector
     updateVaultInspector();
 
-    // Robot statement
     if(final==='YES'){
       log(`Robot: I will act (Arm=${armG.useRight?'RIGHT':'LEFT'}, Leg=${legG.startRight?'RIGHT':'LEFT'}).`);
     } else {
@@ -1519,11 +1643,11 @@ When Dyson is OFF:
     await runPipeline(final==='YES', armG.useRight, legG.startRight);
     await narrateScenario(s, armG.useRight, legG.startRight, final);
 
-    // Learning: store recipe + cache only when YES
     if(final==='YES'){
       rememberRecipe(s.id, armG.useRight, legG.startRight, true);
     }else{
-      // still update vault view of last decision; only write if Dyson ON
+      // still keep RAM state fresh
+      hygieneTick('after NO decision');
       if(VAULT.dysonOn) vaultWrite(`decision ${final} (${s.id})`);
       else updateVaultInspector();
     }
@@ -1538,22 +1662,17 @@ When Dyson is OFF:
   loadVault();
   updateDysonUI();
 
-  // Initialize sliders from vault
   normalizeChip();
   updateSliderDisplays();
 
-  // Default tab
   setTab('stored');
 
   resetAll();
 
-  // Auto-run last scenario if Dyson ON and lastScenarioId exists
   if(VAULT.dysonOn && VAULT.lastScenarioId && btnById[VAULT.lastScenarioId]){
     setTimeout(()=>runScenario(scenarios.find(x=>x.id===VAULT.lastScenarioId), btnById[VAULT.lastScenarioId]), 250);
   }
 
-  /* ================= Idle motion ================= */
-  // keep loops “idle” by clearing actives; loops animate visually anyway via CSS
   function idleHum(){ clearActiveLoops(); }
 })();
 </script>
