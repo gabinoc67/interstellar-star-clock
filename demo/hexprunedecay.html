@@ -3,40 +3,60 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Hexagon Fix + Φ-HNS Hex Lattice + Nested Hexes + Spiral Trace + Inspector</title>
+<title>Hexagon Fix + Φ-HNS + Dyson + Prune/Decay + Vault Interval (Fixed Inspector + Live Stress)</title>
 <style>
   :root{
     --bg:#0b0f14; --panel:#101823; --panel2:#0c131d; --line:#1f2c3c;
-    --ink:#e8eef6; --btn:#1a2a3d; --btnb:#2d4764; --btnh:#233a55;
-    --warn:#b68b2e;
+    --ink:#e8eef6; --muted:#b6c2d2;
+    --btn:#1a2a3d; --btnb:#2d4764; --btnh:#233a55;
+    --warn:#b68b2e; --ok:#35d07f; --bad:#ff5a66;
 
     /* Dyson Sphere ring colors */
     --dysonRing: rgba(255, 200, 60, 0.62);
     --dysonRing2: rgba(255, 200, 60, 0.18);
   }
 
+  *{box-sizing:border-box}
+  html,body{height:100%}
   body{margin:0;font-family:system-ui,Segoe UI,Arial;background:var(--bg);color:var(--ink);}
-  .wrap{display:grid;grid-template-columns:420px 1fr;gap:12px;padding:12px;}
-  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;}
+
+  .wrap{display:grid;grid-template-columns:420px 1fr;gap:12px;padding:12px;align-items:start;}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;min-height:calc(100vh - 24px);overflow:auto;}
   h2{margin:0 0 10px;font-size:16px;}
-  h3{margin:12px 0 6px;font-size:13px;opacity:.95}
+  h3{margin:10px 0 6px;font-size:13px;opacity:.95}
   .row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0;align-items:center;}
+  .row.tight{margin:6px 0}
+  .group{border:1px solid rgba(45,71,100,.55);background:rgba(0,0,0,.14);border-radius:12px;padding:10px;margin-top:10px;}
+  .group h3{margin:0 0 6px}
+
   button{
     background:var(--btn);color:var(--ink);border:1px solid var(--btnb);
     border-radius:10px;padding:8px 10px;cursor:pointer;
   }
   button:hover{background:var(--btnh);}
-  label{display:block;font-size:12px;opacity:.9;margin-top:10px;}
+
+  label{display:block;font-size:12px;opacity:.92;margin-top:8px;}
   input[type="range"]{width:100%;}
+  input[type="number"]{background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:6px 8px;}
+
   .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid var(--btnb);background:var(--panel2);font-size:12px;}
-  .small{font-size:12px;opacity:.9;line-height:1.4;}
+  .small{font-size:12px;color:var(--muted);line-height:1.35;}
+
+  .switch{
+    display:flex;align-items:center;gap:8px;
+    padding:6px 10px;border-radius:10px;
+    border:1px solid var(--btnb);background:var(--panel2);
+    font-size:12px;
+    user-select:none;
+  }
+  .switch input{transform:scale(1.05);}
+
   .log{
-    height:190px;overflow:auto;padding:10px;background:var(--panel2);
+    height:170px;overflow:auto;padding:10px;background:var(--panel2);
     border:1px solid var(--line);border-radius:10px;font-size:12px;line-height:1.35;
     white-space:pre-wrap;
   }
 
-  /* Canvas is plain; overlay HUD is drawn inside the canvas (no DOM overlap). */
   canvas{width:100%;height:calc(100vh - 24px);background:#070a0f;border-radius:12px;border:1px solid var(--line);}
 
   .kbox{
@@ -53,84 +73,35 @@
     border:1px solid rgba(255,255,255,.12);
     background:rgba(0,0,0,.22);
   }
-  .kHint{font-size:12px;opacity:.9;}
   .meter{
     margin-top:8px;height:10px;border-radius:999px;overflow:hidden;
     background:rgba(0,0,0,.25);
     border:1px solid rgba(255,255,255,.10);
   }
-  .meterFill{
-    height:100%;width:0%;
-    background:linear-gradient(90deg,#3a5678,#b68b2e,#ff7a18);
-  }
+  .meterFill{height:100%;width:0%;background:linear-gradient(90deg,#3a5678,#b68b2e,#ff7a18);}
 
-  .switch{
-    display:flex;align-items:center;gap:8px;
-    padding:6px 10px;border-radius:10px;
-    border:1px solid var(--btnb);background:var(--panel2);
-    font-size:12px;
-    user-select:none;
-  }
-  .switch input{transform:scale(1.05);}
-
-  .inspector{
-    margin-top:10px;
-    background:rgba(8,14,22,0.55);
-    border:1px solid rgba(45,71,100,0.70);
-    border-radius:12px;
-    padding:10px;
-  }
-  .inspector .title{font-weight:800;font-size:13px;letter-spacing:.2px;margin-bottom:6px;}
-  .kv{display:grid;grid-template-columns:120px 1fr;gap:4px 10px;font-size:12px;opacity:.92;}
+  .kv{display:grid;grid-template-columns:120px 1fr;gap:4px 10px;font-size:12px;opacity:.94;}
   .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;}
-
-  .dysonBox{
-    margin-top:10px;
-    border:1px solid var(--btnb);
-    background:rgba(9,14,22,0.55);
+  .inspector{
+    border:1px solid rgba(45,71,100,.65);
+    background:rgba(8,14,22,0.55);
     border-radius:12px;
     padding:10px;
   }
-  .dyRead{margin-top:6px;font-size:12px;opacity:.92;line-height:1.35;}
-  .dyRead b{opacity:1}
 
-  .pdBox{
-    margin-top:10px;
-    border:1px solid var(--btnb);
-    background:rgba(9,14,22,0.55);
-    border-radius:12px;
-    padding:10px;
-  }
-  .pdGrid{
-    display:grid;
-    grid-template-columns:1fr 1fr;
-    gap:8px;
-    margin-top:8px;
-  }
-  .pdStat{
-    border:1px solid rgba(45,71,100,.55);
-    background:rgba(0,0,0,.18);
-    border-radius:10px;
-    padding:8px;
-    font-size:12px;
-    line-height:1.35;
-    opacity:.95;
-  }
-  .pdStat b{opacity:1}
+  .dyRead,.pdRead{font-size:12px;opacity:.95;line-height:1.35;}
+  .statGrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;}
+  .statBox{border:1px solid rgba(45,71,100,.55);background:rgba(0,0,0,.18);border-radius:10px;padding:8px;font-size:12px;line-height:1.35;}
 
-  .logHead{
-    display:flex;align-items:center;justify-content:space-between;gap:10px;
-    margin-top:8px;
-  }
+  .logHead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px;}
   .logHead h3{margin:0;}
 </style>
 </head>
 
 <body>
 <div class="wrap">
-
   <div class="panel">
-    <h2>Hexagon Fix + Φ-HNS: Hex Lattice + Nested Hexes + Spiral Trace + Inspector</h2>
+    <h2>Hexagon Fix + Φ-HNS + Dyson + Prune/Decay + Vault Interval</h2>
 
     <div class="row">
       <button id="step">+1 side</button>
@@ -139,32 +110,47 @@
       <button id="auto">Auto → circle mirror</button>
     </div>
 
-    <div class="row">
+    <div class="row tight">
       <span class="pill" id="nPill">N: 6</span>
       <span class="pill" id="modePill">Mode: Geometry</span>
       <span class="pill" id="matchPill">Match: —</span>
       <span class="pill" id="statusPill">Status: —</span>
     </div>
 
-    <div class="row">
-      <label class="switch"><input id="constraintView" type="checkbox" /> Constraint View</label>
-      <label class="switch"><input id="latticeView" type="checkbox" checked /> Hex Lattice</label>
-      <label class="switch" title="When ON, lattice drawing is clipped strictly inside the domain circle.">
-        <input id="latticeClip" type="checkbox" checked />
-        Lattice in Circle
-      </label>
-      <label class="switch"><input id="glyphView" type="checkbox" checked /> Glyph Memory</label>
-    </div>
-
-    <div class="row">
-      <label class="switch" title="Draws multiple nested hexagon frames (paper-style).">
-        <input id="nestedHex" type="checkbox" checked />
-        Nested Hexagons
-      </label>
-      <label class="switch" title="Draws a spiral trace through the lattice (snapped to nodes).">
-        <input id="spiralOn" type="checkbox" checked />
-        Lattice Spiral Trace
-      </label>
+    <!-- Circle panel toggles (decluttered) -->
+    <div class="group">
+      <h3>Circle Panel Layers</h3>
+      <div class="row tight">
+        <label class="switch" title="Shows the 6-node constraint ring and line labels (M–E, E–F, etc).">
+          <input id="constraintView" type="checkbox" checked />
+          Constraint Ring
+        </label>
+        <label class="switch" title="Shows hex-lattice nodes and heat.">
+          <input id="latticeView" type="checkbox" checked />
+          Hex Lattice
+        </label>
+        <label class="switch" title="Shows spiral trace snapped to lattice nodes.">
+          <input id="spiralOn" type="checkbox" checked />
+          Spiral Trace
+        </label>
+        <label class="switch" title="Shows nested hex frames.">
+          <input id="nestedHex" type="checkbox" checked />
+          Nested Hexagons
+        </label>
+      </div>
+      <div class="row tight">
+        <label class="switch" title="Clips lattice drawing inside the domain circle.">
+          <input id="latticeClip" type="checkbox" checked />
+          Clip to Circle
+        </label>
+        <label class="switch" title="Draws glyphs for locked nodes.">
+          <input id="glyphView" type="checkbox" checked />
+          Glyphs
+        </label>
+      </div>
+      <div class="small">
+        <b>Legend:</b> Domain circle = container R. Inner mirror circle = regulated radius. Layers: Hex, Spiral, Nested.
+      </div>
     </div>
 
     <div class="row">
@@ -178,19 +164,22 @@
       <button id="clearMem">Clear Glyph Memory</button>
     </div>
 
-    <!-- Dyson Sphere controls -->
-    <div class="dysonBox">
-      <h3 style="margin:0 0 6px;">Dyson Sphere (Outer Boundary)</h3>
-      <div class="row" style="margin:6px 0 0;">
-        <label class="switch" title="Draw an outer boundary ring representing a Dyson sphere / capture shell.">
+    <div class="group">
+      <h3>Dyson Sphere + Vault</h3>
+      <div class="row tight">
+        <label class="switch" title="Draw outer Dyson boundary ring. Also changes decay/prune behavior.">
           <input id="dysonOn" type="checkbox" />
           Dyson Sphere
         </label>
-        <label class="switch" title="If ON, Dyson also persists memory to localStorage (vault).">
+        <label class="switch" title="If ON and Dyson is ON, persists locks to localStorage (vault).">
           <input id="dysonPersist" type="checkbox" checked />
-          Persist Memory (vault)
+          Persist Memory
         </label>
       </div>
+
+      <label>Vault save interval (frames): <span id="vaultEveryVal"></span></label>
+      <input id="vaultEvery" type="range" min="1" max="120" step="1" value="20" />
+      <div class="small">Higher interval = fewer writes. “1” saves every frame (not recommended).</div>
 
       <label>Dyson radius scale: <span id="dysonScaleVal"></span></label>
       <input id="dysonScale" type="range" min="1.10" max="3.00" step="0.01" value="2.20" />
@@ -199,26 +188,25 @@
       <input id="dysonCap" type="range" min="0" max="100" step="1" value="100" />
 
       <label>Star luminosity (W):</label>
-      <input id="dysonLum" type="number" value="3.828e26" step="1e24" style="width:180px;" />
+      <input id="dysonLum" type="number" value="3.828e26" step="1e24" style="width:200px;" />
 
-      <div class="dyRead" id="dysonRead">
+      <div class="dyRead" style="margin-top:6px;">
         <div><b>Captured power:</b> <span id="dysonPower">—</span></div>
         <div><b>Flux at shell:</b> <span id="dysonFlux">—</span></div>
+        <div><b>Vault:</b> <span id="vaultRead">—</span></div>
       </div>
     </div>
 
-    <!-- Prune + Decay controls -->
-    <div class="pdBox">
-      <h3 style="margin:0 0 6px;">Prune + Decay (Memory Maintenance)</h3>
-
-      <div class="row" style="margin:6px 0 0;">
-        <label class="switch" title="Decay slowly fades surplus and activation over time.">
+    <div class="group">
+      <h3>Prune + Decay (Memory Maintenance)</h3>
+      <div class="row tight">
+        <label class="switch" title="Decay fades surplus + activation over time.">
           <input id="decayOn" type="checkbox" checked />
-          Decay ON
+          Decay
         </label>
-        <label class="switch" title="Prune removes weak memories (unlocks glyphs below threshold).">
+        <label class="switch" title="Prune unlocks weak nodes and caps locked count.">
           <input id="pruneOn" type="checkbox" checked />
-          Prune ON
+          Prune
         </label>
       </div>
 
@@ -231,73 +219,75 @@
       <label>Max locked glyphs (cap): <span id="maxLockedVal"></span></label>
       <input id="maxLocked" type="range" min="50" max="700" step="10" value="320" />
 
-      <div class="pdGrid">
-        <div class="pdStat">
-          <div><b>Decay mode:</b> <span id="pdDecayMode">—</span></div>
+      <div class="statGrid">
+        <div class="statBox">
           <div><b>Effective decay:</b> <span id="pdDecayEff">—</span></div>
           <div><b>Effective prune:</b> <span id="pdPruneEff">—</span></div>
+          <div class="small">Dyson ON → gentler decay + slightly easier to keep locks.</div>
         </div>
-        <div class="pdStat">
+        <div class="statBox">
           <div><b>Pruned this tick:</b> <span id="pdPrunedTick">0</span></div>
-          <div><b>Kept locked:</b> <span id="pdKept">0</span></div>
-          <div><b>Dropped locked:</b> <span id="pdDropped">0</span></div>
+          <div><b>Locked kept:</b> <span id="pdKept">0</span></div>
+          <div><b>Dropped by cap:</b> <span id="pdDropped">0</span></div>
         </div>
       </div>
-
-      <div class="small" style="margin-top:8px;opacity:.88">
-        <b>Meaning:</b> Dyson Sphere acts like a memory vault boundary. Decay fades memory; Prune removes weak locks.
-        Dyson ON → gentler decay + can persist. Dyson OFF → harsher decay + no persistence.
-      </div>
     </div>
 
-    <label>Polygon sides N: <span id="nVal"></span></label>
-    <input id="N" type="range" min="6" max="240" step="1" value="6" />
+    <div class="group">
+      <h3>Geometry + Regulation</h3>
+      <label>Polygon sides N: <span id="nVal"></span></label>
+      <input id="N" type="range" min="6" max="240" step="1" value="6" />
 
-    <label>Intent radius a: <span id="aVal"></span></label>
-    <input id="a" type="range" min="80" max="420" value="260" />
+      <label>Intent radius a: <span id="aVal"></span></label>
+      <input id="a" type="range" min="80" max="420" value="260" />
 
-    <label>Container radius R: <span id="RVal"></span></label>
-    <input id="R" type="range" min="160" max="520" value="300" />
+      <label>Container radius R: <span id="RVal"></span></label>
+      <input id="R" type="range" min="160" max="520" value="300" />
 
-    <label>Regulation strength k: <span id="kVal"></span></label>
-    <input id="k" type="range" min="0.50" max="2.50" step="0.01" value="1.10" />
+      <label>Regulation strength k: <span id="kVal"></span></label>
+      <input id="k" type="range" min="0.50" max="2.50" step="0.01" value="1.10" />
 
-    <div class="kbox">
-      <div class="kTop">
-        <div class="kHint"><b>Strength</b> (k)</div>
-        <div class="kBig" id="kBig">1.10</div>
+      <div class="kbox">
+        <div class="kTop">
+          <div class="small"><b>Strength</b> (k)</div>
+          <div class="kBig" id="kBig">1.10</div>
+        </div>
+        <div class="meter"><div class="meterFill" id="kFill"></div></div>
+        <div class="small" id="kText" style="margin-top:6px;"></div>
       </div>
-      <div class="meter"><div class="meterFill" id="kFill"></div></div>
-      <div class="kHint" id="kText" style="margin-top:6px;"></div>
+
+      <label style="margin-top:12px;">CST Phase Alignment φₛₜ: <span id="phiBig">0.00</span></label>
+      <input id="phi" type="range" min="0" max="1" step="0.01" value="0.00" />
+      <div class="small" id="phiHint" style="margin-top:6px;"></div>
     </div>
-    <label style="margin-top:12px;">CST Phase Alignment φₛₜ: <span id="phiBig">0.00</span></label>
-    <input id="phi" type="range" min="0" max="1" step="0.01" value="0.00" />
-    <div class="small" id="phiHint" style="margin-top:6px;"></div>
 
-    <h3>Φ-HNS Memory Controls</h3>
+    <div class="group">
+      <h3>Φ-HNS Memory Controls</h3>
+      <label>Collapse threshold θϕ: <span id="thetaVal"></span></label>
+      <input id="theta" type="range" min="0.20" max="1.00" step="0.01" value="0.62" />
 
-    <label>Collapse threshold θϕ: <span id="thetaVal"></span></label>
-    <input id="theta" type="range" min="0.20" max="1.00" step="0.01" value="0.62" />
+      <label>Surplus gain: <span id="gainVal"></span></label>
+      <input id="gain" type="range" min="0.20" max="2.00" step="0.01" value="1.00" />
 
-    <label>Surplus gain: <span id="gainVal"></span></label>
-    <input id="gain" type="range" min="0.20" max="2.00" step="0.01" value="1.00" />
+      <label>Surplus leak: <span id="leakVal"></span></label>
+      <input id="leak" type="range" min="0.00" max="0.12" step="0.001" value="0.028" />
+    </div>
 
-    <label>Surplus leak: <span id="leakVal"></span></label>
-    <input id="leak" type="range" min="0.00" max="0.12" step="0.001" value="0.028" />
-
-    <div class="inspector">
-      <div class="title">Node Inspector</div>
-      <div class="kv">
-        <div><b>Selected</b></div><div class="mono" id="selId">—</div>
-        <div><b>q,r</b></div><div class="mono" id="selQR">—</div>
-        <div><b>v</b></div><div class="mono" id="selV">—</div>
-        <div><b>surplus</b></div><div class="mono" id="selS">—</div>
-        <div><b>locked</b></div><div class="mono" id="selLock">—</div>
-        <div><b>glyph</b></div><div class="mono" id="selGlyph">—</div>
-        <div><b>dist→center</b></div><div class="mono" id="selDist">—</div>
-      </div>
-      <div class="small" style="margin-top:6px;opacity:.85;">
-        Tip: to create more locked glyphs faster → θϕ≈0.35, gain≈1.30, leak≈0.02. Raise φₛₜ to make memory more selective.
+    <div class="group">
+      <h3>Node Inspector (Fixed)</h3>
+      <div class="inspector">
+        <div class="kv">
+          <div><b>Selected</b></div><div class="mono" id="selId">—</div>
+          <div><b>q,r</b></div><div class="mono" id="selQR">—</div>
+          <div><b>v</b></div><div class="mono" id="selV">—</div>
+          <div><b>surplus</b></div><div class="mono" id="selS">—</div>
+          <div><b>locked</b></div><div class="mono" id="selLock">—</div>
+          <div><b>glyph</b></div><div class="mono" id="selGlyph">—</div>
+          <div><b>dist→center</b></div><div class="mono" id="selDist">—</div>
+        </div>
+        <div class="small" style="margin-top:8px;">
+          Tip: click inside the circle. If Hex Lattice is OFF, Inspector won’t update.
+        </div>
       </div>
     </div>
 
@@ -312,41 +302,46 @@
 
   <canvas id="c"></canvas>
 </div>
-
 <script>
 (() => {
   const canvas = document.getElementById("c");
   const ctx = canvas.getContext("2d");
   const $ = (id)=>document.getElementById(id);
 
+  // Inputs
   const NEl=$("N"), aEl=$("a"), REl=$("R"), kEl=$("k"), phiEl=$("phi");
   const thetaEl=$("theta"), gainEl=$("gain"), leakEl=$("leak");
 
+  // Labels
   const nVal=$("nVal"), aVal=$("aVal"), RVal=$("RVal"), kVal=$("kVal");
   const thetaVal=$("thetaVal"), gainVal=$("gainVal"), leakVal=$("leakVal");
-
   const nPill=$("nPill"), modePill=$("modePill"), matchPill=$("matchPill"), statusPill=$("statusPill");
   const kBig=$("kBig"), kFill=$("kFill"), kText=$("kText");
   const phiBig=$("phiBig"), phiHint=$("phiHint");
 
+  // Toggles
   const constraintViewEl=$("constraintView");
   const latticeViewEl=$("latticeView");
   const latticeClipEl=$("latticeClip");
   const glyphViewEl=$("glyphView");
   const nestedHexEl=$("nestedHex");
   const spiralOnEl=$("spiralOn");
-
   const inspectOnEl=$("inspectOn");
   const pinSelEl=$("pinSel");
-  const unpinBtn=$("unpin");
 
+  // Buttons
+  const unpinBtn=$("unpin");
   const stressBtn=$("stressBtn");
   const clearMemBtn=$("clearMem");
   const dlCSVBtn=$("dlCSV");
 
-  // Dyson UI
+  // Dyson + Vault
   const dysonOnEl=$("dysonOn");
   const dysonPersistEl=$("dysonPersist");
+  const vaultEveryEl=$("vaultEvery");
+  const vaultEveryValEl=$("vaultEveryVal");
+  const vaultReadEl=$("vaultRead");
+
   const dysonScaleEl=$("dysonScale");
   const dysonScaleValEl=$("dysonScaleVal");
   const dysonCapEl=$("dysonCap");
@@ -355,43 +350,37 @@
   const dysonPowerEl=$("dysonPower");
   const dysonFluxEl=$("dysonFlux");
 
-  // Prune + Decay UI
+  // Prune/Decay
   const decayOnEl=$("decayOn");
   const pruneOnEl=$("pruneOn");
-  const decayRateEl=$("decayRate");
-  const decayRateValEl=$("decayRateVal");
-  const pruneThEl=$("pruneTh");
-  const pruneThValEl=$("pruneThVal");
-  const maxLockedEl=$("maxLocked");
-  const maxLockedValEl=$("maxLockedVal");
-
-  const pdDecayModeEl=$("pdDecayMode");
+  const decayRateEl=$("decayRate"), decayRateValEl=$("decayRateVal");
+  const pruneThEl=$("pruneTh"), pruneThValEl=$("pruneThVal");
+  const maxLockedEl=$("maxLocked"), maxLockedValEl=$("maxLockedVal");
   const pdDecayEffEl=$("pdDecayEff");
   const pdPruneEffEl=$("pdPruneEff");
   const pdPrunedTickEl=$("pdPrunedTick");
   const pdKeptEl=$("pdKept");
   const pdDroppedEl=$("pdDropped");
 
+  // Inspector fields
   const selIdEl=$("selId"), selQREl=$("selQR"), selVEl=$("selV"), selSEl=$("selS"),
         selLockEl=$("selLock"), selGlyphEl=$("selGlyph"), selDistEl=$("selDist");
 
+  // Log
   const logEl=$("log");
-
-  // ----------------- Log + CSV -----------------
-  const logEntries = [];
-  const nowISO = () => new Date().toISOString();
+  const logEntries=[];
+  const nowISO=()=>new Date().toISOString();
   const log=(t)=>{
-    const entry = { time: nowISO(), msg: String(t) };
-    logEntries.push(entry);
+    logEntries.push({time:nowISO(), msg:String(t)});
     logEl.textContent += t + "\n";
     logEl.scrollTop = logEl.scrollHeight;
   };
 
-  // ----------------- Math helpers -----------------
+  // Helpers
   const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
   const lerp=(a,b,t)=>a+(b-a)*t;
 
-  // DPR-safe canvas sizing
+  // DPR safe
   let DPR = Math.max(1, window.devicePixelRatio || 1);
   function setDPR(){
     DPR = Math.max(1, window.devicePixelRatio || 1);
@@ -400,69 +389,22 @@
     ctx.setTransform(1,0,0,1,0,0);
     ctx.scale(DPR, DPR);
   }
-  const cssW = () => canvas.width / DPR;
-  const cssH = () => canvas.height / DPR;
+  const cssW=()=>canvas.width/DPR;
+  const cssH=()=>canvas.height/DPR;
 
-  // ----------------- HUD (Canvas Overlay) state -----------------
-  // Updated every draw() so it NEVER conflicts with other toggles.
-  const HUD = {
-    decayAppliedPct: 0,         // %
-    prunedThisTick: 0,          // count
-    vaultEvent: "—",            // "saved", "restored", "off", etc.
-    vaultCount: 0,              // # locked saved/restored
-    dysonOn: false
-  };
+  // Canvas HUD state
+  const HUD = { decayAppliedPct:0, prunedThisTick:0, vaultEvent:"—", vaultCount:0, dysonOn:false };
 
-  function drawHUDBox(x,y,w,h,r){
-    r=Math.min(r,w/2,h/2);
-    ctx.beginPath();
-    ctx.moveTo(x+r,y);
-    ctx.arcTo(x+w,y,x+w,y+h,r);
-    ctx.arcTo(x+w,y+h,x,y+h,r);
-    ctx.arcTo(x,y+h,x,y,r);
-    ctx.arcTo(x,y,x+w,y,r);
-    ctx.closePath();
-  }
-
-  function drawHUD(){
-    const x = 12, y = 12;
-    const w = 320, h = 86;
-
-    ctx.save();
-    ctx.globalAlpha = 0.92;
-    ctx.fillStyle = "rgba(10,16,24,0.68)";
-    ctx.strokeStyle = "rgba(45,71,100,0.80)";
-    ctx.lineWidth = 1;
-    drawHUDBox(x,y,w,h,12);
-    ctx.fill(); ctx.stroke();
-
-    ctx.globalAlpha = 0.95;
-    ctx.fillStyle = "rgba(232,238,246,0.92)";
-    ctx.font = "12px system-ui, Segoe UI, Arial";
-    ctx.fillText("Overlay (Decay / Prune / Vault):", x+12, y+20);
-
-    ctx.fillStyle = "rgba(232,238,246,0.85)";
-    ctx.fillText(`Decay applied: ${HUD.decayAppliedPct.toFixed(1)}%`, x+12, y+40);
-    ctx.fillText(`Pruned this tick: ${HUD.prunedThisTick}`, x+12, y+58);
-
-    const dy = HUD.dysonOn ? "Dyson ON" : "Dyson OFF";
-    ctx.fillText(`${dy} • Vault: ${HUD.vaultEvent} (${HUD.vaultCount})`, x+12, y+76);
-
-    ctx.restore();
-  }
-  // ----------------- Geometry equations -----------------
+  // --- Geometry ---
   function circleMatchPercent(N){
-    // perimeter ratio (inscribed polygon vs circle)
-    const ratio = (N * Math.sin(Math.PI / N)) / Math.PI;
-    return 100 * ratio;
+    const ratio=(N*Math.sin(Math.PI/N))/Math.PI;
+    return 100*ratio;
   }
-
   function regulatedRadius(a,R,k){
     if(a<=R) return {rad:a, regulated:false, s:1};
     const s=Math.pow(R/a,k);
     return {rad:a*s, regulated:true, s};
   }
-
   function polygonVertices(cx,cy,rad,n,rot=0){
     const pts=[];
     const offset=-Math.PI/6 + rot;
@@ -472,7 +414,6 @@
     }
     return pts;
   }
-
   function drawPolygon(pts, fill=true){
     ctx.beginPath();
     ctx.moveTo(pts[0][0],pts[0][1]);
@@ -481,7 +422,6 @@
     if(fill) ctx.fill();
     ctx.stroke();
   }
-
   function strokeForK(regulated,k){
     const t=clamp((k-0.50)/2.00,0,1);
     const cool={r:69,g:103,b:132}, warm={r:182,g:139,b:46};
@@ -491,10 +431,9 @@
     const a=regulated?(0.75+0.20*t):(0.55+0.20*t);
     return `rgba(${r},${g},${b},${a})`;
   }
-
   function updateKUI(regulated){
     const k=+kEl.value;
-    kVal.textContent = k.toFixed(2);
+    kVal.textContent=k.toFixed(2);
     kBig.textContent=k.toFixed(2);
     const pct=clamp(((k-0.50)/2.00)*100,0,100);
     kFill.style.width=pct.toFixed(1)+"%";
@@ -505,7 +444,6 @@
     if(regulated) label += " (ACTIVE)";
     kText.textContent=label;
   }
-
   function updatePills(regulated,N,matchPct){
     nPill.textContent=`N: ${N}`;
     modePill.textContent=`Mode: ${regulated?"Regulation":"Geometry"}`;
@@ -514,54 +452,128 @@
     matchPill.textContent=`Match: ${matchPct.toFixed(1)}%`;
   }
 
-  // ----------------- Constraint View (labels lines on circle) -----------------
-  // This draws a 6-node constraint ring *and labels each edge line*.
-  const pillars=[
-    { key:"Maxwell", short:"M" },
-    { key:"Einstein", short:"E" },
-    { key:"Feynman", short:"F" },
-    { key:"Turing", short:"T" },
-    { key:"vonNeumann", short:"V" },
-    { key:"Shannon", short:"S" },
-  ];
-  const edgeLabels=["M–E","E–F","F–T","T–V","V–S","S–M"];
+  // --- Dyson UI ---
+  function fmtSI(x){
+    if(!isFinite(x)) return "—";
+    const ax=Math.abs(x);
+    if(ax>=1e24) return (x/1e24).toFixed(3)+"e24";
+    if(ax>=1e18) return (x/1e18).toFixed(3)+"e18";
+    if(ax>=1e12) return (x/1e12).toFixed(3)+"e12";
+    if(ax>=1e9)  return (x/1e9 ).toFixed(3)+"e9";
+    if(ax>=1e6)  return (x/1e6 ).toFixed(3)+"e6";
+    if(ax>=1e3)  return (x/1e3 ).toFixed(3)+"e3";
+    return x.toFixed(3);
+  }
+  function updateDysonUI(){
+    dysonScaleValEl.textContent=(+dysonScaleEl.value).toFixed(2)+"×R";
+    dysonCapValEl.textContent=(+dysonCapEl.value).toFixed(0);
+    vaultEveryValEl.textContent=String(parseInt(vaultEveryEl.value,10));
+
+    const cap=(+dysonCapEl.value)/100;
+    const L=Number(dysonLumEl.value);
+    const captured=L*cap;
+
+    const rRel=+dysonScaleEl.value;
+    const fluxRel=L/(4*Math.PI*rRel*rRel);
+
+    dysonPowerEl.textContent=fmtSI(captured)+" W";
+    dysonFluxEl.textContent=fmtSI(fluxRel)+" W / (4π (R·scale)^2)";
+  }
+
+  // --- Prune/Decay effective values ---
+  function effectiveDecayRate(){
+    const base=+decayRateEl.value;
+    const mult = dysonOnEl.checked ? 0.70 : 1.35;
+    return clamp(base*mult,0,0.20);
+  }
+  function effectivePruneThreshold(){
+    const base=+pruneThEl.value;
+    const adj = dysonOnEl.checked ? -0.02 : +0.03;
+    return clamp(base+adj,0,0.95);
+  }
+  function updatePDUI(stats){
+    decayRateValEl.textContent=(+decayRateEl.value).toFixed(3);
+    pruneThValEl.textContent=(+pruneThEl.value).toFixed(2);
+    maxLockedValEl.textContent=String(parseInt(maxLockedEl.value,10));
+
+    pdDecayEffEl.textContent=effectiveDecayRate().toFixed(3)+" / tick";
+    pdPruneEffEl.textContent=effectivePruneThreshold().toFixed(2)+" surplus";
+
+    if(stats){
+      pdPrunedTickEl.textContent=String(stats.prunedThisTick);
+      pdKeptEl.textContent=String(stats.keptLocked);
+      pdDroppedEl.textContent=String(stats.droppedLocked);
+    }
+  }
+
+  // ---------------- Inspector (FIX) ----------------
+  // FIX: when you click, we immediately setInspector() AND we also keep it “live” every frame.
+  function setInspector(idx){
+    if(idx<0 || !lattice.nodes[idx]){
+      selIdEl.textContent="—"; selQREl.textContent="—"; selVEl.textContent="—";
+      selSEl.textContent="—"; selLockEl.textContent="—"; selGlyphEl.textContent="—"; selDistEl.textContent="—";
+      return;
+    }
+    const n=lattice.nodes[idx];
+    selIdEl.textContent=String(idx);
+    selQREl.textContent=`${n.q}, ${n.r}`;
+    selVEl.textContent=n.v.toFixed(3);
+    selSEl.textContent=n.surplus.toFixed(3);
+    selLockEl.textContent=n.locked?"true":"false";
+    selGlyphEl.textContent=n.locked?(n.glyph||""):"—";
+    const dx=n.x-lastCenter.cx, dy=n.y-lastCenter.cy;
+    selDistEl.textContent=Math.hypot(dx,dy).toFixed(1);
+  }
+
+  // Selection state
+  let selected={ idx:-1, pinned:false };
+  let lastCenter={ cx:0, cy:0, R:0 };
+
+  // Click-to-inspect
+  canvas.addEventListener("click",(ev)=>{
+    if(!inspectOnEl.checked) return;
+    if(!latticeViewEl.checked) { log("Inspector: turn Hex Lattice ON to inspect nodes."); log("—"); return; }
+
+    const rect=canvas.getBoundingClientRect();
+    const px=ev.clientX-rect.left;
+    const py=ev.clientY-rect.top;
+
+    const cx=lastCenter.cx, cy=lastCenter.cy, R=lastCenter.R;
+    if(Math.hypot(px-cx,py-cy) > R+6) return;
+
+    let best=-1, bestD2=1e18;
+    for(let i=0;i<lattice.nodes.length;i++){
+      const n=lattice.nodes[i];
+      const dx=n.x-px, dy=n.y-py;
+      const d2=dx*dx+dy*dy;
+      if(d2<bestD2){bestD2=d2; best=i;}
+    }
+    if(best<0) return;
+
+    selected.idx=best;
+    selected.pinned=pinSelEl.checked;
+
+    setInspector(best); // immediate update (your issue)
+    const n=lattice.nodes[best];
+    log(`INSPECT: idx=${best} q,r=(${n.q},${n.r}) v=${n.v.toFixed(3)} s=${n.surplus.toFixed(3)} locked=${n.locked}`);
+    log("—");
+    draw(false);
+  });
+
+  unpinBtn.addEventListener("click",()=>{
+    selected.pinned=false;
+    pinSelEl.checked=false;
+    log("Inspector: unpinned.");
+    log("—");
+    draw(false);
+  });
+  // ---------------- Stress ring (live numbers) ----------------
+  const pillars=[{key:"Maxwell",short:"M"},{key:"Einstein",short:"E"},{key:"Feynman",short:"F"},{key:"Turing",short:"T"},{key:"vonNeumann",short:"V"},{key:"Shannon",short:"S"}];
   const order=["Maxwell","Einstein","Feynman","Turing","vonNeumann","Shannon"];
+  const edgeLabels=["M–E","E–F","F–T","T–V","V–S","S–M"];
 
-  function roundRect(x,y,w,h,r){
-    r=Math.min(r,w/2,h/2);
-    ctx.beginPath();
-    ctx.moveTo(x+r,y);
-    ctx.arcTo(x+w,y,x+w,y+h,r);
-    ctx.arcTo(x+w,y+h,x,y+h,r);
-    ctx.arcTo(x,y+h,x,y,r);
-    ctx.arcTo(x,y,x+w,y,r);
-    ctx.closePath();
-  }
-
-  function drawLegendBox(x,y){
-    ctx.save();
-    ctx.globalAlpha=0.95;
-    ctx.fillStyle="rgba(10,16,24,0.68)";
-    ctx.strokeStyle="rgba(45,71,100,0.70)";
-    ctx.lineWidth=1;
-    const w=260, h=112;
-    roundRect(x,y,w,h,10);
-    ctx.fill(); ctx.stroke();
-
-    ctx.fillStyle="rgba(232,238,246,0.90)";
-    ctx.font="12px system-ui, Segoe UI, Arial";
-    ctx.fillText("Constraint Lines (labeled):", x+10, y+18);
-
-    ctx.fillStyle="rgba(138,167,200,0.95)";
-    ctx.fillText("Edges show coupling links:", x+10, y+36);
-    ctx.fillText("M–E–F–T–V–S–M", x+10, y+52);
-
-    ctx.fillStyle="rgba(232,238,246,0.86)";
-    ctx.fillText("M Maxwell   E Einstein   F Feynman", x+10, y+72);
-    ctx.fillText("T Turing     V vonN       S Shannon", x+10, y+90);
-
-    ctx.restore();
-  }
+  let stressInject=false;
+  let t0=performance.now();
 
   function stressColor(s){
     if(s<0.5){
@@ -579,17 +591,12 @@
     }
   }
 
-  let stressInject=false;
-  let t0=performance.now();
-
   function computeStresses({N,a,R,k,phi,regulated}){
     const match = clamp(circleMatchPercent(N)/100,0,1);
     const coarseness = clamp(1-match,0,1);
-
     const overflow = clamp((a-R)/Math.max(1,R),0,1);
     const kPressure = clamp(Math.abs(k-1.0)/1.5,0,1);
     const clampActive = regulated ? 1 : 0;
-
     const deco = (1-phi);
     const damp = lerp(1.0,0.55,phi);
 
@@ -608,7 +615,6 @@
       Feynman:    0.14 + 0.45*coarseness + 0.55*deco    + 0.10*overflow + 0.10*inj,
     };
 
-    // small neighbor coupling around ring (no conflicts with toggles)
     let s=order.map(k=>base[k]);
     const c=lerp(0.22,0.12,phi);
     for(let it=0;it<2;it++){
@@ -621,19 +627,40 @@
       }
       s=next;
     }
+
     const out={};
     for(let i=0;i<order.length;i++) out[order[i]]=s[i];
-    return {out,coarseness,overflow,deco,match};
+    return {out,match};
+  }
+
+  function drawLegendBox(x,y){
+    ctx.save();
+    ctx.globalAlpha=0.95;
+    ctx.fillStyle="rgba(10,16,24,0.68)";
+    ctx.strokeStyle="rgba(45,71,100,0.78)";
+    ctx.lineWidth=1;
+    roundRect(x,y,270,118,10);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle="rgba(232,238,246,0.92)";
+    ctx.font="12px system-ui, Segoe UI, Arial";
+    ctx.fillText("Circle Panel Labels:", x+10, y+18);
+    ctx.fillStyle="rgba(138,167,200,0.95)";
+    ctx.fillText("Domain circle = R (container)", x+10, y+36);
+    ctx.fillText("Inner mirror circle = regulated radius", x+10, y+52);
+    ctx.fillText("Hex Lattice, Spiral, Nested are toggle layers", x+10, y+68);
+    ctx.fillText("Constraint edges labeled: M–E, E–F, ...", x+10, y+84);
+    ctx.fillStyle="rgba(232,238,246,0.86)";
+    ctx.fillText("M Maxwell | E Einstein | F Feynman | T Turing | V vonN | S Shannon", x+10, y+102);
+    ctx.restore();
   }
 
   function drawConstraintOverlay(cx,cy,R,rr,stressPack){
     const rad=Math.min(rr.rad,R*0.78);
     const pts=polygonVertices(cx,cy,rad,6);
 
-    // Legend inside the canvas (also answers your “what are the lines?” request)
-    drawLegendBox(12, 108);
+    drawLegendBox(12, 104);
 
-    // Draw ring polygon edges
+    // ring edges
     ctx.save();
     ctx.globalAlpha=0.55;
     ctx.strokeStyle="rgba(120,150,180,0.35)";
@@ -645,33 +672,28 @@
     ctx.stroke();
     ctx.restore();
 
-    // Label each EDGE midpoint (line labels)
+    // edge labels
     ctx.save();
     ctx.globalAlpha=0.86;
-    ctx.fillStyle="rgba(232,238,246,0.76)";
+    ctx.fillStyle="rgba(232,238,246,0.78)";
     ctx.font="12px system-ui, Segoe UI, Arial";
     ctx.textAlign="center"; ctx.textBaseline="middle";
     for(let i=0;i<6;i++){
-      const a=pts[i];
-      const b=pts[(i+1)%6];
-      const mx=(a[0]+b[0])*0.5;
-      const my=(a[1]+b[1])*0.5;
+      const a=pts[i], b=pts[(i+1)%6];
+      const mx=(a[0]+b[0])*0.5, my=(a[1]+b[1])*0.5;
       const dx=mx-cx, dy=my-cy;
       const d=Math.max(1,Math.hypot(dx,dy));
-      const ox=mx+(dx/d)*16;
-      const oy=my+(dy/d)*16;
-      ctx.fillText(edgeLabels[i], ox, oy);
+      ctx.fillText(edgeLabels[i], mx+(dx/d)*16, my+(dy/d)*16);
     }
     ctx.restore();
 
-    // Nodes with labels + live values
+    // nodes with live numbers (THIS fixes “not moving numbers”)
     for(let i=0;i<6;i++){
       const key=order[i];
       const s=stressPack.out[key];
       const [x,y]=pts[i];
-      const col=stressColor(s);
 
-      ctx.fillStyle=col;
+      ctx.fillStyle=stressColor(s);
       ctx.strokeStyle="rgba(255,255,255,0.22)";
       ctx.lineWidth=1.2;
       ctx.beginPath(); ctx.arc(x,y,16,0,Math.PI*2); ctx.fill(); ctx.stroke();
@@ -681,187 +703,106 @@
       ctx.textAlign="center"; ctx.textBaseline="middle";
       ctx.fillText(pillars[i].short,x,y);
 
-      const dx = x - cx, dy = y - cy;
-      const d = Math.max(1, Math.hypot(dx,dy));
-      const ox = x + (dx/d)*30;
-      const oy = y + (dy/d)*30;
-
-      ctx.fillStyle="rgba(232,238,246,0.88)";
+      // live numeric value
+      const dx=x-cx, dy=y-cy;
+      const d=Math.max(1,Math.hypot(dx,dy));
+      const ox=x+(dx/d)*30;
+      const oy=y+(dy/d)*30;
+      ctx.fillStyle="rgba(232,238,246,0.92)";
       ctx.font="12px system-ui, Segoe UI, Arial";
-      ctx.textAlign = (dx>=0) ? "left" : "right";
-      const name = key === "vonNeumann" ? "vonN" : key;
+      ctx.textAlign=(dx>=0)?"left":"right";
+      const name = key==="vonNeumann"?"vonN":key;
       ctx.fillText(`${name}: ${s.toFixed(2)}`, ox, oy);
     }
     ctx.textAlign="left"; ctx.textBaseline="alphabetic";
   }
 
-  // ----------------- Dyson helpers -----------------
-  function fmtSI(x){
-    if(!isFinite(x)) return "—";
-    const ax=Math.abs(x);
-    if(ax>=1e24) return (x/1e24).toFixed(3)+"e24";
-    if(ax>=1e18) return (x/1e18).toFixed(3)+"e18";
-    if(ax>=1e12) return (x/1e12).toFixed(3)+"e12";
-    if(ax>=1e9)  return (x/1e9 ).toFixed(3)+"e9";
-    if(ax>=1e6)  return (x/1e6 ).toFixed(3)+"e6";
-    if(ax>=1e3)  return (x/1e3 ).toFixed(3)+"e3";
-    return x.toFixed(3);
-  }
-
-  function updateDysonUI(){
-    dysonScaleValEl.textContent = (+dysonScaleEl.value).toFixed(2) + "×R";
-    dysonCapValEl.textContent = (+dysonCapEl.value).toFixed(0);
-
-    const cap = (+dysonCapEl.value)/100;
-    const L = Number(dysonLumEl.value);
-    const captured = L * cap;
-
-    const rRel = +dysonScaleEl.value;
-    const areaRel = 4*Math.PI*rRel*rRel;
-    const fluxRel = L / areaRel;
-
-    dysonPowerEl.textContent = fmtSI(captured) + " W";
-    dysonFluxEl.textContent  = fmtSI(fluxRel) + " W / (4π (R·scale)^2)";
-  }
-
+  // ---------------- Dyson draw ----------------
   function drawDysonSphere(cx,cy,R){
     if(!dysonOnEl.checked) return;
-
-    const scale = +dysonScaleEl.value;
-    const dyR = R * scale;
+    const scale=+dysonScaleEl.value;
+    const dyR=R*scale;
 
     ctx.save();
-    ctx.globalAlpha = 1;
     ctx.beginPath();
     ctx.arc(cx,cy,dyR,0,Math.PI*2);
-    ctx.lineWidth = Math.max(2, R*0.022);
-    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--dysonRing') || "rgba(255,200,60,.62)";
+    ctx.lineWidth=Math.max(2, R*0.022);
+    ctx.strokeStyle=getComputedStyle(document.documentElement).getPropertyValue('--dysonRing') || "rgba(255,200,60,.62)";
     ctx.stroke();
 
-    ctx.globalAlpha = 0.9;
     ctx.beginPath();
     ctx.arc(cx,cy,dyR + ctx.lineWidth*2.1,0,Math.PI*2);
-    ctx.lineWidth = ctx.lineWidth*2.2;
-    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--dysonRing2') || "rgba(255,200,60,.18)";
+    ctx.lineWidth=ctx.lineWidth*2.2;
+    ctx.strokeStyle=getComputedStyle(document.documentElement).getPropertyValue('--dysonRing2') || "rgba(255,200,60,.18)";
     ctx.stroke();
-
-    ctx.globalAlpha = 0.55;
-    ctx.lineWidth = 1.3;
-    ctx.strokeStyle = "rgba(255,225,140,0.35)";
-    const ticks=24;
-    for(let i=0;i<ticks;i++){
-      const a = (i/ticks)*Math.PI*2;
-      const x1 = cx + (dyR-8)*Math.cos(a);
-      const y1 = cy + (dyR-8)*Math.sin(a);
-      const x2 = cx + (dyR+8)*Math.cos(a);
-      const y2 = cy + (dyR+8)*Math.sin(a);
-      ctx.beginPath();
-      ctx.moveTo(x1,y1);
-      ctx.lineTo(x2,y2);
-      ctx.stroke();
-    }
     ctx.restore();
   }
 
-  // ----------------- Prune + Decay (Dyson coupling) -----------------
-  function effectiveDecayRate(){
-    const base = +decayRateEl.value;
-    const mult = dysonOnEl.checked ? 0.70 : 1.35;
-    return clamp(base * mult, 0, 0.20);
-  }
-  function effectivePruneThreshold(){
-    const base = +pruneThEl.value;
-    const adj = dysonOnEl.checked ? -0.02 : +0.03;
-    return clamp(base + adj, 0, 0.95);
-  }
-
-  function updatePruneDecayUI(stats){
-    decayRateValEl.textContent = (+decayRateEl.value).toFixed(3);
-    pruneThValEl.textContent = (+pruneThEl.value).toFixed(2);
-    maxLockedValEl.textContent = String(parseInt(maxLockedEl.value,10));
-
-    pdDecayModeEl.textContent = dysonOnEl.checked ? "Dyson ON (vault boundary)" : "Dyson OFF (leaky boundary)";
-    pdDecayEffEl.textContent = effectiveDecayRate().toFixed(3) + " / tick";
-    pdPruneEffEl.textContent = effectivePruneThreshold().toFixed(2) + " surplus";
-
-    if(stats){
-      pdPrunedTickEl.textContent = String(stats.prunedThisTick);
-      pdKeptEl.textContent = String(stats.keptLocked);
-      pdDroppedEl.textContent = String(stats.droppedLocked);
-    }
-  }
-  // ----------------- Vault persistence -----------------
-  const VAULT_KEY = "HEXARA_DYSON_VAULT_V2";
+  // ---------------- Vault (interval) ----------------
+  const VAULT_KEY="HEXARA_DYSON_VAULT_V3";
+  let frameCount=0;
 
   function vaultEnabled(){
     return dysonOnEl.checked && dysonPersistEl.checked;
   }
-
   function saveVaultPayload(){
-    const locked = lattice.nodes.filter(n=>n.locked).map(n=>({
-      q:n.q, r:n.r,
-      surplus:+n.surplus.toFixed(4),
-      glyphIdx:n.glyphIdx
-    }));
-    return { ts: Date.now(), size: HEX.size, locked };
+    const locked = lattice.nodes.filter(n=>n.locked).map(n=>({q:n.q,r:n.r,s:+n.surplus.toFixed(4),g:n.glyphIdx}));
+    return {ts:Date.now(), locked};
   }
+  function saveVaultMaybe(){
+    if(!vaultEnabled()){ HUD.vaultEvent="off"; HUD.vaultCount=0; vaultReadEl.textContent="OFF"; return; }
 
-  function saveVaultIfEnabled(){
-    if(!vaultEnabled()) { HUD.vaultEvent="off"; HUD.vaultCount=0; return; }
-    try{
-      const payload = saveVaultPayload();
-      localStorage.setItem(VAULT_KEY, JSON.stringify(payload));
-      HUD.vaultEvent="saved";
-      HUD.vaultCount = payload.locked.length;
-    }catch(e){
-      HUD.vaultEvent="save fail";
-      HUD.vaultCount=0;
+    const every=parseInt(vaultEveryEl.value,10);
+    if(every<=1 || (frameCount % every)===0){
+      try{
+        const payload=saveVaultPayload();
+        localStorage.setItem(VAULT_KEY, JSON.stringify(payload));
+        HUD.vaultEvent="saved";
+        HUD.vaultCount=payload.locked.length;
+        vaultReadEl.textContent=`saved (${HUD.vaultCount}) every ${every}`;
+      }catch(e){
+        HUD.vaultEvent="save fail";
+        HUD.vaultCount=0;
+        vaultReadEl.textContent="save fail";
+      }
+    }else{
+      vaultReadEl.textContent=`idle every ${every}`;
     }
   }
-
-  function loadVaultIfEnabled(){
-    if(!vaultEnabled()) { HUD.vaultEvent="off"; HUD.vaultCount=0; return 0; }
+  function restoreVaultIfEnabled(){
+    if(!vaultEnabled()){ return 0; }
     try{
-      const raw = localStorage.getItem(VAULT_KEY);
-      if(!raw){ HUD.vaultEvent="empty"; HUD.vaultCount=0; return 0; }
-      const payload = JSON.parse(raw);
-      if(!payload || !Array.isArray(payload.locked)) { HUD.vaultEvent="bad"; HUD.vaultCount=0; return 0; }
+      const raw=localStorage.getItem(VAULT_KEY);
+      if(!raw) return 0;
+      const payload=JSON.parse(raw);
+      if(!payload || !Array.isArray(payload.locked)) return 0;
 
       let applied=0;
-      for(const item of payload.locked){
-        const idx = lattice.map.get(item.q + "," + item.r);
+      for(const it of payload.locked){
+        const idx=lattice.map.get(it.q+","+it.r);
         if(idx===undefined) continue;
-        const n = lattice.nodes[idx];
-        n.locked = true;
-        n.surplus = clamp(item.surplus ?? 0.2, 0, 1.25);
-        n.glyphIdx = (item.glyphIdx ?? 0);
-        n.glyph = GLYPHS[n.glyphIdx] || "";
+        const n=lattice.nodes[idx];
+        n.locked=true;
+        n.surplus=clamp(it.s ?? 0.2, 0, 1.25);
+        n.glyphIdx=(it.g ?? 0);
+        n.glyph=GLYPHS[n.glyphIdx] || "";
         applied++;
       }
       HUD.vaultEvent="restored";
       HUD.vaultCount=applied;
-      if(applied>0){
-        log(`DYSON VAULT: restored ${applied} locked glyphs.`);
-        log("—");
-      }
+      vaultReadEl.textContent=`restored (${applied})`;
       return applied;
     }catch(e){
-      HUD.vaultEvent="restore fail";
-      HUD.vaultCount=0;
       return 0;
     }
   }
-
-  // ----------------- Hex lattice + Φ-HNS memory -----------------
+  // ---------------- Lattice ----------------
   const HEX={ size:14, dirs:[[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]] };
   const GLYPHS=["𝒮","𝒞","฀","𝒦","ϕ","⟡","⊕","∿","∞","◇","▣","✶"];
   const FALLBACKS=["S","C","H","K","φ","*","+","~","∞","◇","▣","*"];
 
   let lattice={ nodes:[], map:new Map(), builtFor:{w:0,h:0,R:0,size:HEX.size} };
-  let selected={ idx:-1, pinned:false };
-  let lastCenter={ cx:0, cy:0, R:0 };
 
-  const keyQR=(q,r)=>q+","+r;
   function axialToPixel(q,r,size){
     const x=size*Math.sqrt(3)*(q+r/2);
     const y=size*1.5*r;
@@ -882,7 +823,7 @@
         const d=Math.hypot(dx,dy);
         if(d<=R-size*0.3){
           const idx=lattice.nodes.length;
-          lattice.map.set(keyQR(q,r),idx);
+          lattice.map.set(q+","+r, idx);
           lattice.nodes.push({
             q,r, x:cx+dx, y:cy+dy,
             v:0,v2:0,
@@ -896,13 +837,13 @@
     for(const n of lattice.nodes){
       n.nei.length=0;
       for(const [dq,dr] of HEX.dirs){
-        const j=lattice.map.get(keyQR(n.q+dq,n.r+dr));
+        const j=lattice.map.get((n.q+dq)+","+(n.r+dr));
         if(j!==undefined) n.nei.push(j);
       }
     }
 
-    // Restore vault ONLY after building map/nodes
-    loadVaultIfEnabled();
+    // Restore vault after build
+    restoreVaultIfEnabled();
 
     log(`LATTICE: built ${lattice.nodes.length} nodes (hex size=${size}px).`);
     log("—");
@@ -919,13 +860,13 @@
 
   function clearLatticeMemory(){
     for(const n of lattice.nodes){
-      n.v = 0; n.v2 = 0;
-      n.surplus=0; n.s2=0;
-      n.locked=false; n.glyph=""; n.glyphIdx=-1;
+      n.v=0;n.v2=0;n.surplus=0;n.s2=0;
+      n.locked=false;n.glyph="";n.glyphIdx=-1;
     }
     try{ localStorage.removeItem(VAULT_KEY); }catch(e){}
     HUD.vaultEvent="cleared";
     HUD.vaultCount=0;
+    vaultReadEl.textContent="cleared";
   }
 
   function injectSourcesToLattice(pillarPts, pillarStress, phi){
@@ -1013,16 +954,13 @@
   }
 
   function applyDecayAndPrune(){
-    if(!lattice.nodes.length) return {prunedThisTick:0, keptLocked:0, droppedLocked:0, decayPct:0};
+    const dOn=decayOnEl.checked;
+    const pOn=pruneOnEl.checked;
+    const dEff=effectiveDecayRate();
+    const pruneTh=effectivePruneThreshold();
+    const maxLocked=parseInt(maxLockedEl.value,10);
 
-    const dOn = decayOnEl.checked;
-    const pOn = pruneOnEl.checked;
-    const dEff = effectiveDecayRate();
-    const pruneTh = effectivePruneThreshold();
-    const maxLocked = parseInt(maxLockedEl.value,10);
-
-    // decayPct in human-readable form (approx)
-    const decayPct = dOn ? clamp(dEff*100, 0, 100) : 0;
+    const decayPct = dOn ? clamp(dEff*100,0,100) : 0;
 
     if(dOn){
       for(const n of lattice.nodes){
@@ -1036,80 +974,111 @@
     if(pOn){
       for(const n of lattice.nodes){
         if(n.locked && n.surplus < pruneTh){
-          n.locked=false;
-          n.glyph="";
-          n.glyphIdx=-1;
+          n.locked=false; n.glyph=""; n.glyphIdx=-1;
           pruned++;
         }
       }
     }
 
     let dropped=0;
-    let lockedList = lattice.nodes.map((n,i)=>({n,i})).filter(o=>o.n.locked);
-    if(pOn && lockedList.length > maxLocked){
-      lockedList.sort((a,b)=>a.n.surplus - b.n.surplus);
-      const toDrop = lockedList.length - maxLocked;
+    let lockedList = lattice.nodes.filter(n=>n.locked);
+    if(pOn && lockedList.length>maxLocked){
+      // drop lowest surplus locks to enforce cap
+      const idxs = lattice.nodes.map((n,i)=>({n,i})).filter(o=>o.n.locked);
+      idxs.sort((a,b)=>a.n.surplus-b.n.surplus);
+      const toDrop = idxs.length-maxLocked;
       for(let i=0;i<toDrop;i++){
-        const nn = lockedList[i].n;
+        const nn=idxs[i].n;
         nn.locked=false; nn.glyph=""; nn.glyphIdx=-1;
         dropped++;
       }
     }
 
-    const kept = lattice.nodes.reduce((acc,n)=>acc+(n.locked?1:0),0);
-    return {prunedThisTick: pruned + dropped, keptLocked: kept, droppedLocked: dropped, decayPct};
+    const kept=lattice.nodes.reduce((acc,n)=>acc+(n.locked?1:0),0);
+    return {prunedThisTick: pruned+dropped, keptLocked: kept, droppedLocked: dropped, decayPct};
   }
 
   function drawLattice(){
-    const showGlyphs=glyphViewEl.checked;
-
     if(latticeClipEl.checked){
-      const cx=lastCenter.cx, cy=lastCenter.cy, R=lastCenter.R;
+      const {cx,cy,R}=lastCenter;
       ctx.save();
-      ctx.beginPath();
-      ctx.arc(cx,cy,R-1,0,Math.PI*2);
-      ctx.clip();
-    } else {
-      ctx.save();
-    }
-
-    ctx.globalAlpha=0.95;
+      ctx.beginPath(); ctx.arc(cx,cy,R-1,0,Math.PI*2); ctx.clip();
+    } else ctx.save();
 
     for(const n of lattice.nodes){
-      const s=n.v;
-      const mem=clamp(n.surplus,0,1);
-      const hot=Math.max(s, mem*0.85);
+      const hot=Math.max(n.v, clamp(n.surplus,0,1)*0.85);
       if(hot<0.02 && !n.locked) continue;
-
       ctx.fillStyle=stressColor(clamp(hot,0,1));
       const r=(n.locked?2.3:1.4)+2.0*hot;
-      ctx.beginPath();
-      ctx.arc(n.x,n.y,r,0,Math.PI*2);
-      ctx.fill();
-
+      ctx.beginPath(); ctx.arc(n.x,n.y,r,0,Math.PI*2); ctx.fill();
       if(n.locked){
-        ctx.strokeStyle="rgba(232,238,246,0.40)";
+        ctx.strokeStyle="rgba(232,238,246,0.35)";
         ctx.lineWidth=1;
-        ctx.beginPath();
-        ctx.arc(n.x,n.y,r+1.6,0,Math.PI*2);
-        ctx.stroke();
+        ctx.beginPath(); ctx.arc(n.x,n.y,r+1.6,0,Math.PI*2); ctx.stroke();
       }
     }
 
-    if(showGlyphs){
-      ctx.textAlign="center";
-      ctx.textBaseline="middle";
+    if(glyphViewEl.checked){
+      ctx.textAlign="center"; ctx.textBaseline="middle";
       ctx.font="900 11px system-ui, Segoe UI, Arial";
-      let drawn=0;
-      const MAX=320;
+      let drawn=0, MAX=320;
       for(const n of lattice.nodes){
         if(!n.locked) continue;
         if(drawn++>MAX) break;
-        const g=n.glyph || FALLBACKS[(n.glyphIdx>=0?n.glyphIdx:0)%FALLBACKS.length];
         ctx.fillStyle="rgba(7,16,25,0.90)";
-        ctx.fillText(g,n.x,n.y);
+        ctx.fillText(n.glyph||"", n.x, n.y);
       }
     }
+
+    // selection highlight
+    if(selected.idx>=0 && lattice.nodes[selected.idx]){
+      const n=lattice.nodes[selected.idx];
+      ctx.strokeStyle="rgba(232,238,246,0.95)";
+      ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(n.x,n.y,10,0,Math.PI*2); ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  function drawSpiral(cx,cy,R){
+    if(!spiralOnEl.checked || !lattice.nodes.length) return;
+
+    if(latticeClipEl.checked){
+      ctx.save(); ctx.beginPath(); ctx.arc(cx,cy,R-1,0,Math.PI*2); ctx.clip();
+    } else ctx.save();
+
+    const turns=3.2, samples=220, rMax=R*0.92;
+    let path=[], last=-1;
+
+    for(let i=0;i<samples;i++){
+      const t=i/(samples-1);
+      const ang=t*turns*2*Math.PI;
+      const rad=t*rMax;
+      const px=cx+rad*Math.cos(ang);
+      const py=cy+rad*Math.sin(ang);
+
+      let best=-1, bestD2=1e18;
+      for(let j=0;j<lattice.nodes.length;j++){
+        const n=lattice.nodes[j];
+        const dx=n.x-px, dy=n.y-py;
+        const d2=dx*dx+dy*dy;
+        if(d2<bestD2){bestD2=d2; best=j;}
+      }
+      if(best>=0 && best!==last){
+        path.push(best); last=best;
+      }
+    }
+
+    ctx.globalAlpha=0.65;
+    ctx.lineWidth=2.0;
+    ctx.strokeStyle="rgba(182,139,46,0.75)";
+    ctx.beginPath();
+    for(let i=0;i<path.length;i++){
+      const n=lattice.nodes[path[i]];
+      if(i===0) ctx.moveTo(n.x,n.y); else ctx.lineTo(n.x,n.y);
+    }
+    ctx.stroke();
 
     ctx.restore();
   }
@@ -1123,126 +1092,72 @@
     for(let i=1;i<=rings;i++){
       const t=i/(rings+1);
       const rad=R*(0.18 + 0.78*t);
-      const rot = (i%2===0) ? 0 : (Math.PI/12);
+      const rot=(i%2===0)?0:(Math.PI/12);
       const pts=polygonVertices(cx,cy,rad,6,rot);
-      ctx.strokeStyle = (i===rings) ? "rgba(232,238,246,0.28)" : "rgba(120,150,180,0.22)";
-      ctx.beginPath();
-      ctx.moveTo(pts[0][0],pts[0][1]);
+      ctx.strokeStyle=(i===rings)?"rgba(232,238,246,0.28)":"rgba(120,150,180,0.22)";
+      ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]);
       for(let k=1;k<pts.length;k++) ctx.lineTo(pts[k][0],pts[k][1]);
-      ctx.closePath();
-      ctx.stroke();
+      ctx.closePath(); ctx.stroke();
     }
     ctx.restore();
   }
 
-  // Inspector
-  function setInspector(idx){
-    if(idx<0 || !lattice.nodes[idx]){
-      selIdEl.textContent="—"; selQREl.textContent="—"; selVEl.textContent="—";
-      selSEl.textContent="—"; selLockEl.textContent="—"; selGlyphEl.textContent="—"; selDistEl.textContent="—";
-      return;
-    }
-    const n=lattice.nodes[idx];
-    selIdEl.textContent=String(idx);
-    selQREl.textContent=`${n.q}, ${n.r}`;
-    selVEl.textContent=n.v.toFixed(3);
-    selSEl.textContent=n.surplus.toFixed(3);
-    selLockEl.textContent=n.locked?"true":"false";
-    const g = n.glyph || (n.glyphIdx>=0 ? FALLBACKS[n.glyphIdx%FALLBACKS.length] : "");
-    selGlyphEl.textContent=n.locked?g:"—";
-    const dx=n.x-lastCenter.cx, dy=n.y-lastCenter.cy;
-    selDistEl.textContent=Math.hypot(dx,dy).toFixed(1);
+  // HUD box (always visible)
+  function hudRoundRect(x,y,w,h,r){
+    r=Math.min(r,w/2,h/2);
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+  }
+  function drawHUD(){
+    const x=12,y=12,w=340,h=88;
+    ctx.save();
+    ctx.globalAlpha=0.92;
+    ctx.fillStyle="rgba(10,16,24,0.68)";
+    ctx.strokeStyle="rgba(45,71,100,0.80)";
+    ctx.lineWidth=1;
+    hudRoundRect(x,y,w,h,12);
+    ctx.fill(); ctx.stroke();
+
+    ctx.globalAlpha=0.95;
+    ctx.fillStyle="rgba(232,238,246,0.92)";
+    ctx.font="12px system-ui, Segoe UI, Arial";
+    ctx.fillText("Overlay (Decay / Prune / Vault):", x+12, y+20);
+    ctx.fillText(`Decay applied: ${HUD.decayAppliedPct.toFixed(1)}%`, x+12, y+40);
+    ctx.fillText(`Pruned this tick: ${HUD.prunedThisTick}`, x+12, y+58);
+    const dy=HUD.dysonOn?"Dyson ON":"Dyson OFF";
+    ctx.fillText(`${dy} • Vault: ${HUD.vaultEvent} (${HUD.vaultCount})`, x+12, y+76);
+    ctx.restore();
   }
 
-  // Click-to-inspect (safe even if toggles change)
-  canvas.addEventListener("click",(ev)=>{
-    if(!inspectOnEl.checked) return;
-    if(!latticeViewEl.checked) return;
-    const rect=canvas.getBoundingClientRect();
-    const px=ev.clientX-rect.left;
-    const py=ev.clientY-rect.top;
-
-    const cx=lastCenter.cx, cy=lastCenter.cy, R=lastCenter.R;
-    const dc = Math.hypot(px-cx, py-cy);
-    if(dc > R+6) return;
-
-    // nearest node
-    let best=-1, bestD2=1e18;
-    for(let i=0;i<lattice.nodes.length;i++){
-      const n=lattice.nodes[i];
-      const dx=n.x-px, dy=n.y-py;
-      const d2=dx*dx+dy*dy;
-      if(d2<bestD2){bestD2=d2; best=i;}
-    }
-    if(best<0) return;
-
-    selected.idx=best;
-    selected.pinned = pinSelEl.checked;
-    setInspector(best);
-
-    const n=lattice.nodes[best];
-    log(`INSPECT: idx=${best} q,r=(${n.q},${n.r}) v=${n.v.toFixed(3)} s=${n.surplus.toFixed(3)} locked=${n.locked} glyph=${n.glyph||""}`);
-    log("—");
-    draw(false);
-  });
-
-  unpinBtn.addEventListener("click",()=>{
-    selected.pinned=false;
-    pinSelEl.checked=false;
-    log("Inspector: unpinned.");
-    log("—");
-    draw(false);
-  });
-
-  // Failure inject
+  // ---------------- Buttons wired ----------------
   function updateStressBtn(){ stressBtn.textContent = stressInject ? "Failure Inject: ON" : "Failure Inject"; }
   updateStressBtn();
-  stressBtn.onclick=()=>{
-    stressInject=!stressInject;
-    updateStressBtn();
-    log(`Failure Inject: ${stressInject?"ON":"OFF"}`);
-    log("—");
-    draw(true);
-  };
+  stressBtn.onclick=()=>{ stressInject=!stressInject; updateStressBtn(); log(`Failure Inject: ${stressInject?"ON":"OFF"}`); log("—"); draw(true); };
 
-  // Clear memory
   clearMemBtn.onclick=()=>{
-    if(!latticeViewEl.checked){
-      log("Clear requested but lattice is OFF. Turn Hex Lattice ON.");
-      log("—");
-      return;
-    }
-    if(!lattice.nodes.length){
-      log("Clear requested but lattice not built yet.");
-      log("—");
-      return;
-    }
+    if(!latticeViewEl.checked){ log("Clear: turn Hex Lattice ON first."); log("—"); return; }
+    if(!lattice.nodes.length){ log("Clear: lattice not built yet."); log("—"); return; }
     clearLatticeMemory();
-    if(!selected.pinned){
-      selected.idx=-1;
-      setInspector(-1);
-    }
-    log("Memory cleared (v + surplus + glyph locks reset).");
+    if(!selected.pinned){ selected.idx=-1; setInspector(-1); }
+    log("Memory cleared.");
     log("—");
     draw(false);
   };
 
-  // CSV
   dlCSVBtn.onclick=()=>{
-    const header = ["time","message"];
-    const rows = logEntries.map(e=>{
-      const msg = String(e.msg).replaceAll('"','""');
-      return `"${e.time}","${msg}"`;
-    });
-    const csv = header.join(",") + "\n" + rows.join("\n");
-    const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "hexara_step_log.csv";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    const header=["time","message"];
+    const rows=logEntries.map(e=>`"${e.time}","${String(e.msg).replaceAll('"','""')}"`);
+    const csv=header.join(",")+"\n"+rows.join("\n");
+    const blob=new Blob([csv],{type:"text/csv;charset=utf-8"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url; a.download="hexara_step_log.csv";
+    document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
     log("CSV: downloaded hexara_step_log.csv");
     log("—");
@@ -1250,74 +1165,49 @@
 
   // Step controls
   function setN(v){ NEl.value=String(clamp(v,6,240)); draw(false); }
-  $("step").onclick=()=>{
-    const N=parseInt(NEl.value,10);
-    setN(N+1);
-    log(`STEP: N=${N+1} match≈${circleMatchPercent(N+1).toFixed(2)}%`);
-    log("—");
-  };
-  $("step5").onclick=()=>{
-    const N=parseInt(NEl.value,10);
-    setN(N+5);
-    log(`STEP: N=${N+5} match≈${circleMatchPercent(N+5).toFixed(2)}%`);
-    log("—");
-  };
-  $("reset").onclick=()=>{
-    NEl.value="6";
-    aEl.value="260";
-    REl.value="300";
-    kEl.value="1.10";
-    phiEl.value="0.00";
-    thetaEl.value="0.62";
-    gainEl.value="1.00";
-    leakEl.value="0.028";
-
-    dysonOnEl.checked=false;
-
-    selected.idx=-1;
-    selected.pinned=false;
-    pinSelEl.checked=false;
-    setInspector(-1);
-
-    logEl.textContent="";
-    logEntries.length=0;
-
-    log("RESET: N=6. (All toggles safe / redraw correctly.)");
-    log("—");
-    draw(true);
-  };
+  $("step").onclick=()=>{ const N=parseInt(NEl.value,10); setN(N+1); log(`STEP: N=${N+1}`); log("—"); };
+  $("step5").onclick=()=>{ const N=parseInt(NEl.value,10); setN(N+5); log(`STEP: N=${N+5}`); log("—"); };
   $("auto").onclick=()=>{
     let N=parseInt(NEl.value,10);
-    for(let it=0;it<400;it++){
-      if(circleMatchPercent(N)>=99.6) break;
-      N++; if(N>=240) break;
-    }
+    for(let it=0;it<400;it++){ if(circleMatchPercent(N)>=99.6) break; N++; if(N>=240) break; }
     setN(N);
     log(`AUTO: N→${N} match≈${circleMatchPercent(N).toFixed(2)}%`);
     log("—");
   };
+  $("reset").onclick=()=>{
+    NEl.value="6"; aEl.value="260"; REl.value="300"; kEl.value="1.10"; phiEl.value="0.00";
+    thetaEl.value="0.62"; gainEl.value="1.00"; leakEl.value="0.028";
+    dysonOnEl.checked=false;
+    selected.idx=-1; selected.pinned=false; pinSelEl.checked=false; setInspector(-1);
+    logEl.textContent=""; logEntries.length=0;
+    log("RESET.");
+    log("—");
+    draw(true);
+  };
 
-  // ----------------- Main draw -----------------
+  // ---------------- Main draw ----------------
   function draw(forceRebuild=false){
+    frameCount++;
+
     const N=parseInt(NEl.value,10);
     const a=+aEl.value;
     const R=+REl.value;
     const k=+kEl.value;
     const phi=+phiEl.value;
 
+    // live UI labels
     nVal.textContent=N;
     aVal.textContent=a.toFixed(0);
     RVal.textContent=R.toFixed(0);
     kVal.textContent=k.toFixed(2);
     phiBig.textContent=phi.toFixed(2);
-
     thetaVal.textContent=(+thetaEl.value).toFixed(2);
     gainVal.textContent=(+gainEl.value).toFixed(2);
     leakVal.textContent=(+leakEl.value).toFixed(3);
 
-    if(phi<0.20) phiHint.textContent="φₛₜ low: strong coupling → wider spread + more collapse.";
-    else if(phi<0.60) phiHint.textContent="φₛₜ moderate: partial phase-locking reduces spread + collapse density.";
-    else phiHint.textContent="φₛₜ high: strong damping → more selective memory.";
+    if(phi<0.20) phiHint.textContent="φₛₜ low: wider spread + more collapse.";
+    else if(phi<0.60) phiHint.textContent="φₛₜ moderate: reduced spread + collapse density.";
+    else phiHint.textContent="φₛₜ high: selective memory + stronger damping.";
 
     updateDysonUI();
 
@@ -1330,17 +1220,16 @@
     // Dyson
     drawDysonSphere(cx,cy,R);
 
-    // Domain circle
+    // domain circle R
     ctx.strokeStyle="#3a5678";
     ctx.lineWidth=2;
     ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.stroke();
 
-    // nested frames
+    // nested hexes
     drawNestedHexes(cx,cy,R);
 
     const rr=regulatedRadius(a,R,k);
     updateKUI(rr.regulated);
-
     const matchPct=circleMatchPercent(N);
     updatePills(rr.regulated,N,matchPct);
 
@@ -1351,82 +1240,74 @@
     ctx.lineWidth=2;
     drawPolygon(poly,true);
 
-    // mirror circle
+    // mirror circle (regulated radius)
     ctx.globalAlpha=0.45;
     ctx.strokeStyle="rgba(232,238,246,0.35)";
     ctx.lineWidth=1.5;
     ctx.beginPath(); ctx.arc(cx,cy,rr.rad,0,Math.PI*2); ctx.stroke();
     ctx.globalAlpha=1;
 
-    // compute stress pack only if needed
-    const needLattice = latticeViewEl.checked;
-    const needConstraint = constraintViewEl.checked;
-    let stressPack = null;
-    if(needLattice || needConstraint){
-      stressPack = computeStresses({N,a,R,k,phi,regulated:rr.regulated});
-    }
+    // stress pack
+    const needConstraint=constraintViewEl.checked;
+    const needLattice=latticeViewEl.checked;
+    const stressPack = (needConstraint || needLattice) ? computeStresses({N,a,R,k,phi,regulated:rr.regulated}) : null;
 
-    // lattice pipeline
+    // lattice
     if(needLattice && stressPack){
       ensureLatticeBuilt(cx,cy,R,forceRebuild);
 
-      // pillar sources
+      // pillar source points
       const rad=Math.min(rr.rad,R*0.78);
       const pillarPts=polygonVertices(cx,cy,rad,6);
-      const pillarStress=order.map(k=>stressPack.out[k]??0);
+      const pillarStress=order.map(key=>stressPack.out[key] ?? 0);
 
       injectSourcesToLattice(pillarPts,pillarStress,phi);
       injectFailure(phi);
 
-      // core propagation
       const eff=propagateLatticeAndMemory(phi);
 
-      // prune/decay after propagation
-      const pdStats = applyDecayAndPrune();
-      updatePruneDecayUI(pdStats);
+      // prune/decay apply and show results
+      const pdStats=applyDecayAndPrune();
+      updatePDUI(pdStats);
 
-      // update HUD values (no conflicts; read-only display)
-      HUD.dysonOn = dysonOnEl.checked;
-      HUD.decayAppliedPct = pdStats.decayPct;
-      HUD.prunedThisTick = pdStats.prunedThisTick;
+      // HUD update
+      HUD.dysonOn=dysonOnEl.checked;
+      HUD.decayAppliedPct=pdStats.decayPct;
+      HUD.prunedThisTick=pdStats.prunedThisTick;
 
       drawLattice();
+      drawSpiral(cx,cy,R);
 
       const lockedCount=lattice.nodes.reduce((acc,n)=>acc+(n.locked?1:0),0);
       statusPill.textContent=`Status: nodes=${lattice.nodes.length} locked=${lockedCount}`;
 
+      // keep inspector LIVE every frame (fix)
       if(selected.idx>=0) setInspector(selected.idx);
 
-      // persist (updates HUD vault fields)
-      saveVaultIfEnabled();
+      // vault save by interval
+      saveVaultMaybe();
 
-      // info line
+      // on-canvas lattice line
       ctx.fillStyle="rgba(232,238,246,0.78)";
       ctx.font="12px system-ui, Segoe UI, Arial";
-      ctx.fillText(
-        `Hex Lattice: locked=${lockedCount}  θϕ≈${eff.thetaEff.toFixed(2)}  gain≈${eff.gainEff.toFixed(2)}  leak=${(+leakEl.value).toFixed(3)}  φₛₜ=${phi.toFixed(2)}`,
-        14, 92
-      );
+      ctx.fillText(`Locked=${lockedCount}  θϕ≈${eff.thetaEff.toFixed(2)}  gain≈${eff.gainEff.toFixed(2)}  leak=${(+leakEl.value).toFixed(3)}  φₛₜ=${phi.toFixed(2)}`, 14, 92);
     } else {
       statusPill.textContent="Status: lattice OFF";
-      updatePruneDecayUI({prunedThisTick:0, keptLocked:0, droppedLocked:0});
-      HUD.dysonOn = dysonOnEl.checked;
+      updatePDUI({prunedThisTick:0, keptLocked:0, droppedLocked:0});
+      HUD.dysonOn=dysonOnEl.checked;
       HUD.decayAppliedPct = decayOnEl.checked ? effectiveDecayRate()*100 : 0;
       HUD.prunedThisTick = 0;
       HUD.vaultEvent = vaultEnabled() ? "idle" : "off";
       HUD.vaultCount = 0;
-      if(!selected.pinned){
-        selected.idx=-1;
-        setInspector(-1);
-      }
+      if(!selected.pinned){ selected.idx=-1; setInspector(-1); }
     }
 
-    // constraint overlay (labeled edge lines) — independent, no conflicts
+    // constraint overlay with live numbers
     if(needConstraint && stressPack){
       drawConstraintOverlay(cx,cy,R,rr,stressPack);
     }
 
-    // diagnostics
+    // geometry text
     ctx.fillStyle="#e8eef6";
     ctx.font="12px system-ui, Segoe UI, Arial";
     const geomMsg = rr.regulated
@@ -1436,44 +1317,32 @@
     ctx.fillStyle="rgba(138,167,200,0.95)";
     ctx.fillText(`Boundary refinement: N=${N}, circle-match ≈ ${matchPct.toFixed(1)}%`, 14, 36);
 
-    // FINAL: draw HUD LAST so it’s always visible
+    // HUD always last
     drawHUD();
   }
 
-  // ----------------- Ensure ALL toggles redraw correctly -----------------
-  const inputsToRedraw = [
-    NEl,aEl,REl,kEl,phiEl,thetaEl,gainEl,leakEl,
-    dysonScaleEl,dysonCapEl,dysonLumEl,
-    decayRateEl,pruneThEl,maxLockedEl
-  ];
-  inputsToRedraw.forEach(el => el.addEventListener("input", ()=>draw(false)));
+  // -------- Inputs/toggles redraw --------
+  const inputsToRedraw=[NEl,aEl,REl,kEl,phiEl,thetaEl,gainEl,leakEl,dysonScaleEl,dysonCapEl,dysonLumEl,decayRateEl,pruneThEl,maxLockedEl,vaultEveryEl];
+  inputsToRedraw.forEach(el=>el.addEventListener("input", ()=>draw(false)));
 
-  const togglesToRedraw = [
-    constraintViewEl,latticeViewEl,latticeClipEl,glyphViewEl,
-    nestedHexEl,spiralOnEl,inspectOnEl,pinSelEl,
-    dysonOnEl,dysonPersistEl,decayOnEl,pruneOnEl
-  ];
-  togglesToRedraw.forEach(el => el.addEventListener("change", ()=>draw(true)));
+  const togglesToRedraw=[constraintViewEl,latticeViewEl,latticeClipEl,glyphViewEl,nestedHexEl,spiralOnEl,inspectOnEl,pinSelEl,dysonOnEl,dysonPersistEl,decayOnEl,pruneOnEl];
+  togglesToRedraw.forEach(el=>el.addEventListener("change", ()=>draw(true)));
 
-  // Dyson toggle also updates HUD text immediately
-  dysonOnEl.addEventListener("change", ()=>{ HUD.dysonOn = dysonOnEl.checked; draw(true); });
-  dysonPersistEl.addEventListener("change", ()=>draw(true));
-
-  // resize
+  // Resize
   function resize(){ setDPR(); draw(true); }
   window.addEventListener("resize", resize);
 
-  // animation loop
+  // Animation
   function tick(){
     const animate = latticeViewEl.checked || stressInject;
     if(animate) draw(false);
     requestAnimationFrame(tick);
   }
 
-  // init
-  log("INIT: Added Canvas HUD overlay (Decay %, Pruned, Vault saved/restored).");
-  log("CHECK: Constraint View labels edge-lines (M–E, E–F, ...).");
-  log("CHECK: Toggles are independent and trigger redraw; no math equation conflicts.");
+  // Init
+  log("INIT: Inspector fixed (updates immediately + stays live).");
+  log("INIT: Live stress ring numbers (Maxwell/E/F/T/V/S) rendered each frame.");
+  log("INIT: Vault save interval added.");
   log("—");
 
   resize();
