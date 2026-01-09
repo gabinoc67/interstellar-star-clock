@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Mach-10 Route Simulator — Autopilot Stability Hold + Live Gauges</title>
+<title>Mach-10 Route Simulator — Autopilot Stability Hold + Engine Stability (Bleed + Φ + N₂)</title>
 <style>
   :root{
     color-scheme: dark;
@@ -44,14 +44,12 @@
     min-width: 290px;
   }
   .title h1{margin:0;font-size:16px;letter-spacing:.3px}
-  .title .sub{color:var(--muted);font-size:12px}
+  .title .sub{color:var(--muted);font-size:12px; line-height:1.35}
   .controls{
     display:flex; gap:10px; flex-wrap:wrap; align-items:center;
     margin-left:auto;
   }
-  select, button, input[type="checkbox"]{
-    font:inherit;
-  }
+  select, button, input[type="checkbox"]{ font:inherit; }
   select{
     padding:9px 10px;
     border-radius:10px;
@@ -127,6 +125,7 @@
   }
   .chip.good{border-color: rgba(52,211,153,.35); color: var(--good)}
   .chip.bad{border-color: rgba(251,113,133,.35); color: var(--bad)}
+  .chip.warn{border-color: rgba(251,191,36,.35); color: var(--warn)}
   .body{padding:12px}
   .two{
     display:grid;
@@ -215,14 +214,17 @@
   <div class="row">
     <div class="title">
       <h1>Mach-10 Route Simulator — AUTOPILOT: STABILITY HOLD</h1>
-      <div class="sub">Cruise aims for Mach 10; if unstable, it automatically drops to the last stable Mach. Gauges are fully physics-driven (drag, q∞, thrust margin, inlet proxy).</div>
+      <div class="sub">
+        Cruise now climbs higher (≈45 km) so Mach 10 can live in a realistic q∞ band.
+        Engine stability adds three fast actuators: <b>Bleed</b> (anti-unstart), <b>Fuel Φ</b> (avoid backpressure), <b>N₂ film</b> (thermal + inlet assist with penalties).
+      </div>
     </div>
     <div class="controls">
       <select id="routeSel" title="Choose one of 5 routes"></select>
       <button class="primary" id="btnStart">Start</button>
       <button id="btnStop">Stop</button>
       <button class="danger" id="btnReset">Reset</button>
-      <label class="toggle" title="If ON: autopilot manages Mach targets and stability fallback">
+      <label class="toggle" title="If ON: autopilot manages Mach targets + stability fallback + engine safety layer">
         <input type="checkbox" id="autoHold" checked />
         <span><strong>AUTOPILOT</strong> Stability Hold</span>
       </label>
@@ -244,6 +246,7 @@
             <div class="k">Phase <small>Takeoff → Cruise → Landing</small></div>
             <div class="v"><div class="big" id="phaseTxt">READY</div><div class="sm" id="routeTxt">—</div></div>
           </div>
+
           <div class="kv">
             <div class="k">Mach / Speed <small>Autopilot target + actual</small></div>
             <div class="v">
@@ -253,30 +256,41 @@
           </div>
 
           <div class="kv">
-            <div class="k">Altitude <small>ISA density model</small></div>
+            <div class="k">Altitude <small>ISA-like density proxy</small></div>
             <div class="v"><div class="big"><span id="altNow">0.0</span> km</div><div class="sm">ρ <span id="rhoNow">1.225</span> kg/m³</div></div>
-          </div>
-          <div class="kv">
-            <div class="k">Dynamic Pressure q∞ <small>q = ½ρV²</small></div>
-            <div class="v"><div class="big"><span id="qNow">0.0</span> kPa</div><div class="sm">Constraint band shown below</div></div>
           </div>
 
           <div class="kv">
-            <div class="k">Thrust Available <small>Engine proxy</small></div>
-            <div class="v"><div class="big"><span id="thrustNow">0</span> kN</div><div class="sm">Inlet Π <span id="piNow">0.65</span></div></div>
+            <div class="k">Dynamic Pressure q∞ <small>q = ½ρV²</small></div>
+            <div class="v"><div class="big"><span id="qNow">0.0</span> kPa</div><div class="sm">Band shown below</div></div>
           </div>
+
+          <div class="kv">
+            <div class="k">Thrust Available <small>Engine proxy (Πeff, Φ, bleed, N₂ penalties)</small></div>
+            <div class="v"><div class="big"><span id="thrustNow">0</span> kN</div><div class="sm">Πeff <span id="piEffNow">0.65</span> · Π <span id="piNow">0.65</span></div></div>
+          </div>
+
           <div class="kv">
             <div class="k">Drag <small>D = ½ρV²·CdA</small></div>
-            <div class="v"><div class="big"><span id="dragNow">0</span> kN</div><div class="sm">CdA <span id="cdaNow">0.85</span> m²</div></div>
+            <div class="v"><div class="big"><span id="dragNow">0</span> kN</div><div class="sm">CdA <span id="cdaNow">0.18</span> m²</div></div>
           </div>
 
           <div class="kv">
             <div class="k">Thrust Margin <small>T − D</small></div>
             <div class="v"><div class="big"><span id="marginNow">+0</span> kN</div><div class="sm">T&gt;D: <span id="tdNow">—</span></div></div>
           </div>
+
           <div class="kv">
-            <div class="k">Stability Health <small>0…1 (green stable / red unstable)</small></div>
-            <div class="v"><div class="big"><span id="healthNow">0.00</span></div><div class="sm">Ms <span id="msNow">0.00</span></div></div>
+            <div class="k">Engine Actuators <small>Anti-unstart safety layer</small></div>
+            <div class="v">
+              <div class="big">Bleed <span id="bleedNow">0</span>%</div>
+              <div class="sm">Fuel Φ <span id="phiNow">0.55</span> · β <span id="betaNow">0.0</span>°</div>
+            </div>
+          </div>
+
+          <div class="kv">
+            <div class="k">Stability Health <small>0…1 (stable / unstable)</small></div>
+            <div class="v"><div class="big"><span id="healthNow">0.00</span></div><div class="sm">Ms <span id="msNow">0.00</span> · UNSTART <span id="unstartNow">NO</span></div></div>
           </div>
         </div>
 
@@ -287,18 +301,27 @@
           </div>
           <div class="bar"><div id="barHealth" class="fill"></div></div>
           <div class="hint">
-            Stability health is computed from thrust margin, q∞ overload risk, inlet Π, and thermal deviation.
-            If health drops below 0.70 during cruise, autopilot immediately reduces to the last stable Mach and logs the event.
+            Health now combines: thrust margin + q∞ band + inlet Πeff + thermal + fuel Φ band + unstart state.
+            If health drops below 0.70 during cruise, autopilot reduces to the last stable Mach and the engine safety layer opens bleed and trims Φ.
           </div>
         </div>
 
         <div class="barwrap">
           <div class="barrow">
             <div class="lbl">q∞ (Dynamic Pressure) Constraint</div>
-            <div class="val">Recommended: 0.5–6.0 kPa (hypersonic cruise proxy)</div>
+            <div class="val">Recommended: 0.5–6.0 kPa (high-alt hypersonic proxy)</div>
           </div>
           <div class="bar"><div id="barQ" class="fill"></div></div>
-          <div class="hint">Too low → control authority weak; too high → aero heating & structure risk (stability drops).</div>
+          <div class="hint">Too low → weak control authority; too high → heating/loads (stability drops).</div>
+        </div>
+
+        <div class="barwrap">
+          <div class="barrow">
+            <div class="lbl">Inlet Πeff (after β + Φ penalties)</div>
+            <div class="val">Goal: Πeff ≥ 0.45 (watch for unstart if it collapses)</div>
+          </div>
+          <div class="bar"><div id="barPi" class="fill"></div></div>
+          <div class="hint">Steering/β and too-high Φ reduce Πeff fast. Bleed helps recover Πeff but costs thrust.</div>
         </div>
 
       </div>
@@ -307,7 +330,7 @@
     <!-- RIGHT: Thermal + Log -->
     <section class="card">
       <div class="hd">
-        <h2>Thermal Control + Live Event Log</h2>
+        <h2>Thermal Control + N₂ Film + Live Event Log</h2>
         <div class="chip">PI + Feedforward</div>
       </div>
       <div class="body">
@@ -317,8 +340,16 @@
             <div class="v"><div class="big"><span id="tempNow">124.6</span> °C</div><div class="sm">Target 205±5 °C</div></div>
           </div>
           <div class="kv">
-            <div class="k">Coolant Flow <small>Controller output</small></div>
+            <div class="k">Coolant Flow <small>Closed-loop controller</small></div>
             <div class="v"><div class="big"><span id="flowNow">0.20</span> kg/s</div><div class="sm">Limits 0.20–1.20</div></div>
+          </div>
+          <div class="kv">
+            <div class="k">N₂ Film Flow <small>Fast stability assist (penalties)</small></div>
+            <div class="v"><div class="big"><span id="n2Now">0.00</span> kg/s</div><div class="sm">Tank <span id="n2TankNow">100</span> kg</div></div>
+          </div>
+          <div class="kv">
+            <div class="k">Penalties <small>From N₂ + bleed</small></div>
+            <div class="v"><div class="big">−<span id="penThrustNow">0.0</span>% T</div><div class="sm">+<span id="penDragNow">0.0</span> kN D</div></div>
           </div>
         </div>
 
@@ -328,11 +359,11 @@
             <div class="val">|T − 205| mapped to bar</div>
           </div>
           <div class="bar"><div id="barTherm" class="fill"></div></div>
-          <div class="hint">Thermal deviation directly reduces stability health when outside the 205±5 °C window.</div>
+          <div class="hint">Thermal deviation reduces stability when outside the 205±5 °C window.</div>
         </div>
 
         <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
-          <button id="btnInject" title="Adds a short disturbance that may trigger instability">Inject Disturbance</button>
+          <button id="btnInject" title="Adds a short disturbance that may trigger instability (Πeff drop, Φ spike, heat spike)">Inject Disturbance</button>
           <button id="btnClearLog" title="Clears the event log (does not reset the sim)">Clear Log</button>
         </div>
 
@@ -385,18 +416,29 @@
   const tdNow = $("tdNow");
 
   const piNow = $("piNow");
+  const piEffNow = $("piEffNow");
   const cdaNow = $("cdaNow");
+
+  const bleedNow = $("bleedNow");
+  const phiNow = $("phiNow");
+  const betaNow = $("betaNow");
 
   const healthNow = $("healthNow");
   const msNow = $("msNow");
+  const unstartNow = $("unstartNow");
   const lastStableMachEl = $("lastStableMach");
 
   const tempNow = $("tempNow");
   const flowNow = $("flowNow");
+  const n2Now = $("n2Now");
+  const n2TankNow = $("n2TankNow");
+  const penThrustNow = $("penThrustNow");
+  const penDragNow = $("penDragNow");
 
   const barHealth = $("barHealth");
   const barQ = $("barQ");
   const barTherm = $("barTherm");
+  const barPi = $("barPi");
 
   const logEl = $("log");
   const btnInject = $("btnInject");
@@ -407,10 +449,10 @@
   // ---------------------------
   const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
   const lerp  = (a, b, t) => a + (b - a) * t;
+  const toRad = d => d * Math.PI / 180;
 
   function haversineKm(lat1, lon1, lat2, lon2){
     const R = 6371;
-    const toRad = d => d * Math.PI / 180;
     const dLat = toRad(lat2 - lat1);
     const dLon = toRad(lon2 - lon1);
     const s1 = Math.sin(dLat/2), s2 = Math.sin(dLon/2);
@@ -418,30 +460,44 @@
     return 2 * R * Math.asin(Math.sqrt(a));
   }
 
-  // ISA-like density proxy (simple & stable):
+  // ISA-like density proxy (simple & stable).
+  // NOTE: at 45 km density is very low, which is what makes Mach 10 workable without q∞ exploding.
   function densityAtAlt(alt_m){
-    // smooth exponential fits: sea level 1.225, ~30km ~0.018
     const rho0 = 1.225;
-    const H = 7800; // scale height (m)
+    const H = 7800;
     return rho0 * Math.exp(-alt_m / H);
   }
 
-  // speed of sound proxy vs altitude (m/s): ~340 at sea level, ~295 at 30km
+  // Speed of sound proxy vs altitude (m/s), smoothly decreasing to ~270 by 50 km.
   function aSoundAtAlt(alt_m){
     const a0 = 340;
-    const a30 = 295;
-    const t = clamp(alt_m / 30000, 0, 1);
-    return lerp(a0, a30, t);
+    const a50 = 270;
+    const t = clamp(alt_m / 50000, 0, 1);
+    return lerp(a0, a50, t);
   }
 
-  // inlet proxy Π (0..1): worse at very high Mach & high q, better in cruise band
+  // Base inlet proxy Π (0..1): worse at very high Mach & high q.
   function inletProxy(mach, q_kpa){
-    // base falls with Mach beyond 6, and with q beyond 6 kPa
-    const machPenalty = clamp((mach - 6) / 6, 0, 1); // 0 at <=6, 1 at 12
-    const qPenalty = clamp((q_kpa - 6) / 8, 0, 1);   // 0 at <=6kPa
+    const machPenalty = clamp((mach - 6) / 6, 0, 1);
+    const qPenalty = clamp((q_kpa - 6) / 8, 0, 1);
     const goodBand = 1 - 0.55*machPenalty - 0.35*qPenalty;
-    // keep it realistic-ish and never exactly 0
     return clamp(goodBand, 0.20, 0.95);
+  }
+
+  // Penalty from sideslip beta (deg): inlet hates beta
+  function betaPenalty(betaDeg){
+    // exp(-k*beta^2): tiny beta ok, big beta hurts fast
+    const k = 0.10; // tuned for visible effect without constant failure
+    return Math.exp(-k * betaDeg * betaDeg);
+  }
+
+  // Penalty from too-high Phi (fuel equivalence proxy): backpressure/unstart tendency
+  function phiPenalty(phi){
+    // sweet spot around 0.55; too rich hurts inlet more than too lean
+    const rich = Math.max(0, phi - 0.65);
+    const lean = Math.max(0, 0.40 - phi);
+    const p = 1 - 0.90*rich*rich - 0.25*lean*lean;
+    return clamp(p, 0.30, 1.00);
   }
 
   // ---------------------------
@@ -460,12 +516,12 @@
   // ---------------------------
   const state = {
     running: false,
-    t: 0,                // sim time (s)
-    dt: 1/30,            // step (s)
+    t: 0,
+    dt: 1/30,
     routeIdx: 0,
 
     // kinematics
-    phase: "READY",      // READY, TAKEOFF, CLIMB, CRUISE, DESCENT, LANDING, DONE
+    phase: "READY",
     distKm: 0,
     distTotalKm: haversineKm(ROUTES[0].a.lat, ROUTES[0].a.lon, ROUTES[0].b.lat, ROUTES[0].b.lon),
 
@@ -473,26 +529,42 @@
     mach: 0,
     machTarget: 0,
 
-    // propulsion/aero
-    CdA: 0.85,           // m^2 (proxy)
-    thrustBase_kN: 20.0, // kN (your number)
+    // aero/propulsion
+    CdA: 0.18,            // reduced so Mach 10 can be stable at high altitude in this proxy model
+    thrustBase_kN: 28.0,  // slightly higher than 20 so cruise can be stable with Πeff losses
     thrust_kN: 0,
     drag_kN: 0,
     q_kpa: 0.1,
     pi: 0.65,
+    piEff: 0.65,
+
+    // engine stability actuators/states
+    bleed: 0.0,           // 0..1
+    phi: 0.55,            // fuel equivalence proxy 0..1
+    phiCmd: 0.55,
+    beta: 0.0,            // sideslip proxy (deg)
+    unstart: false,
+    unstartTimer: 0,
+    recoverTimer: 0,
 
     // stability
-    health: 0.42,
+    health: 0.78,
     lastStableMach: 0.00,
-    disturbance: 0,      // injected transient
+    disturbance: 0,
 
     // thermal
     tempC: 124.6,
     tempTarget: 205,
     tempBand: 5,
-    flow: 0.20,          // kg/s (your minimum)
+    flow: 0.20,
     flowMin: 0.20,
     flowMax: 1.20,
+
+    // N2 film
+    n2Flow: 0.0,
+    n2Max: 0.80,
+    n2Tank: 100.0,        // kg
+    n2TankMax: 100.0,
 
     // PI controller
     Kp: 0.060,
@@ -518,7 +590,6 @@
 
   routeSel.addEventListener("change", () => {
     setRoute(Number(routeSel.value));
-    // keep sim consistent: reset distance and phase if not running
     if(!state.running){
       state.distKm = 0;
       state.phase = "READY";
@@ -544,38 +615,47 @@
   }
 
   // ---------------------------
-  // Phase schedule (simple but complete)
+  // Phase schedule (updated: higher hypersonic cruise altitude)
   // ---------------------------
   function phaseTargets(){
-    // returns {altTarget_m, machTarget, accelLimit, climbRate}
-    // accelLimit affects how quickly Mach follows target
     switch(state.phase){
       case "TAKEOFF":
-        return { altTarget_m: 2000,  machTarget: 0.85, accelLimit: 0.20, climbRate: 35 };
+        return { altTarget_m: 3000,  machTarget: 0.85, accelLimit: 0.22, climbRate: 45 };
       case "CLIMB":
-        return { altTarget_m: 30000, machTarget: 3.00, accelLimit: 0.18, climbRate: 120 };
+        return { altTarget_m: 45000, machTarget: 3.00, accelLimit: 0.18, climbRate: 180 };
       case "CRUISE":
-        return { altTarget_m: 30000, machTarget: 10.0, accelLimit: 0.12, climbRate: 10 };
+        return { altTarget_m: 45000, machTarget: 10.0, accelLimit: 0.12, climbRate: 30 };
       case "DESCENT":
-        return { altTarget_m: 3000,  machTarget: 1.20, accelLimit: 0.16, climbRate: -140 };
+        return { altTarget_m: 6000,  machTarget: 1.20, accelLimit: 0.16, climbRate: -220 };
       case "LANDING":
-        return { altTarget_m: 0,     machTarget: 0.00, accelLimit: 0.20, climbRate: -40 };
+        return { altTarget_m: 0,     machTarget: 0.00, accelLimit: 0.20, climbRate: -55 };
       default:
         return { altTarget_m: 0,     machTarget: 0.00, accelLimit: 0.20, climbRate: 0 };
     }
   }
 
   function updatePhase(){
-    // compute completion vs distance to move through phases.
     const frac = state.distKm / Math.max(1, state.distTotalKm);
-    // keep it stable and predictable:
     if(state.phase === "READY") return;
     if(frac < 0.03) state.phase = "TAKEOFF";
-    else if(frac < 0.12) state.phase = "CLIMB";
-    else if(frac < 0.88) state.phase = "CRUISE";
+    else if(frac < 0.14) state.phase = "CLIMB";
+    else if(frac < 0.86) state.phase = "CRUISE";
     else if(frac < 0.96) state.phase = "DESCENT";
     else if(frac < 1.00) state.phase = "LANDING";
     else state.phase = "DONE";
+  }
+
+  // ---------------------------
+  // Engine safety layer (bleed + phi + n2) targets
+  // ---------------------------
+  function phiTargetForPhase(){
+    // Keep Φ moderate at cruise to avoid backpressure/unstart.
+    if(state.phase === "TAKEOFF") return 0.58;
+    if(state.phase === "CLIMB") return 0.60;
+    if(state.phase === "CRUISE") return 0.55;
+    if(state.phase === "DESCENT") return 0.50;
+    if(state.phase === "LANDING") return 0.45;
+    return 0.55;
   }
 
   // ---------------------------
@@ -596,7 +676,6 @@
       logLine("t", `PHASE → ${state.phase}`);
       state.lastPhase = state.phase;
 
-      // reset phase speed logs at appropriate times
       if(state.phase === "TAKEOFF"){ state.loggedTakeoff = false; }
       if(state.phase === "CRUISE"){ state.loggedCruise = false; }
       if(state.phase === "LANDING"){ state.loggedLanding = false; }
@@ -604,12 +683,11 @@
 
     const tgt = phaseTargets();
 
-    // altitude dynamics
-    // move toward altitude target with a bounded climb rate.
+    // altitude dynamics (allow up to 52 km)
     const altErr = tgt.altTarget_m - state.alt_m;
-    const climb = clamp(altErr, -800, 800); // limit per tick before rate
-    state.alt_m += clamp(climb, -Math.abs(tgt.climbRate)*dt*20, Math.abs(tgt.climbRate)*dt*20);
-    state.alt_m = clamp(state.alt_m, 0, 35000);
+    const climb = clamp(altErr, -1400, 1400);
+    state.alt_m += clamp(climb, -Math.abs(tgt.climbRate)*dt*22, Math.abs(tgt.climbRate)*dt*22);
+    state.alt_m = clamp(state.alt_m, 0, 52000);
 
     // atmosphere
     const rho = densityAtAlt(state.alt_m);
@@ -617,69 +695,178 @@
     const V = state.mach * a;
 
     // distance traveled (km)
-    const groundSpeed = V; // proxy
+    const groundSpeed = V;
     state.distKm += (groundSpeed * dt) / 1000;
     state.distKm = clamp(state.distKm, 0, state.distTotalKm);
 
-    // compute dynamic pressure & inlet proxy
+    // dynamic pressure
     const q_pa = 0.5 * rho * V * V;
     state.q_kpa = clamp(q_pa / 1000, 0, 999);
+
+    // base inlet Π
     state.pi = inletProxy(state.mach, state.q_kpa);
 
+    // beta proxy: comes from steering/handling + disturbances (inject makes it worse)
+    // (kept gentle so it isn't "always unstable")
+    const betaBase = 0.35 * Math.abs(Math.sin(state.t * 0.06)) + 0.20 * Math.abs(Math.sin(state.t * 0.017));
+    const betaDist = 0.65 * clamp(Math.abs(state.disturbance)/3, 0, 1);
+    state.beta = clamp(1.5 * (betaBase + betaDist), 0, 6.0);
+
+    // --- engine safety layer ---
+    const wantsAuto = autoHold.checked;
+
+    // Phi command: follow phase target, but trim leaner if Π is threatened
+    const phiStar = phiTargetForPhase();
+    // threat measure from low Pi and high q
+    const piThreat = clamp((0.50 - state.pi) / 0.30, 0, 1);
+    const qThreat  = clamp((state.q_kpa - 6.0) / 10.0, 0, 1);
+    const threat = clamp(0.70*piThreat + 0.30*qThreat, 0, 1);
+
+    state.phiCmd = clamp(phiStar - (wantsAuto ? 0.18*threat : 0.10*threat), 0.35, 0.70);
+    // Smooth Phi changes
+    state.phi = lerp(state.phi, state.phiCmd, clamp(dt*2.2, 0, 1));
+
+    // Bleed command: open when Πeff is threatened (or unstart)
+    // We'll compute a provisional Πeff first (without bleed benefit) to set bleed.
+    const penBeta = betaPenalty(state.beta);
+    const penPhi  = phiPenalty(state.phi);
+    let piEffProvisional = clamp(state.pi * penBeta * penPhi, 0.08, 0.95);
+
+    const piEffGoal = 0.50;
+    const piErr = (piEffGoal - piEffProvisional);
+    const dPi = (piEffProvisional - (state._piEffPrev ?? piEffProvisional)) / Math.max(1e-6, dt);
+    state._piEffPrev = piEffProvisional;
+
+    let bleedCmd = 0.0;
+    bleedCmd += 1.35 * clamp(piErr / 0.20, 0, 1);
+    bleedCmd += 0.65 * clamp((-dPi) / 0.12, 0, 1);
+    if(state.unstart) bleedCmd = 1.0;
+    // Smooth bleed
+    state.bleed = lerp(state.bleed, clamp(bleedCmd, 0, 1), clamp(dt*3.0, 0, 1));
+
+    // N2 film: use when too hot OR Πeff is low OR beta high; drains tank
+    let n2Cmd = 0.0;
+    const thermDev = Math.abs(state.tempC - state.tempTarget);
+    n2Cmd += 0.55 * clamp((thermDev - state.tempBand) / 30, 0, 1);
+    n2Cmd += 0.55 * clamp((0.52 - piEffProvisional) / 0.22, 0, 1);
+    n2Cmd += 0.35 * clamp((state.beta - 2.0) / 4.0, 0, 1);
+    n2Cmd = clamp(n2Cmd, 0, 1);
+
+    // if tank empty, force 0
+    if(state.n2Tank <= 0.01) n2Cmd = 0.0;
+    state.n2Flow = lerp(state.n2Flow, n2Cmd * state.n2Max, clamp(dt*2.8, 0, 1));
+
+    // drain tank
+    state.n2Tank = clamp(state.n2Tank - state.n2Flow*dt, 0, state.n2TankMax);
+
+    // Now compute final Πeff with bleed benefit:
+    // bleed helps recover inlet by reducing backpressure sensitivity, but not magic.
+    const bleedBenefit = 1 + 0.22 * state.bleed; // up to +22%
+    state.piEff = clamp(piEffProvisional * bleedBenefit, 0.05, 0.95);
+
+    // UNSTART state machine (simple but realistic behavior)
+    // if Πeff collapses for > ~2s during high-speed phases -> unstart
+    const highSpeedPhase = (state.phase === "CLIMB" || state.phase === "CRUISE");
+    if(highSpeedPhase && !state.unstart){
+      if(state.piEff < 0.28){
+        state.unstartTimer += dt;
+        if(state.unstartTimer > 2.0){
+          state.unstart = true;
+          state.recoverTimer = 0;
+          logLine("e", "INLET UNSTART detected (Πeff collapsed). Safety layer: BLEED FULL, Φ TRIM, Mach rollback likely.");
+        }
+      } else {
+        state.unstartTimer = Math.max(0, state.unstartTimer - 2.0*dt);
+      }
+    }
+
+    if(state.unstart){
+      // recovery requires Πeff healthy for a while AND Mach reduced
+      if(state.piEff > 0.42 && state.mach < 6.0){
+        state.recoverTimer += dt;
+        if(state.recoverTimer > 3.0){
+          state.unstart = false;
+          state.unstartTimer = 0;
+          state.recoverTimer = 0;
+          logLine("t", "UNSTART recovery: inlet re-captured (Πeff stable).");
+        }
+      } else {
+        state.recoverTimer = Math.max(0, state.recoverTimer - 2.0*dt);
+      }
+    }
+
     // Drag (kN)
-    // add mild Mach wave drag rise after Mach 2
     const waveRise = 1 + 0.12 * clamp(state.mach - 2, 0, 12);
     const D_N = 0.5 * rho * V*V * state.CdA * waveRise;
-    state.drag_kN = clamp(D_N / 1000, 0, 9999);
+
+    // penalties: bleed adds small drag; N2 adds small drag
+    const dragPenalty_kN = 0.15*state.bleed + 0.30*(state.n2Flow/state.n2Max); // up to +0.45 kN
+    state.drag_kN = clamp((D_N / 1000) + dragPenalty_kN, 0, 9999);
 
     // Thrust Available (kN)
-    // base thrust scaled by inlet Π, throttle proxy, and density (less oxygen at altitude)
     const densityScale = clamp(0.65 + 0.35 * (rho / 1.225), 0.55, 1.00);
     const throttle = 0.55 + 0.45 * clamp(state.machTarget / 10, 0, 1);
-    const thrust = state.thrustBase_kN * state.pi * densityScale * throttle;
 
-    // small random-ish ripple + disturbance
-    const ripple = 0.4 * Math.sin(state.t*1.3) + 0.25 * Math.sin(state.t*0.37);
-    state.thrust_kN = clamp(thrust + ripple + state.disturbance, 0, 999);
+    // Phi affects combustion strength; too lean reduces thrust, too rich also inefficient
+    const phiEff = clamp(1 - 0.85*Math.pow(Math.abs(state.phi - 0.58), 1.15), 0.55, 1.05);
+
+    // bleed and N2 impose thrust penalties
+    const penBleedT = 0.25 * state.bleed;                 // up to -25%
+    const penN2T    = 0.10 * (state.n2Flow/state.n2Max);  // up to -10%
+    const thrustPenalty = clamp(penBleedT + penN2T, 0, 0.40);
+
+    // if unstart, thrust collapses hard and drag rises (already did drag penalty)
+    const unstartThrustFactor = state.unstart ? 0.25 : 1.0;
+
+    const thrust = state.thrustBase_kN * state.piEff * densityScale * throttle * phiEff * (1 - thrustPenalty) * unstartThrustFactor;
+
+    // ripple + disturbance
+    const ripple = 0.30 * Math.sin(state.t*1.2) + 0.18 * Math.sin(state.t*0.34);
+    state.thrust_kN = clamp(thrust + ripple + 0.65*state.disturbance, 0, 999);
 
     // Thermal model
-    // heating grows with q and Mach; cooling with flow and error sign
-    const heat = (0.06 * state.q_kpa) * (1 + 0.22*state.mach*state.mach); // °C/s proxy
+    // heating grows with q and Mach; N2 film reduces heating fraction; coolant removes heat
+    const filmCooling = 1 - 0.25 * (state.n2Flow / state.n2Max); // up to -25% heat flux
+    const heat = (0.055 * state.q_kpa) * (1 + 0.18*state.mach*state.mach) * filmCooling; // °C/s proxy
     const cool = 0.85 * state.flow * (state.tempC - state.tempTarget) / 60; // °C/s proxy
     state.tempC += (heat - cool) * dt;
 
     // PI + feedforward for coolant flow
-    const e = (state.tempTarget - state.tempC); // positive when too cold
-    state.integ += e * dt;
-    // feedforward: more heat -> more flow
-    const ff = clamp(0.20 + 0.06 * state.q_kpa + 0.02 * state.mach, 0.20, 1.20);
-    const u = ff + state.Kp * (-e) + state.Ki * (-state.integ); // drive flow up when temp > target
+    const eT = (state.tempTarget - state.tempC);
+    state.integ += eT * dt;
+    const ff = clamp(0.20 + 0.05 * state.q_kpa + 0.018 * state.mach, 0.20, 1.20);
+    const u = ff + state.Kp * (-eT) + state.Ki * (-state.integ);
     state.flow = clamp(u, state.flowMin, state.flowMax);
 
-    // Stability Health (0..1)
-    // components:
+    // ---------------------------
+    // Stability Health (0..1) — now includes Πeff + Φ band + unstart
+    // ---------------------------
     const margin = state.thrust_kN - state.drag_kN; // kN
-    const marginGood = clamp((margin + 2) / 10, 0, 1); // good when margin is comfortably positive
+    const marginGood = clamp((margin + 1.5) / 8.0, 0, 1);
+
     const qBandGood = (() => {
-      // best between 0.5 and 6 kPa; penalize outside
       const q = state.q_kpa;
       if(q < 0.5) return clamp(q/0.5, 0, 1);
       if(q <= 6.0) return 1;
-      return clamp(1 - (q - 6.0)/8.0, 0, 1);
+      return clamp(1 - (q - 6.0)/10.0, 0, 1);
     })();
-    const inletGood = clamp((state.pi - 0.20) / 0.75, 0, 1);
-    const thermDev = Math.abs(state.tempC - state.tempTarget);
-    const thermGood = clamp(1 - Math.max(0, (thermDev - state.tempBand) / 40), 0, 1);
 
-    // mild Mach penalty outside target regimes (especially low altitude)
-    const altFactor = clamp(state.alt_m / 30000, 0, 1);
-    const machPenalty = clamp((state.mach - 10) / 6, 0, 1) * 0.2 + clamp((10 - state.mach)/10,0,1) * 0.05;
-    const disturbancePenalty = clamp(Math.abs(state.disturbance)/3, 0, 0.35);
+    const inletGood = clamp((state.piEff - 0.20) / 0.75, 0, 1);
 
-    // weighted health
-    let health = 0.36*marginGood + 0.28*qBandGood + 0.22*inletGood + 0.14*thermGood;
-    health *= (1 - 0.10*machPenalty*(1-altFactor));
-    health -= disturbancePenalty;
+    const thermDev2 = Math.abs(state.tempC - state.tempTarget);
+    const thermGood = clamp(1 - Math.max(0, (thermDev2 - state.tempBand) / 45), 0, 1);
+
+    // Phi band goodness (sweet spot around 0.55)
+    const phiGood = clamp(1 - (Math.abs(state.phi - 0.55) / 0.18), 0, 1);
+
+    // unstart slams health
+    const unstartPenalty = state.unstart ? 0.55 : 0.0;
+
+    // disturbance penalty
+    const disturbancePenalty = clamp(Math.abs(state.disturbance)/3, 0, 0.25);
+
+    let health = 0.28*marginGood + 0.22*qBandGood + 0.28*inletGood + 0.14*thermGood + 0.08*phiGood;
+    health = health - unstartPenalty - disturbancePenalty;
 
     // soften oscillations
     state.health = clamp(lerp(state.health, health, clamp(dt*3.5, 0, 1)), 0, 1);
@@ -687,35 +874,31 @@
     // Ms shown as centered margin metric (-1..+1)
     const Ms = clamp((state.health - 0.5) * 2, -1, 1);
 
-    // AUTOPILOT target Mach:
-    // - phase target sets baseline
-    // - in CRUISE: aims 10
-    // - if unstable: drop to last stable Mach
-    const wantsAuto = autoHold.checked;
-
+    // ---------------------------
+    // AUTOPILOT Mach target and fallback (unchanged concept, improved stability behavior)
+    // ---------------------------
     if(state.phase !== "DONE" && state.phase !== "READY"){
       if(wantsAuto){
         state.machTarget = tgt.machTarget;
       }else{
-        // if autopilot disabled, still follow phase schedule gently
         state.machTarget = tgt.machTarget;
       }
 
-      // last stable Mach tracking (only meaningful in CRUISE)
-      const stable = state.health >= 0.70;
+      const stable = (state.health >= 0.70) && !state.unstart;
+
+      // last stable Mach tracking (CRUISE)
       if(state.phase === "CRUISE" && stable){
-        // update last stable mach but not too frequently
         if(state.t - state.lastStableLoggedAt > 2.0){
           state.lastStableMach = Math.max(state.lastStableMach, state.mach);
           state.lastStableLoggedAt = state.t;
         }
       }
 
-      // Stability hold fallback
-      if(wantsAuto && state.phase === "CRUISE" && !stable){
+      // Stability hold fallback: if unstable OR unstart, roll back harder
+      if(wantsAuto && state.phase === "CRUISE" && (!stable || state.unstart)){
         const fallback = clamp(Math.max(0.8, state.lastStableMach || 0.8), 0.8, 10.0);
-        // if already failing often, step down a bit more
-        const stepped = clamp(fallback - 0.35, 0.8, 10.0);
+        const extra = state.unstart ? 1.25 : 0.45;
+        const stepped = clamp(fallback - extra, 0.8, 10.0);
         if(state.t - state.lastAutoDropAt > 1.25){
           state.machTarget = Math.min(state.machTarget, stepped);
           logLine("e", `UNSTABLE → reducing to last stable Mach (target now ${state.machTarget.toFixed(2)} M)`);
@@ -727,12 +910,12 @@
 
       // Mach dynamics toward target
       const dM = state.machTarget - state.mach;
-      const maxStep = tgt.accelLimit * dt; // Mach per tick
+      const maxStep = tgt.accelLimit * dt;
       state.mach += clamp(dM, -maxStep, +maxStep);
       state.mach = clamp(state.mach, 0, 12.0);
     }
 
-    // event log requirements: takeoff speed, cruise speed, landing speed
+    // event logs: takeoff/cruise/landing speeds
     if(state.phase === "TAKEOFF" && !state.loggedTakeoff && state.mach >= 0.30){
       state.loggedTakeoff = true;
       logLine("t", `TAKEOFF speed reached: ${state.mach.toFixed(2)} M (${Math.round(V)} m/s)`);
@@ -746,7 +929,7 @@
       logLine("t", `LANDING rollout: ${state.mach.toFixed(2)} M (${Math.round(V)} m/s)`);
     }
 
-    // DONE log
+    // DONE
     if(state.phase === "DONE"){
       state.machTarget = 0;
       state.mach = lerp(state.mach, 0, clamp(dt*3, 0, 1));
@@ -757,12 +940,14 @@
       }
     }
 
-    // store computed Ms for display
+    // store computed for display
     state._Ms = Ms;
     state._rho = rho;
     state._a = a;
     state._V = V;
     state._margin = (state.thrust_kN - state.drag_kN);
+    state._penThrust = thrustPenalty;
+    state._penDrag = dragPenalty_kN;
   }
 
   // ---------------------------
@@ -775,22 +960,19 @@
   }
 
   function draw(){
-    // phase + route
-    phaseTxt.textContent = state.phase;
     const r = ROUTES[state.routeIdx];
+    phaseTxt.textContent = state.phase;
     routeTxt.textContent = `${r.name} • ${state.distKm.toFixed(0)} / ${state.distTotalKm.toFixed(0)} km`;
 
-    // speed
     machNow.textContent = state.mach.toFixed(2);
     machTgt.textContent = state.machTarget.toFixed(2);
     vNow.textContent = Math.round(state._V || 0).toString();
 
-    // altitude + rho
     altNow.textContent = (state.alt_m/1000).toFixed(1);
-    rhoNow.textContent = (state._rho ?? 1.225).toFixed(3);
+    rhoNow.textContent = (state._rho ?? 1.225).toFixed(4);
 
-    // q, thrust, drag, margin
     qNow.textContent = (state.q_kpa).toFixed(1);
+
     thrustNow.textContent = (state.thrust_kN).toFixed(1);
     dragNow.textContent = (state.drag_kN).toFixed(1);
 
@@ -798,34 +980,57 @@
     marginNow.textContent = `${margin >= 0 ? "+" : ""}${margin.toFixed(1)}`;
     tdNow.textContent = `${margin >= 0 ? "+" : ""}${margin.toFixed(1)} kN`;
 
-    // inlet + CdA
     piNow.textContent = state.pi.toFixed(2);
+    piEffNow.textContent = state.piEff.toFixed(2);
     cdaNow.textContent = state.CdA.toFixed(2);
 
-    // stability
+    bleedNow.textContent = Math.round(state.bleed*100).toString();
+    phiNow.textContent = state.phi.toFixed(2);
+    betaNow.textContent = state.beta.toFixed(1);
+
     healthNow.textContent = state.health.toFixed(2);
     msNow.textContent = (state._Ms ?? 0).toFixed(2);
+    unstartNow.textContent = state.unstart ? "YES" : "NO";
     lastStableMachEl.textContent = state.lastStableMach.toFixed(2);
 
-    const stable = state.health >= 0.70;
-    chipStable.textContent = `Status: ${stable ? "STABLE" : "UNSTABLE"}`;
-    chipStable.classList.remove("good","bad");
-    chipStable.classList.add(stable ? "good" : "bad");
+    // Status chip logic: show STABLE when truly stable; show UNSTART explicitly
+    const stable = (state.health >= 0.70) && !state.unstart;
+    if(state.unstart){
+      chipStable.textContent = "Status: UNSTART";
+      chipStable.classList.remove("good","bad","warn");
+      chipStable.classList.add("bad");
+    } else {
+      chipStable.textContent = `Status: ${stable ? "STABLE" : "UNSTABLE"}`;
+      chipStable.classList.remove("good","bad","warn");
+      chipStable.classList.add(stable ? "good" : (state.health >= 0.55 ? "warn" : "bad"));
+    }
 
     // health bar
     const hPct = state.health * 100;
     setFill(barHealth, hPct, stable ? "good" : (state.health >= 0.55 ? "warn" : "bad"));
 
-    // q bar: map 0..10 kPa to 0..100
+    // q bar (0..10 kPa mapped)
     const qPct = clamp((state.q_kpa/10)*100, 0, 100);
     let qKind = "good";
     if(state.q_kpa < 0.5) qKind = "warn";
     if(state.q_kpa > 6.0) qKind = "bad";
     setFill(barQ, qPct, qKind);
 
+    // Pi eff bar (0..1 mapped)
+    const piPct = clamp(state.piEff*100, 0, 100);
+    let pKind = "good";
+    if(state.piEff < 0.45) pKind = "warn";
+    if(state.piEff < 0.30) pKind = "bad";
+    setFill(barPi, piPct, pKind);
+
     // thermal
     tempNow.textContent = state.tempC.toFixed(1);
     flowNow.textContent = state.flow.toFixed(2);
+    n2Now.textContent = state.n2Flow.toFixed(2);
+    n2TankNow.textContent = state.n2Tank.toFixed(0);
+
+    penThrustNow.textContent = ((state._penThrust ?? 0)*100).toFixed(1);
+    penDragNow.textContent = (state._penDrag ?? 0).toFixed(2);
 
     const dev = Math.abs(state.tempC - state.tempTarget);
     const devPct = clamp((dev/50)*100, 0, 100);
@@ -841,8 +1046,7 @@
   let raf = null;
   function tick(){
     if(!state.running){ raf = null; return; }
-    // run multiple substeps for stability if needed
-    for(let i=0;i<1;i++) step();
+    step();
     draw();
     raf = requestAnimationFrame(tick);
   }
@@ -863,14 +1067,23 @@
     state.mach = 0;
     state.machTarget = 0;
 
-    state.CdA = 0.85;
-    state.thrustBase_kN = 20.0;
+    state.CdA = 0.18;
+    state.thrustBase_kN = 28.0;
     state.thrust_kN = 0;
     state.drag_kN = 0;
     state.q_kpa = 0.1;
     state.pi = 0.65;
+    state.piEff = 0.65;
 
-    state.health = 0.42;
+    state.bleed = 0.0;
+    state.phi = 0.55;
+    state.phiCmd = 0.55;
+    state.beta = 0.0;
+    state.unstart = false;
+    state.unstartTimer = 0;
+    state.recoverTimer = 0;
+
+    state.health = 0.78;
     state.lastStableMach = 0.00;
     state.disturbance = 0;
 
@@ -878,23 +1091,26 @@
     state.flow = 0.20;
     state.integ = 0;
 
+    state.n2Flow = 0.0;
+    state.n2Tank = 100.0;
+
     state.loggedTakeoff = false;
     state.loggedCruise = false;
     state.loggedLanding = false;
     state.lastStableLoggedAt = -999;
     state.lastAutoDropAt = -999;
 
-    // derived
     state._rho = 1.225;
     state._a = 340;
     state._V = 0;
     state._margin = 0;
     state._Ms = 0;
+    state._penThrust = 0;
+    state._penDrag = 0;
+    state._piEffPrev = 0.65;
 
-    // restore route (and recalc distance)
     setRoute(keepRoute);
 
-    // clear log and add a header
     logEl.innerHTML = "";
     logLine("t", "RESET complete. Ready for 0 → Mach 10 → 0.");
     draw();
@@ -906,7 +1122,6 @@
     if(state.phase === "READY"){
       state.phase = "TAKEOFF";
       state.lastPhase = "READY";
-      // on start, set initial targets
       state.machTarget = 0.85;
       logLine("t", "START: Beginning takeoff roll (0 → Mach 10 → 0).");
     } else if(state.phase === "DONE"){
@@ -930,9 +1145,13 @@
   btnReset.addEventListener("click", () => hardReset());
 
   btnInject.addEventListener("click", () => {
-    // disturbance in kN equivalent affecting thrust
-    state.disturbance += (Math.random() < 0.5 ? -1 : 1) * (1.8 + 1.7*Math.random());
-    logLine("w", `Disturbance injected (engine/flow transient).`);
+    // disturbance affects thrust AND (indirectly) beta + piEff behavior (via safety layer)
+    state.disturbance += (Math.random() < 0.5 ? -1 : 1) * (2.0 + 2.2*Math.random());
+    // also spike heat slightly by nudging temp (short transient)
+    state.tempC += 2.0 + 4.0*Math.random();
+    // and spike phi briefly (backpressure risk)
+    state.phi = clamp(state.phi + 0.06 + 0.08*Math.random(), 0.35, 0.75);
+    logLine("w", "Disturbance injected (β↑, Φ spike, heat transient).");
   });
 
   btnClearLog.addEventListener("click", () => {
@@ -944,7 +1163,7 @@
   // initial boot
   // ---------------------------
   setRoute(0);
-  hardReset(); // sets initial log + draw
+  hardReset();
   routeSel.value = "0";
 })();
 </script>
