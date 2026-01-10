@@ -36,6 +36,21 @@
   header h1{margin:0;font-size:16px;letter-spacing:.2px}
   header .sub{margin-top:4px;color:var(--muted);font-size:12.5px;line-height:1.35}
 
+  /* ✅ NEW: Regime / Non-Claims banner (early + visible) */
+  .notice{
+    margin-top:10px;
+    padding:10px 12px;
+    border:1px solid rgba(148,163,184,.25);
+    border-radius:12px;
+    background:rgba(15,23,42,.55);
+    color:rgba(234,240,255,.92);
+    font-size:12.2px;
+    line-height:1.35;
+  }
+  .notice b{color:#dbe6ff}
+  .notice ul{margin:8px 0 0 18px; padding:0}
+  .notice li{margin:6px 0; color:rgba(229,231,235,.88)}
+
   main{
     display:grid;
     grid-template-columns:430px 1fr;
@@ -173,6 +188,17 @@
     Reader teaching simulator: compare three time-rate laws near a compact object (toy models). Focus is <b>timing signatures</b> (pulsar clocks), not EHT ray-tracing images.
     Tip: switch to <b>Tab B</b> and press <b>Start</b> to see the residual history trace animate.
   </div>
+
+  <!-- ✅ NEW: regime bound early -->
+  <div class="notice">
+    <b>Regime / Non-Claims (read first):</b>
+    <ul>
+      <li><b>Toy functional forms</b> for comparative timing signatures under stated assumptions (protocol discipline).</li>
+      <li><b>Not</b> a self-consistent Einstein–Cartan solver; torsion here is parameterized as a response family.</li>
+      <li><b>Not</b> EHT ray-tracing / plasma emission / image formation.</li>
+      <li>Goal: <b>discriminate timing behaviors</b> (admissibility under constraints), not claim a final gravity theory.</li>
+    </ul>
+  </div>
 </header>
 
 <main>
@@ -303,7 +329,6 @@
       </div>
     </div>
   </section>
-
   <!-- RIGHT: Visualization -->
   <section class="panel">
     <h2>Visualization</h2>
@@ -357,14 +382,19 @@
 
     <div class="hr"></div>
     <div class="note">
-      <b>Limitations:</b> Toy functional forms only. No self-consistent Einstein–Cartan solver, and no EHT ray-tracing/plasma emission. This targets timing behavior (proper-time transport) and model discrimination.
+      <b>Limitations:</b> Toy functional forms only. No self-consistent Einstein–Cartan solver, and no EHT ray-tracing/plasma emission.
+      This targets timing behavior (proper-time transport) and model discrimination.
     </div>
   </section>
 </main>
 
 <script>
 (() => {
+  // ✅ Safer numeric policy for the whole demo
   const EPS = 1e-15;
+  const EPS_R = 1e-6;        // clamp margin above horizon
+  const R_HORIZON = 1.0;
+
   const el = id => document.getElementById(id);
 
   // Inputs
@@ -467,32 +497,46 @@
   }
   function isOn(node){ return node.classList.contains("on"); }
 
-  // ---------- Toy functions ----------
-  function Phi(R, p){ return 1 / Math.pow(Math.max(EPS, R), p); }
-  function TorsionProfile(R){ return 1 / Math.pow(Math.max(EPS, R), 3); }
+  // ✅ Central clamp: prevents accidental R <= 1 in any formula
+  function clampR(R){
+    if (!isFinite(R)) return R_HORIZON + EPS_R;
+    return Math.max(R_HORIZON + EPS_R, R);
+  }
+
+  // ---------- Toy functions (now clamp-protected) ----------
+  function Phi(R, p){
+    const Rc = clampR(R);
+    return 1 / Math.pow(Math.max(EPS, Rc), p);
+  }
+  function TorsionProfile(R){
+    const Rc = clampR(R);
+    return 1 / Math.pow(Math.max(EPS, Rc), 3);
+  }
 
   function rateGR(R){
-    // Schwarzschild: sqrt(1 - 1/R), clamp for safety (R>1)
-    const Rc = Math.max(1.0000000001, R);
+    // Schwarzschild: sqrt(1 - 1/R) with clamp for safety
+    const Rc = clampR(R);
     return Math.sqrt(Math.max(0, 1 - 1/Rc));
   }
   function rateTransport(R, kappa, p){
-    return Math.exp(-kappa * Phi(R, p));
+    const Rc = clampR(R);
+    return Math.exp(-kappa * Phi(Rc, p));
   }
   function rateTorsionSoft(R, alpha, n){
-    return Math.pow(1 + alpha*TorsionProfile(R), -n);
+    const Rc = clampR(R);
+    return Math.pow(1 + alpha*TorsionProfile(Rc), -n);
   }
 
   function orbitRadiusInstant(Rorb, e, phase01){
-    // R(t)=Rorb*(1 - e cos(2πphase)), then clamp above 1.001
-    const R = Rorb * (1 - e*Math.cos(2*Math.PI*phase01));
-    return Math.max(1.001, R);
+    // R(t)=Rorb*(1 - e cos(2πphase)), then clamp above 1+eps
+    const Rraw = Rorb * (1 - e*Math.cos(2*Math.PI*phase01));
+    return clampR(Math.max(1.001, Rraw));
   }
 
   // ---------- Parameters ----------
   function getParams(){
-    const R = Number(inR.value);
-    const Rorb = Number(inRorb.value);
+    const R = clampR(Number(inR.value));
+    const Rorb = clampR(Number(inRorb.value));
     const P = Math.max(0.01, Number(inP.value));
     const Norbits = Math.max(1, Number(inNorbits.value));
     const e = Math.max(0, Math.min(0.95, Number(inEcc.value)));
@@ -520,12 +564,13 @@
     lines.push("• Transport: dτ/dt = exp(−κ " + phiName + "(R)), with " + phiName + "(R)=1/R^p.");
     lines.push("• Torsion-soft: dτ/dt = (1 + α T(R))^(−n), with T(R)=1/R^3.");
     lines.push("");
-    lines.push("Why Start was failing before (now fixed):");
-    lines.push("• The old version recomputed heavy orbit integrals every frame, which can stall animation.");
-    lines.push("• This version accumulates proper time incrementally each frame (fast), so lines move smoothly.");
+    lines.push("Protocol discipline (necessity framing):");
+    lines.push("• Radii are clamped to R>1 to avoid horizon singular behavior in these toy laws.");
+    lines.push("• Changing parameters resets accumulators to avoid mixing regimes.");
     lines.push("");
-    lines.push("Limitations:");
-    lines.push("• No self-consistent Einstein–Cartan field solver; torsion is parameterized.");
+    lines.push("Limitations (regime-bound):");
+    lines.push("• Toy comparative timing laws only (signatures/admissibility), not a complete gravity theory.");
+    lines.push("• No self-consistent Einstein–Cartan solver; torsion is parameterized.");
     lines.push("• No EHT imaging (no ray-tracing/plasma emission).");
     explain.value = lines.join("\n");
   }
@@ -624,14 +669,12 @@
     const Rmin = 1.001, Rmax = 30, S = 800;
     const phiName = p.map ? "|Ψ|²" : "Φ";
 
-    // normalize to value at Rmin for visibility
     const phiNorm = Phi(Rmin, p.pPow);
     const tNorm = TorsionProfile(Rmin);
 
     function X(R){ return x0 + (R-Rmin)/(Rmax-Rmin)*(x1-x0); }
-    function Y(z){ return y0 - z*(y0-y1); } // z in [0,1]
+    function Y(z){ return y0 - z*(y0-y1); }
 
-    // Phi curve
     ctx.lineWidth=2;
     ctx.strokeStyle="rgba(88,166,255,.95)";
     ctx.beginPath();
@@ -643,7 +686,6 @@
     }
     ctx.stroke();
 
-    // T curve
     ctx.strokeStyle="rgba(53,208,127,.95)";
     ctx.beginPath();
     for(let i=0;i<=S;i++){
@@ -654,7 +696,6 @@
     }
     ctx.stroke();
 
-    // markers at probe
     dot(ctx, X(p.R), Y(Math.min(1, Phi(p.R,p.pPow)/phiNorm)), 5, "rgba(255,90,102,.95)");
     dot(ctx, X(p.R), Y(Math.min(1, TorsionProfile(p.R)/tNorm)), 5, "rgba(255,90,102,.65)");
 
@@ -686,13 +727,11 @@
     maxAbs = Math.max(1e-9, maxAbs);
 
     function X(tt){ return x0 + (tt-tMin)/Math.max(EPS,(tMax-tMin))*(x1-x0); }
-    function Y(y){ return y0 - (y + maxAbs)/(2*maxAbs) * (y0-y1); } // map [-maxAbs,maxAbs]
+    function Y(y){ return y0 - (y + maxAbs)/(2*maxAbs) * (y0-y1); }
 
-    // zero line
     ctx.strokeStyle="rgba(255,255,255,.18)";
     ctx.beginPath(); ctx.moveTo(x0, Y(0)); ctx.lineTo(x1, Y(0)); ctx.stroke();
 
-    // GR-Transport
     ctx.strokeStyle="rgba(88,166,255,.95)";
     ctx.lineWidth=2;
     ctx.beginPath();
@@ -700,7 +739,6 @@
     for(let i=1;i<Nn;i++) ctx.lineTo(X(hist.t[i]), Y(hist.resGT[i]));
     ctx.stroke();
 
-    // GR-Torsion
     ctx.strokeStyle="rgba(53,208,127,.95)";
     ctx.beginPath();
     ctx.moveTo(X(hist.t[0]), Y(hist.resGS[0]));
@@ -717,9 +755,8 @@
   }
 
   function renderBarPanel(p){
-    // cv2 shows instantaneous probe rates + orbit residual totals so readers always see numbers moving
     const w=cv2.width,h=cv2.height;
-    clear(ctx2,w,h);
+    ctx2.clearRect(0,0,w,h);
 
     const pad = 20, left = 300, barH = 22, gap = 16, top = 18;
     const W = w - left - pad;
@@ -759,7 +796,7 @@
     const resGTnow = tauGR - tauTR;
     const resGSnow = tauGR - tauTS;
     const cap = Math.max(1e-9, Math.max(Math.abs(resGTnow), Math.abs(resGSnow), 1e-6));
-    const showCap = Math.min(1.0, cap); // purely for bar scaling
+    const showCap = Math.min(1.0, cap);
 
     bar(top+34+3*(barH+gap), "Accum Δτ (GR − Transport) (scaled)", Math.min(Math.abs(resGTnow), showCap), showCap, "rgba(88,166,255,.45)");
     bar(top+34+4*(barH+gap), "Accum Δτ (GR − Torsion) (scaled)", Math.min(Math.abs(resGSnow), showCap), showCap, "rgba(53,208,127,.45)");
@@ -829,35 +866,30 @@
     updateExplain(p);
   }
 
-  // ---------- Main step (FAST incremental accumulation) ----------
+  // ---------- Main step ----------
   function step(dt){
     const p = getParams();
     t += dt;
 
-    // orbit phase in [0,1)
     const phase01 = (t / p.P) - Math.floor(t / p.P);
 
-    // count completed orbits by detecting wrap-around
     if (phase01 < phasePrev){
       orbitsDone += 1;
     }
     phasePrev = phase01;
 
-    // instantaneous orbital radius and time rates at that radius
     const Rinst = orbitRadiusInstant(p.Rorb, p.e, phase01);
 
     const rGRi = rateGR(Rinst);
     const rTRi = rateTransport(Rinst, p.kappa, p.pPow);
     const rTSi = rateTorsionSoft(Rinst, p.alpha, p.nPow);
 
-    // accumulate proper time only until target orbits reached (keeps numbers meaningful)
     if (orbitsDone < p.Norbits){
       tauGR += rGRi * dt;
       tauTR += rTRi * dt;
       tauTS += rTSi * dt;
     }
 
-    // history traces (always update so lines MOVE)
     hist.t.push(t);
     hist.resGT.push(tauGR - tauTR);
     hist.resGS.push(tauGR - tauTS);
@@ -946,6 +978,7 @@
 '</style></head><body>' +
 '<h1>Strong-Field Timing Frontier — Data Printout</h1>' +
 '<div class="muted">Generated: ' + escapeHtml(nowStr) + '</div>' +
+'<div class="muted" style="margin-top:6px"><b>Regime:</b> toy comparative timing laws only; not a self-consistent Einstein–Cartan solver; not EHT ray-tracing/plasma emission.</div>' +
 
 '<div class="box"><b>Current settings</b>' +
 '<table>' +
@@ -967,7 +1000,7 @@
 '<button onclick="downloadCSV()">Download CSV</button>' +
 '</div>' +
 
-'<div class="muted" style="margin-top:10px">CSV includes current parameters + the residual history trace buffer.</div>' +
+'<div class="muted" style="margin-top:10px">CSV includes current parameters + residual history trace buffer.</div>' +
 '<textarea id="csv" readonly>' + escapeHtml(csv) + '</textarea>' +
 '</div>' +
 
@@ -1002,8 +1035,6 @@
   togMap.onclick = ()=>toggleClick(togMap);
 
   function onParamChange(){
-    // IMPORTANT: changing parameters should reset accumulators to avoid misleading mixing
-    // (keeps the animation honest)
     running = false;
     lastTs = 0;
 
@@ -1050,10 +1081,16 @@
   }
   btnReset.onclick = resetAll;
 
+  // ✅ Copy Summary now includes regime statement automatically
   btnCopy.onclick = async () => {
     const p = getParams();
+    const regime =
+"Regime / Non-Claims: toy comparative timing laws only (signatures/admissibility); not a self-consistent Einstein–Cartan solver; not EHT ray-tracing/plasma emission.";
+
     const text =
 `Strong-Field Timing Frontier — Simulator Summary
+
+${regime}
 
 Equations:
   GR: dτ/dt = √(1 − 1/R)
@@ -1109,7 +1146,6 @@ Mapping label: ${p.map ? "ON (|Ψ|² label)" : "OFF (Φ label)"}
   toggleUI(togCST, true);
   toggleUI(togMap, false);
 
-  // init
   function updateLeftOutputs(){
     const p = getParams();
     ROut.textContent = fmt(p.R, 3);
@@ -1125,7 +1161,6 @@ Mapping label: ${p.map ? "ON (|Ψ|² label)" : "OFF (Φ label)"}
   }
   updateLeftOutputs();
 
-  // tab start
   setTab("A");
   resetAll();
 })();
