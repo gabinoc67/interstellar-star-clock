@@ -1,10 +1,9 @@
-<!-- ======================= PART 1 / 4 ======================= -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Japan → Paris Trip Simulator (Live Readout) — Time Zones + Mass/Fuel + Map</title>
+<title>Japan → Paris Trip Simulator (Live Readout) — Time Zones + Mass/Fuel + Compression + Stability Lights</title>
 <style>
   :root {
     color-scheme: dark;
@@ -36,7 +35,6 @@
   h1{margin:0;font-size:1.35rem;letter-spacing:.2px}
   .sub{color:var(--muted);font-size:.95rem;margin-top:6px;line-height:1.25}
 
-  /* Layout (balanced): controls left, explanation right (with extra panels moved under explanation) */
   .row{display:grid;grid-template-columns: 480px 1fr;gap:14px;margin-top:14px}
   @media (max-width:1100px){.row{grid-template-columns:1fr}}
 
@@ -92,7 +90,7 @@
   }
   .dot{width:8px;height:8px;border-radius:999px;background:rgba(148,163,184,.5)}
 
-  /* Extra panels moved under explanation card */
+  /* Extras moved under explanation card */
   .extrasGrid{display:grid;grid-template-columns: 1.1fr .9fr; gap:14px; margin-top:12px}
   @media (max-width:1100px){.extrasGrid{grid-template-columns:1fr}}
   .extrasStack{display:grid;gap:10px}
@@ -134,6 +132,32 @@
   th{text-align:left;color:var(--muted);font-size:.85rem;position:sticky;top:0;background:rgba(7,10,20,.85);backdrop-filter: blur(6px)}
   tr.active{outline:2px solid rgba(96,165,250,.55);background:rgba(96,165,250,.08)}
   .tag{display:inline-block;padding:4px 8px;border-radius:999px;border:1px solid rgba(148,163,184,.18);font-size:.78rem;color:var(--muted)}
+
+  /* NEW: Stability lights */
+  .lights{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
+  .light{
+    display:flex;align-items:center;gap:10px;
+    padding:10px 12px;border-radius:14px;
+    border:1px solid rgba(148,163,184,.18);
+    background:rgba(2,6,23,.30);
+    min-width:160px;
+  }
+  .bulb{
+    width:14px;height:14px;border-radius:999px;
+    background:rgba(148,163,184,.25);
+    box-shadow:0 0 0 rgba(0,0,0,0);
+  }
+  .light .lbl{font-weight:800}
+  .light .sub{font-size:.82rem;color:var(--muted);margin:0}
+  .on-good .bulb{background:rgba(52,211,153,.95);box-shadow:0 0 18px rgba(52,211,153,.55)}
+  .on-warn .bulb{background:rgba(251,191,36,.95);box-shadow:0 0 18px rgba(251,191,36,.55)}
+  .on-bad  .bulb{background:rgba(251,113,133,.95);box-shadow:0 0 18px rgba(251,113,133,.55)}
+  @keyframes blink { 0%, 49% {opacity:1} 50%, 100% {opacity:.25} }
+  .blink{animation:blink .7s infinite}
+
+  /* NEW: Compression panel styling */
+  .compGrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media (max-width:900px){.compGrid{grid-template-columns:1fr}}
 </style>
 </head>
 
@@ -143,8 +167,8 @@
     <div>
       <h1>Japan → Paris Trip Simulator (Live Readout)</h1>
       <div class="sub">
-        Stable, row-by-row playback with live readouts.
-        <b>Balanced layout:</b> time/mass/map moved under Explanation so the left controls stay clean.
+        Live step playback with stable gauges. Fixes: <b>fuel burn meters now always decrease live</b>, adds <b>compression proxy</b>,
+        and adds <b>blinking stability lights</b> that can flip during the trip.
       </div>
     </div>
     <div class="legend">
@@ -173,7 +197,9 @@
           <div class="stat">
             <div class="k">Playback speed (sim minutes per real second)</div>
             <input id="spd" type="range" min="1" max="240" value="60"/>
-            <div class="small">Effective speed = slider × mass factor (from mass/fuel sliders under Explanation).</div>
+            <div class="small">
+              Effective speed = slider × mass factor. <b>Mass also affects the vehicle response lag</b> (heavier craft accelerates/slows more sluggishly).
+            </div>
             <div class="small mono" style="margin-top:6px">
               Effective: <span id="effSpeedLbl">60.0</span> sim-min/s • ETA (real): <span id="etaRealLbl">—</span>
             </div>
@@ -187,14 +213,14 @@
 
           <div class="split">
             <div class="stat">
-              <div class="k">Mach</div>
+              <div class="k">Mach (actual)</div>
               <div class="v"><span id="mach">0.00</span></div>
-              <div class="small">Interpolated within active step.</div>
+              <div class="small">Tracks the plan with a mass-dependent response lag.</div>
             </div>
             <div class="stat">
-              <div class="k">Altitude</div>
+              <div class="k">Altitude (actual)</div>
               <div class="v"><span id="alt">0.0</span> km</div>
-              <div class="small">Interpolated within active step.</div>
+              <div class="small">Tracks the plan with a mass-dependent response lag.</div>
             </div>
 
             <div class="stat">
@@ -242,15 +268,62 @@
             </div>
 
             <div class="stat">
-              <div class="k">Coolant flow</div>
+              <div class="k">Coolant flow (actual)</div>
               <div class="v"><span id="cool">0.20</span> kg/s</div>
-              <div class="small">Tank-limited.</div>
+              <div class="small">Tank-limited; shows actual flow after cap.</div>
             </div>
             <div class="stat">
               <div class="k">Stability score</div>
               <div class="v"><span id="stab">1.00</span></div>
-              <div class="small">Loads + heating + ramps (+ small inertia term).</div>
+              <div class="small">Loads + heating + ramps + plasma/INS + mass.</div>
             </div>
+          </div>
+
+          <!-- NEW: compression panel on left -->
+          <div class="stat">
+            <div class="k">Compression around aircraft (proxy)</div>
+            <div class="compGrid" style="margin-top:10px">
+              <div class="stat">
+                <div class="k">Compression factor C</div>
+                <div class="v"><span id="compC">1.00</span></div>
+                <div class="small mono">C = 1 + (q/q_comp) + 0.12·Mach</div>
+              </div>
+              <div class="stat">
+                <div class="k">Compression index (0..1)</div>
+                <div class="v"><span id="compIdx">0.00</span></div>
+                <div class="small">Scaled from C to drive visual effects.</div>
+              </div>
+            </div>
+            <div class="small" id="compNote" style="margin-top:8px">—</div>
+          </div>
+
+          <!-- NEW: blinking stability annunciator -->
+          <div class="stat">
+            <div class="k">Stability annunciator (can flip during flight)</div>
+            <div class="lights">
+              <div class="light" id="lightStable">
+                <div class="bulb"></div>
+                <div>
+                  <div class="lbl">STABLE</div>
+                  <p class="sub">Stab ≥ 0.70</p>
+                </div>
+              </div>
+              <div class="light" id="lightCaution">
+                <div class="bulb"></div>
+                <div>
+                  <div class="lbl">CAUTION</div>
+                  <p class="sub">0.45–0.70</p>
+                </div>
+              </div>
+              <div class="light" id="lightUnstable">
+                <div class="bulb"></div>
+                <div>
+                  <div class="lbl">UNSTABLE</div>
+                  <p class="sub">Stab &lt; 0.45</p>
+                </div>
+              </div>
+            </div>
+            <div class="small" id="annNote" style="margin-top:8px">—</div>
           </div>
 
           <div class="stat">
@@ -277,56 +350,61 @@
     <section class="card">
       <div class="hd">
         <div class="t">Explanation • Equations • Tunables • Extra Panels</div>
-        <div class="tag">Verified wiring: Start/Stop/Reset</div>
+        <div class="tag">Verified: Start/Stop/Reset • Live burn • Lights</div>
       </div>
       <div class="bd">
         <div class="small">
-          The simulator advances simulation time <span class="mono">t</span> (minutes), selects the active step,
-          linearly interpolates Mach/altitude, interpolates atmosphere, computes <span class="mono">V</span>, <span class="mono">q</span>, heating proxy <span class="mono">H</span>, coolant flow, and stability.
-          <b>Mass/fuel</b> only affects <b>real-time completion</b> via a mass factor (it does not alter the underlying timeline data).
+          The simulator advances simulation time <span class="mono">t</span>, selects the active step, and computes the <b>planned</b> Mach/altitude.
+          Then it applies a <b>mass-dependent response lag</b> so heavy vehicles accelerate/decelerate more slowly, which can change stability temporarily.
+          Fuel/coolant are burned from tanks every frame, and the remaining meters always update live.
         </div>
 
         <div style="height:10px"></div>
 
         <div class="eq"><b>Equations used</b>
-1) Step interpolation:
+1) Step plan (linear interpolation):
    s = clamp((t - t0)/(t1 - t0), 0..1)
-   Mach(t) = Mach0 + s·(Mach1 - Mach0)
-   Alt(t)  = Alt0  + s·(Alt1  - Alt0)
+   Mach_plan(t) = Mach0 + s·(Mach1 - Mach0)
+   Alt_plan(t)  = Alt0  + s·(Alt1  - Alt0)
 
-2) Atmosphere (by table interpolation):
+2) Mass-dependent response lag (first-order tracking):
+   Mach_actual += (Mach_plan - Mach_actual) · (1 - exp(-dtSimSec/τMach))
+   Alt_actual  += (Alt_plan  - Alt_actual ) · (1 - exp(-dtSimSec/τAlt))
+   τMach, τAlt increase with totalMass/refMass.
+
+3) Atmosphere (table interpolation):
    Tamb(Alt), rho(Alt), a(Alt)
 
-3) Speed:
-   V = Mach · a(Alt)
+4) Speed:
+   V = Mach_actual · a(Alt_actual)
 
-4) Dynamic pressure:
+5) Dynamic pressure:
    q = ½ · rho · V²
 
-5) Heating proxy (dimensionless):
+6) Heating proxy:
    H = q_kPa / q_ref_kPa
 
-6) Cold index (0..1):
+7) Cold index:
    Cold = clamp((T_warm - Tamb)/(T_warm - T_cold), 0..1)
 
-7) Coolant command (kg/s), tank-limited:
+8) Coolant flow (kg/s), tank-limited (actual shown):
    mDot_cmd = clamp(m_min + gH·H + gCold·Cold + gMach·(Mach/10), m_min..m_max)
    mDot = min(mDot_cmd, coolantRemaining / dtSimSec)
 
-8) Stability score (0..1):
-   q_norm = clamp(q_kPa / q_bad_kPa, 0..1)
-   H_norm = clamp(H / H_bad, 0..1)
-   ramp   = |dMach/dt| + 0.6|dAlt/dt| (scaled to 0..1)
-   bandPenalty from plasma/INS flags (0..1)
-   inertiaPenalty = small term from totalMass/refMass
-   Stability = clamp(1 - (wq·q_norm + wH·H_norm + wRamp·ramp + wBand·bandPenalty + inertiaPenalty), 0..1)
+9) Skin temperature ODE:
+   Tskin' = k_heat·H·( (Tamb+Δhot) - Tskin )  -  k_cool_eff·(Tskin - Tamb)
+   k_cool_eff increases with mDot.
 
-9) Mass factor for real-time completion:
-   massFactor = clamp( sqrt(refMass / totalMass), 0.65..1.10 )
-   effectiveSpeed = sliderSpeed × massFactor</div>
+10) Compression proxy:
+   C = 1 + (q_kPa / q_comp_kPa) + 0.12·Mach_actual
+   compIndex = clamp((C-1)/(C_bad-1), 0..1)
+
+11) Stability (0..1):
+   Uses q, H, ramp, plasma/INS band penalty + a mass/inertia penalty
+   (plus a small extra penalty when tracking error is large).</div>
 
         <div class="small" style="margin-top:10px">
-          Tunables are inside the script (q_ref, gains, weights, fuel burn rates). This remains a stable demo: it’s a consistent instrument cluster + timing.
+          Tunables are inside the script (q_ref, τ bases, weights, burn rates). This remains a stable demo: it’s a consistent instrument cluster + timing.
         </div>
 
         <!-- Extras moved here for balance -->
@@ -349,7 +427,7 @@
             </div>
 
             <div class="stat">
-              <div class="k">Mass & Fuel (affects effective speed only)</div>
+              <div class="k">Mass & Fuel (live burn always visible)</div>
 
               <div class="split" style="margin-top:10px">
                 <div class="stat">
@@ -364,18 +442,18 @@
                 </div>
 
                 <div class="stat">
-                  <div class="k">Jet fuel mass</div>
+                  <div class="k">Jet fuel mass (capacity)</div>
                   <input id="mJetFuel" type="range" min="0" max="60000" step="250" value="18000"/>
                   <div class="small mono"><span id="mJetFuelLbl">18000</span> kg</div>
                 </div>
                 <div class="stat">
-                  <div class="k">Scram fuel mass</div>
+                  <div class="k">Scram fuel mass (capacity)</div>
                   <input id="mScramFuel" type="range" min="0" max="40000" step="250" value="9000"/>
                   <div class="small mono"><span id="mScramFuelLbl">9000</span> kg</div>
                 </div>
 
                 <div class="stat">
-                  <div class="k">Coolant mass (tank)</div>
+                  <div class="k">Coolant mass (capacity)</div>
                   <input id="mCoolant" type="range" min="0" max="12000" step="50" value="2200"/>
                   <div class="small mono"><span id="mCoolantLbl">2200</span> kg</div>
                 </div>
@@ -397,25 +475,35 @@
                   <div class="meter" style="margin-top:8px">
                     <div class="meterline"><span>Jet fuel</span><span><span id="jetRemainLbl">—</span> kg</span></div>
                     <div class="meterbar"><b class="bFuel" id="jetBar"></b></div>
+                    <div class="small mono" style="margin-top:6px">Cap: <span id="jetCapLbl">—</span> kg</div>
+
+                    <div style="height:6px"></div>
 
                     <div class="meterline"><span>Scram fuel</span><span><span id="scramRemainLbl">—</span> kg</span></div>
                     <div class="meterbar"><b class="bScram" id="scramBar"></b></div>
+                    <div class="small mono" style="margin-top:6px">Cap: <span id="scramCapLbl">—</span> kg</div>
+
+                    <div style="height:6px"></div>
 
                     <div class="meterline"><span>Coolant</span><span><span id="coolRemainLbl">—</span> kg</span></div>
                     <div class="meterbar"><b class="bCool" id="coolBar"></b></div>
+                    <div class="small mono" style="margin-top:6px">Cap: <span id="coolCapLbl">—</span> kg</div>
                   </div>
                   <div class="small" style="margin-top:8px">
-                    Coolant depletion caps flow (display + thermal effect).
+                    Coolant depletion caps flow (actual flow shown in the Coolant gauge).
                   </div>
                 </div>
 
                 <div class="stat">
-                  <div class="k">Mass factor model</div>
+                  <div class="k">Mass factor + response lag</div>
                   <div class="eq" style="margin-top:8px">
 refMass = 75,000 kg
 massFactor = clamp( sqrt(refMass / totalMass), 0.65 .. 1.10 )
 effectiveSpeed = sliderSpeed × massFactor
-ETA_real_seconds = remainingSimMinutes / effectiveSpeed</div>
+
+Response lag:
+τMach = τMach_base · (totalMass/refMass)^0.70
+τAlt  = τAlt_base  · (totalMass/refMass)^0.70</div>
                 </div>
               </div>
             </div>
@@ -423,13 +511,13 @@ ETA_real_seconds = remainingSimMinutes / effectiveSpeed</div>
 
           <div class="extrasStack">
             <div class="stat">
-              <div class="k">A → B Track (curved route) • moving aircraft icon</div>
+              <div class="k">A → B Track (curved route) • moving aircraft icon • compression glow</div>
               <div class="mapWrap" style="margin-top:8px">
                 <canvas id="map" width="900" height="320"></canvas>
                 <div class="mapLegend">
                   <span class="miniPill">A: Tokyo area</span>
                   <span class="miniPill">B: Paris</span>
-                  <span class="miniPill">Curve is stylized “curvature”</span>
+                  <span class="miniPill">Glow increases with compression proxy</span>
                 </div>
               </div>
             </div>
@@ -480,7 +568,6 @@ ETA_real_seconds = remainingSimMinutes / effectiveSpeed</div>
   </section>
 
 </div><!-- wrap -->
-<!-- ======================= PART 2 / 4 ======================= -->
 <script>
 /* ===================== DATA (from your Excel) ===================== */
 const TRIP_LEN_MIN = 146.0;
@@ -600,7 +687,6 @@ function highlightStep(step){
   }
 }
 </script>
-<!-- ======================= PART 3 / 4 ======================= -->
 <script>
 /* ===================== UI REFS ===================== */
 const btnStart = el("btnStart");
@@ -636,6 +722,15 @@ const coolEl = el("cool");
 const stabEl = el("stab");
 const cstNote = el("cstNote");
 
+const compCEl = el("compC");
+const compIdxEl = el("compIdx");
+const compNote = el("compNote");
+
+const lightStable = el("lightStable");
+const lightCaution = el("lightCaution");
+const lightUnstable = el("lightUnstable");
+const annNote = el("annNote");
+
 const dotTherm = el("dotTherm");
 const dotLoad  = el("dotLoad");
 const dotNav   = el("dotNav");
@@ -667,15 +762,22 @@ const coolRemainLbl = el("coolRemainLbl");
 const jetBar = el("jetBar");
 const scramBar = el("scramBar");
 const coolBar = el("coolBar");
+const jetCapLbl = el("jetCapLbl");
+const scramCapLbl = el("scramCapLbl");
+const coolCapLbl = el("coolCapLbl");
 
 const mapCanvas = el("map");
 const ctx = mapCanvas.getContext("2d");
 
-/* ===================== TUNABLES (verified) ===================== */
+/* ===================== TUNABLES (checked) ===================== */
 // Loads/heating scaling
 const q_ref_kPa = 50.0;
 const q_bad_kPa = 120.0;
 const H_bad = 2.0;
+
+// NEW: Compression proxy scaling
+const q_comp_kPa = 35.0;
+const C_bad = 6.0;
 
 // Skin thermal model (stable simple ODE)
 const k_heat = 0.35;
@@ -690,10 +792,11 @@ const gCold = 0.18;
 const gMach = 0.15;
 
 // Stability weights (sum <= 1 with inertia)
-const wq = 0.35;
-const wH = 0.35;
-const wRamp = 0.20;
+const wq = 0.33;
+const wH = 0.33;
+const wRamp = 0.18;
 const wBand = 0.10;
+const wTrack = 0.06; // NEW: tracking-error penalty
 
 // Fuel burn rates (kg per sim minute)
 const burnJet_takeoff = 55;
@@ -705,16 +808,32 @@ const burnScram_cruise = 110;
 // Mass factor reference
 const refMass = 75000;
 
+// NEW: response lag bases (seconds)
+const tauMach_base = 10.0;
+const tauAlt_base  = 14.0;
+
 /* ===================== STATE ===================== */
 let running = false;
-let tMin = 0.0;          // sim minutes
-let lastTs = null;       // real ms timestamp
-let Tskin = atmAt(0).T;  // K
+let tMin = 0.0;            // sim minutes
+let lastTs = null;         // real ms timestamp
+let Tskin = atmAt(0).T;    // K
 
-let depReal = null;      // Date (locked at Start)
-let jetFuelRemain = 0;
-let scramFuelRemain = 0;
-let coolantRemain = 0;
+let depReal = null;        // Date (locked at Start)
+
+// Tanks: remain + capacity (caps)
+let jetFuelRemain = 0, scramFuelRemain = 0, coolantRemain = 0;
+let jetCap = 0, scramCap = 0, coolCap = 0;
+
+// NEW: actual (lagged) vehicle states
+let MachAct = 0.0;
+let AltAct  = 0.0;
+
+// NEW: last actual coolant flow for display
+let lastCoolFlow = 0.0;
+
+// NEW: stability flicker memory (for blinking note)
+let unstableHoldSec = 0.0;
+let lastAnn = "STOP";
 
 /* ===================== DERIVED / MODELS ===================== */
 function setStatus(txt, cls){ statusLbl.textContent = txt; statusLbl.className = cls; }
@@ -748,10 +867,10 @@ function coolantCommand(H, Cold, Mach){
   return clamp(cmd, m_min, m_max);
 }
 
-function stabilityScore(q_kPa, H, ramp, bandPen, inertiaPen){
+function stabilityScore(q_kPa, H, ramp, bandPen, inertiaPen, trackPen){
   const qn = clamp(q_kPa / q_bad_kPa, 0, 1);
   const Hn = clamp(H / H_bad, 0, 1);
-  const score = 1 - (wq*qn + wH*Hn + wRamp*ramp + wBand*bandPen + inertiaPen);
+  const score = 1 - (wq*qn + wH*Hn + wRamp*ramp + wBand*bandPen + wTrack*trackPen + inertiaPen);
   return clamp(score, 0, 1);
 }
 
@@ -775,6 +894,16 @@ function massFactor(){
 }
 function effectiveSpeedSimMinPerSec(){
   return Number(spd.value) * massFactor();
+}
+
+/* NEW: response lag time constants */
+function tauMachSec(){
+  const tm = Math.max(1, totalMass());
+  return tauMach_base * Math.pow(tm/refMass, 0.70);
+}
+function tauAltSec(){
+  const tm = Math.max(1, totalMass());
+  return tauAlt_base * Math.pow(tm/refMass, 0.70);
 }
 
 /* Timezones */
@@ -832,7 +961,7 @@ Paris (${TZ_PARIS}): ${fmtInTZ(arr, TZ_PARIS)}`;
   arrNote.textContent = "Computed from current time + ETA.";
 }
 
-/* Meters */
+/* Meters (always live) */
 function updateMassLabels(){
   mAirLbl.textContent = String(Number(mAir.value));
   mScramSysLbl.textContent = String(Number(mScramSys.value));
@@ -843,18 +972,23 @@ function updateMassLabels(){
   massFactorLbl.textContent = fmt(massFactor(), 2) + "×";
 }
 
-function setTankBars(){
-  const jetInit = Number(mJetFuel.value);
-  const scramInit = Number(mScramFuel.value);
-  const coolInit = Number(mCoolant.value);
+function syncCapsFromSliders(){
+  jetCap = Number(mJetFuel.value);
+  scramCap = Number(mScramFuel.value);
+  coolCap = Number(mCoolant.value);
+  jetCapLbl.textContent = fmt(jetCap,0);
+  scramCapLbl.textContent = fmt(scramCap,0);
+  coolCapLbl.textContent = fmt(coolCap,0);
+}
 
+function setTankBars(){
   jetRemainLbl.textContent = fmt(jetFuelRemain, 0);
   scramRemainLbl.textContent = fmt(scramFuelRemain, 0);
   coolRemainLbl.textContent = fmt(coolantRemain, 0);
 
-  const jetPct = jetInit>0 ? clamp(jetFuelRemain/jetInit,0,1) : 0;
-  const scramPct = scramInit>0 ? clamp(scramFuelRemain/scramInit,0,1) : 0;
-  const coolPct = coolInit>0 ? clamp(coolantRemain/coolInit,0,1) : 0;
+  const jetPct = jetCap>0 ? clamp(jetFuelRemain/jetCap,0,1) : 0;
+  const scramPct = scramCap>0 ? clamp(scramFuelRemain/scramCap,0,1) : 0;
+  const coolPct = coolCap>0 ? clamp(coolantRemain/coolCap,0,1) : 0;
 
   jetBar.style.width = (jetPct*100).toFixed(1)+"%";
   scramBar.style.width = (scramPct*100).toFixed(1)+"%";
@@ -865,7 +999,7 @@ function setTankBars(){
 const Apos = {x:0.18, y:0.62};
 const Bpos = {x:0.78, y:0.40};
 
-function drawMap(progress01){
+function drawMap(progress01, compIndex01){
   const W = mapCanvas.width, H = mapCanvas.height;
   ctx.clearRect(0,0,W,H);
 
@@ -937,6 +1071,19 @@ function drawMap(progress01){
   const p2 = bezierPoint(clamp(t+0.01,0,1));
   const ang = Math.atan2(p2.y-p.y, p2.x-p.x);
 
+  // compression glow ring
+  const glow = clamp(compIndex01||0, 0, 1);
+  if (glow > 0.02){
+    ctx.save();
+    ctx.globalAlpha = 0.6*glow;
+    ctx.strokeStyle = "rgba(96,165,250,1)";
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 18 + 22*glow, 0, Math.PI*2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   // plane icon
   ctx.save();
   ctx.translate(p.x, p.y);
@@ -952,26 +1099,46 @@ function drawMap(progress01){
   ctx.restore();
 }
 </script>
-<!-- ======================= PART 4 / 4 ======================= -->
 <script>
-/* ===================== RENDER + LOOP (buttons fixed) ===================== */
+/* ===================== RENDER + LOOP (fixed live burn + compression + blinking lights) ===================== */
 function setTripLen(){
   const t = el("tripLen");
   if (t) t.textContent = `${TRIP_LEN_MIN.toFixed(0)} min`;
+}
+
+function applySliderCapsWhenStopped(){
+  // If user changes capacities while stopped, we keep it intuitive:
+  // remaining == capacity (fresh tanks) unless they are mid-flight.
+  syncCapsFromSliders();
+  if (!running){
+    jetFuelRemain = jetCap;
+    scramFuelRemain = scramCap;
+    coolantRemain = coolCap;
+    setTankBars();
+  }
 }
 
 function resetAll(){
   running = false;
   lastTs = null;
   tMin = 0.0;
+
+  // reset physics states
+  MachAct = 0.0;
+  AltAct  = 0.0;
   Tskin = atmAt(0).T;
+  lastCoolFlow = 0.0;
 
   depReal = null;
 
-  // reset tanks from sliders
-  jetFuelRemain = Number(mJetFuel.value);
-  scramFuelRemain = Number(mScramFuel.value);
-  coolantRemain = Number(mCoolant.value);
+  // reset caps + tanks from sliders
+  syncCapsFromSliders();
+  jetFuelRemain = jetCap;
+  scramFuelRemain = scramCap;
+  coolantRemain = coolCap;
+
+  unstableHoldSec = 0.0;
+  lastAnn = "STOP";
 
   setStatus("Stopped", "warn");
   setButtons();
@@ -981,39 +1148,90 @@ function resetAll(){
   renderArrivalETA();
   render();
   highlightStep(null);
-  drawMap(0);
+  drawMap(0,0);
+}
+
+function setAnnunciator(stab, runningNow){
+  // thresholds with brief hold memory so it can blink for a few seconds on dips
+  const STABLE_T = 0.70;
+  const UNSTABLE_T = 0.45;
+
+  lightStable.className = "light";
+  lightCaution.className = "light";
+  lightUnstable.className = "light";
+
+  if (!runningNow){
+    annNote.textContent = "Stopped: lights idle (will update during flight).";
+    return;
+  }
+
+  let state = "STABLE";
+  if (stab < UNSTABLE_T) state = "UNSTABLE";
+  else if (stab < STABLE_T) state = "CAUTION";
+
+  // hold “unstable” blink for a moment even if it recovers quickly
+  if (state === "UNSTABLE") unstableHoldSec = 2.5;
+  if (unstableHoldSec > 0 && state !== "UNSTABLE") state = "CAUTION"; // recovery caution window
+
+  if (state === "STABLE"){
+    lightStable.classList.add("on-good");
+    annNote.textContent = "Stable: no blink. (If stability dips, lights will switch.)";
+  } else if (state === "CAUTION"){
+    lightCaution.classList.add("on-warn","blink");
+    annNote.textContent = "Caution: blinking while stability is marginal / recovering.";
+  } else {
+    lightUnstable.classList.add("on-bad","blink");
+    annNote.textContent = "Unstable: blinking. Autopilot would normally reduce aggressiveness.";
+  }
+
+  lastAnn = state;
+}
+
+function dotColor(dotEl, level){
+  const c = (level < 0.33) ? "rgba(52,211,153,.85)" : (level < 0.66) ? "rgba(251,191,36,.85)" : "rgba(251,113,133,.85)";
+  dotEl.style.background = c;
+}
+
+function plannedAt(t){
+  const s = stepAt(t);
+  const span = Math.max(1e-9, (s.t1 - s.t0));
+  const frac = clamp((t - s.t0)/span, 0, 1);
+  const MachPlan = s.mach0 + frac*(s.mach1 - s.mach0);
+  const AltPlan  = s.alt0  + frac*(s.alt1  - s.alt0);
+  return {s, frac, MachPlan, AltPlan};
 }
 
 function render(){
-  const s = stepAt(tMin);
-  const span = Math.max(1e-9, (s.t1 - s.t0));
-  const frac = clamp((tMin - s.t0)/span, 0, 1);
+  const {s, MachPlan, AltPlan} = plannedAt(tMin);
 
-  const Mach = s.mach0 + frac*(s.mach1 - s.mach0);
-  const Alt  = s.alt0  + frac*(s.alt1  - s.alt0);
-
-  const Aatm = atmAt(Alt);
-  const V = Mach * Aatm.a;
+  // Use actual states for atmosphere + derived
+  const Aatm = atmAt(AltAct);
+  const V = MachAct * Aatm.a;
   const q_kPa = 0.5 * Aatm.rho * V * V / 1000.0; // Pa->kPa
   const H = q_kPa / q_ref_kPa;
 
-  const med = mediumType(Alt);
+  const med = mediumType(AltAct);
   const Cold = coldIndex(Aatm.T);
 
   const ramp = rampMetric(s);
   const bandPen = bandPenalty(s);
 
-  // inertia penalty from mass (kept small so stability stays meaningful)
+  // Tracking error penalty (if heavy craft lags the plan, stability can dip)
+  const eMach = Math.abs(MachPlan - MachAct);
+  const eAlt  = Math.abs(AltPlan  - AltAct);
+  const trackPen = clamp((eMach/2.5) + 0.35*(eAlt/12.0), 0, 1);
+
+  // inertia penalty from mass
   const tm = totalMass();
   const massOver = clamp((tm/refMass) - 1.0, 0, 1.0);
-  let inertiaPen = 0.08 * massOver;
+  let inertiaPen = 0.09 * massOver;
   if (unmanned.checked) inertiaPen *= 0.75;
 
-  // coolant command (display cap if tank empty)
-  const cmd = coolantCommand(H, Cold, Mach);
-  const mDotDisplay = (coolantRemain > 0) ? cmd : 0;
+  const stab = stabilityScore(q_kPa, H, ramp, bandPen, inertiaPen, trackPen);
 
-  const stab = stabilityScore(q_kPa, H, ramp, bandPen, inertiaPen);
+  // Compression proxy
+  const C = 1 + (q_kPa / q_comp_kPa) + 0.12*MachAct;
+  const compIdx = clamp((C - 1) / (C_bad - 1), 0, 1);
 
   // Panels
   tNow.textContent = fmt(tMin, 2);
@@ -1025,8 +1243,8 @@ function render(){
   stepNow.textContent = s.step;
   phaseNow.textContent = s.phase;
 
-  machEl.textContent = fmt(Mach, 2);
-  altEl.textContent = fmt(Alt, 1);
+  machEl.textContent = fmt(MachAct, 2);
+  altEl.textContent = fmt(AltAct, 1);
 
   mediumEl.textContent = med;
   coldEl.textContent = fmt(Cold, 2);
@@ -1038,8 +1256,13 @@ function render(){
   HEl.textContent = fmt(H, 2);
   TskinEl.textContent = fmt(Tskin, 2);
 
-  coolEl.textContent = fmt(mDotDisplay, 2);
+  coolEl.textContent = fmt(lastCoolFlow, 2);
   stabEl.textContent = fmt(stab, 2);
+
+  compCEl.textContent = fmt(C, 2);
+  compIdxEl.textContent = fmt(compIdx, 2);
+  compNote.textContent =
+    `q=${fmt(q_kPa,1)} kPa • Mach=${fmt(MachAct,2)} • C=${fmt(C,2)} • compIndex=${fmt(compIdx,2)} (higher = more compression/shock proxy).`;
 
   cstNote.textContent = s.cst || "—";
 
@@ -1056,18 +1279,23 @@ function render(){
   dotColor(dotComm, commRisk);
 
   riskTxt.innerHTML =
-    `Medium: <span class="mono">${med}</span> • ` +
-    `ColdIndex=<span class="mono">${fmt(Cold,2)}</span> • ` +
-    `Ramp=<span class="mono">${fmt(ramp,2)}</span> • ` +
+    `PlanMach=<span class="mono">${fmt(MachPlan,2)}</span> • ` +
+    `LagMach=<span class="mono">${fmt(Math.abs(MachPlan-MachAct),2)}</span> • ` +
+    `LagAlt=<span class="mono">${fmt(Math.abs(AltPlan-AltAct),1)}km</span> • ` +
     `BandPen=<span class="mono">${fmt(bandPen,2)}</span> • ` +
     `Mass=<span class="mono">${fmt(tm,0)}kg</span> • ` +
     `Stability=<span class="mono">${fmt(stab,2)}</span>`;
 
   highlightStep(s.step);
-  drawMap(tMin / TRIP_LEN_MIN);
+  drawMap(tMin / TRIP_LEN_MIN, compIdx);
 
   updateMassLabels();
   renderArrivalETA();
+  setAnnunciator(stab, running);
+
+  // keep meters always accurate
+  syncCapsFromSliders();
+  setTankBars();
 }
 
 function loop(ts){
@@ -1077,28 +1305,32 @@ function loop(ts){
   const dtReal = (ts - lastTs) / 1000.0;
   lastTs = ts;
 
-  // Effective speed uses mass factor
+  // Effective speed uses mass factor (time compression)
   const eff = effectiveSpeedSimMinPerSec();
   const dtMin = eff * dtReal;
   tMin += dtMin;
 
-  // Current conditions for integration
-  const s = stepAt(tMin);
-  const span = Math.max(1e-9, (s.t1 - s.t0));
-  const frac = clamp((tMin - s.t0)/span, 0, 1);
+  // Plan at new time
+  const {s, MachPlan, AltPlan} = plannedAt(tMin);
 
-  const Mach = s.mach0 + frac*(s.mach1 - s.mach0);
-  const Alt  = s.alt0  + frac*(s.alt1  - s.alt0);
-  const Aatm = atmAt(Alt);
-  const V = Mach * Aatm.a;
+  // Convert to sim seconds for integration
+  const dtSimSec = dtMin * 60.0;
+
+  // Mass-dependent response lag (first order)
+  const aMach = 1 - Math.exp(-dtSimSec / Math.max(0.5, tauMachSec()));
+  const aAlt  = 1 - Math.exp(-dtSimSec / Math.max(0.5, tauAltSec()));
+  MachAct += (MachPlan - MachAct) * aMach;
+  AltAct  += (AltPlan  - AltAct ) * aAlt;
+
+  // Current conditions using actual states
+  const Aatm = atmAt(AltAct);
+  const V = MachAct * Aatm.a;
   const q_kPa = 0.5 * Aatm.rho * V * V / 1000.0;
   const H = q_kPa / q_ref_kPa;
   const Cold = coldIndex(Aatm.T);
 
-  const dtSimSec = dtMin * 60.0;
-
-  // Coolant: command then cap by remaining tank
-  const mDotCmd = coolantCommand(H, Cold, Mach);
+  // Coolant: command then cap by remaining tank (ACTUAL FLOW saved)
+  const mDotCmd = coolantCommand(H, Cold, MachAct);
   let mDot = mDotCmd;
   if (coolantRemain <= 0){
     mDot = 0;
@@ -1106,20 +1338,25 @@ function loop(ts){
     const maxPossible = coolantRemain / Math.max(1e-9, dtSimSec); // kg/s
     mDot = Math.min(mDotCmd, maxPossible);
   }
+  lastCoolFlow = mDot;
   coolantRemain = Math.max(0, coolantRemain - (mDot * dtSimSec));
 
-  // Thermal update: heating toward (Tamb + deltaHot), cooling to Tamb (boosted by mDot)
-  const coolBoost = (mDotCmd <= 0) ? 1 : (1 + 1.6*clamp((mDot - m_min)/(m_max - m_min), 0, 1));
+  // Thermal update: heating toward (Tamb + deltaHot), cooling to Tamb (boosted by actual mDot)
+  const coolFrac = (m_max > m_min) ? clamp((mDot - m_min)/(m_max - m_min), 0, 1) : 0;
+  const coolBoost = 1 + 1.6*coolFrac;
   const kCoolEff = k_cool * coolBoost;
+
   const heatTarget = Aatm.T + deltaHot;
   const dT = (k_heat * H * (heatTarget - Tskin)) - (kCoolEff * (Tskin - Aatm.T));
   Tskin += dT * (dtSimSec/60.0);
 
-  // Fuel burn
+  // Fuel burn (ALWAYS ACTIVE while running)
   const burns = burnRatesForStep(s);
   jetFuelRemain = Math.max(0, jetFuelRemain - burns.jet * dtMin);
   scramFuelRemain = Math.max(0, scramFuelRemain - burns.scram * dtMin);
-  setTankBars();
+
+  // decrement hold timer for annunciator memory
+  if (unstableHoldSec > 0) unstableHoldSec = Math.max(0, unstableHoldSec - dtReal);
 
   // End
   if (tMin >= TRIP_LEN_MIN){
@@ -1140,6 +1377,13 @@ btnStart.addEventListener("click", ()=>{
   if (!depReal) depReal = new Date();
   renderDepTimes();
 
+  // Ensure caps are synced; if starting from stop at t=0, align states cleanly
+  syncCapsFromSliders();
+  if (tMin === 0){
+    MachAct = 0; AltAct = 0; Tskin = atmAt(0).T;
+    // tanks already set by reset or by stopped slider edits
+  }
+
   running = true;
   lastTs = null;
   setStatus("Running", "good");
@@ -1152,6 +1396,7 @@ btnStop.addEventListener("click", ()=>{
   lastTs = null;
   setStatus("Stopped", "warn");
   setButtons();
+  render(); // so lights go idle message
 });
 
 btnReset.addEventListener("click", resetAll);
@@ -1161,13 +1406,21 @@ spd.addEventListener("input", ()=>{
   renderArrivalETA();
 });
 
+/* Slider behavior FIX:
+   - While stopped: changing capacity sliders updates caps + remaining immediately (so user always sees meters move).
+   - While running: changing sliders only affects totalMass/massFactor (and thus response lag + timing),
+     but does NOT teleport tank remaining (keeps burn consistent). */
 [mAir,mScramSys,mJetFuel,mScramFuel,mCoolant,unmanned].forEach(x=>{
   x.addEventListener("input", ()=>{
     updateMassLabels();
     renderArrivalETA();
     if (!running){
-      // When stopped, keep remaining tanks aligned to slider values only after Reset
-      // (so the user sees stable behavior)
+      applySliderCapsWhenStopped();
+      render();
+    } else {
+      // while running: keep cap labels updated, but don't overwrite remaining
+      syncCapsFromSliders();
+      render();
     }
   });
 });
@@ -1181,8 +1434,10 @@ spdLbl.textContent = spd.value + "×";
 setInterval(()=>{
   updateMassLabels();
   renderArrivalETA();
-  if (!running) drawMap(tMin / TRIP_LEN_MIN);
-  if (!depReal) renderDepTimes();
+  if (!running) {
+    if (!depReal) renderDepTimes();
+    render(); // keeps time + lights + map fresh
+  }
 }, 1000);
 
 resetAll();
