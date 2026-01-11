@@ -5,7 +5,7 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>SPR-C • Dyson Sphere Panel • Prune/Decay Monitor • HUD + Entanglement</title>
-<meta name="description" content="SPR-C simulation with clear Dyson Sphere control panel + prune/decay monitor, plus HUD entanglement and per-side power. Includes a consistent unit-circle γ+MET feature note (atan2 + sqrt normalization)."/>
+<meta name="description" content="SPR-C simulation with clear Dyson Sphere control panel + prune/decay monitor, plus HUD entanglement and per-side power. Includes a consistent unit-circle γ+MET feature note (atan2 + sqrt normalization). HEP panel animates per scenario click (stable/unstable)."/>
 <style>
   :root{
     --bg:#0a1020;--panel:#101736;--ink:#eaf2ff;--muted:#a9b6dd;--border:#1f2b56;--accent:#86b4ff;
@@ -342,7 +342,7 @@
             <button id="btnClearVault" class="btnMini">Clear Vault</button>
           </div>
 
-          <!-- Ontology note (addresses the idealism objection, keeps it empirically grounded) -->
+          <!-- Ontology note -->
           <div class="dyBox" style="margin-top:10px">
             <h3>Ontology note (keeps this “physics-friendly”)</h3>
             <div class="small" style="color:#9bd2ff;line-height:1.45">
@@ -353,7 +353,7 @@
           </div>
         </div>
 
-        <!-- NEW: γ + MET / HEP consistent geometry helper (fixes the sin/cos vs arctan mismatch) -->
+        <!-- γ + MET / HEP consistent geometry helper -->
         <div class="dyPanel" aria-label="γ + MET Geometry Helper">
           <div class="panelTitle">γ + MET Geometry (consistent unit-circle features)</div>
 
@@ -399,12 +399,13 @@
 
               <div class="small" style="color:#9bd2ff;line-height:1.45;margin-top:8px">
                 Note: using <b>pT^γ</b> vs <b>ETmiss</b> keeps everything transverse, which is typically cleaner for collider pipelines.
+                This panel will <b>animate</b> when you click scenarios (stable vs unstable linkage).
               </div>
             </div>
           </div>
         </div>
 
-        <!-- Prune/Decay monitor (shows actual actions) -->
+        <!-- Prune/Decay monitor -->
         <div class="dyPanel" aria-label="Prune/Decay Monitor">
           <div class="panelTitle">Prune/Decay Monitor (live)</div>
 
@@ -655,7 +656,7 @@
   }
 
   /* =========================================================
-     NEW: HEP geometry calculator (consistent atan2 + sqrt norm)
+     HEP geometry calculator (consistent atan2 + sqrt norm)
      ========================================================= */
   function updateHEP(){
     const ptg = Math.max(0, Number(hepPtG.value || 0));
@@ -666,12 +667,9 @@
     const cos = (denom > 0) ? (etm/denom) : 1;
     const K = sin*sin + cos*cos;
     const v = (ptg + etm > 0) ? (ptg/(ptg+etm)) : 0;
-
     const deg = phi * 180/Math.PI;
 
-    // mode display (still compute everything; only show what matters)
     const mode = hepMode.value;
-
     hepPhi.textContent = deg.toFixed(2);
     hepSin.textContent = (mode === 'frac') ? '—' : sin.toFixed(4);
     hepCos.textContent = (mode === 'frac') ? '—' : cos.toFixed(4);
@@ -681,6 +679,66 @@
   hepPtG.addEventListener('input', updateHEP);
   hepEtMiss.addEventListener('input', updateHEP);
   hepMode.addEventListener('change', updateHEP);
+
+  /* =========================================================
+     NEW: HEP animation + stability-linked updates (per scenario)
+     ========================================================= */
+  function animateInputTo(inputEl, target, ms=420){
+    const start = Number(inputEl.value || 0);
+    const t0 = performance.now();
+    const clamp01 = (x)=>Math.max(0, Math.min(1, x));
+    const ease = (x)=>1 - Math.pow(1 - x, 3); // easeOutCubic
+
+    function frame(t){
+      const u = clamp01((t - t0) / ms);
+      const v = start + (target - start) * ease(u);
+      inputEl.value = v.toFixed(1);
+      updateHEP();
+      if(u < 1) requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function isStableDecision(decisionYES, clsLabel){
+    // stable = robot chooses YES AND classifier is not bad
+    return !!decisionYES && clsLabel !== 'bad';
+  }
+
+  function proposeHEPValues(stable, budget, clsLabel){
+    const base = 120 + 60 * (budget - 0.5);
+    let ptg, etm;
+
+    if(stable){
+      ptg = base + 40 + Math.random()*35;
+      etm = base - 40 + Math.random()*30;
+    } else {
+      ptg = base - 10 + Math.random()*40;
+      etm = base + 60 + Math.random()*60;
+    }
+
+    if(clsLabel === 'bad'){
+      etm *= 1.15;
+      ptg *= 0.92;
+    }
+
+    ptg = Math.max(0, Math.min(600, ptg));
+    etm = Math.max(0, Math.min(600, etm));
+    return {ptg, etm};
+  }
+
+  function nudgeHEPFromScenario(decisionYES, clsLabel){
+    const stable = isStableDecision(decisionYES, clsLabel);
+    const vals = proposeHEPValues(stable, VAULT.budget, clsLabel);
+
+    // Force unit-circle mode when scenarios run (keeps K_ϕ meaningful)
+    hepMode.value = 'unit';
+
+    animateInputTo(hepPtG, vals.ptg, 520);
+    animateInputTo(hepEtMiss, vals.etm, 520);
+
+    log(`HEP features updated: ${stable ? 'STABLE' : 'UNSTABLE'} → pT^γ=${vals.ptg.toFixed(1)} GeV, ETmiss=${vals.etm.toFixed(1)} GeV`, stable ? 'meta' : 'warn');
+  }
+<!-- ======================= PART 3 / 4 ======================= -->
 
   /* =========================================================
      Prune/Decay Monitor (what it is doing)
@@ -851,7 +909,7 @@
       return {label:'neutral', p:0.55, reason:'context needed'};
     return {label:'neutral', p:0.50, reason:'unknown'};
   }
-<!-- ======================= PART 3 / 4 ======================= -->
+
   /* =========================================================
      Scenarios
      ========================================================= */
@@ -978,6 +1036,7 @@
   function resetAll(){
     resetUIOnly();
     updateDysonUI();
+    updateHEP();
     log('Full reset done.','meta');
   }
 
@@ -990,6 +1049,7 @@
     updateDysonUI();
     pruneAndDecayTick('after clear (manual)');
     resetUIOnly();
+    updateHEP();
     log('Vault cleared (localStorage).','warn');
   });
 
@@ -999,6 +1059,7 @@
      Scenario runner
      ========================================================= */
   async function runScenario(s,btn){
+    // visible tick at scenario start
     pruneAndDecayTick('scenario start');
 
     resetUIOnly();
@@ -1026,6 +1087,9 @@
     setStep('gate');
     const decisionYES = ethicsYes;
     lamp(DG, decisionYES ? 'yes' : 'no');
+
+    // NEW: move the HEP calculator every scenario click (stable/unstable linkage)
+    nudgeHEPFromScenario(decisionYES, cls.label);
 
     VAULT.last = {
       scenarioId: s.id,
@@ -1088,6 +1152,7 @@
     }
   }
 <!-- ======================= PART 4 / 4 ======================= -->
+
   /* =========================================================
      Auto prune/decay ticker + countdown
      ========================================================= */
@@ -1114,7 +1179,8 @@
 
   resetUIOnly();
   log('Boot: Dyson panel visible. Big switch toggles persistence. Prune/Decay monitor shows exactly what gets removed each tick.','meta');
-  log('HEP note: ϕ_evt uses atan2(pT^γ, ETmiss) and √(pT^2+ETmiss^2) normalization so K_ϕ = 1.','meta');
+  log('HEP: ϕ_evt uses atan2(pT^γ, ETmiss) and √(pT^2+ETmiss^2) normalization so K_ϕ = 1.','meta');
+  log('HEP animation: scenario clicks drive stable/unstable updates (values animate).','meta');
 
   pruneAndDecayTick('boot tick');
   nextTickAt = Date.now() + DECAY.tickMs;
