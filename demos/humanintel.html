@@ -253,7 +253,7 @@ canvas, svg{
 }
 .logMsg{font-size:12px; color:#dbeafe; margin-top:4px; line-height:1.35}
 
-/* NEW: Formula viewer */
+/* Formula viewer */
 .formulaBox{
   border-radius:14px;
   border:1px solid rgba(148,163,184,.22);
@@ -319,7 +319,7 @@ canvas, svg{
   </p>
   <p class="sub">
     Instrument layer: <strong>Terminal Q</strong> (phase-discipline gate), <strong>Structural Synchrony S<sub>Moio</sub></strong> (coherence proxy),
-    <strong>OFN/TCFQ</strong> (ξ=3/4, β=1/4) + <strong>W₂²</strong> convergence dial. Now includes <strong>Show formulas</strong> for audit.
+    <strong>OFN/TCFQ</strong> (ξ=3/4, β=1/4) + <strong>W₂²</strong> convergence dial. Includes <strong>Show formulas</strong> for audit.
   </p>
 </header>
 
@@ -468,7 +468,6 @@ canvas, svg{
           </div>
         </div>
 
-        <!-- Efficiency-first Perception -->
         <div class="card" style="margin-top:10px;">
           <h2 style="margin:0 0 6px; font-size:14px;">🧠 Efficiency-first Perception (Compression Panel)</h2>
 
@@ -493,7 +492,6 @@ canvas, svg{
           <div class="mini muted" id="perceptionNote"></div>
         </div>
 
-        <!-- Terminal Q + S_Moio + OFN/TCFQ -->
         <div class="card" style="margin-top:10px;">
           <h2 style="margin:0 0 6px; font-size:14px;">🧿 Terminal Q / Structural Synchrony / OFN–TCFQ (Instrument Layer)</h2>
 
@@ -553,7 +551,6 @@ canvas, svg{
               <div id="ofnBars" style="margin-top:8px;"></div>
               <div class="mini muted" id="ofnNote"></div>
 
-              <!-- NEW: Show formulas toggle -->
               <div class="toggle" style="margin-top:10px;" title="Shows the exact equations and live substituted values used for audit">
                 <input id="formulaToggle" type="checkbox" />
                 <label for="formulaToggle">Show formulas (audit)</label>
@@ -572,7 +569,6 @@ canvas, svg{
             </div>
           </div>
 
-          <!-- NEW: Formula card (hidden unless toggle on) -->
           <div class="card" id="formulaCard" style="margin-top:10px; display:none;">
             <div class="mini muted" style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
               <strong>Formula Audit (exact equations + live substitution)</strong>
@@ -660,6 +656,9 @@ canvas, svg{
 </div>
 <!-- ======================= PART 2 / 4 ======================= -->
 <script>
+/* Everything runs after DOM is ready (prevents "null element" crashes). */
+window.addEventListener("DOMContentLoaded", () => {
+
 /* ========= Utilities ========= */
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 const lerp=(a,b,t)=>a+(b-a)*t;
@@ -831,65 +830,37 @@ const materialPresets = {
 
 function terminalQModel(Q, idx, ret, teach, collapse, P, metricEmergent){
   const q = clamp(Q,0,1);
-
-  // survivability = 0.46*ret + 0.34*teach + 0.20*(1-collapse)
   const survivability = clamp((ret*0.46 + teach*0.34 + (1-collapse)*0.20), 0, 1);
-
-  // coherence = 1 - 0.75*| perceivedStability - (1 - errorSensitivity) |
   const coherence = clamp(1 - Math.abs(P.perceivedStability - (1-P.errorSensitivity))*0.75, 0, 1);
-
-  // gateScore = 0.40*q + 0.25*idx + 0.20*survivability + 0.15*coherence
   const gateScore = clamp(0.40*q + 0.25*idx + 0.20*survivability + 0.15*coherence, 0, 1);
-
-  // gateOpen = gateScore>0.72 && collapse<0.42 && q>0.62
   const gateOpen = (gateScore > 0.72) && (collapse < 0.42) && (q > 0.62);
-
   const label = metricEmergent ? "Geometry-enabled gate" : "Phase-adjacency gate";
   return {q, survivability, coherence, gateScore, gateOpen, label};
 }
 
 function smoioModel(presetKey, Qm, idx, ret, teach, collapse, P, metricEmergent){
   const preset = materialPresets[presetKey] || materialPresets.generic;
-
-  // phaseAssist = 0.55*q + 0.25*coherence + 0.20*(1-collapse)
   const phaseAssist = clamp(0.55*Qm.q + 0.25*Qm.coherence + 0.20*(1-collapse), 0, 1);
-
-  // costPenalty = 0.35*processingCost + 0.35*collapse + 0.30*(1-ret)
   const costPenalty = clamp(P.processingCost*0.35 + collapse*0.35 + (1-ret)*0.30, 0, 1);
-
-  // S = base*(0.55+0.45*phaseAssist)*(1 - damp*costPenalty)
   let S = clamp(preset.base*(0.55 + 0.45*phaseAssist) * (1 - preset.damp*costPenalty), 0, 1);
-
-  // if metricEmergent=false, slightly reduce to reflect "structural" interpretation loss
   if(!metricEmergent) S = clamp(S*0.96, 0, 1);
-
-  // residualKm = (1-S)*0.12  (proxy display mapping)
   const residualKm = clamp((1 - S)*0.12, 0, 0.12);
   return {preset, S, residualKm, phaseAssist, costPenalty};
 }
 
 function ofnModel(Qm, Sm, idx, ret, teach, collapse, P, metricEmergent){
-  // entropy = 0.55*collapse + 0.25*processingCost + 0.20*(1-S)
   const entropy = clamp(0.55*collapse + 0.25*P.processingCost + 0.20*(1 - Sm.S), 0, 1);
-
-  // w2 = 1 - (0.62*gateScore + 0.18*idx + 0.20*(1-entropy))
   const w2 = clamp(1 - (0.62*Qm.gateScore + 0.18*idx + 0.20*(1-entropy)), 0, 1);
-
-  // adjacency = w2<0.33 && q>0.58
   const adjacency = (w2 < 0.33) && (Qm.q > 0.58);
-
   const note = metricEmergent
     ? "Metric-emergent ON: interpret W₂² as distance between geometry-enabled states (metaphor)."
     : "Metric-emergent OFF: interpret W₂² as phase-only adjacency distance (metaphor).";
-
   return {entropy, w2, adjacency, note};
 }
 
 /* ========= Crossover plot helper points ========= */
 const timePoints = [{t:"~300k"},{t:"~40k"},{t:"~10k"},{t:"~600"},{t:"1687"},{t:"1905"},{t:"2020"},{t:"fut"}];
-</script>
-<!-- ======================= PART 3 / 4 ======================= -->
-<script>
+
 /* ========= Biogeography ========= */
 const worldMap = document.getElementById("worldMap");
 const pinName = document.getElementById("pinName");
@@ -977,6 +948,7 @@ function mapBg(){
 }
 
 function renderWorldMap(model){
+  if(!worldMap) return;
   const {computed, linkStrength} = model;
 
   const linkSvg = linkStrength.map(L=>{
@@ -1022,6 +994,7 @@ Friction: ${Math.round(r.friction*100)}%`;
 }
 
 function updatePinnedRegion(model){
+  if(!pinName || !pinRetention || !pinIntensity || !pinDiffusion) return;
   const {computed, diffusion} = model;
   if(!pinnedRegionId){
     pinName.textContent = "None";
@@ -1039,9 +1012,10 @@ function updatePinnedRegion(model){
 
 /* ========= Crossover plot ========= */
 const canvas = document.getElementById("crossoverCanvas");
-const ctx = canvas.getContext("2d");
+const ctx = canvas ? canvas.getContext("2d") : null;
 
 function drawCrossover(selected){
+  if(!canvas || !ctx) return;
   const w = canvas.width, h = canvas.height;
   ctx.clearRect(0,0,w,h);
   ctx.fillStyle = "rgba(2,6,23,.25)";
@@ -1095,89 +1069,91 @@ function drawCrossover(selected){
   plot(pt=>pt.cul, "rgba(74,222,128,.95)");
 }
 </script>
-<!-- ======================= PART 4 / 4 ======================= -->
+<!-- ======================= PART 3 / 4 ======================= -->
 <script>
 /* ========= DOM refs ========= */
-const tableBody = document.getElementById("eventTable");
-const searchBox = document.getElementById("searchBox");
-const modeSelect = document.getElementById("modeSelect");
-const modeBadge = document.getElementById("modeBadge");
-const reviewerToggle = document.getElementById("reviewerToggle");
-const reviewerBox = document.getElementById("reviewerBox");
-const reviewerText = document.getElementById("reviewerText");
-const resetTuningBtn = document.getElementById("resetTuning");
-const printBtn = document.getElementById("printSelected");
-const printArea = document.getElementById("printArea");
+const $ = (id)=>document.getElementById(id);
 
-const selectedBadge = document.getElementById("selectedBadge");
-const kpiInt = document.getElementById("kpiInt");
-const kpiCollapse = document.getElementById("kpiCollapse");
-const distBars = document.getElementById("distBars");
+const tableBody = $("eventTable");
+const searchBox = $("searchBox");
+const modeSelect = $("modeSelect");
+const modeBadge = $("modeBadge");
+const reviewerToggle = $("reviewerToggle");
+const reviewerBox = $("reviewerBox");
+const reviewerText = $("reviewerText");
+const resetTuningBtn = $("resetTuning");
+const printBtn = $("printSelected");
+const printArea = $("printArea");
 
-const popSlider = document.getElementById("popSlider");
-const contactSlider = document.getElementById("contactSlider");
-const lossSlider = document.getElementById("lossSlider");
-const popNum = document.getElementById("popNum");
-const contactNum = document.getElementById("contactNum");
-const lossNum = document.getElementById("lossNum");
-const heatMap = document.getElementById("heatMap");
+const selectedBadge = $("selectedBadge");
+const kpiInt = $("kpiInt");
+const kpiCollapse = $("kpiCollapse");
+const distBars = $("distBars");
 
-const lifespanSlider = document.getElementById("lifespanSlider");
-const learnSlider = document.getElementById("learnSlider");
-const elderSlider = document.getElementById("elderSlider");
-const lifespanNum = document.getElementById("lifespanNum");
-const learnNum = document.getElementById("learnNum");
-const elderNum = document.getElementById("elderNum");
-const longevityBars = document.getElementById("longevityBars");
+const popSlider = $("popSlider");
+const contactSlider = $("contactSlider");
+const lossSlider = $("lossSlider");
+const popNum = $("popNum");
+const contactNum = $("contactNum");
+const lossNum = $("lossNum");
+const heatMap = $("heatMap");
 
-const shockSlider = document.getElementById("shockSlider");
-const resilienceSlider = document.getElementById("resilienceSlider");
-const shockNum = document.getElementById("shockNum");
-const resilienceNum = document.getElementById("resilienceNum");
-const riskBars = document.getElementById("riskBars");
-const riskNote = document.getElementById("riskNote");
+const lifespanSlider = $("lifespanSlider");
+const learnSlider = $("learnSlider");
+const elderSlider = $("elderSlider");
+const lifespanNum = $("lifespanNum");
+const learnNum = $("learnNum");
+const elderNum = $("elderNum");
+const longevityBars = $("longevityBars");
+
+const shockSlider = $("shockSlider");
+const resilienceSlider = $("resilienceSlider");
+const shockNum = $("shockNum");
+const resilienceNum = $("resilienceNum");
+const riskBars = $("riskBars");
+const riskNote = $("riskNote");
 
 /* Branch */
-const speciesSelect = document.getElementById("speciesSelect");
-const compareAllBtn = document.getElementById("compareAll");
-const branchSvg = document.getElementById("branchSvg");
-const speciesBars = document.getElementById("speciesBars");
+const speciesSelect = $("speciesSelect");
+const compareAllBtn = $("compareAll");
+const branchSvg = $("branchSvg");
+const speciesBars = $("speciesBars");
 
 /* Perception */
-const signalSlider = document.getElementById("signalSlider");
-const accuracySlider = document.getElementById("accuracySlider");
-const signalNum = document.getElementById("signalNum");
-const accuracyNum = document.getElementById("accuracyNum");
-const perceptionBars = document.getElementById("perceptionBars");
-const perceptionNote = document.getElementById("perceptionNote");
+const signalSlider = $("signalSlider");
+const accuracySlider = $("accuracySlider");
+const signalNum = $("signalNum");
+const accuracyNum = $("accuracyNum");
+const perceptionBars = $("perceptionBars");
+const perceptionNote = $("perceptionNote");
 
 /* Instrument layer */
-const terminalQSlider = document.getElementById("terminalQSlider");
-const terminalQNum = document.getElementById("terminalQNum");
-const terminalQBars = document.getElementById("terminalQBars");
-const terminalQGateNote = document.getElementById("terminalQGateNote");
-const metricToggle = document.getElementById("metricToggle");
+const terminalQSlider = $("terminalQSlider");
+const terminalQNum = $("terminalQNum");
+const terminalQBars = $("terminalQBars");
+const terminalQGateNote = $("terminalQGateNote");
+const metricToggle = $("metricToggle");
 
-const materialSelect = document.getElementById("materialSelect");
-const smoioBars = document.getElementById("smoioBars");
-const smoioNote = document.getElementById("smoioNote");
+const materialSelect = $("materialSelect");
+const smoioBars = $("smoioBars");
+const smoioNote = $("smoioNote");
 
-const ofnBars = document.getElementById("ofnBars");
-const ofnNote = document.getElementById("ofnNote");
+const ofnBars = $("ofnBars");
+const ofnNote = $("ofnNote");
 
 /* Event log */
-const eventLog = document.getElementById("eventLog");
-const clearLogBtn = document.getElementById("clearLog");
+const eventLog = $("eventLog");
+const clearLogBtn = $("clearLog");
 
-/* NEW: Formula viewer */
-const formulaToggle = document.getElementById("formulaToggle");
-const formulaCard = document.getElementById("formulaCard");
-const formulaBox = document.getElementById("formulaBox");
+/* Formula viewer */
+const formulaToggle = $("formulaToggle");
+const formulaCard = $("formulaCard");
+const formulaBox = $("formulaBox");
 
 let selectedStage = null;
 let compareAll = false;
 
-/* ========= Reviewer text (with provenance) ========= */
+/* ========= Reviewer text ========= */
 const reviewerCopy = `
 <strong>What the stage “data” is:</strong><br>
 • Stage rows are <em>illustrative summaries</em> of widely-known milestones (Upper Paleolithic symbolic culture, Neolithic agriculture, classical formal reasoning, Newton 1687, Einstein 1905, modern simulation/AI).<br>
@@ -1213,6 +1189,7 @@ function pushLog(msg){
   renderLog();
 }
 function renderLog(){
+  if(!eventLog) return;
   eventLog.innerHTML = logItems.map(x=>`
     <div class="logItem">
       <div class="logTop"><span>${x.t}</span><span>event</span></div>
@@ -1220,36 +1197,40 @@ function renderLog(){
     </div>
   `).join("") || `<div class="mini muted">No events yet. Select a stage or move a slider.</div>`;
 }
-clearLogBtn.addEventListener("click", ()=>{
-  logItems = [];
-  renderLog();
-});
+if(clearLogBtn){
+  clearLogBtn.addEventListener("click", ()=>{
+    logItems = [];
+    renderLog();
+  });
+}
 
 /* ========= UI helpers ========= */
 function updateModeBadge(){
+  if(!modeBadge || !modeSelect) return;
   const m = modeSelect.value;
   const label = m==="bio" ? "Biological emphasis" : (m==="culture" ? "Cultural emphasis" : "Coupled (Bio×Culture)");
   modeBadge.textContent = "Mode: " + label;
 }
 function syncSliderLabels(){
-  popNum.textContent = `${popSlider.value}/10`;
-  contactNum.textContent = `${contactSlider.value}/10`;
-  lossNum.textContent = `${lossSlider.value}/10`;
+  if(popNum) popNum.textContent = `${popSlider.value}/10`;
+  if(contactNum) contactNum.textContent = `${contactSlider.value}/10`;
+  if(lossNum) lossNum.textContent = `${lossSlider.value}/10`;
 
-  lifespanNum.textContent = `${lifespanSlider.value}y`;
-  learnNum.textContent = `${learnSlider.value}y`;
-  elderNum.textContent = `${elderSlider.value}y`;
+  if(lifespanNum) lifespanNum.textContent = `${lifespanSlider.value}y`;
+  if(learnNum) learnNum.textContent = `${learnSlider.value}y`;
+  if(elderNum) elderNum.textContent = `${elderSlider.value}y`;
 
-  shockNum.textContent = `${shockSlider.value}/10`;
-  resilienceNum.textContent = `${resilienceSlider.value}/10`;
+  if(shockNum) shockNum.textContent = `${shockSlider.value}/10`;
+  if(resilienceNum) resilienceNum.textContent = `${resilienceSlider.value}/10`;
 
-  signalNum.textContent = `${signalSlider.value}/10`;
-  accuracyNum.textContent = `${accuracySlider.value}/10`;
+  if(signalNum) signalNum.textContent = `${signalSlider.value}/10`;
+  if(accuracyNum) accuracyNum.textContent = `${accuracySlider.value}/10`;
 
-  terminalQNum.textContent = `${terminalQSlider.value}/100`;
+  if(terminalQNum) terminalQNum.textContent = `${terminalQSlider.value}/100`;
 }
 
 function renderDistributionBars(s){
+  if(!distBars) return;
   const d = s.dist;
   distBars.innerHTML = `
     ${barRow("Toolmaking", norm10(d.tool), "linear-gradient(to right, rgba(34,197,94,.95), rgba(74,222,128,.95))")}
@@ -1261,6 +1242,7 @@ function renderDistributionBars(s){
 }
 
 function renderHeat(loss){
+  if(!heatMap) return;
   heatMap.innerHTML="";
   for(let r=10;r>=1;r--){
     for(let c=0;c<=9;c++){
@@ -1275,6 +1257,7 @@ function renderHeat(loss){
 }
 
 function renderLongevityBars(lifespan, learnYears, elderYears){
+  if(!longevityBars) return longevityTeachingFactor(lifespan, learnYears, elderYears);
   const teach = longevityTeachingFactor(lifespan, learnYears, elderYears);
   const productive = clamp(lifespan-12,0,80);
   const teachWindow = clamp(productive*0.25 + elderYears, 0, 80);
@@ -1292,6 +1275,7 @@ function renderLongevityBars(lifespan, learnYears, elderYears){
 }
 
 function renderRiskBars(s, ret, teach){
+  if(!riskBars || !riskNote) return collapseProbability(s, ret, teach);
   const collapse = collapseProbability(s, ret, teach);
   const fragility = clamp(1 - (0.62*ret + 0.38*teach), 0, 1);
   const shock = norm10(s.shock);
@@ -1319,24 +1303,31 @@ function renderPerceptionPanel(s){
   const acc = +accuracySlider.value;
   const P = perceptionCompression(signal, acc, s.brainLimit);
 
-  perceptionBars.innerHTML = `
-    ${barRow("Compression / pruning", P.compression, "linear-gradient(to right, rgba(56,189,248,.95), rgba(74,222,128,.95))")}
-    ${barRow("Perceived stability", P.perceivedStability, "linear-gradient(to right, rgba(74,222,128,.95), rgba(56,189,248,.95))")}
-    ${barRow("Error sensitivity", P.errorSensitivity, "linear-gradient(to right, rgba(251,191,36,.95), rgba(236,72,153,.95))")}
-    ${barRow("Processing cost proxy", P.processingCost, "linear-gradient(to right, rgba(168,85,247,.95), rgba(56,189,248,.95))")}
-  `;
+  if(perceptionBars){
+    perceptionBars.innerHTML = `
+      ${barRow("Compression / pruning", P.compression, "linear-gradient(to right, rgba(56,189,248,.95), rgba(74,222,128,.95))")}
+      ${barRow("Perceived stability", P.perceivedStability, "linear-gradient(to right, rgba(74,222,128,.95), rgba(56,189,248,.95))")}
+      ${barRow("Error sensitivity", P.errorSensitivity, "linear-gradient(to right, rgba(251,191,36,.95), rgba(236,72,153,.95))")}
+      ${barRow("Processing cost proxy", P.processingCost, "linear-gradient(to right, rgba(168,85,247,.95), rgba(56,189,248,.95))")}
+    `;
+  }
 
-  const line = P.compression > 0.66
-    ? "High compression: coherent feel, but fine detail is discarded (prune/decay dominates)."
-    : P.compression > 0.33
-      ? "Balanced: stable perception with moderate error-checking."
-      : "Low compression: higher accuracy pursuit, higher mismatch salience.";
-  perceptionNote.innerHTML = `<strong style="color:#cfefff">Readout:</strong> <span class="muted">${line}</span>`;
+  if(perceptionNote){
+    const line = P.compression > 0.66
+      ? "High compression: coherent feel, but fine detail is discarded (prune/decay dominates)."
+      : P.compression > 0.33
+        ? "Balanced: stable perception with moderate error-checking."
+        : "Low compression: higher accuracy pursuit, higher mismatch salience.";
+    perceptionNote.innerHTML = `<strong style="color:#cfefff">Readout:</strong> <span class="muted">${line}</span>`;
+  }
   return P;
 }
-
+</script>
+<!-- ======================= PART 4 / 4 ======================= -->
+<script>
 /* ========= Branch SVG ========= */
 function renderBranchSvg(selectedKey){
+  if(!branchSvg) return;
   const lines = {
     sapiens:{y:70, x0:70, x1:860, start:"~300k", end:"Now+"},
     neanderthal:{y:120, x0:210, x1:560, start:"~400k", end:"~40k"},
@@ -1367,6 +1358,7 @@ function renderBranchSvg(selectedKey){
 }
 
 function renderSpeciesBars(selectedKey){
+  if(!speciesBars) return;
   const s = species[selectedKey];
   const buf = norm10(s.buf), net = norm10(s.net), vol = norm10(s.vol), sym = norm10(s.sym), tool = norm10(s.tool);
 
@@ -1424,40 +1416,53 @@ function renderInstrumentLayer(s, idx, ret, teach, collapse, P){
   const presetKey = materialSelect.value;
 
   const Qm = terminalQModel(Q, idx, ret, teach, collapse, P, metricEmergent);
-  terminalQBars.innerHTML = `
-    ${barRow("Q readiness", Qm.q, "linear-gradient(to right, rgba(251,113,133,.95), rgba(74,222,128,.95))")}
-    ${barRow("Survivability weight", Qm.survivability, "linear-gradient(to right, rgba(56,189,248,.95), rgba(74,222,128,.95))")}
-    ${barRow("Coherence proxy", Qm.coherence, "linear-gradient(to right, rgba(168,85,247,.95), rgba(56,189,248,.95))")}
-    ${barRow("Gate score", Qm.gateScore, "linear-gradient(to right, rgba(251,191,36,.95), rgba(34,197,94,.95))")}
-  `;
-  terminalQGateNote.innerHTML = `
-    <strong style="color:#cfefff">Gate:</strong>
-    <span class="muted">${Qm.label} → ${Qm.gateOpen ? "<span style='color:var(--good)'>OPEN</span>" : "<span style='color:var(--warn)'>CLOSED</span>"}</span>
-  `;
+
+  if(terminalQBars){
+    terminalQBars.innerHTML = `
+      ${barRow("Q readiness", Qm.q, "linear-gradient(to right, rgba(251,113,133,.95), rgba(74,222,128,.95))")}
+      ${barRow("Survivability weight", Qm.survivability, "linear-gradient(to right, rgba(56,189,248,.95), rgba(74,222,128,.95))")}
+      ${barRow("Coherence proxy", Qm.coherence, "linear-gradient(to right, rgba(168,85,247,.95), rgba(56,189,248,.95))")}
+      ${barRow("Gate score", Qm.gateScore, "linear-gradient(to right, rgba(251,191,36,.95), rgba(34,197,94,.95))")}
+    `;
+  }
+  if(terminalQGateNote){
+    terminalQGateNote.innerHTML = `
+      <strong style="color:#cfefff">Gate:</strong>
+      <span class="muted">${Qm.label} → ${Qm.gateOpen ? "<span style='color:var(--good)'>OPEN</span>" : "<span style='color:var(--warn)'>CLOSED</span>"}</span>
+    `;
+  }
 
   const Sm = smoioModel(presetKey, Qm, idx, ret, teach, collapse, P, metricEmergent);
-  smoioBars.innerHTML = `
-    ${barRow("S₍Moio₎ synchrony", Sm.S, "linear-gradient(to right, rgba(251,113,133,.95), rgba(74,222,128,.95))")}
-    ${barRow("Residual error proxy", 1 - (Sm.residualKm/0.12), "linear-gradient(to right, rgba(56,189,248,.95), rgba(74,222,128,.95))")}
-  `;
-  smoioNote.innerHTML = `
-    Preset: <span style="font-family:var(--mono);color:#cfe7ff">${Sm.preset.name}</span><br>
-    <span class="muted">${Sm.preset.note}</span><br>
-    <strong style="color:#cfefff">Residual (proxy):</strong>
-    <span style="font-family:var(--mono);color:#cfe7ff">${Sm.residualKm.toFixed(4)} km</span>
-    <span class="muted"> (display mapping; not a measurement)</span>
-  `;
+  if(smoioBars){
+    smoioBars.innerHTML = `
+      ${barRow("S₍Moio₎ synchrony", Sm.S, "linear-gradient(to right, rgba(251,113,133,.95), rgba(74,222,128,.95))")}
+      ${barRow("Residual error proxy", 1 - (Sm.residualKm/0.12), "linear-gradient(to right, rgba(56,189,248,.95), rgba(74,222,128,.95))")}
+    `;
+  }
+  if(smoioNote){
+    smoioNote.innerHTML = `
+      Preset: <span style="font-family:var(--mono);color:#cfe7ff">${Sm.preset.name}</span><br>
+      <span class="muted">${Sm.preset.note}</span><br>
+      <strong style="color:#cfefff">Residual (proxy):</strong>
+      <span style="font-family:var(--mono);color:#cfe7ff">${Sm.residualKm.toFixed(4)} km</span>
+      <span class="muted"> (display mapping; not a measurement)</span>
+    `;
+  }
 
   const Om = ofnModel(Qm, Sm, idx, ret, teach, collapse, P, metricEmergent);
-  ofnBars.innerHTML = `
-    ${barRow("Entropy score", Om.entropy, "linear-gradient(to right, rgba(74,222,128,.95), rgba(251,113,133,.95))")}
-    ${barRow("W₂² distance", Om.w2, "linear-gradient(to right, rgba(34,197,94,.95), rgba(251,191,36,.95))")}
-  `;
-  ofnNote.innerHTML = `
-    <span class="muted">${Om.note}</span><br>
-    <strong style="color:#cfefff">Adjacency:</strong>
-    <span class="muted">${Om.adjacency ? "<span style='color:var(--good)'>PERMITTED</span>" : "<span style='color:var(--warn)'>NOT YET</span>"}</span>
-  `;
+  if(ofnBars){
+    ofnBars.innerHTML = `
+      ${barRow("Entropy score", Om.entropy, "linear-gradient(to right, rgba(74,222,128,.95), rgba(251,113,133,.95))")}
+      ${barRow("W₂² distance", Om.w2, "linear-gradient(to right, rgba(34,197,94,.95), rgba(251,191,36,.95))")}
+    `;
+  }
+  if(ofnNote){
+    ofnNote.innerHTML = `
+      <span class="muted">${Om.note}</span><br>
+      <strong style="color:#cfefff">Adjacency:</strong>
+      <span class="muted">${Om.adjacency ? "<span style='color:var(--good)'>PERMITTED</span>" : "<span style='color:var(--warn)'>NOT YET</span>"}</span>
+    `;
+  }
 
   // Log threshold flips
   if(prevGateOpen === null) prevGateOpen = Qm.gateOpen;
@@ -1479,13 +1484,14 @@ function renderInstrumentLayer(s, idx, ret, teach, collapse, P){
   }
 
   // Update formula viewer (if open)
-  renderFormulaAudit({s, idx, ret, teach, collapse, P, Qm, Sm, Om, metricEmergent, presetKey});
+  renderFormulaAudit({idx, ret, teach, collapse, P, Qm, Sm, Om, metricEmergent});
 
   return {Qm, Sm, Om, metricEmergent};
 }
 
-/* ========= NEW: Formula Audit (exact equations + substitution) ========= */
+/* ========= Formula Audit ========= */
 function renderFormulaAudit(state){
+  if(!formulaToggle || !formulaCard || !formulaBox) return;
   if(!formulaToggle.checked){
     formulaCard.style.display = "none";
     return;
@@ -1498,10 +1504,8 @@ function renderFormulaAudit(state){
   const coh = Qm.coherence;
   const gate = Qm.gateScore;
 
-  // build blocks: plain equations + LaTeX + substitution
   const blocks = [];
 
-  // Terminal Q block
   blocks.push(`
     <div class="formulaBlock">
       <div class="formulaTitle">
@@ -1537,7 +1541,6 @@ gateOpen=${Qm.gateOpen ? "TRUE" : "FALSE"}
     </div>
   `);
 
-  // S_Moio block
   blocks.push(`
     <div class="formulaBlock">
       <div class="formulaTitle">
@@ -1574,7 +1577,6 @@ residualKm=${f4(Sm.residualKm)}
     </div>
   `);
 
-  // Entropy + W2^2 block
   blocks.push(`
     <div class="formulaBlock">
       <div class="formulaTitle">
@@ -1606,7 +1608,6 @@ adjacency=${Om.adjacency ? "TRUE" : "FALSE"}
     </div>
   `);
 
-  // Perception block (since coherence depends on it)
   blocks.push(`
     <div class="formulaBlock">
       <div class="formulaTitle">
@@ -1627,7 +1628,7 @@ processingCost     = clip( 0.20 + 0.80·loadN·(1 - 0.55·compression) )
 Substitution:
 signalLoad=${signalSlider.value}/10 → loadN=${f3(P.loadN)}
 accuracyDemand=${accuracySlider.value}/10 → accN=${f3(P.accN)}
-brainLimit=${f3(norm10(selectedStage ? selectedStage.brainLimit : 0))} (stage parameter → brainN)
+brainLimit(stage)=${selectedStage ? selectedStage.brainLimit : "—"} → brainN=${f3(P.brainN)}
 
 Computed:
 eff=${f3(P.eff)}
@@ -1641,7 +1642,6 @@ processingCost=${f3(P.processingCost)}
 
   formulaBox.innerHTML = blocks.join("");
 
-  // Ask MathJax to re-typeset if available
   if(window.MathJax && window.MathJax.typeset){
     try{ window.MathJax.typeset(); }catch(e){}
   }
@@ -1649,8 +1649,9 @@ processingCost=${f3(P.processingCost)}
 
 /* ========= Table render ========= */
 function renderTable(){
+  if(!tableBody) return;
   tableBody.innerHTML="";
-  const q = searchBox.value.trim().toLowerCase();
+  const q = (searchBox?.value || "").trim().toLowerCase();
   stages.filter(s=>{
     if(!q) return true;
     const blob = (s.year+" "+s.region+" "+s.lineage+" "+s.advance+" "+s.physics+" "+s.why).toLowerCase();
@@ -1674,6 +1675,7 @@ function renderTable(){
 
 /* ========= Print report ========= */
 function renderPrintArea(snapshot){
+  if(!printArea) return;
   const s = snapshot.stage;
   const pinned = snapshot.pinned;
   const P = snapshot.P;
@@ -1765,8 +1767,8 @@ function recalcAndRenderAll(logReason=null){
   const collapse = renderRiskBars(s, ret, teach);
   const idx = intelligenceIndex(s, modeSelect.value, ret, teach);
 
-  kpiInt.textContent = `${Math.round(idx*100)}/100`;
-  kpiCollapse.textContent = fmtPct(collapse);
+  if(kpiInt) kpiInt.textContent = `${Math.round(idx*100)}/100`;
+  if(kpiCollapse) kpiCollapse.textContent = fmtPct(collapse);
 
   renderDistributionBars(s);
   drawCrossover(s);
@@ -1781,8 +1783,8 @@ function recalcAndRenderAll(logReason=null){
   renderWorldMap(model);
   updatePinnedRegion(model);
 
-  reviewerBox.style.display = reviewerToggle.checked ? "block" : "none";
-  reviewerText.innerHTML = reviewerCopy;
+  if(reviewerBox) reviewerBox.style.display = reviewerToggle.checked ? "block" : "none";
+  if(reviewerText) reviewerText.innerHTML = reviewerCopy;
 
   const Inst = renderInstrumentLayer(s, idx, ret, teach, collapse, P);
 
@@ -1814,86 +1816,101 @@ function selectStage(s, tr){
   selectedStage = s;
   document.querySelectorAll("tbody tr").forEach(r=>r.classList.remove("active-row"));
   tr.classList.add("active-row");
-  selectedBadge.textContent = `${s.lineage} · ${s.year}`;
+  if(selectedBadge) selectedBadge.textContent = `${s.lineage} · ${s.year}`;
   setSlidersFromStage(s);
   recalcAndRenderAll(`Stage selected: ${s.year} — ${s.region} — ${s.advance}`);
 }
 
 /* ========= Wiring ========= */
-searchBox.addEventListener("input", renderTable);
+if(searchBox) searchBox.addEventListener("input", renderTable);
 
-modeSelect.addEventListener("change", ()=>recalcAndRenderAll(`Mode changed: ${modeSelect.value}`));
-reviewerToggle.addEventListener("change", ()=>recalcAndRenderAll(`Reviewer Mode: ${reviewerToggle.checked ? "ON" : "OFF"}`));
+if(modeSelect) modeSelect.addEventListener("change", ()=>recalcAndRenderAll(`Mode changed: ${modeSelect.value}`));
+if(reviewerToggle) reviewerToggle.addEventListener("change", ()=>recalcAndRenderAll(`Reviewer Mode: ${reviewerToggle.checked ? "ON" : "OFF"}`));
 
-[popSlider, contactSlider, lossSlider,
- lifespanSlider, learnSlider, elderSlider,
- shockSlider, resilienceSlider,
- signalSlider, accuracySlider,
- terminalQSlider].forEach(el=>{
-  el.addEventListener("input", ()=>recalcAndRenderAll());
+[
+  popSlider, contactSlider, lossSlider,
+  lifespanSlider, learnSlider, elderSlider,
+  shockSlider, resilienceSlider,
+  signalSlider, accuracySlider,
+  terminalQSlider
+].forEach(el=>{
+  if(el) el.addEventListener("input", ()=>recalcAndRenderAll());
 });
 
-metricToggle.addEventListener("change", ()=>{
-  recalcAndRenderAll(`Einstein metric emergent: ${metricToggle.checked ? "ON" : "OFF"}`);
-});
-materialSelect.addEventListener("change", ()=>{
-  const preset = materialPresets[materialSelect.value]?.name || "preset";
-  recalcAndRenderAll(`Material preset changed: ${preset}`);
-});
+if(metricToggle){
+  metricToggle.addEventListener("change", ()=>{
+    recalcAndRenderAll(`Einstein metric emergent: ${metricToggle.checked ? "ON" : "OFF"}`);
+  });
+}
+if(materialSelect){
+  materialSelect.addEventListener("change", ()=>{
+    const preset = materialPresets[materialSelect.value]?.name || "preset";
+    recalcAndRenderAll(`Material preset changed: ${preset}`);
+  });
+}
 
-speciesSelect.addEventListener("change", ()=>{
-  compareAll = false;
-  compareAllBtn.textContent = "Compare all";
-  recalcAndRenderAll(`Lineage view: ${speciesSelect.value}`);
-});
-compareAllBtn.addEventListener("click", ()=>{
-  compareAll = !compareAll;
-  compareAllBtn.textContent = compareAll ? "Close compare" : "Compare all";
-  recalcAndRenderAll(compareAll ? "Compare all lineages: ON" : "Compare all lineages: OFF");
-});
+if(speciesSelect){
+  speciesSelect.addEventListener("change", ()=>{
+    compareAll = false;
+    if(compareAllBtn) compareAllBtn.textContent = "Compare all";
+    recalcAndRenderAll(`Lineage view: ${speciesSelect.value}`);
+  });
+}
+if(compareAllBtn){
+  compareAllBtn.addEventListener("click", ()=>{
+    compareAll = !compareAll;
+    compareAllBtn.textContent = compareAll ? "Close compare" : "Compare all";
+    recalcAndRenderAll(compareAll ? "Compare all lineages: ON" : "Compare all lineages: OFF");
+  });
+}
 
-/* Formula toggle */
-formulaToggle.addEventListener("change", ()=>{
-  if(formulaToggle.checked){
-    pushLog("Formula audit opened: equations + live substitutions visible.");
-  }else{
-    pushLog("Formula audit closed.");
-  }
-  recalcAndRenderAll();
-});
+if(formulaToggle){
+  formulaToggle.addEventListener("change", ()=>{
+    pushLog(formulaToggle.checked
+      ? "Formula audit opened: equations + live substitutions visible."
+      : "Formula audit closed."
+    );
+    recalcAndRenderAll();
+  });
+}
 
-resetTuningBtn.addEventListener("click", ()=>{
-  pinnedRegionId = null;
-  compareAll = false;
-  compareAllBtn.textContent = "Compare all";
-  if(!selectedStage) selectedStage = stages[0];
-  setSlidersFromStage(selectedStage);
+if(resetTuningBtn){
+  resetTuningBtn.addEventListener("click", ()=>{
+    pinnedRegionId = null;
+    compareAll = false;
+    if(compareAllBtn) compareAllBtn.textContent = "Compare all";
+    if(!selectedStage) selectedStage = stages[0];
+    setSlidersFromStage(selectedStage);
 
-  signalSlider.value = 6;
-  accuracySlider.value = 5;
-  terminalQSlider.value = 72;
-  metricToggle.checked = true;
-  materialSelect.value = "aln_mo";
-  formulaToggle.checked = false;
+    signalSlider.value = 6;
+    accuracySlider.value = 5;
+    terminalQSlider.value = 72;
+    metricToggle.checked = true;
+    materialSelect.value = "aln_mo";
+    if(formulaToggle) formulaToggle.checked = false;
 
-  prevGateOpen = null;
-  prevAdj = null;
+    prevGateOpen = null;
+    prevAdj = null;
 
-  recalcAndRenderAll("Reset tuning to defaults.");
-});
+    recalcAndRenderAll("Reset tuning to defaults.");
+  });
+}
 
-printBtn.addEventListener("click", ()=>{
-  printArea.style.display = "block";
-  setTimeout(()=>{
-    window.print();
-    setTimeout(()=>{ printArea.style.display = "none"; }, 250);
-  }, 50);
-});
+if(printBtn){
+  printBtn.addEventListener("click", ()=>{
+    if(!printArea) return;
+    printArea.style.display = "block";
+    setTimeout(()=>{
+      window.print();
+      setTimeout(()=>{ printArea.style.display = "none"; }, 250);
+    }, 50);
+  });
+}
 
 /* ========= Boot ========= */
 function boot(){
   selectedStage = stages[0];
-  selectedBadge.textContent = `${selectedStage.lineage} · ${selectedStage.year}`;
+  if(selectedBadge) selectedBadge.textContent = `${selectedStage.lineage} · ${selectedStage.year}`;
 
   // defaults
   signalSlider.value = 6;
@@ -1901,7 +1918,7 @@ function boot(){
   terminalQSlider.value = 72;
   metricToggle.checked = true;
   materialSelect.value = "aln_mo";
-  formulaToggle.checked = false;
+  if(formulaToggle) formulaToggle.checked = false;
 
   setSlidersFromStage(selectedStage);
   renderTable();
@@ -1912,7 +1929,19 @@ function boot(){
   pushLog("Boot: initialized model + instrument layer + formula audit toggle.");
   recalcAndRenderAll();
 }
+
+/* ========= Minimal sanity check (helps when something is missing) ========= */
+const mustIds = ["eventTable","modeSelect","popSlider","worldMap","crossoverCanvas","terminalQSlider"];
+const missing = mustIds.filter(id=>!document.getElementById(id));
+if(missing.length){
+  console.warn("Missing required elements:", missing);
+  pushLog("Warning: missing elements detected — check that you pasted all 4 parts into one file.");
+}
+
 boot();
+
+/* Close DOMContentLoaded wrapper */
+});
 </script>
 
 </body>
