@@ -400,6 +400,38 @@ canvas, svg{
           </div>
         </div>
 
+        <!-- ✅ NEW PANEL: Efficiency vs Accuracy (update you requested) -->
+        <div class="card" style="margin-top:10px;">
+          <h2 style="margin:0 0 6px; font-size:14px;">🧠 Efficiency-first Perception (Compression Panel)</h2>
+
+          <div class="callout mini muted" style="margin:6px 0 8px;">
+            <strong>Design principle:</strong>
+            The human brain does not optimize for accuracy; it optimizes for efficiency.
+            To minimize energy and processing cost, it compresses vast sensory input into simplified models.
+            Stability of perception emerges not from perfect accuracy, but from manageable signal reduction.
+            Reality feels stable because excess information is pruned.
+          </div>
+
+          <div class="mini muted" style="margin-bottom:6px;">
+            Tune the tradeoff below. Higher signal load pushes compression; higher accuracy demand pushes error sensitivity.
+          </div>
+
+          <div class="sliderRow">
+            <label for="signalSlider">Signal load (inputs)</label>
+            <input id="signalSlider" type="range" min="0" max="10" step="1" />
+            <div class="num" id="signalNum">—</div>
+          </div>
+
+          <div class="sliderRow">
+            <label for="accuracySlider">Accuracy demand</label>
+            <input id="accuracySlider" type="range" min="0" max="10" step="1" />
+            <div class="num" id="accuracyNum">—</div>
+          </div>
+
+          <div id="perceptionBars"></div>
+          <div class="mini muted" id="perceptionNote"></div>
+        </div>
+
         <hr class="sep" />
 
         <div class="card">
@@ -615,6 +647,31 @@ function intelligenceIndex(s, mode, ret, teach){
     core = (bio*0.55 + cul*0.65) * (0.75 + 0.25*crossover);
   }
   return clamp(core * (0.60 + 0.40*ret) * (0.65 + 0.35*teach), 0, 1);
+}
+
+/* ========= NEW: Efficiency vs Accuracy perception model ========= */
+function perceptionCompression(signalLoad, accuracyDemand, brainLimit){
+  // Inputs are 0–10. Higher load + lower demand => more compression.
+  const loadN = norm10(signalLoad);
+  const accN  = norm10(accuracyDemand);
+  const brainN = norm10(brainLimit);
+
+  // Efficiency pressure increases with load and limited capacity.
+  const eff = clamp(0.62*loadN + 0.28*(1-accN) + 0.10*(1-brainN), 0, 1);
+
+  // Compression is “prune/decay” tendency vs accuracy.
+  const compression = clamp(sigmoid((eff - accN)*4.2), 0, 1);
+
+  // If you compress a lot, things *feel* stable even if details are missing.
+  const perceivedStability = clamp(0.20 + 0.80*compression*(1 - 0.35*loadN), 0, 1);
+
+  // If you compress less, you become more sensitive to mismatch/error.
+  const errorSensitivity = clamp(1 - compression, 0, 1);
+
+  // Lightweight “processing cost” proxy (not biological claim—just a UI signal).
+  const processingCost = clamp(0.20 + 0.80*loadN*(1 - 0.55*compression), 0, 1);
+
+  return {compression, perceivedStability, errorSensitivity, processingCost};
 }
 
 /* ========= Crossover plot helper points ========= */
@@ -873,6 +930,14 @@ const compareAllBtn = document.getElementById("compareAll");
 const branchSvg = document.getElementById("branchSvg");
 const speciesBars = document.getElementById("speciesBars");
 
+/* ✅ NEW refs: Efficiency vs Accuracy panel */
+const signalSlider = document.getElementById("signalSlider");
+const accuracySlider = document.getElementById("accuracySlider");
+const signalNum = document.getElementById("signalNum");
+const accuracyNum = document.getElementById("accuracyNum");
+const perceptionBars = document.getElementById("perceptionBars");
+const perceptionNote = document.getElementById("perceptionNote");
+
 let selectedStage = null;
 let compareAll = false;
 
@@ -908,6 +973,10 @@ function syncSliderLabels(){
 
   shockNum.textContent = `${shockSlider.value}/10`;
   resilienceNum.textContent = `${resilienceSlider.value}/10`;
+
+  // ✅ NEW
+  signalNum.textContent = `${signalSlider.value}/10`;
+  accuracyNum.textContent = `${accuracySlider.value}/10`;
 }
 function renderDistributionBars(s){
   const d = s.dist;
@@ -968,6 +1037,27 @@ function renderRiskBars(s, ret, teach){
       : "High: collapses likely; knowledge may fragment and require rediscovery.";
   riskNote.innerHTML = `<strong style="color:#cfefff">Interpretation:</strong> <span class="muted">${note}</span>`;
   return collapse;
+}
+
+/* ✅ NEW: render the Efficiency vs Accuracy panel bars */
+function renderPerceptionPanel(s){
+  const signal = +signalSlider.value;
+  const acc = +accuracySlider.value;
+  const P = perceptionCompression(signal, acc, s.brainLimit);
+
+  perceptionBars.innerHTML = `
+    ${barRow("Compression / pruning", P.compression, "linear-gradient(to right, rgba(56,189,248,.95), rgba(74,222,128,.95))")}
+    ${barRow("Perceived stability", P.perceivedStability, "linear-gradient(to right, rgba(74,222,128,.95), rgba(56,189,248,.95))")}
+    ${barRow("Error sensitivity", P.errorSensitivity, "linear-gradient(to right, rgba(251,191,36,.95), rgba(236,72,153,.95))")}
+    ${barRow("Processing cost proxy", P.processingCost, "linear-gradient(to right, rgba(168,85,247,.95), rgba(56,189,248,.95))")}
+  `;
+
+  const line = P.compression > 0.66
+    ? "High compression: the world feels coherent, but fine detail is discarded (prune/decay dominates)."
+    : P.compression > 0.33
+      ? "Balanced: stable perception with moderate error-checking (efficient but not blind)."
+      : "Low compression: higher accuracy pursuit, but higher cost and higher mismatch salience.";
+  perceptionNote.innerHTML = `<strong style="color:#cfefff">Readout:</strong> <span class="muted">${line}</span>`;
 }
 
 /* ========= Branch SVG ========= */
@@ -1088,6 +1178,9 @@ function renderPrintArea(snapshot){
     </ul>
   ` : `<h3 style="margin:10px 0 6px;">Pinned Region Snapshot</h3><div>None</div>`;
 
+  // ✅ NEW: include perception snapshot in print
+  const P = perceptionCompression(+signalSlider.value, +accuracySlider.value, s.brainLimit);
+
   printArea.innerHTML = `
     <div style="font-family:Arial, sans-serif; color:#000;">
       <h1 style="margin:0 0 6px;">Human Intelligence Continuum — Selected Stage Report</h1>
@@ -1106,6 +1199,16 @@ function renderPrintArea(snapshot){
         <li><strong>Retention (global):</strong> ${Math.round(snapshot.ret*100)}%</li>
         <li><strong>Teaching fit:</strong> ${Math.round(snapshot.teach*100)}%</li>
         <li><strong>Collapse probability:</strong> ${Math.round(snapshot.collapse*100)}%</li>
+      </ul>
+
+      <h2 style="margin:12px 0 6px;">Efficiency-first Perception (Compression)</h2>
+      <ul>
+        <li><strong>Signal load:</strong> ${signalSlider.value}/10</li>
+        <li><strong>Accuracy demand:</strong> ${accuracySlider.value}/10</li>
+        <li><strong>Compression / pruning:</strong> ${Math.round(P.compression*100)}%</li>
+        <li><strong>Perceived stability:</strong> ${Math.round(P.perceivedStability*100)}%</li>
+        <li><strong>Error sensitivity:</strong> ${Math.round(P.errorSensitivity*100)}%</li>
+        <li><strong>Processing cost proxy:</strong> ${Math.round(P.processingCost*100)}%</li>
       </ul>
 
       ${pinnedHtml}
@@ -1149,6 +1252,9 @@ function recalcAndRenderAll(){
   drawCrossover(s);
   renderHeat(+lossSlider.value);
 
+  // ✅ NEW
+  renderPerceptionPanel(s);
+
   renderBranchSvg(speciesSelect.value);
   renderSpeciesBars(speciesSelect.value);
 
@@ -1178,6 +1284,10 @@ function setSlidersFromStage(s){
   shockSlider.value = s.shock;
   resilienceSlider.value = s.resilience;
 
+  // ✅ NEW defaults per stage selection (kept stable; not stored in stage)
+  if(!signalSlider.value) signalSlider.value = 6;
+  if(!accuracySlider.value) accuracySlider.value = 5;
+
   syncSliderLabels();
   renderHeat(+lossSlider.value);
 }
@@ -1198,7 +1308,8 @@ reviewerToggle.addEventListener("change", recalcAndRenderAll);
 
 [popSlider, contactSlider, lossSlider,
  lifespanSlider, learnSlider, elderSlider,
- shockSlider, resilienceSlider].forEach(el=>{
+ shockSlider, resilienceSlider,
+ signalSlider, accuracySlider].forEach(el=>{
   el.addEventListener("input", recalcAndRenderAll);
 });
 
@@ -1219,6 +1330,11 @@ resetTuningBtn.addEventListener("click", ()=>{
   compareAllBtn.textContent = "Compare all";
   if(!selectedStage) selectedStage = stages[0];
   setSlidersFromStage(selectedStage);
+
+  // ✅ NEW: reset compression sliders to sane defaults
+  signalSlider.value = 6;
+  accuracySlider.value = 5;
+
   recalcAndRenderAll();
 });
 
@@ -1234,6 +1350,11 @@ printBtn.addEventListener("click", ()=>{
 function boot(){
   selectedStage = stages[0];
   selectedBadge.textContent = `${selectedStage.lineage} · ${selectedStage.year}`;
+
+  // ✅ NEW: initialize panel defaults
+  signalSlider.value = 6;
+  accuracySlider.value = 5;
+
   setSlidersFromStage(selectedStage);
   renderTable();
 
