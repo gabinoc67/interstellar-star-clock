@@ -216,7 +216,7 @@
   <header>
     <div>
       <h1>Japan → Paris Trip Simulator (Live Readout)</h1>
-      <div class="sub">Fixed: pore labels + tile behavior now update live from the same per-frame zone risk used by the trip.</div>
+      <div class="sub">Fixed: Start/Stop/sliders + hotspot/pore network now run from one clean script.</div>
     </div>
     <div class="legend">
       <span class="pill">Trip length: <b id="tripLen">146 min</b></span>
@@ -972,7 +972,7 @@ const pore = {
   poreFeed: 0
 };
 
-/* unified per-frame computed state (THIS is the fix) */
+/* unified per-frame computed state */
 let frameState = null;
 
 /* ===================== CORE MATH ===================== */
@@ -1150,6 +1150,7 @@ function setAnnunciator(stab, runningNow){
 /* ===================== HOTSPOT + TILE COLOR ===================== */
 function setZoneClass(elZone, mode){
   elZone.setAttribute("class","zone");
+  elZone.classList.remove("blinkVio","blinkBlue","blinkRed","zoneAssist","zoneStable","zoneUnstable");
   if (mode === "pore"){ elZone.classList.add("zoneAssist","blinkVio"); return; }
   if (mode === "stable"){ elZone.classList.add("zoneStable","blinkBlue"); return; }
   elZone.classList.add("zoneUnstable","blinkRed");
@@ -1163,8 +1164,6 @@ function hotspotRisk01({compIdx, Hn, qN, stab, bias, sens}){
   r *= sens;
   return clamp(r, 0, 1);
 }
-
-/* Compute per-zone risk (0..1) ONCE per frame */
 function computeZoneRisks01({Mach, compIdx, H, q_kPa, stab}){
   const armed = (Mach >= 1.2);
   const sens = 0.60 + 0.80*(Number(hotSensitivity.value)/200);
@@ -1186,9 +1185,7 @@ function computeZoneRisks01({Mach, compIdx, H, q_kPa, stab}){
   const assistFactor = 1 - 0.18*coolStr;
 
   return {
-    armed,
-    sens,
-    assist,
+    armed, sens, assist,
     nose: assist ? rN*assistFactor : rN,
     inlet: assist ? rI*assistFactor : rI,
     lead: assist ? rL*assistFactor : rL,
@@ -1213,8 +1210,6 @@ function setBoostMeter(boost01, cap01){
   boostBar.style.width = (pct*100).toFixed(0) + "%";
   boostPctLbl.textContent = (boost01*100).toFixed(0) + "%";
 }
-
-/* Apply pore network driven by zoneRiskPct */
 function applyPoreNetwork(dtRealSec, zoneRiskPct){
   const tauSec = Math.max(0.001, Number(poreTauMs.value)/1000);
   const cap01  = clamp(Number(poreBoostCap.value)/100, 0, 0.70);
@@ -1271,7 +1266,6 @@ function applyPoreNetwork(dtRealSec, zoneRiskPct){
   }
 }
 <!-- ======================= PART 4 / 4 ======================= -->
-<script>
 /* ===================== PLANNED VALUES ===================== */
 function plannedAt(t){
   const s = stepAt(t);
@@ -1285,7 +1279,6 @@ function plannedAt(t){
 /* ===================== RENDER (uses frameState only) ===================== */
 function render(){
   if (!frameState){
-    // minimal idle render
     tNow.textContent = fmt(tMin,2);
     prog.style.width = "0%";
     progPct.textContent = "0";
@@ -1329,7 +1322,6 @@ function render(){
 
   cstNote.textContent = s.cst || "—";
 
-  // dots
   dotColor(dotTherm, fs.thermRisk);
   dotColor(dotLoad,  fs.loadRisk);
   dotColor(dotNav,   fs.navRisk);
@@ -1348,18 +1340,15 @@ function render(){
   renderArrivalETA();
   setAnnunciator(fs.stab, running);
 
-  // caps/tanks
   syncCapsFromSliders();
   clampRemainToCaps();
   setTankBars();
 
-  // coolant readouts
   coolBaseEl.textContent = fmt(fs.baseFlowCmd, 2);
-  coolTotEl.textContent  = fmt(fs.totalFlowCmd, 2);
+  coolTotEl.textContent  = fmt(fs.totalFlow, 2);
   poreFeedNowEl.textContent  = fmt(fs.poreFeed, 2);
   poreFeedNow2.textContent   = fmt(fs.poreFeed, 2);
 
-  // hotspot UI (risk%)
   zr_nose.textContent  = fmt(fs.zoneRiskPct.nose,0) + "%";
   zr_inlet.textContent = fmt(fs.zoneRiskPct.inlet,0) + "%";
   zr_lead.textContent  = fmt(fs.zoneRiskPct.lead,0) + "%";
@@ -1383,7 +1372,6 @@ function render(){
     hotState.textContent = `Hotspot ARMED. Active ${active} • Engaged ${engaged} • Assist ${assistOn.checked?"ON":"OFF"}.`;
   }
 
-  // paint zones: violet if pore open >= 10%, else stable/unstable by risk threshold
   const poreAssist = (z)=> pore.open01[z] >= 0.10;
   const stable = (z)=> fs.zoneRiskPct[z] < 45;
 
@@ -1394,7 +1382,6 @@ function render(){
   setZoneClass(z_wbj,   poreAssist("wbj")  ? "pore" : (stable("wbj")  ? "stable":"unstable"));
   setZoneClass(z_gaps,  poreAssist("gaps") ? "pore" : (stable("gaps") ? "stable":"unstable"));
 
-  // tile tooltips (live)
   z_nose.setAttribute("title", `Nose • risk ${fmt(fs.zoneRiskPct.nose,0)}% • open ${Math.round(pore.open01.nose*100)}% • pulses ${pore.pulses.nose}`);
   z_inlet.setAttribute("title", `Inlet • risk ${fmt(fs.zoneRiskPct.inlet,0)}% • open ${Math.round(pore.open01.inlet*100)}% • pulses ${pore.pulses.inlet}`);
   z_leadL.setAttribute("title", `Lead • risk ${fmt(fs.zoneRiskPct.lead,0)}% • open ${Math.round(pore.open01.lead*100)}% • pulses ${pore.pulses.lead}`);
@@ -1404,7 +1391,6 @@ function render(){
 
   setLabelsVisible(showLabels.checked);
 
-  // stats capture
   if (running){
     zoneUpdateStats("nose",  fs.zoneRiskPct.nose);
     zoneUpdateStats("lead",  fs.zoneRiskPct.lead);
@@ -1414,7 +1400,7 @@ function render(){
   }
 }
 
-/* ===================== MAIN LOOP (single compute path) ===================== */
+/* ===================== MAIN LOOP ===================== */
 function loop(ts){
   if (!running) return;
   if (lastTs == null) lastTs = ts;
@@ -1429,7 +1415,6 @@ function loop(ts){
   const {s, MachPlan, AltPlan} = plannedAt(tMin);
   const dtSimSec = dtMin * 60.0;
 
-  // response lag
   const aMach = 1 - Math.exp(-dtSimSec / Math.max(0.5, tauMachSec()));
   const aAlt  = 1 - Math.exp(-dtSimSec / Math.max(0.5, tauAltSec()));
   MachAct += (MachPlan - MachAct) * aMach;
@@ -1454,7 +1439,6 @@ function loop(ts){
 
   const stab = stabilityScore(q_kPa, H, ramp, bandPen, inertiaPen, trackPen);
 
-  // hotspot risks once
   const compIdx = clamp((1 + (q_kPa/35.0) + 0.12*MachAct - 1) / (6.0 - 1), 0, 1);
   const hot = computeZoneRisks01({Mach:MachAct, compIdx, H, q_kPa, stab});
 
@@ -1466,10 +1450,8 @@ function loop(ts){
     gaps:  hot.gaps*100
   };
 
-  // pore network (uses SAME risks)
   applyPoreNetwork(dtReal, zoneRiskPct);
 
-  // coolant
   const baseFlowCmd = coolantBaseCommand(H, Cold, MachAct);
   const cap01  = clamp(Number(poreBoostCap.value)/100, 0, 0.70);
   const boost01 = clamp(pore.boost01, 0, cap01);
@@ -1492,7 +1474,6 @@ function loop(ts){
 
   coolantRemain = Math.max(0, coolantRemain - (totalFlow * dtSimSec));
 
-  // thermal update
   const coolFrac = (m_max > m_min) ? clamp((totalFlow - m_min)/(m_max - m_min), 0, 1) : 0;
   const kCoolEff = k_cool * (1 + 1.6*coolFrac);
 
@@ -1500,21 +1481,18 @@ function loop(ts){
   const dT = (k_heat * H * (heatTarget - Tskin)) - (kCoolEff * (Tskin - Aatm.T));
   Tskin += dT * (dtSimSec/60.0);
 
-  // fuel burn
   const burns = burnRatesForStep(s);
   jetFuelRemain   = Math.max(0, jetFuelRemain   - burns.jet  * dtMin);
   scramFuelRemain = Math.max(0, scramFuelRemain - burns.scram* dtMin);
 
   if (unstableHoldSec > 0) unstableHoldSec = Math.max(0, unstableHoldSec - dtReal);
 
-  // risks for dots
   const thermRisk = clamp((Tskin - Aatm.T)/120.0, 0, 1);
   const loadRisk  = clamp(q_kPa / q_bad_kPa, 0, 1);
   const navRisk   = bandPen;
   const plasmaU = String(s.plasma||"").toUpperCase();
   const commRisk = clamp(plasmaU.includes("LIKELY") ? 1 : plasmaU.includes("MAYBE") ? 0.5 : 0.1, 0, 1);
 
-  // update frameState (this drives ALL UI)
   frameState = {
     tMin, stepObj:s,
     MachPlan, AltPlan, MachAct, AltAct,
@@ -1531,27 +1509,12 @@ function loop(ts){
   };
 
   addLogFrame({
-    tMin: tMin,
-    step: s.step,
-    phase: s.phase,
-    Mach: MachAct,
-    AltKm: AltAct,
-    q_kPa: q_kPa,
-    H: H,
-    Tskin: Tskin,
-    coolantRemain: coolantRemain,
-    jetRemain: jetFuelRemain,
-    scramRemain: scramFuelRemain,
-    baseCool: baseFlowCmd,
-    totCool: totalFlow,
-    poreFeed: poreFeed,
-    avgOpen: pore.avgOpen01,
-    boost: boost01,
-    z_nose: zoneRiskPct.nose,
-    z_lead: zoneRiskPct.lead,
-    z_inlet: zoneRiskPct.inlet,
-    z_wbj: zoneRiskPct.wbj,
-    z_gaps: zoneRiskPct.gaps
+    tMin: tMin, step: s.step, phase: s.phase,
+    Mach: MachAct, AltKm: AltAct, q_kPa: q_kPa, H: H, Tskin: Tskin,
+    coolantRemain: coolantRemain, jetRemain: jetFuelRemain, scramRemain: scramFuelRemain,
+    baseCool: baseFlowCmd, totCool: totalFlow, poreFeed: poreFeed,
+    avgOpen: pore.avgOpen01, boost: boost01,
+    z_nose: zoneRiskPct.nose, z_lead: zoneRiskPct.lead, z_inlet: zoneRiskPct.inlet, z_wbj: zoneRiskPct.wbj, z_gaps: zoneRiskPct.gaps
   });
 
   if (tMin >= TRIP_LEN_MIN){
@@ -1615,7 +1578,7 @@ function resetAll(){
   highlightStep(null);
 }
 
-/* ===================== REPORT BUILD/CSV/PRINT (same as yours) ===================== */
+/* ===================== REPORT BUILD/CSV/PRINT ===================== */
 function buildReport(){
   const frames = LOG.length;
   if (frames === 0){
@@ -1641,7 +1604,6 @@ function buildReport(){
     `Pore avgOpen=${fmt(last.avgOpen*100,0)}% • boost=${fmt(last.boost*100,0)}% • poreFeed=${fmt(last.poreFeed,2)} kg/s\n\n` +
     `Zone stats:\n` + zoneLines.join("\n");
 
-  // print summary
   printSummary.textContent =
     `Frames: ${frames}\n` +
     `Final t=${fmt(last.tMin,2)} min; Mach=${fmt(last.Mach,2)}; Alt=${fmt(last.AltKm,1)} km; q=${fmt(last.q_kPa,1)} kPa; H=${fmt(last.H,2)}\n` +
