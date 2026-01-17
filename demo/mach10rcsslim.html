@@ -1,4 +1,3 @@
-<!-- ======================= PART 1 / 3 ======================= -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -113,7 +112,7 @@
   /* BLINKING RED when unstable */
   @keyframes blinkUnstable{
     0%,49%   { stroke: rgba(251,113,133,.98); fill: rgba(251,113,133,.14); }
-    50%,100% { stroke: rgba(251,113,133,.22); fill: rgba(251,113,133,.04); }
+    50%,100% { stroke: rgba(251,113,133,.18); fill: rgba(251,113,133,.04); }
   }
   .zoneUnstable{
     stroke:rgba(251,113,133,.98);
@@ -154,6 +153,20 @@
   th,td{padding:10px 10px;border-bottom:1px solid rgba(148,163,184,.14);vertical-align:top}
   th{text-align:left;color:var(--muted);font-size:.85rem;position:sticky;top:0;background:rgba(7,10,20,.85);backdrop-filter: blur(6px)}
   tr.active{outline:2px solid rgba(96,165,250,.55);background:rgba(96,165,250,.08)}
+
+  /* On-page error display so you SEE if scripts are blocked */
+  .err{
+    margin-top:12px;
+    padding:10px 12px;
+    border-radius:14px;
+    border:1px solid rgba(251,113,133,.35);
+    background:rgba(251,113,133,.10);
+    color:#ffd6de;
+    font-family:var(--mono);
+    font-size:.85rem;
+    display:none;
+    white-space:pre-wrap;
+  }
 </style>
 </head>
 <body>
@@ -161,7 +174,7 @@
   <header>
     <div>
       <h1>Japan → Paris Trip Simulator (Live Readout)</h1>
-      <div class="sub">Simple rule: each zone has an automatic squeeze light. If that zone risk ≥ <b>10%</b> → light ON + zone BLINKS red. Under 10% → stable (blue).</div>
+      <div class="sub">Rule: if a zone risk ≥ <b>10%</b> → squeeze ON and that zone <b>blinks red</b>. Under 10% → stable (blue).</div>
     </div>
     <div class="legend">
       <span class="pill">Trip length: <b id="tripLen">146 min</b></span>
@@ -169,6 +182,8 @@
       <span class="pill">Status: <b id="statusLbl" class="warn">Stopped</b></span>
     </div>
   </header>
+
+  <div id="errBox" class="err"></div>
 
   <div class="row">
     <!-- LEFT -->
@@ -210,7 +225,7 @@
 
           <div class="stat">
             <div class="k">Rule</div>
-            <div class="small">Any zone risk ≥ <b>10%</b> → that zone squeeze light turns <span class="good">ON</span> and the zone <span class="bad">BLINKS red</span>. Under 10% → stable (blue).</div>
+            <div class="small">Any zone risk ≥ <b>10%</b> → green dot ON and zone blinks red.</div>
           </div>
         </div>
       </div>
@@ -237,7 +252,7 @@
 
           <div class="hotGrid">
             <div class="planeWrap">
-              <svg viewBox="0 0 640 260">
+              <svg viewBox="0 0 640 260" aria-label="Hotspot zones">
                 <path class="airframe" d="M320 20 C350 20 374 38 384 60 L430 150 L600 170 L600 190 L430 190 L382 252
                  C370 240 350 228 320 228 C290 228 270 240 258 252 L210 190 L40 190 L40 170 L210 150 L256 60 C266 38 290 20 320 20 Z"/>
                 <polygon id="z_nose" class="zone" points="320,26 350,40 338,74 302,74 290,40"></polygon>
@@ -343,413 +358,445 @@
       </div>
     </div>
   </section>
-
 </div>
+
 <script>
-/* ======================= PART 2 / 3 ======================= */
-const TRIP_LEN_MIN = 146.0;
+/* IMPORTANT FIX:
+   Everything is wrapped in DOMContentLoaded.
+   If your platform blocks scripts, the red error box will tell you. */
+window.addEventListener("DOMContentLoaded", () => {
+  const errBox = document.getElementById("errBox");
+  const showErr = (msg) => {
+    errBox.style.display = "block";
+    errBox.textContent = msg;
+  };
+  window.addEventListener("error", (e) => {
+    showErr("JS ERROR:\n" + (e.message || e.error || e));
+  });
 
-const STEPS = [
-  {"step":1,"phase":"Takeoff + initial climb","t0":0.0,"t1":15.0,"mach0":0.0,"mach1":1.0,"alt0":0.0,"alt1":12.0,"speedPlan":"0 → ~Mach 1","distKm":123.0,"fuelMode":"Jet fuel","em":"LOW (surface)","plasma":"NONE","ins":"LOW","notes":"Runway to high climb"},
-  {"step":2,"phase":"Climb + accelerate to Mach 3 corridor","t0":15.0,"t1":40.0,"mach0":1.0,"mach1":3.0,"alt0":12.0,"alt1":30.0,"speedPlan":"Mach 1 → Mach 3","distKm":926.0,"fuelMode":"Jet fuel","em":"LOW→MOD","plasma":"NONE→MAYBE","ins":"LOW→MOD","notes":"Transition into thinner air; heating begins to rise."},
-  {"step":3,"phase":"Ramp up (controlled)","t0":40.0,"t1":50.0,"mach0":3.0,"mach1":10.0,"alt0":30.0,"alt1":45.0,"speedPlan":"Mach 3 → Mach 10","distKm":1338.0,"fuelMode":"Scramjet / mixed-mode","em":"MOD→HIGH","plasma":"MAYBE→LIKELY","ins":"HIGH","notes":"Peak heating window; plasma and comm risk increases."},
-  {"step":4,"phase":"Mach-10 cruise window","t0":50.0,"t1":60.0,"mach0":10.0,"mach1":10.0,"alt0":45.0,"alt1":55.0,"speedPlan":"Mach 10 steady","distKm":2058.0,"fuelMode":"Scramjet (steady)","em":"HIGH","plasma":"LIKELY","ins":"HIGH","notes":"Short Mach-10 window; most sensitive to thermal/structural margins."},
-  {"step":5,"phase":"Ramp down (controlled)","t0":60.0,"t1":70.0,"mach0":10.0,"mach1":3.0,"alt0":55.0,"alt1":35.0,"speedPlan":"Mach 10 → Mach 3","distKm":1338.0,"fuelMode":"Scramjet → turbine/ram","em":"HIGH→MOD","plasma":"LIKELY→MAYBE","ins":"HIGH→MOD","notes":"Recover comms; reduce heating; stabilize inlet margin."},
-  {"step":6,"phase":"Long midcourse at Mach 3","t0":70.0,"t1":126.0,"mach0":3.0,"mach1":3.0,"alt0":25.0,"alt1":30.0,"speedPlan":"Mach 3 steady","distKm":4138.0,"fuelMode":"Ramjet / turbine","em":"MOD","plasma":"MAYBE (sporadic)","ins":"MOD","notes":"Main distance segment; lower heating than Mach-10; optimize range."},
-  {"step":7,"phase":"Descent + landing","t0":126.0,"t1":146.0,"mach0":3.0,"mach1":0.0,"alt0":30.0,"alt1":0.0,"speedPlan":"Mach 3 → 0","distKm":540.0,"fuelMode":"Turbine + landing","em":"MOD→LOW","plasma":"NONE","ins":"LOW","notes":"Thermal cooldown; return to dense air; control authority increases."}
-];
+  /* ======================= DATA ======================= */
+  const TRIP_LEN_MIN = 146.0;
 
-const ATM = [
-  {"alt_km":0.0,"T":288.15,"rho":1.2250000,"a":340.2940},
-  {"alt_km":10.0,"T":223.15,"rho":0.4127061,"a":299.4632},
-  {"alt_km":20.0,"T":216.65,"rho":0.0880350,"a":295.1000},
-  {"alt_km":30.0,"T":226.65,"rho":0.0180120,"a":301.8000},
-  {"alt_km":40.0,"T":251.05,"rho":0.0038510,"a":317.6000},
-  {"alt_km":50.0,"T":270.65,"rho":0.0009780,"a":329.8000},
-  {"alt_km":60.0,"T":245.45,"rho":0.0002880,"a":314.1000}
-];
+  const STEPS = [
+    {"step":1,"phase":"Takeoff + initial climb","t0":0.0,"t1":15.0,"mach0":0.0,"mach1":1.0,"alt0":0.0,"alt1":12.0,"speedPlan":"0 → ~Mach 1","distKm":123.0,"fuelMode":"Jet fuel","em":"LOW (surface)","plasma":"NONE","ins":"LOW","notes":"Runway to high climb"},
+    {"step":2,"phase":"Climb + accelerate to Mach 3 corridor","t0":15.0,"t1":40.0,"mach0":1.0,"mach1":3.0,"alt0":12.0,"alt1":30.0,"speedPlan":"Mach 1 → Mach 3","distKm":926.0,"fuelMode":"Jet fuel","em":"LOW→MOD","plasma":"NONE→MAYBE","ins":"LOW→MOD","notes":"Transition into thinner air; heating begins to rise."},
+    {"step":3,"phase":"Ramp up (controlled)","t0":40.0,"t1":50.0,"mach0":3.0,"mach1":10.0,"alt0":30.0,"alt1":45.0,"speedPlan":"Mach 3 → Mach 10","distKm":1338.0,"fuelMode":"Scramjet / mixed-mode","em":"MOD→HIGH","plasma":"MAYBE→LIKELY","ins":"HIGH","notes":"Peak heating window; plasma and comm risk increases."},
+    {"step":4,"phase":"Mach-10 cruise window","t0":50.0,"t1":60.0,"mach0":10.0,"mach1":10.0,"alt0":45.0,"alt1":55.0,"speedPlan":"Mach 10 steady","distKm":2058.0,"fuelMode":"Scramjet (steady)","em":"HIGH","plasma":"LIKELY","ins":"HIGH","notes":"Short Mach-10 window; most sensitive to thermal/structural margins."},
+    {"step":5,"phase":"Ramp down (controlled)","t0":60.0,"t1":70.0,"mach0":10.0,"mach1":3.0,"alt0":55.0,"alt1":35.0,"speedPlan":"Mach 10 → Mach 3","distKm":1338.0,"fuelMode":"Scramjet → turbine/ram","em":"HIGH→MOD","plasma":"LIKELY→MAYBE","ins":"HIGH→MOD","notes":"Recover comms; reduce heating; stabilize inlet margin."},
+    {"step":6,"phase":"Long midcourse at Mach 3","t0":70.0,"t1":126.0,"mach0":3.0,"mach1":3.0,"alt0":25.0,"alt1":30.0,"speedPlan":"Mach 3 steady","distKm":4138.0,"fuelMode":"Ramjet / turbine","em":"MOD","plasma":"MAYBE (sporadic)","ins":"MOD","notes":"Main distance segment; lower heating than Mach-10; optimize range."},
+    {"step":7,"phase":"Descent + landing","t0":126.0,"t1":146.0,"mach0":3.0,"mach1":0.0,"alt0":30.0,"alt1":0.0,"speedPlan":"Mach 3 → 0","distKm":540.0,"fuelMode":"Turbine + landing","em":"MOD→LOW","plasma":"NONE","ins":"LOW","notes":"Thermal cooldown; return to dense air; control authority increases."}
+  ];
 
-const clamp = (x,a,b)=>Math.max(a,Math.min(b,x));
-const el = (id)=>document.getElementById(id);
+  const ATM = [
+    {"alt_km":0.0,"T":288.15,"rho":1.2250000,"a":340.2940},
+    {"alt_km":10.0,"T":223.15,"rho":0.4127061,"a":299.4632},
+    {"alt_km":20.0,"T":216.65,"rho":0.0880350,"a":295.1000},
+    {"alt_km":30.0,"T":226.65,"rho":0.0180120,"a":301.8000},
+    {"alt_km":40.0,"T":251.05,"rho":0.0038510,"a":317.6000},
+    {"alt_km":50.0,"T":270.65,"rho":0.0009780,"a":329.8000},
+    {"alt_km":60.0,"T":245.45,"rho":0.0002880,"a":314.1000}
+  ];
 
-function fmt(x, d=2){ return isFinite(x) ? Number(x).toFixed(d) : "—"; }
-function fmtInt(x){ return isFinite(x) ? String(Math.round(x)) : "—"; }
+  /* ======================= HELPERS ======================= */
+  const clamp = (x,a,b)=>Math.max(a,Math.min(b,x));
+  const el = (id)=>document.getElementById(id);
+  const fmt = (x,d=2)=>isFinite(x)?Number(x).toFixed(d):"—";
+  const fmtInt = (x)=>isFinite(x)?String(Math.round(x)):"—";
 
-function interp1(x, x0, y0, x1, y1){
-  if (x1===x0) return y0;
-  const s=(x-x0)/(x1-x0);
-  return y0+s*(y1-y0);
-}
-function atmAt(altKm){
-  const x = clamp(altKm, ATM[0].alt_km, ATM[ATM.length-1].alt_km);
-  for (let i=0;i<ATM.length-1;i++){
-    const a0=ATM[i], a1=ATM[i+1];
-    if (x>=a0.alt_km && x<=a1.alt_km){
-      return {
-        T:   interp1(x,a0.alt_km,a0.T,   a1.alt_km,a1.T),
-        rho: interp1(x,a0.alt_km,a0.rho, a1.alt_km,a1.rho),
-        a:   interp1(x,a0.alt_km,a0.a,   a1.alt_km,a1.a)
-      };
+  function interp1(x, x0, y0, x1, y1){
+    if (x1===x0) return y0;
+    const s=(x-x0)/(x1-x0);
+    return y0+s*(y1-y0);
+  }
+  function atmAt(altKm){
+    const x = clamp(altKm, ATM[0].alt_km, ATM[ATM.length-1].alt_km);
+    for (let i=0;i<ATM.length-1;i++){
+      const a0=ATM[i], a1=ATM[i+1];
+      if (x>=a0.alt_km && x<=a1.alt_km){
+        return {
+          T:   interp1(x,a0.alt_km,a0.T,   a1.alt_km,a1.T),
+          rho: interp1(x,a0.alt_km,a0.rho, a1.alt_km,a1.rho),
+          a:   interp1(x,a0.alt_km,a0.a,   a1.alt_km,a1.a)
+        };
+      }
+    }
+    return {T:ATM[0].T,rho:ATM[0].rho,a:ATM[0].a};
+  }
+  function stepAt(tMin){
+    for (const s of STEPS) if (tMin>=s.t0 && tMin<s.t1) return s;
+    return STEPS[STEPS.length-1];
+  }
+  function plannedAt(t){
+    const s = stepAt(t);
+    const span = Math.max(1e-9, (s.t1 - s.t0));
+    const frac = clamp((t - s.t0)/span, 0, 1);
+    const MachPlan = s.mach0 + frac*(s.mach1 - s.mach0);
+    const AltPlan  = s.alt0  + frac*(s.alt1  - s.alt0);
+    return {s, MachPlan, AltPlan};
+  }
+  function setZoneClass(polyEl, stable){
+    if (!polyEl) return;
+    polyEl.classList.remove("zoneStable","zoneUnstable");
+    polyEl.classList.add(stable ? "zoneStable" : "zoneUnstable");
+  }
+  function setLabelsVisible(on){
+    ["lbl_nose","lbl_inlet","lbl_leadL","lbl_leadR","lbl_wbj","lbl_gaps"].forEach(id=>{
+      const n = el(id); if (n) n.style.display = on ? "block" : "none";
+    });
+  }
+
+  /* ======================= TABLE ======================= */
+  const tbody = el("tbody");
+  const rowEls = new Map();
+  function buildTable(){
+    tbody.innerHTML = "";
+    for (const s of STEPS){
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td class="mono">${s.step}</td>
+        <td>${s.phase}</td>
+        <td class="mono">${fmt(s.t0,0)}–${fmt(s.t1,0)}</td>
+        <td>${s.speedPlan}</td>
+        <td class="mono">${fmt(s.alt0,0)}→${fmt(s.alt1,0)}</td>
+        <td class="mono">${fmt(s.distKm,0)}</td>
+        <td>${s.fuelMode}</td>
+        <td>${s.em}</td>
+        <td>${s.plasma}</td>
+        <td>${s.ins}</td>
+        <td>${s.notes}</td>
+      `;
+      tbody.appendChild(tr);
+      rowEls.set(s.step, tr);
     }
   }
-  return {T:ATM[0].T,rho:ATM[0].rho,a:ATM[0].a};
-}
-function stepAt(tMin){
-  for (const s of STEPS) if (tMin>=s.t0 && tMin<s.t1) return s;
-  return STEPS[STEPS.length-1];
-}
-function plannedAt(t){
-  const s = stepAt(t);
-  const span = Math.max(1e-9, (s.t1 - s.t0));
-  const frac = clamp((t - s.t0)/span, 0, 1);
-  const MachPlan = s.mach0 + frac*(s.mach1 - s.mach0);
-  const AltPlan  = s.alt0  + frac*(s.alt1  - s.alt0);
-  return {s, MachPlan, AltPlan};
-}
-function setZoneClass(polyEl, stable){
-  polyEl.classList.remove("zoneStable","zoneUnstable");
-  polyEl.classList.add(stable ? "zoneStable" : "zoneUnstable");
-}
-function setLabelsVisible(on){
-  ["lbl_nose","lbl_inlet","lbl_leadL","lbl_leadR","lbl_wbj","lbl_gaps"].forEach(id=>{
-    const n = el(id); if (n) n.style.display = on ? "block" : "none";
-  });
-}
-
-/* Table */
-const tbody = el("tbody");
-const rowEls = new Map();
-function buildTable(){
-  tbody.innerHTML = "";
-  for (const s of STEPS){
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td class="mono">${s.step}</td>
-      <td>${s.phase}</td>
-      <td class="mono">${fmt(s.t0,0)}–${fmt(s.t1,0)}</td>
-      <td>${s.speedPlan}</td>
-      <td class="mono">${fmt(s.alt0,0)}→${fmt(s.alt1,0)}</td>
-      <td class="mono">${fmt(s.distKm,0)}</td>
-      <td>${s.fuelMode}</td>
-      <td>${s.em}</td>
-      <td>${s.plasma}</td>
-      <td>${s.ins}</td>
-      <td>${s.notes}</td>
-    `;
-    tbody.appendChild(tr);
-    rowEls.set(s.step, tr);
+  function highlightStep(step){
+    for (const [k,tr] of rowEls.entries()){
+      tr.classList.toggle("active", step === k);
+    }
   }
-}
-function highlightStep(step){
-  for (const [k,tr] of rowEls.entries()){
-    tr.classList.toggle("active", step === k);
+
+  /* ======================= CLOCKS ======================= */
+  let depReal = null;
+  const TZ_LOCAL = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const TZ_PARIS = "Europe/Paris";
+
+  function fmtInTZ(date, timeZone){
+    try{
+      const f = new Intl.DateTimeFormat(undefined, {
+        timeZone, weekday:"short", year:"numeric", month:"2-digit", day:"2-digit",
+        hour:"2-digit", minute:"2-digit", second:"2-digit"
+      });
+      return f.format(date);
+    }catch(e){ return date.toISOString(); }
   }
-}
+  function renderDepTimes(){
+    if (!depReal){
+      el("depTimes").textContent = `Local (${TZ_LOCAL}): —\nParis (${TZ_PARIS}): —`;
+      el("depNote").textContent = "Press Start to lock.";
+      return;
+    }
+    el("depTimes").textContent =
+      `Local (${TZ_LOCAL}): ${fmtInTZ(depReal, TZ_LOCAL)}\n` +
+      `Paris (${TZ_PARIS}): ${fmtInTZ(depReal, TZ_PARIS)}`;
+    el("depNote").textContent = "Departure locked.";
+  }
+  function fmtHMS(totalSeconds){
+    if (!isFinite(totalSeconds) || totalSeconds < 0) return "—";
+    const s = Math.max(0, Math.round(totalSeconds));
+    const hh = Math.floor(s/3600);
+    const mm = Math.floor((s%3600)/60);
+    const ss = s%60;
+    return `${String(hh).padStart(2,"0")}:${String(mm).padStart(2,"0")}:${String(ss).padStart(2,"0")}`;
+  }
 
-/* Clocks */
-let depReal = null;
-const TZ_LOCAL   = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-const TZ_PARIS   = "Europe/Paris";
+  /* ======================= UI REFS ======================= */
+  const btnStart = el("btnStart");
+  const btnStop  = el("btnStop");
+  const btnReset = el("btnReset");
+  const spd      = el("spd");
 
-function fmtInTZ(date, timeZone){
-  try{
-    const f = new Intl.DateTimeFormat(undefined, {
-      timeZone, weekday:"short", year:"numeric", month:"2-digit", day:"2-digit",
-      hour:"2-digit", minute:"2-digit", second:"2-digit"
-    });
-    return f.format(date);
-  }catch(e){ return date.toISOString(); }
-}
-function renderDepTimes(){
-  if (!depReal){
-    el("depTimes").textContent = `Local (${TZ_LOCAL}): —\nParis (${TZ_PARIS}): —`;
-    el("depNote").textContent = "Press Start to lock.";
+  const spdLbl    = el("spdLbl");
+  const statusLbl = el("statusLbl");
+
+  const tNow    = el("tNow");
+  const prog    = el("prog");
+  const progPct = el("progPct");
+  const stepNow = el("stepNow");
+  const phaseNow= el("phaseNow");
+
+  const effSpeedLbl = el("effSpeedLbl");
+  const etaRealLbl  = el("etaRealLbl");
+
+  const machEl = el("mach");
+  const altEl  = el("alt");
+  const VEl    = el("V");
+  const qEl    = el("q");
+  const HEl    = el("H");
+  const stabEl = el("stab");
+
+  const hotState   = el("hotState");
+  const showLabels = el("showLabels");
+
+  const zr_nose  = el("zr_nose");
+  const zr_inlet = el("zr_inlet");
+  const zr_lead  = el("zr_lead");
+  const zr_wbj   = el("zr_wbj");
+  const zr_gaps  = el("zr_gaps");
+
+  const z_nose  = el("z_nose");
+  const z_inlet = el("z_inlet");
+  const z_leadL = el("z_leadL");
+  const z_leadR = el("z_leadR");
+  const z_wbj   = el("z_wbj");
+  const z_gaps  = el("z_gaps");
+
+  const sq_nose  = el("sq_nose");
+  const sq_lead  = el("sq_lead");
+  const sq_inlet = el("sq_inlet");
+  const sq_wbj   = el("sq_wbj");
+  const sq_gaps  = el("sq_gaps");
+
+  if (!btnStart || !tbody || !z_nose) {
+    showErr("DOM MISSING ELEMENTS.\nThis usually means your platform/editor stripped parts of the HTML.\nTry saving as a real .html file and opening it in Chrome/Edge.");
     return;
   }
-  el("depTimes").textContent =
-    `Local (${TZ_LOCAL}): ${fmtInTZ(depReal, TZ_LOCAL)}\n` +
-    `Paris (${TZ_PARIS}): ${fmtInTZ(depReal, TZ_PARIS)}`;
-  el("depNote").textContent = "Departure locked.";
-}
-function fmtHMS(totalSeconds){
-  if (!isFinite(totalSeconds) || totalSeconds < 0) return "—";
-  const s = Math.max(0, Math.round(totalSeconds));
-  const hh = Math.floor(s/3600);
-  const mm = Math.floor((s%3600)/60);
-  const ss = s%60;
-  return `${String(hh).padStart(2,"0")}:${String(mm).padStart(2,"0")}:${String(ss).padStart(2,"0")}`;
-}
-<!-- ======================= PART 3 / 3 ======================= -->
-<script>
-/* UI refs */
-const btnStart = el("btnStart");
-const btnStop  = el("btnStop");
-const btnReset = el("btnReset");
-const spd = el("spd");
 
-const spdLbl = el("spdLbl");
-const statusLbl = el("statusLbl");
+  /* ======================= MODEL ======================= */
+  const q_ref_kPa = 50.0;
+  const q_bad_kPa = 120.0;
+  const H_bad     = 2.0;
+  const TH        = 10;  // UPDATED threshold
 
-const tNow = el("tNow");
-const prog = el("prog");
-const progPct = el("progPct");
-const stepNow = el("stepNow");
-const phaseNow = el("phaseNow");
+  let running = false;
+  let tMin = 0.0;
+  let lastTs = null;
+  let MachAct = 0.0;
+  let AltAct  = 0.0;
+  const tauMachSec = 10.0;
+  const tauAltSec  = 14.0;
 
-const effSpeedLbl = el("effSpeedLbl");
-const etaRealLbl  = el("etaRealLbl");
+  function setStatus(txt, cls){ statusLbl.textContent = txt; statusLbl.className = cls; }
+  function setButtons(){ btnStart.disabled = running; btnStop.disabled = !running; }
+  function effectiveSpeedSimMinPerSec(){ return Number(spd.value); }
 
-const machEl = el("mach");
-const altEl  = el("alt");
-const VEl    = el("V");
-const qEl    = el("q");
-const HEl    = el("H");
-const stabEl = el("stab");
+  function renderArrivalETA(){
+    const eff = effectiveSpeedSimMinPerSec();
+    effSpeedLbl.textContent = fmt(eff, 1);
 
-const hotState = el("hotState");
-const showLabels = el("showLabels");
+    const remainingMin = Math.max(0, TRIP_LEN_MIN - tMin);
+    const etaSec = (eff > 0) ? (remainingMin / eff) : Infinity;
+    etaRealLbl.textContent = isFinite(etaSec) ? `${fmtHMS(etaSec)} (hh:mm:ss)` : "—";
 
-const zr_nose  = el("zr_nose");
-const zr_inlet = el("zr_inlet");
-const zr_lead  = el("zr_lead");
-const zr_wbj   = el("zr_wbj");
-const zr_gaps  = el("zr_gaps");
+    const now = new Date();
+    const arr = new Date(now.getTime() + (isFinite(etaSec) ? etaSec*1000 : 0));
+    el("arrTimes").textContent =
+      `Local (${TZ_LOCAL}): ${fmtInTZ(arr, TZ_LOCAL)}\n` +
+      `Paris (${TZ_PARIS}): ${fmtInTZ(arr, TZ_PARIS)}`;
+    el("arrNote").textContent = "Computed from now + ETA.";
+  }
 
-const z_nose  = el("z_nose");
-const z_inlet = el("z_inlet");
-const z_leadL = el("z_leadL");
-const z_leadR = el("z_leadR");
-const z_wbj   = el("z_wbj");
-const z_gaps  = el("z_gaps");
+  function stabilityScore(q_kPa, H){
+    const qn = clamp(q_kPa / q_bad_kPa, 0, 1);
+    const Hn = clamp(H / H_bad, 0, 1);
+    return clamp(1 - (0.55*qn + 0.45*Hn), 0, 1);
+  }
+  function computeZoneRiskPct(q_kPa, H, stab){
+    const qn = clamp(q_kPa / q_bad_kPa, 0, 1);
+    const Hn = clamp(H / H_bad, 0, 1);
+    const un = (1 - stab);
+    const nose  = clamp(100*(0.52*qn + 0.33*Hn + 0.15*un), 0, 100);
+    const inlet = clamp(100*(0.45*qn + 0.35*Hn + 0.20*un), 0, 100);
+    const lead  = clamp(100*(0.48*qn + 0.28*Hn + 0.24*un), 0, 100);
+    const wbj   = clamp(100*(0.38*qn + 0.34*Hn + 0.28*un), 0, 100);
+    const gaps  = clamp(100*(0.30*qn + 0.30*Hn + 0.40*un), 0, 100);
+    return {nose,inlet,lead,wbj,gaps};
+  }
+  function setSqueeze(dot, on){
+    if (!dot) return;
+    dot.classList.toggle("squeezeOn", !!on);
+  }
 
-/* squeeze dots */
-const sq_nose  = el("sq_nose");
-const sq_lead  = el("sq_lead");
-const sq_inlet = el("sq_inlet");
-const sq_wbj   = el("sq_wbj");
-const sq_gaps  = el("sq_gaps");
+  function renderFrame(s, V, q_kPa, H, stab, risks){
+    spdLbl.textContent = spd.value + "×";
 
-/* tunables */
-const q_ref_kPa = 50.0;
-const q_bad_kPa = 120.0;
-const H_bad = 2.0;
-const TH = 10; /* percent (UPDATED from 45 to 10) */
+    tNow.textContent = fmt(tMin,2);
+    const pct = clamp((tMin/TRIP_LEN_MIN)*100, 0, 100);
+    prog.style.width = pct.toFixed(1) + "%";
+    progPct.textContent = pct.toFixed(0);
 
-/* state */
-let running = false;
-let tMin = 0.0;
-let lastTs = null;
-let MachAct = 0.0;
-let AltAct  = 0.0;
-const tauMachSec = 10.0;
-const tauAltSec  = 14.0;
+    stepNow.textContent  = s.step;
+    phaseNow.textContent = s.phase;
 
-function setStatus(txt, cls){ statusLbl.textContent = txt; statusLbl.className = cls; }
-function setButtons(){ btnStart.disabled = running; btnStop.disabled = !running; }
-function effectiveSpeedSimMinPerSec(){ return Number(spd.value); }
+    machEl.textContent = fmt(MachAct,2);
+    altEl.textContent  = fmt(AltAct,1);
+    VEl.textContent    = fmtInt(V);
+    qEl.textContent    = fmt(q_kPa,1);
+    HEl.textContent    = fmt(H,2);
+    stabEl.textContent = fmt(stab,2);
 
-function renderArrivalETA(){
-  const eff = effectiveSpeedSimMinPerSec();
-  effSpeedLbl.textContent = fmt(eff, 1);
+    zr_nose.textContent  = fmt(risks.nose,0)+"%";
+    zr_inlet.textContent = fmt(risks.inlet,0)+"%";
+    zr_lead.textContent  = fmt(risks.lead,0)+"%";
+    zr_wbj.textContent   = fmt(risks.wbj,0)+"%";
+    zr_gaps.textContent  = fmt(risks.gaps,0)+"%";
 
-  const remainingMin = Math.max(0, TRIP_LEN_MIN - tMin);
-  const etaSec = (eff > 0) ? (remainingMin / eff) : Infinity;
-  etaRealLbl.textContent = isFinite(etaSec) ? `${fmtHMS(etaSec)} (hh:mm:ss)` : "—";
+    setZoneClass(z_nose,  risks.nose  < TH);
+    setZoneClass(z_inlet, risks.inlet < TH);
+    setZoneClass(z_leadL, risks.lead  < TH);
+    setZoneClass(z_leadR, risks.lead  < TH);
+    setZoneClass(z_wbj,   risks.wbj   < TH);
+    setZoneClass(z_gaps,  risks.gaps  < TH);
 
-  const now = new Date();
-  const arr = new Date(now.getTime() + (isFinite(etaSec) ? etaSec*1000 : 0));
-  el("arrTimes").textContent =
-    `Local (${TZ_LOCAL}): ${fmtInTZ(arr, TZ_LOCAL)}\n` +
-    `Paris (${TZ_PARIS}): ${fmtInTZ(arr, TZ_PARIS)}`;
-  el("arrNote").textContent = "Computed from now + ETA.";
-}
+    const onN = risks.nose  >= TH;
+    const onL = risks.lead  >= TH;
+    const onI = risks.inlet >= TH;
+    const onW = risks.wbj   >= TH;
+    const onG = risks.gaps  >= TH;
 
-function stabilityScore(q_kPa, H){
-  const qn = clamp(q_kPa / q_bad_kPa, 0, 1);
-  const Hn = clamp(H / H_bad, 0, 1);
-  return clamp(1 - (0.55*qn + 0.45*Hn), 0, 1);
-}
-function computeZoneRiskPct(q_kPa, H, stab){
-  const qn = clamp(q_kPa / q_bad_kPa, 0, 1);
-  const Hn = clamp(H / H_bad, 0, 1);
-  const un = (1 - stab);
-  const nose  = clamp(100*(0.52*qn + 0.33*Hn + 0.15*un), 0, 100);
-  const inlet = clamp(100*(0.45*qn + 0.35*Hn + 0.20*un), 0, 100);
-  const lead  = clamp(100*(0.48*qn + 0.28*Hn + 0.24*un), 0, 100);
-  const wbj   = clamp(100*(0.38*qn + 0.34*Hn + 0.28*un), 0, 100);
-  const gaps  = clamp(100*(0.30*qn + 0.30*Hn + 0.40*un), 0, 100);
-  return {nose,inlet,lead,wbj,gaps};
-}
-function setSqueeze(dot, on){
-  if (!dot) return;
-  dot.classList.toggle("squeezeOn", !!on);
-}
+    setSqueeze(sq_nose,  onN);
+    setSqueeze(sq_lead,  onL);
+    setSqueeze(sq_inlet, onI);
+    setSqueeze(sq_wbj,   onW);
+    setSqueeze(sq_gaps,  onG);
 
-function renderFrame(s, V, q_kPa, H, stab, risks){
-  spdLbl.textContent = spd.value + "×";
+    const engaged = [onN,onL,onI,onW,onG].filter(Boolean).length;
+    hotState.textContent = !running ? "Hotspot system is IDLE."
+      : (engaged===0 ? `Running • Stable (all zones < ${TH}%).`
+                     : `Running • Squeeze ACTIVE in ${engaged} zone(s) (risk ≥ ${TH}%).`);
 
-  tNow.textContent = fmt(tMin,2);
-  const pct = clamp((tMin/TRIP_LEN_MIN)*100, 0, 100);
-  prog.style.width = pct.toFixed(1) + "%";
-  progPct.textContent = pct.toFixed(0);
-
-  stepNow.textContent  = s.step;
-  phaseNow.textContent = s.phase;
-
-  machEl.textContent = fmt(MachAct,2);
-  altEl.textContent  = fmt(AltAct,1);
-  VEl.textContent    = fmtInt(V);
-  qEl.textContent    = fmt(q_kPa,1);
-  HEl.textContent    = fmt(H,2);
-  stabEl.textContent = fmt(stab,2);
-
-  zr_nose.textContent  = fmt(risks.nose,0)+"%";
-  zr_inlet.textContent = fmt(risks.inlet,0)+"%";
-  zr_lead.textContent  = fmt(risks.lead,0)+"%";
-  zr_wbj.textContent   = fmt(risks.wbj,0)+"%";
-  zr_gaps.textContent  = fmt(risks.gaps,0)+"%";
-
-  /* zones: stable -> blue, unstable -> BLINK red via CSS animation */
-  setZoneClass(z_nose,  risks.nose  < TH);
-  setZoneClass(z_inlet, risks.inlet < TH);
-  setZoneClass(z_leadL, risks.lead  < TH);
-  setZoneClass(z_leadR, risks.lead  < TH);
-  setZoneClass(z_wbj,   risks.wbj   < TH);
-  setZoneClass(z_gaps,  risks.gaps  < TH);
-
-  const onN = risks.nose  >= TH;
-  const onL = risks.lead  >= TH;
-  const onI = risks.inlet >= TH;
-  const onW = risks.wbj   >= TH;
-  const onG = risks.gaps  >= TH;
-
-  setSqueeze(sq_nose,  onN);
-  setSqueeze(sq_lead,  onL);
-  setSqueeze(sq_inlet, onI);
-  setSqueeze(sq_wbj,   onW);
-  setSqueeze(sq_gaps,  onG);
-
-  const engaged = [onN,onL,onI,onW,onG].filter(Boolean).length;
-  hotState.textContent = !running ? "Hotspot system is IDLE."
-    : (engaged===0 ? `Running • Stable (all zones < ${TH}%).`
-                   : `Running • Squeeze ACTIVE in ${engaged} zone(s) (risk ≥ ${TH}%).`);
-
-  setLabelsVisible(showLabels.checked);
-  highlightStep(s.step);
-  renderArrivalETA();
-}
-
-function loop(ts){
-  if (!running) return;
-  if (lastTs == null) lastTs = ts;
-
-  const dtReal = (ts - lastTs) / 1000.0;
-  lastTs = ts;
-
-  const dtMin = effectiveSpeedSimMinPerSec() * dtReal;
-  tMin += dtMin;
-
-  const {s, MachPlan, AltPlan} = plannedAt(tMin);
-  const dtSimSec = dtMin * 60.0;
-
-  const aMach = 1 - Math.exp(-dtSimSec / Math.max(0.5, tauMachSec));
-  const aAlt  = 1 - Math.exp(-dtSimSec / Math.max(0.5, tauAltSec));
-  MachAct += (MachPlan - MachAct) * aMach;
-  AltAct  += (AltPlan  - AltAct ) * aAlt;
-
-  const Aatm = atmAt(AltAct);
-  const V = MachAct * Aatm.a;
-  const q_kPa = 0.5 * Aatm.rho * V * V / 1000.0;
-  const H = q_kPa / q_ref_kPa;
-
-  const stab = stabilityScore(q_kPa, H);
-  const risks = computeZoneRiskPct(q_kPa, H, stab);
-
-  renderFrame(s, V, q_kPa, H, stab, risks);
-
-  if (tMin >= TRIP_LEN_MIN){
-    tMin = TRIP_LEN_MIN;
-    running = false;
-    setStatus("Ended", "warn");
-    setButtons();
+    setLabelsVisible(showLabels.checked);
+    highlightStep(s.step);
     renderArrivalETA();
-    return;
   }
-  requestAnimationFrame(loop);
-}
 
-btnStart.addEventListener("click", ()=>{
-  if (!depReal) depReal = new Date();
-  renderDepTimes();
-  running = true;
-  lastTs = null;
-  setStatus("Running", "good");
-  setButtons();
-  requestAnimationFrame(loop);
-});
-btnStop.addEventListener("click", ()=>{
-  running = false;
-  lastTs = null;
-  setStatus("Stopped", "warn");
-  setButtons();
-});
-btnReset.addEventListener("click", ()=>{
-  running = false;
-  lastTs = null;
-  tMin = 0.0;
-  MachAct = 0.0;
-  AltAct  = 0.0;
-  setStatus("Stopped", "warn");
-  setButtons();
+  function loop(ts){
+    if (!running) return;
+    if (lastTs == null) lastTs = ts;
 
-  highlightStep(null);
-  hotState.textContent = "Hotspot system is IDLE.";
+    const dtReal = (ts - lastTs) / 1000.0;
+    lastTs = ts;
 
-  tNow.textContent = fmt(tMin,2);
-  prog.style.width = "0%";
-  progPct.textContent = "0";
-  stepNow.textContent = "—";
-  phaseNow.textContent = "—";
-  machEl.textContent = "0.00";
-  altEl.textContent  = "0.0";
-  VEl.textContent    = "0";
-  qEl.textContent    = "0.0";
-  HEl.textContent    = "0.00";
-  stabEl.textContent = "1.00";
-  zr_nose.textContent="0%";
-  zr_inlet.textContent="0%";
-  zr_lead.textContent="0%";
-  zr_wbj.textContent="0%";
-  zr_gaps.textContent="0%";
+    const dtMin = effectiveSpeedSimMinPerSec() * dtReal;
+    tMin += dtMin;
 
-  [sq_nose,sq_lead,sq_inlet,sq_wbj,sq_gaps].forEach(d=>d && d.classList.remove("squeezeOn"));
-  [z_nose,z_inlet,z_leadL,z_leadR,z_wbj,z_gaps].forEach(p=>{
-    p.classList.remove("zoneStable","zoneUnstable");
-    p.classList.add("zone");
+    const {s, MachPlan, AltPlan} = plannedAt(tMin);
+    const dtSimSec = dtMin * 60.0;
+
+    const aMach = 1 - Math.exp(-dtSimSec / Math.max(0.5, tauMachSec));
+    const aAlt  = 1 - Math.exp(-dtSimSec / Math.max(0.5, tauAltSec));
+    MachAct += (MachPlan - MachAct) * aMach;
+    AltAct  += (AltPlan  - AltAct ) * aAlt;
+
+    const Aatm = atmAt(AltAct);
+    const V = MachAct * Aatm.a;
+    const q_kPa = 0.5 * Aatm.rho * V * V / 1000.0;
+    const H = q_kPa / q_ref_kPa;
+
+    const stab = stabilityScore(q_kPa, H);
+    const risks = computeZoneRiskPct(q_kPa, H, stab);
+
+    renderFrame(s, V, q_kPa, H, stab, risks);
+
+    if (tMin >= TRIP_LEN_MIN){
+      tMin = TRIP_LEN_MIN;
+      running = false;
+      setStatus("Ended", "warn");
+      setButtons();
+      renderArrivalETA();
+      return;
+    }
+    requestAnimationFrame(loop);
+  }
+
+  /* ======================= EVENTS ======================= */
+  btnStart.addEventListener("click", ()=>{
+    if (!depReal) depReal = new Date();
+    renderDepTimes();
+
+    running = true;
+    lastTs = null;
+    setStatus("Running", "good");
+    setButtons();
+
+    // immediate render so you SEE movement right away
+    const {s} = plannedAt(tMin);
+    renderFrame(s, 0, 0, 0, 1, {nose:0,inlet:0,lead:0,wbj:0,gaps:0});
+
+    requestAnimationFrame(loop);
   });
 
-  depReal = null;
+  btnStop.addEventListener("click", ()=>{
+    running = false;
+    lastTs = null;
+    setStatus("Stopped", "warn");
+    setButtons();
+  });
+
+  btnReset.addEventListener("click", ()=>{
+    running = false;
+    lastTs = null;
+    tMin = 0.0;
+    MachAct = 0.0;
+    AltAct  = 0.0;
+    setStatus("Stopped", "warn");
+    setButtons();
+
+    highlightStep(null);
+    hotState.textContent = "Hotspot system is IDLE.";
+
+    tNow.textContent = fmt(tMin,2);
+    prog.style.width = "0%";
+    progPct.textContent = "0";
+    stepNow.textContent = "—";
+    phaseNow.textContent = "—";
+    machEl.textContent = "0.00";
+    altEl.textContent  = "0.0";
+    VEl.textContent    = "0";
+    qEl.textContent    = "0.0";
+    HEl.textContent    = "0.00";
+    stabEl.textContent = "1.00";
+    zr_nose.textContent="0%";
+    zr_inlet.textContent="0%";
+    zr_lead.textContent="0%";
+    zr_wbj.textContent="0%";
+    zr_gaps.textContent="0%";
+
+    [sq_nose,sq_lead,sq_inlet,sq_wbj,sq_gaps].forEach(d=>d && d.classList.remove("squeezeOn"));
+    [z_nose,z_inlet,z_leadL,z_leadR,z_wbj,z_gaps].forEach(p=>{
+      if (!p) return;
+      p.classList.remove("zoneStable","zoneUnstable");
+      p.classList.add("zone");
+    });
+
+    depReal = null;
+    renderDepTimes();
+    renderArrivalETA();
+    errBox.style.display = "none";
+    errBox.textContent = "";
+  });
+
+  spd.addEventListener("input", ()=>{
+    spdLbl.textContent = spd.value + "×";
+    renderArrivalETA();
+  });
+
+  showLabels.addEventListener("input", ()=>{
+    setLabelsVisible(showLabels.checked);
+  });
+
+  /* ======================= INIT ======================= */
+  buildTable();
+  el("tripLen").textContent = `${TRIP_LEN_MIN.toFixed(0)} min`;
+  spdLbl.textContent = spd.value + "×";
+  setStatus("Stopped", "warn");
+  setButtons();
   renderDepTimes();
   renderArrivalETA();
-});
-
-spd.addEventListener("input", ()=>{
-  spdLbl.textContent = spd.value + "×";
-  renderArrivalETA();
-});
-showLabels.addEventListener("input", ()=>{
   setLabelsVisible(showLabels.checked);
-});
 
-/* INIT */
-buildTable();
-el("tripLen").textContent = `${TRIP_LEN_MIN.toFixed(0)} min`;
-spdLbl.textContent = spd.value + "×";
-setStatus("Stopped", "warn");
-setButtons();
-renderDepTimes();
-renderArrivalETA();
-setLabelsVisible(showLabels.checked);
+  // sanity check display
+  hotState.textContent = "Hotspot system is IDLE. (Ready)";
+});
 </script>
 </body>
 </html>
