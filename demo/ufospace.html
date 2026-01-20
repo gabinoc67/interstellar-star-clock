@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>UFO + Warp Engine Console (Simple + Working)</title>
+<title>UFO + Warp Engine Console (Live Telemetry + Clocks + Labels)</title>
 <style>
   :root{
     color-scheme: dark;
@@ -31,12 +31,13 @@
     color:var(--ink);
     font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
   }
-  .wrap{max-width:1280px;margin:0 auto;padding:18px 14px 36px}
+  .wrap{max-width:1480px;margin:0 auto;padding:18px 14px 36px}
   header{display:flex;justify-content:space-between;gap:12px;align-items:flex-end;margin-bottom:12px}
-  h1{margin:0;font-size:1.15rem;letter-spacing:.02em}
+  h1{margin:0;font-size:1.12rem;letter-spacing:.02em}
   .sub{margin-top:6px;color:var(--muted);font-size:.92rem;line-height:1.25}
-  .grid{display:grid;grid-template-columns: 440px 1fr;gap:14px}
-  @media (max-width: 980px){ .grid{grid-template-columns:1fr} }
+  /* Expanded left panel + safer layout */
+  .grid{display:grid;grid-template-columns: 560px 1fr;gap:14px}
+  @media (max-width: 1080px){ .grid{grid-template-columns:1fr} }
 
   .card{
     background:linear-gradient(135deg, rgba(15,23,42,.96), rgba(11,18,34,.86));
@@ -44,21 +45,12 @@
     border-radius:var(--radius);
     box-shadow:var(--shadow);
     padding:14px;
+    overflow:hidden;
   }
   .card h2{margin:0 0 10px;font-size:1.02rem}
   .group{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
   label{display:flex;justify-content:space-between;gap:10px;color:var(--muted);font-size:.86rem}
   input[type="range"]{width:100%}
-  input[type="number"]{
-    width:100%;
-    font-size:12px;
-    padding:6px 8px;
-    border-radius:10px;
-    border:1px solid var(--line);
-    background:rgba(2,6,23,.55);
-    color:var(--ink);
-    outline:none;
-  }
   .btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
   button{
     border:1px solid var(--line);
@@ -79,9 +71,10 @@
     background:rgba(2,6,23,.35);
     border-radius:14px;
     padding:10px;
+    min-width: 190px;
   }
   .kpi .t{color:var(--muted);font-size:.78rem}
-  .kpi .v{margin-top:6px;font-family:var(--mono);font-size:.98rem}
+  .kpi .v{margin-top:6px;font-family:var(--mono);font-size:.98rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .callout{
     margin-top:10px;border-left:3px solid rgba(96,165,250,.55);
     padding:10px 12px;background:rgba(96,165,250,.08);
@@ -96,6 +89,39 @@
     font-size:.86rem;
   }
   .eq{font-family:var(--mono);color:#e5e7eb}
+  .cols2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  @media (max-width: 1080px){ .cols2{grid-template-columns:1fr} }
+
+  .badge{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:6px 10px;
+    border-radius:999px;
+    border:1px solid rgba(148,163,184,.35);
+    background:rgba(2,6,23,.35);
+    font-size:12px;
+    color:var(--muted);
+  }
+  .dot{width:9px;height:9px;border-radius:50%}
+  .dot.good{background:var(--good)}
+  .dot.warn{background:var(--warn)}
+  .dot.bad{background:var(--bad)}
+  .badge b{color:var(--ink)}
+  .smallRow{display:flex;justify-content:space-between;gap:10px;margin-top:8px;flex-wrap:wrap}
+  .kv{
+    flex:1 1 250px;
+    border:1px solid rgba(148,163,184,.18);
+    background:rgba(2,6,23,.25);
+    border-radius:12px;
+    padding:8px 10px;
+    font-family:var(--mono);
+    color:#e5e7eb;
+    font-size:12px;
+  }
+  .kv span{color:var(--muted);font-family:system-ui}
+  .kv .r{float:right;color:#e5e7eb}
+
   #err{
     display:none;margin-top:10px;
     border:1px solid rgba(251,113,133,.35);
@@ -116,11 +142,9 @@
     overflow:hidden;
     background:rgba(2,6,23,.35);
   }
-  canvas{display:block;width:100%;height:560px}
+  canvas{display:block;width:100%;height:600px}
 
-  .legendRow{
-    display:flex;gap:10px;flex-wrap:wrap;margin-top:10px
-  }
+  .legendRow{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
   .pill{
     font-size:11px;
     border:1px solid rgba(148,163,184,.35);
@@ -136,27 +160,27 @@
 <div class="wrap">
   <header>
     <div>
-      <h1>UFO Simulator + Warp Engine Console (Simple, Working, Live Telemetry)</h1>
+      <h1>UFO Simulator + Warp Engine Console (Live Telemetry + Fusion Conversion + Multi-Clock)</h1>
       <div class="sub">
-        One canvas: UFO + magnetic field ring + “engine core” glow + live numbers.
-        Buttons always work; sliders always update (even when paused).
+        Simple working model: magnetic ring + shield ring + engine core glow + live mass↔energy conversion + ship/earth/UTC/CST clocks.
+        (Theory-only visualization.)
       </div>
     </div>
     <div class="sub" style="text-align:right">
       Status: <b id="statusText">Ready</b><br/>
-      Time: <span id="tText">0.00s</span>
+      Sim Time: <span id="tText">0.00s</span>
     </div>
   </header>
 
   <div class="grid">
-    <!-- LEFT: CONTROLS + TELEMETRY -->
+    <!-- LEFT: CONTROLS + TELEMETRY + CLOCKS + EQUATIONS -->
     <section class="card">
       <h2>Controls</h2>
 
       <div class="kpiRow">
         <div class="kpi"><div class="t">Warp Factor (WF)</div><div class="v" id="kWarp">4</div></div>
-        <div class="kpi"><div class="t">Engine Power (Ė)</div><div class="v" id="kPower">—</div></div>
-        <div class="kpi"><div class="t">Magnetic Field (B)</div><div class="v" id="kB">—</div></div>
+        <div class="kpi"><div class="t">Fusion Power (Ė)</div><div class="v" id="kPower">—</div></div>
+        <div class="kpi"><div class="t">Magnetic Field Proxy (B)</div><div class="v" id="kB">—</div></div>
       </div>
 
       <div class="group">
@@ -165,7 +189,7 @@
       </div>
 
       <div class="group">
-        <label><span>Energy (0–100)</span><span id="sEnergy">50</span></label>
+        <label><span>Energy Input (0–100)</span><span id="sEnergy">50</span></label>
         <input id="energy" type="range" min="0" max="100" value="50" />
       </div>
 
@@ -184,11 +208,6 @@
         <input id="shield" type="range" min="0" max="100" value="50" />
       </div>
 
-      <div class="group">
-        <label><span>Wobble (0–1)</span><span id="sWobble">0.30</span></label>
-        <input id="wobble" type="range" min="0" max="100" value="30" />
-      </div>
-
       <div class="btns">
         <button id="btnStart">Start</button>
         <button class="ghost" id="btnPause">Pause</button>
@@ -196,22 +215,58 @@
         <button class="danger" id="btnPanic">Panic Stop</button>
       </div>
 
-      <div class="mini">
-        <div style="font-weight:800;color:#e5e7eb;margin-bottom:6px;">Live Math (simple, stable)</div>
-        <div class="eq">1) &nbsp; Ė = P₀ · (0.25 + 0.75·E) · (0.30 + 0.70·WF/10)</div>
-        <div class="eq">2) &nbsp; ṁ = Ė / c²</div>
-        <div class="eq">3) &nbsp; B ≈ B₀ · (Field/100) · (1 + 0.06·WF)</div>
-        <div class="eq">4) &nbsp; v_app/c ≈ 0.2 + 0.06·WF &nbsp; (clamped &lt; 0.92)</div>
-        <div class="eq">5) &nbsp; ClockRate ≈ 1 / ( (1+0.06·WF) · γ )</div>
-        <div class="callout" style="margin-top:10px">
-          <b>Goal:</b> a clean “UFO cockpit” outline with a magnetic ring + a simple warp-engine telemetry model.
-          You can upgrade later (more panels, plots, jump planner) without breaking the base.
+      <div class="group">
+        <h2 style="margin-top:0">Stability + Status</h2>
+        <div class="smallRow">
+          <div class="badge" id="statusBadge"><span class="dot warn" id="statusDot"></span><b id="statusLabel">WARMUP</b><span id="statusDetail">—</span></div>
+          <div class="badge"><span class="dot good"></span><b>Green</b><span>Stable</span></div>
+          <div class="badge"><span class="dot warn"></span><b>Yellow</b><span>Marginal</span></div>
+          <div class="badge"><span class="dot bad"></span><b>Red</b><span>Unstable</span></div>
         </div>
+        <div class="callout" style="margin-top:10px">
+          Stability is a simple algorithmic score (not real physics): higher WF + higher Field + low Shield can push “instability.”
+          Shield and moderate bubble sizing improve stability.
+        </div>
+      </div>
 
-        <div class="legendRow">
-          <div class="pill"><b>Blue ring</b> = magnetic field bubble</div>
-          <div class="pill"><b>Green ring</b> = shield ring</div>
-          <div class="pill"><b>Gold plume</b> = energy exhaust</div>
+      <div class="group">
+        <h2 style="margin-top:0">Clocks</h2>
+        <div class="cols2">
+          <div class="mini" style="margin-top:0">
+            <div style="font-weight:800;color:#e5e7eb;margin-bottom:6px;">External Reference</div>
+            <div class="kv"><span>UTC</span><span class="r" id="clkUTC">—</span></div>
+            <div class="kv"><span>Earth Local (Monterrey)</span><span class="r" id="clkEarth">—</span></div>
+            <div class="kv"><span>CST (Engine Sync)</span><span class="r" id="clkCST">—</span></div>
+            <div class="kv"><span>Interstellar CST (demo)</span><span class="r" id="clkICST">—</span></div>
+          </div>
+
+          <div class="mini" style="margin-top:0">
+            <div style="font-weight:800;color:#e5e7eb;margin-bottom:6px;">Ship / Dilation</div>
+            <div class="kv"><span>Ship Proper Clock</span><span class="r" id="clkShip">—</span></div>
+            <div class="kv"><span>Dilation Rate (ship/CST)</span><span class="r" id="kClock">—</span></div>
+            <div class="kv"><span>γ (SR demo)</span><span class="r" id="kGamma">—</span></div>
+            <div class="kv"><span>v_local / c</span><span class="r" id="kVlocal">—</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="group">
+        <h2 style="margin-top:0">Fusion Power ↔ Mass Conversion</h2>
+        <div class="kpiRow">
+          <div class="kpi"><div class="t">ṁ (mass-rate)</div><div class="v" id="kMdot">—</div></div>
+          <div class="kpi"><div class="t">Δm in 10s (demo)</div><div class="v" id="kM10">—</div></div>
+          <div class="kpi"><div class="t">Energy from 1 kg</div><div class="v" id="kE1kg">—</div></div>
+        </div>
+        <div class="mini" style="margin-top:10px">
+          <div style="font-weight:800;color:#e5e7eb;margin-bottom:6px;">Core Math (shown live)</div>
+          <div class="eq">A) &nbsp; E = m c² &nbsp; and &nbsp; m = E / c²</div>
+          <div class="eq">B) &nbsp; Ė = P₀ · (0.25 + 0.75·E_in) · (0.30 + 0.70·WF/10)</div>
+          <div class="eq">C) &nbsp; ṁ = Ė / c²</div>
+          <div class="eq">D) &nbsp; v_local/c = clamp(0.20 + 0.06·WF, 0.20, 0.92)</div>
+          <div class="eq">E) &nbsp; γ = 1 / √(1 - v²)</div>
+          <div class="eq">F) &nbsp; ClockRate = 1 / ((1 + 0.06·WF) · γ)</div>
+          <div class="eq">G) &nbsp; B ≈ B₀ · (Field/100) · (1 + 0.06·WF)</div>
+          <div class="eq">H) &nbsp; StabilityScore = 1 − Risk(WF, Field, Bubble, Shield)</div>
         </div>
       </div>
 
@@ -221,17 +276,17 @@
       </div>
     </section>
 
-    <!-- RIGHT: CANVAS -->
+    <!-- RIGHT: CANVAS + VISUAL LABELS -->
     <section class="card">
-      <h2>Stage</h2>
+      <h2>Stage (UFO outline + engine zones + magnetic bubble)</h2>
       <div class="stage">
-        <canvas id="cv" width="1200" height="560"></canvas>
+        <canvas id="cv" width="1400" height="600"></canvas>
       </div>
-
-      <div class="kpiRow" style="margin-top:12px">
-        <div class="kpi"><div class="t">ṁ (mass-rate)</div><div class="v" id="kMdot">—</div></div>
-        <div class="kpi"><div class="t">v_app (apparent)</div><div class="v" id="kVapp">—</div></div>
-        <div class="kpi"><div class="t">Clock Rate (ship/CST)</div><div class="v" id="kClock">—</div></div>
+      <div class="legendRow">
+        <div class="pill"><b>Blue ring</b> = magnetic field bubble</div>
+        <div class="pill"><b>Green ring</b> = shield ring</div>
+        <div class="pill"><b>Gold core</b> = fusion core (m → E)</div>
+        <div class="pill"><b>Blue core haze</b> = field shapers / coils</div>
       </div>
     </section>
   </div>
@@ -241,7 +296,7 @@
 (() => {
   "use strict";
 
-  // Hard error catcher (so you always see what broke)
+  // Hard error catcher
   window.addEventListener("error", (e)=>{
     const box = document.getElementById("err");
     const pre = document.getElementById("errText");
@@ -263,7 +318,6 @@
     field: $("field"),
     bubble: $("bubble"),
     shield: $("shield"),
-    wobble: $("wobble"),
     start: $("btnStart"),
     pause: $("btnPause"),
     reset: $("btnReset"),
@@ -272,118 +326,217 @@
 
   // Outputs
   const out = {
+    // slider readouts
     sWarp: $("sWarp"),
     sEnergy: $("sEnergy"),
     sField: $("sField"),
     sBubble: $("sBubble"),
     sShield: $("sShield"),
-    sWobble: $("sWobble"),
 
+    // KPI
     kWarp: $("kWarp"),
     kPower: $("kPower"),
     kB: $("kB"),
     kMdot: $("kMdot"),
-    kVapp: $("kVapp"),
-    kClock: $("kClock"),
+    kM10: $("kM10"),
+    kE1kg: $("kE1kg"),
 
-    status: $("statusText"),
-    tText: $("tText")
+    kClock: $("kClock"),
+    kGamma: $("kGamma"),
+    kVlocal: $("kVlocal"),
+
+    // clocks
+    clkUTC: $("clkUTC"),
+    clkEarth: $("clkEarth"),
+    clkCST: $("clkCST"),
+    clkICST: $("clkICST"),
+    clkShip: $("clkShip"),
+
+    // status
+    statusText: $("statusText"),
+    tText: $("tText"),
+    statusBadge: $("statusBadge"),
+    statusDot: $("statusDot"),
+    statusLabel: $("statusLabel"),
+    statusDetail: $("statusDetail")
   };
 
-  // Constants for simple physics model
+  // Constants (demo)
   const TAU = Math.PI*2;
   const C_LIGHT = 299792458;           // m/s
-  const P0 = 2.0e14;                   // W (conceptual base power)
-  const B0 = 3.0;                      // "Tesla-ish" scale for demo
+  const P0 = 2.0e14;                   // W (conceptual)
+  const B0 = 3.0;                      // proxy scale
+  const STORE_WINDOW_S = 10;           // show Δm in 10s
+  const ICST_OFFSET_MIN = 37;          // "Interstellar CST" demo offset from UTC
 
   // State
   const S = {
     running:false,
     t:0,
     warp:4,
-    energy:50,       // 0..100
-    field:40,        // 0..100
-    bubble:0.60,     // 0..1
-    shield:0.50,     // 0..1
-    wobble:0.30      // 0..1
+    energy:50,
+    field:40,
+    bubble:0.60,
+    shield:0.50,
+
+    // ship proper time integration
+    shipMs: Date.now()
   };
 
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const lerp=(a,b,t)=>a+(b-a)*t;
 
   function fmtExp(n){
     if (!isFinite(n)) return "—";
     return n.toExponential(2);
   }
-  function fmt(n, d=2){
+  function fmt(n, d=3){
     if (!isFinite(n)) return "—";
     return n.toFixed(d);
   }
 
-  // Read UI into state + update labels
+  // === Physics-ish demo equations (stable) ===
+  function powerW(){
+    const Ein = S.energy/100;     // 0..1
+    const WF  = S.warp/10;        // 0.1..1.0
+    // Ė grows with energy input and warp setting
+    return P0 * (0.25 + 0.75*Ein) * (0.30 + 0.70*WF);
+  }
+  function mdotKgPerSec(P){
+    return P / (C_LIGHT*C_LIGHT);
+  }
+  function vLocalFrac(){
+    // keep subluminal locally; "apparent" warp is just a label in this demo
+    return clamp(0.20 + 0.06*S.warp, 0.20, 0.92);
+  }
+  function gammaSR(vfrac){
+    return 1/Math.sqrt(1 - vfrac*vfrac);
+  }
+  function clockRate(vfrac){
+    // clock slows with gamma and a mild warp-scale factor
+    const warpScale = 1 + 0.06*S.warp;
+    return 1/(warpScale * gammaSR(vfrac));
+  }
+  function magneticB(){
+    // proxy magnetic field strength
+    return B0 * (S.field/100) * (1 + 0.06*S.warp);
+  }
+
+  // === Stability algorithm (simple score) ===
+  function stabilityScore(){
+    // risk terms
+    const wf = (S.warp-1)/9;         // 0..1
+    const f  = S.field/100;          // 0..1
+    const b  = S.bubble;             // 0..1
+    const sh = S.shield;             // 0..1
+
+    // risk increases with warp + field + oversize bubble
+    let risk = 0;
+    risk += 0.55*wf;
+    risk += 0.55*f;
+    risk += 0.35*Math.max(0, b-0.65)/0.35; // penalty if bubble > 0.65
+    // shield reduces risk strongly
+    risk -= 0.80*sh;
+
+    // clamp
+    risk = clamp(risk, 0, 1.2);
+    const score = clamp(1 - risk, 0, 1);
+    return score;
+  }
+
+  function statusFromScore(score){
+    if(score >= 0.70) return {k:"good", label:"STABLE", detail:"Green band (safe demo range)"};
+    if(score >= 0.45) return {k:"warn", label:"MARGINAL", detail:"Yellow band (tune Shield / Field / Bubble)"};
+    return {k:"bad", label:"UNSTABLE", detail:"Red band (reduce WF / Field or increase Shield)"};
+  }
+
+  // === UI read/write ===
   function readUI(){
     S.warp   = +ui.warp.value;
     S.energy = +ui.energy.value;
     S.field  = +ui.field.value;
     S.bubble = (+ui.bubble.value)/100;
     S.shield = (+ui.shield.value)/100;
-    S.wobble = (+ui.wobble.value)/100;
 
     out.sWarp.textContent   = String(S.warp);
     out.sEnergy.textContent = String(S.energy);
     out.sField.textContent  = String(S.field);
     out.sBubble.textContent = S.bubble.toFixed(2);
     out.sShield.textContent = S.shield.toFixed(2);
-    out.sWobble.textContent = S.wobble.toFixed(2);
 
-    out.kWarp.textContent   = String(S.warp);
-  }
-
-  // Simple equations (stable)
-  function powerW(){
-    const E = S.energy/100;
-    const WF = S.warp/10;
-    return P0 * (0.25 + 0.75*E) * (0.30 + 0.70*WF);
-  }
-  function mdotKgPerSec(P){
-    return P / (C_LIGHT*C_LIGHT);
-  }
-  function vLocalFrac(){
-    // "local plasma / internal motion" stays subluminal (0.2..0.92 c)
-    const v = 0.2 + 0.06*S.warp;
-    return clamp(v, 0.2, 0.92);
-  }
-  function gammaSR(vfrac){
-    // γ = 1/sqrt(1 - v^2)
-    return 1/Math.sqrt(1 - vfrac*vfrac);
-  }
-  function clockRate(vfrac){
-    // very simple: ship clock slows with gamma and with a small warp scaling factor
-    const warpScale = 1 + 0.06*S.warp;
-    return 1/(warpScale * gammaSR(vfrac));
-  }
-  function magneticB(){
-    // B ≈ B0*(Field/100)*(1 + 0.06*WF)
-    return B0 * (S.field/100) * (1 + 0.06*S.warp);
+    out.kWarp.textContent = String(S.warp);
   }
 
-  function updateTelemetry(){
+  function setStatusUI(){
+    const score = stabilityScore();
+    const st = statusFromScore(score);
+
+    out.statusLabel.textContent = st.label;
+    out.statusDetail.textContent = " — score " + Math.round(score*100) + "/100 • " + st.detail;
+
+    out.statusDot.className = "dot " + st.k;
+
+    // tint border slightly
+    if(st.k==="good") out.statusBadge.style.borderColor = "rgba(52,211,153,.55)";
+    else if(st.k==="warn") out.statusBadge.style.borderColor = "rgba(251,191,36,.55)";
+    else out.statusBadge.style.borderColor = "rgba(251,113,133,.55)";
+  }
+
+  // === Clocks ===
+  function pad2(n){ return String(n).padStart(2,"0"); }
+  function fmtTime(d){ return pad2(d.getHours())+":"+pad2(d.getMinutes())+":"+pad2(d.getSeconds()); }
+
+  function updateClocks(dtMs){
+    const now = new Date();
+
+    // UTC
+    out.clkUTC.textContent = now.toLocaleTimeString("en-US",{hour12:false,timeZone:"UTC"});
+
+    // Earth local (Monterrey)
+    out.clkEarth.textContent = now.toLocaleTimeString("en-US",{hour12:false,timeZone:"America/Monterrey"});
+
+    // CST engine sync (kept as US Central)
+    out.clkCST.textContent = now.toLocaleTimeString("en-US",{hour12:false,timeZone:"America/Chicago"});
+
+    // Interstellar CST (demo): UTC + offset minutes, plus a tiny drift with sim time
+    const icst = new Date(now.getTime() + ICST_OFFSET_MIN*60000 + (S.t*3.0*1000)); // drift 3ms per sim-sec
+    out.clkICST.textContent = fmtTime(icst) + " (demo)";
+
+    // Ship proper time: integrate dt with clockRate
+    const v = vLocalFrac();
+    const cr = clockRate(v);
+    S.shipMs += dtMs * cr;
+    const ship = new Date(S.shipMs);
+    out.clkShip.textContent = ship.toLocaleTimeString("en-US",{hour12:false,timeZone:"UTC"}) + " (proper)";
+  }
+
+  // === Telemetry (LIVE) ===
+  function updateTelemetry(dtMs){
     const P = powerW();
     const md = mdotKgPerSec(P);
     const v = vLocalFrac();
+    const g = gammaSR(v);
     const cr = clockRate(v);
     const B  = magneticB();
 
     out.kPower.textContent = fmtExp(P) + " W";
-    out.kMdot.textContent  = fmtExp(md) + " kg/s";
-    out.kVapp.textContent  = fmt(v, 3) + " c (local)";
-    out.kClock.textContent = fmt(cr, 3) + " ×";
-    out.kB.textContent     = fmt(B, 2) + " (arb)";
+    out.kB.textContent     = fmt(B,2) + " (arb)";
 
-    // Also paint these values into the HUD inside the canvas
-    return {P, md, v, cr, B};
+    out.kMdot.textContent  = fmtExp(md) + " kg/s";
+    out.kM10.textContent   = fmtExp(md*STORE_WINDOW_S) + " kg";
+    out.kE1kg.textContent  = fmtExp(C_LIGHT*C_LIGHT) + " J";
+
+    out.kVlocal.textContent = fmt(v,3) + " c";
+    out.kGamma.textContent  = fmt(g,3);
+    out.kClock.textContent  = fmt(cr,3) + " ×";
+
+    setStatusUI();
+    updateClocks(dtMs);
+
+    return {P, md, v, g, cr, B};
   }
 
-  // Responsive canvas scaling (keeps drawing crisp)
+  // === Canvas sizing ===
   function resizeCanvas(){
     const rect = cv.getBoundingClientRect();
     const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
@@ -395,7 +548,7 @@
     }
   }
 
-  // Draw functions
+  // === Drawing helpers ===
   function drawRing(x,y,rx,ry, color, alpha, lineW){
     ctx.save();
     ctx.globalAlpha = alpha;
@@ -406,52 +559,102 @@
     ctx.stroke();
     ctx.restore();
   }
+  function drawLabel(text, ax, ay, tx, ty){
+    // leader line
+    ctx.save();
+    ctx.strokeStyle = "rgba(159,168,214,.55)";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(ax,ay);
+    ctx.lineTo(tx,ty);
+    ctx.stroke();
 
+    // label pill
+    ctx.font = "12px system-ui,Segoe UI,Roboto,Arial";
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "left";
+    const padX = 8, padY = 6;
+    const w = ctx.measureText(text).width + padX*2;
+    const h = 22;
+
+    ctx.fillStyle = "rgba(2,6,23,.65)";
+    ctx.strokeStyle = "rgba(148,163,184,.25)";
+    ctx.lineWidth = 1;
+
+    // keep label inside canvas
+    const bx = clamp(tx, 10, ctx.canvas.width - w - 10);
+    const by = clamp(ty - h/2, 10, ctx.canvas.height - h - 10);
+
+    ctx.beginPath();
+    const r = 10;
+    ctx.moveTo(bx+r, by);
+    ctx.arcTo(bx+w, by, bx+w, by+h, r);
+    ctx.arcTo(bx+w, by+h, bx, by+h, r);
+    ctx.arcTo(bx, by+h, bx, by, r);
+    ctx.arcTo(bx, by, bx+w, by, r);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "#e5e7eb";
+    ctx.fillText(text, bx+padX, by+h/2);
+    ctx.restore();
+  }
+
+  // === Main draw ===
   function draw(){
     resizeCanvas();
     const W = cv.width, H = cv.height;
     ctx.clearRect(0,0,W,H);
 
-    const scale = W/1200;
-    const cx = W*0.58;
-    const cy = H*0.52;
+    const scale = W/1400;
 
+    // UFO anchor point (keep centered with margins)
+    const cx = W*0.56;
+    const cy = H*0.54;
+
+    // Telemetry snapshot
     const P = powerW();
     const v = vLocalFrac();
     const B = magneticB();
 
-    // wobble reduced by shield
-    const wobEff = S.wobble * (1 - 0.75*S.shield);
-    const wobX = Math.sin(S.t*2.0) * (10 + 22*wobEff) * scale;
-    const wobY = Math.cos(S.t*1.6) * (8  + 18*wobEff) * scale;
-    const roll = Math.sin(S.t*1.3) * (0.06 + 0.12*wobEff);
+    // Simple sizes
+    const uW = 640*scale;
+    const uH = 260*scale;
 
-    // UFO size
-    const uW = 600*scale;
-    const uH = 250*scale;
+    // Base bubble sizes (then clamped to stay inside canvas)
+    let bubbleScale = (0.85 + 0.70*S.bubble) * (1.00 + 0.25*(S.field/100));
+    let bx = uW*0.78*bubbleScale;
+    let by = uH*0.56*bubbleScale;
 
-    // Magnetic bubble size
-    const bubbleScale = (0.85 + 0.70*S.bubble) * (1.00 + 0.25*(S.field/100));
-    const bx = uW*0.78*bubbleScale;
-    const by = uH*0.56*bubbleScale;
+    // --- Clamp bubble so it never goes out of panel/canvas ---
+    const margin = 26*scale;
+    const maxRx = Math.min(cx - margin, (W - cx) - margin);
+    const maxRy = Math.min(cy - margin, (H - cy) - margin);
 
-    // Background subtle grid
+    // glow uses 1.20×, so fit that too
+    const fitX = (bx*1.20 > maxRx) ? (maxRx/(bx*1.20)) : 1;
+    const fitY = (by*1.20 > maxRy) ? (maxRy/(by*1.20)) : 1;
+    const fit = Math.min(fitX, fitY, 1);
+    bx *= fit;
+    by *= fit;
+
+    // background subtle grid
     ctx.save();
     ctx.globalAlpha = 0.08;
     ctx.strokeStyle = "rgba(148,163,184,.35)";
     ctx.lineWidth = 1;
-    for(let x=0; x<W; x+=Math.floor(40*scale)){
+    for(let x=0; x<W; x+=Math.floor(44*scale)){
       ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
     }
-    for(let y=0; y<H; y+=Math.floor(40*scale)){
+    for(let y=0; y<H; y+=Math.floor(44*scale)){
       ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
     }
     ctx.restore();
 
-    // === Magnetic field glow (blue) ===
+    // === Magnetic bubble glow (blue) ===
     ctx.save();
-    ctx.translate(cx+wobX*0.7, cy+wobY*0.7);
-    ctx.rotate(roll*0.45);
+    ctx.translate(cx, cy);
 
     const haloR = Math.max(bx,by)*1.35;
     const glow = ctx.createRadialGradient(0,0, haloR*0.08, 0,0, haloR);
@@ -472,10 +675,9 @@
 
     ctx.restore();
 
-    // === UFO saucer ===
+    // === UFO body ===
     ctx.save();
-    ctx.translate(cx+wobX, cy+wobY);
-    ctx.rotate(roll);
+    ctx.translate(cx, cy);
 
     // body
     ctx.fillStyle = "rgba(148,163,184,.10)";
@@ -512,15 +714,26 @@
     ctx.fill();
     ctx.stroke();
 
-    // engine core glow inside UFO (simple “warp core”)
-    const coreR = uW*0.10 * (0.75 + 0.45*(S.energy/100));
-    const core = ctx.createRadialGradient(0, uH*0.04, coreR*0.15, 0, uH*0.04, coreR);
-    core.addColorStop(0, `rgba(251,191,36,${0.14 + 0.55*(S.energy/100)})`);
-    core.addColorStop(0.6, `rgba(96,165,250,${0.05 + 0.25*(S.field/100)})`);
+    // --- Engine zones (labeled) ---
+    // Fusion core glow (m -> E)
+    const coreR = uW*0.11 * (0.75 + 0.45*(S.energy/100));
+    const core = ctx.createRadialGradient(0, uH*0.04, coreR*0.12, 0, uH*0.04, coreR);
+    core.addColorStop(0, `rgba(251,191,36,${0.16 + 0.58*(S.energy/100)})`);
+    core.addColorStop(0.55, `rgba(96,165,250,${0.05 + 0.28*(S.field/100)})`);
     core.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = core;
     ctx.beginPath();
     ctx.arc(0, uH*0.04, coreR, 0, TAU);
+    ctx.fill();
+
+    // Field shaper haze (E -> effective mass shell / coils proxy)
+    const hazeR = coreR*1.55;
+    const haze = ctx.createRadialGradient(0, 0, hazeR*0.2, 0, 0, hazeR);
+    haze.addColorStop(0, `rgba(96,165,250,${0.10 + 0.20*(S.field/100)})`);
+    haze.addColorStop(1, "rgba(96,165,250,0)");
+    ctx.fillStyle = haze;
+    ctx.beginPath();
+    ctx.arc(0, 0, hazeR, 0, TAU);
     ctx.fill();
 
     // exhaust plume depends on energy
@@ -547,40 +760,57 @@
 
     ctx.restore();
 
-    // === HUD overlay ===
-    const {md, cr} = updateTelemetry();
+    // === Ship labels (areas) ===
+    // Anchor points in canvas coords
+    const hullAx  = cx + uW*0.50;
+    const hullAy  = cy - uH*0.05;
+    const domeAx  = cx - uW*0.12;
+    const domeAy  = cy - uH*0.28;
+    const coreAx  = cx + 0;
+    const coreAy  = cy + uH*0.04;
+    const coilAx  = cx - uW*0.22;
+    const coilAy  = cy + uH*0.02;
+    const magAx   = cx + bx*1.04;
+    const magAy   = cy - by*0.15;
+    const shieldAx= cx + bx*0.94;
+    const shieldAy= cy + by*0.22;
+    const exAx    = cx + 0;
+    const exAy    = cy + uH*0.28 + len*0.60;
+
+    drawLabel("Hull / Saucer Frame", hullAx, hullAy, cx + uW*0.42, cy - uH*0.38);
+    drawLabel("Dome / Sensor Bay", domeAx, domeAy, cx - uW*0.55, cy - uH*0.44);
+    drawLabel("Fusion Core (m → E)", coreAx, coreAy, cx + uW*0.14, cy + uH*0.22);
+    drawLabel("Field Shapers / Coils", coilAx, coilAy, cx - uW*0.62, cy + uH*0.22);
+    drawLabel("Magnetic Bubble Ring (B)", magAx, magAy, cx + uW*0.35, cy - uH*0.52);
+    drawLabel("Shield Ring (stability)", shieldAx, shieldAy, cx + uW*0.35, cy + uH*0.52);
+    drawLabel("Exhaust / Thrust Port", exAx, exAy, cx - uW*0.12, cy + uH*0.64);
+
+    // === HUD ===
     ctx.save();
     ctx.fillStyle = "rgba(229,231,235,.86)";
-    ctx.font = `${Math.max(12, 14*(W/1200))}px ${getComputedStyle(document.documentElement).getPropertyValue('--mono')}, ui-monospace`;
+    ctx.font = `${Math.max(12, 14*(W/1400))}px ${getComputedStyle(document.documentElement).getPropertyValue('--mono')}, ui-monospace`;
     ctx.fillText(`t=${S.t.toFixed(2)}s  WF=${S.warp}  E=${S.energy}  Field=${S.field}  Bubble=${S.bubble.toFixed(2)}  Shield=${S.shield.toFixed(2)}`, 14*scale, 24*scale);
     ctx.fillStyle = "rgba(159,164,199,.95)";
-    ctx.font = `${Math.max(11, 12*(W/1200))}px ${getComputedStyle(document.documentElement).getPropertyValue('--mono')}, ui-monospace`;
-    ctx.fillText(`Ė≈${P.toExponential(2)} W  ṁ≈${md.toExponential(2)} kg/s  B≈${B.toFixed(2)}  v_local≈${v.toFixed(3)}c  clock≈${cr.toFixed(3)}×`, 14*scale, 44*scale);
-    ctx.restore();
-
-    // status corner
-    ctx.save();
-    ctx.fillStyle = "rgba(229,231,235,.72)";
-    ctx.font = `${Math.max(11, 12*(W/1200))}px system-ui`;
-    ctx.textAlign = "right";
-    ctx.fillText(S.running ? "RUNNING" : "PAUSED", W-14*scale, 24*scale);
+    ctx.font = `${Math.max(11, 12*(W/1400))}px ${getComputedStyle(document.documentElement).getPropertyValue('--mono')}, ui-monospace`;
+    ctx.fillText(`Ė≈${P.toExponential(2)} W  B≈${B.toFixed(2)}  v_local≈${v.toFixed(3)}c`, 14*scale, 44*scale);
     ctx.restore();
   }
 
   // Hook sliders
-  [ui.warp, ui.energy, ui.field, ui.bubble, ui.shield, ui.wobble].forEach(el=>{
-    el.addEventListener("input", ()=>{ readUI(); draw(); });
+  [ui.warp, ui.energy, ui.field, ui.bubble, ui.shield].forEach(el=>{
+    el.addEventListener("input", ()=>{ readUI(); });
   });
 
   // Buttons
-  ui.start.addEventListener("click", ()=>{ S.running=true; out.status.textContent="Running"; });
-  ui.pause.addEventListener("click", ()=>{ S.running=false; out.status.textContent="Paused"; });
+  ui.start.addEventListener("click", ()=>{ S.running=true; out.statusText.textContent="Running"; });
+  ui.pause.addEventListener("click", ()=>{ S.running=false; out.statusText.textContent="Paused"; });
   ui.reset.addEventListener("click", ()=>{
     S.running=false;
     S.t=0;
-    out.status.textContent="Reset";
+    // reset ship clock baseline
+    S.shipMs = Date.now();
+    out.statusText.textContent="Reset";
     out.tText.textContent="0.00s";
-    draw();
   });
   ui.panic.addEventListener("click", ()=>{
     S.running=false;
@@ -589,36 +819,37 @@
     ui.warp.value=1;
     ui.energy.value=10;
     ui.field.value=10;
-    ui.bubble.value=10;
-    ui.wobble.value=0;
+    ui.bubble.value=20;
     ui.shield.value=100;
     readUI();
-    out.status.textContent="PANIC STOP";
+    S.shipMs = Date.now();
+    out.statusText.textContent="PANIC STOP";
     out.tText.textContent="0.00s";
-    draw();
   });
 
-  // Main loop
+  // Main loop (always updates telemetry so it is LIVE)
   let last = performance.now();
   function loop(now){
-    const dt = Math.min(0.05, Math.max(0, (now - last)/1000));
+    const dtS = Math.min(0.05, Math.max(0, (now - last)/1000));
+    const dtMs = dtS*1000;
     last = now;
 
     if (S.running){
-      S.t += dt;
+      S.t += dtS;
       out.tText.textContent = S.t.toFixed(2) + "s";
     }
-    // Always draw so UI stays live
+    // telemetry & clocks update every frame (LIVE)
+    updateTelemetry(dtMs);
     draw();
+
     requestAnimationFrame(loop);
   }
 
   // Init
   readUI();
-  updateTelemetry();
-  draw();
+  setStatusUI();
   requestAnimationFrame(loop);
-  window.addEventListener("resize", ()=>{ last = performance.now(); draw(); });
+  window.addEventListener("resize", ()=>{ last = performance.now(); });
 
 })();
 </script>
