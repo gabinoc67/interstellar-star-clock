@@ -35,7 +35,6 @@
   header{display:flex;justify-content:space-between;gap:12px;align-items:flex-end;margin-bottom:12px}
   h1{margin:0;font-size:1.12rem;letter-spacing:.02em}
   .sub{margin-top:6px;color:var(--muted);font-size:.92rem;line-height:1.25}
-  /* Expanded left panel + safer layout */
   .grid{display:grid;grid-template-columns: 560px 1fr;gap:14px}
   @media (max-width: 1080px){ .grid{grid-template-columns:1fr} }
 
@@ -282,12 +281,32 @@
       <div class="stage">
         <canvas id="cv" width="1400" height="600"></canvas>
       </div>
+
       <div class="legendRow">
         <div class="pill"><b>Blue ring</b> = magnetic field bubble</div>
         <div class="pill"><b>Green ring</b> = shield ring</div>
         <div class="pill"><b>Gold core</b> = fusion core (m → E)</div>
         <div class="pill"><b>Blue core haze</b> = field shapers / coils</div>
       </div>
+
+      <!-- NEW: Compression sensor panel underneath spaceship (LIVE only) -->
+      <div class="group" style="margin-top:12px">
+        <h2 style="margin-top:0">Compression Sensor Ring (LIVE)</h2>
+        <div class="stage" style="height:auto">
+          <canvas id="cmp" width="1400" height="240" style="height:240px"></canvas>
+        </div>
+        <div class="legendRow">
+          <div class="pill"><b>0–40%</b> low compression</div>
+          <div class="pill"><b>40–70%</b> medium compression</div>
+          <div class="pill"><b>70–100%</b> high compression</div>
+          <div class="pill">Peak: <b id="cmpPeak">—</b></div>
+          <div class="pill">Front: <b id="cmpFront">—</b></div>
+          <div class="pill">Left: <b id="cmpLeft">—</b></div>
+          <div class="pill">Right: <b id="cmpRight">—</b></div>
+          <div class="pill">Rear: <b id="cmpRear">—</b></div>
+        </div>
+      </div>
+      <!-- /NEW -->
     </section>
   </div>
 </div>
@@ -310,6 +329,15 @@
   // Canvas
   const cv = $("cv");
   const ctx = cv.getContext("2d");
+
+  // NEW: Compression canvas
+  const cmpCv = $("cmp");
+  const cmpCtx = cmpCv.getContext("2d");
+  const cmpPeakEl  = $("cmpPeak");
+  const cmpFrontEl = $("cmpFront");
+  const cmpLeftEl  = $("cmpLeft");
+  const cmpRightEl = $("cmpRight");
+  const cmpRearEl  = $("cmpRear");
 
   // Inputs
   const ui = {
@@ -383,6 +411,9 @@
     shipMs: Date.now()
   };
 
+  // NEW: last geometry snapshot so compression panel matches ship
+  const GEOM = { cx:0, cy:0, bx:0, by:0, uW:0, uH:0, scale:1, fit:1 };
+
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   const lerp=(a,b,t)=>a+(b-a)*t;
 
@@ -399,46 +430,38 @@
   function powerW(){
     const Ein = S.energy/100;     // 0..1
     const WF  = S.warp/10;        // 0.1..1.0
-    // Ė grows with energy input and warp setting
     return P0 * (0.25 + 0.75*Ein) * (0.30 + 0.70*WF);
   }
   function mdotKgPerSec(P){
     return P / (C_LIGHT*C_LIGHT);
   }
   function vLocalFrac(){
-    // keep subluminal locally; "apparent" warp is just a label in this demo
     return clamp(0.20 + 0.06*S.warp, 0.20, 0.92);
   }
   function gammaSR(vfrac){
     return 1/Math.sqrt(1 - vfrac*vfrac);
   }
   function clockRate(vfrac){
-    // clock slows with gamma and a mild warp-scale factor
     const warpScale = 1 + 0.06*S.warp;
     return 1/(warpScale * gammaSR(vfrac));
   }
   function magneticB(){
-    // proxy magnetic field strength
     return B0 * (S.field/100) * (1 + 0.06*S.warp);
   }
 
   // === Stability algorithm (simple score) ===
   function stabilityScore(){
-    // risk terms
     const wf = (S.warp-1)/9;         // 0..1
     const f  = S.field/100;          // 0..1
     const b  = S.bubble;             // 0..1
     const sh = S.shield;             // 0..1
 
-    // risk increases with warp + field + oversize bubble
     let risk = 0;
     risk += 0.55*wf;
     risk += 0.55*f;
-    risk += 0.35*Math.max(0, b-0.65)/0.35; // penalty if bubble > 0.65
-    // shield reduces risk strongly
+    risk += 0.35*Math.max(0, b-0.65)/0.35;
     risk -= 0.80*sh;
 
-    // clamp
     risk = clamp(risk, 0, 1.2);
     const score = clamp(1 - risk, 0, 1);
     return score;
@@ -476,7 +499,6 @@
 
     out.statusDot.className = "dot " + st.k;
 
-    // tint border slightly
     if(st.k==="good") out.statusBadge.style.borderColor = "rgba(52,211,153,.55)";
     else if(st.k==="warn") out.statusBadge.style.borderColor = "rgba(251,191,36,.55)";
     else out.statusBadge.style.borderColor = "rgba(251,113,133,.55)";
@@ -489,20 +511,13 @@
   function updateClocks(dtMs){
     const now = new Date();
 
-    // UTC
     out.clkUTC.textContent = now.toLocaleTimeString("en-US",{hour12:false,timeZone:"UTC"});
-
-    // Earth local (Monterrey)
     out.clkEarth.textContent = now.toLocaleTimeString("en-US",{hour12:false,timeZone:"America/Monterrey"});
-
-    // CST engine sync (kept as US Central)
     out.clkCST.textContent = now.toLocaleTimeString("en-US",{hour12:false,timeZone:"America/Chicago"});
 
-    // Interstellar CST (demo): UTC + offset minutes, plus a tiny drift with sim time
-    const icst = new Date(now.getTime() + ICST_OFFSET_MIN*60000 + (S.t*3.0*1000)); // drift 3ms per sim-sec
+    const icst = new Date(now.getTime() + ICST_OFFSET_MIN*60000 + (S.t*3.0*1000));
     out.clkICST.textContent = fmtTime(icst) + " (demo)";
 
-    // Ship proper time: integrate dt with clockRate
     const v = vLocalFrac();
     const cr = clockRate(v);
     S.shipMs += dtMs * cr;
@@ -537,14 +552,14 @@
   }
 
   // === Canvas sizing ===
-  function resizeCanvas(){
-    const rect = cv.getBoundingClientRect();
+  function resizeCanvas(canvasEl){
+    const rect = canvasEl.getBoundingClientRect();
     const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
     const w = Math.floor(rect.width * dpr);
     const h = Math.floor(rect.height * dpr);
-    if (cv.width !== w || cv.height !== h){
-      cv.width = w;
-      cv.height = h;
+    if (canvasEl.width !== w || canvasEl.height !== h){
+      canvasEl.width = w;
+      canvasEl.height = h;
     }
   }
 
@@ -560,7 +575,6 @@
     ctx.restore();
   }
   function drawLabel(text, ax, ay, tx, ty){
-    // leader line
     ctx.save();
     ctx.strokeStyle = "rgba(159,168,214,.55)";
     ctx.lineWidth = 1.2;
@@ -569,7 +583,6 @@
     ctx.lineTo(tx,ty);
     ctx.stroke();
 
-    // label pill
     ctx.font = "12px system-ui,Segoe UI,Roboto,Arial";
     ctx.textBaseline = "middle";
     ctx.textAlign = "left";
@@ -581,7 +594,6 @@
     ctx.strokeStyle = "rgba(148,163,184,.25)";
     ctx.lineWidth = 1;
 
-    // keep label inside canvas
     const bx = clamp(tx, 10, ctx.canvas.width - w - 10);
     const by = clamp(ty - h/2, 10, ctx.canvas.height - h - 10);
 
@@ -601,45 +613,190 @@
     ctx.restore();
   }
 
+  // NEW: Compression field model (angle-based sensors around ship)
+  function compressionAt(theta){
+    // theta: 0 at +x (right), pi/2 down, pi left, -pi/2 up
+    // Define "front" as upward (ship leading edge): frontTheta = -pi/2
+    const frontTheta = -Math.PI/2;
+
+    // base rises with warp and field
+    const wf = (S.warp-1)/9;        // 0..1
+    const f  = S.field/100;         // 0..1
+    const sh = S.shield;            // 0..1
+    const b  = S.bubble;            // 0..1
+
+    // front-loading term: compression higher at the front than rear
+    const d = Math.atan2(Math.sin(theta-frontTheta), Math.cos(theta-frontTheta)); // wrap
+    const frontWeight = Math.exp(-(d*d)/(2*(0.85*0.85))); // gaussian-ish around front
+
+    // circumferential ripple (field turbulence proxy)
+    const ripple = 0.10 * f * Math.sin(3*theta + S.t*0.35);
+
+    // shield + bubble smooth/reduce compression
+    const smooth = (0.55 + 0.45*(1-b));  // larger bubble -> less sharp gradients
+    const reduce = (0.35 + 0.65*sh);     // higher shield reduces more
+
+    // core
+    let c = 0.18 + 0.70*wf + 0.55*f;
+    c += 0.55*frontWeight*smooth;        // front spike
+    c += ripple;
+
+    // apply reductions
+    c *= (1 - 0.55*reduce);
+
+    // clamp to 0..1
+    return clamp(c, 0, 1);
+  }
+
+  // NEW: draw compression panel
+  function drawCompressionPanel(){
+    resizeCanvas(cmpCv);
+    const W = cmpCv.width, H = cmpCv.height;
+    cmpCtx.clearRect(0,0,W,H);
+
+    // background
+    cmpCtx.fillStyle = "rgba(2,6,23,.35)";
+    cmpCtx.fillRect(0,0,W,H);
+
+    // title strip
+    cmpCtx.fillStyle = "rgba(2,6,23,.55)";
+    cmpCtx.fillRect(0,0,W,34);
+    cmpCtx.fillStyle = "rgba(229,231,235,.92)";
+    cmpCtx.font = "14px ui-monospace, Menlo, Consolas, monospace";
+    cmpCtx.fillText("Compression Sensors Around Hull (live)", 12, 22);
+
+    // if ship not drawn yet, skip gracefully
+    const cx = W*0.50;
+    const cy = H*0.62;
+
+    // ring radii (panel-local, not dependent on main canvas)
+    const baseR = Math.min(W,H)*0.28;
+    const ringW = Math.max(10, Math.min(22, baseR*0.18));
+
+    // draw reference hull ellipse
+    cmpCtx.save();
+    cmpCtx.translate(cx,cy);
+    cmpCtx.strokeStyle = "rgba(148,163,184,.22)";
+    cmpCtx.lineWidth = 2;
+    cmpCtx.beginPath();
+    cmpCtx.ellipse(0,0, baseR*1.35, baseR*0.78, 0, 0, TAU);
+    cmpCtx.stroke();
+    cmpCtx.restore();
+
+    // sensors
+    const N = 64; // smooth ring
+    let peak = 0;
+    let front=0,left=0,right=0,rear=0;
+
+    // sample cardinal directions
+    // front (up) theta=-pi/2, rear (down) theta=+pi/2, left theta=pi, right theta=0
+    front = compressionAt(-Math.PI/2);
+    rear  = compressionAt( Math.PI/2);
+    left  = compressionAt( Math.PI);
+    right = compressionAt( 0);
+
+    // ring segments
+    for(let i=0;i<N;i++){
+      const t0 = (i/N)*TAU;
+      const t1 = ((i+1)/N)*TAU;
+      // map to angle where "front" is up:
+      const theta = t0 - Math.PI/2;
+
+      const c = compressionAt(theta);
+      if(c>peak) peak=c;
+
+      // color ramp: green -> yellow -> red
+      let r=0,g=0,b=0;
+      if(c < 0.40){
+        const u = c/0.40;
+        r = lerp(34, 234, u);
+        g = lerp(197, 234, u);
+        b = lerp(94,  8,   u);
+      }else if(c < 0.70){
+        const u = (c-0.40)/0.30;
+        r = lerp(234, 255, u);
+        g = lerp(234, 209, u);
+        b = lerp(  8,  74, u);
+      }else{
+        const u = (c-0.70)/0.30;
+        r = lerp(255, 239, u);
+        g = lerp(209,  68, u);
+        b = lerp( 74,  68, u);
+      }
+      const color = `rgba(${r|0},${g|0},${b|0},0.92)`;
+
+      // draw arc band
+      cmpCtx.save();
+      cmpCtx.translate(cx,cy);
+      cmpCtx.strokeStyle = color;
+      cmpCtx.lineWidth = ringW;
+      cmpCtx.beginPath();
+      cmpCtx.arc(0,0, baseR, t0, t1);
+      cmpCtx.stroke();
+      cmpCtx.restore();
+    }
+
+    // directional labels
+    cmpCtx.fillStyle = "rgba(159,168,214,.95)";
+    cmpCtx.font = "12px system-ui,Segoe UI,Roboto,Arial";
+    cmpCtx.textAlign="center";
+    cmpCtx.fillText("FRONT", cx, cy - baseR - 16);
+    cmpCtx.fillText("REAR",  cx, cy + baseR + 18);
+    cmpCtx.fillText("LEFT",  cx - baseR - 34, cy + 4);
+    cmpCtx.fillText("RIGHT", cx + baseR + 40, cy + 4);
+
+    // peak readout in panel
+    cmpCtx.fillStyle = "rgba(229,231,235,.92)";
+    cmpCtx.font = "12px ui-monospace, Menlo, Consolas, monospace";
+    const pct = (v)=>Math.round(v*100)+"%";
+    cmpCtx.textAlign="left";
+    cmpCtx.fillText(`Peak: ${pct(peak)}   Front: ${pct(front)}   Left: ${pct(left)}   Right: ${pct(right)}   Rear: ${pct(rear)}`, 12, H-14);
+
+    // update DOM labels
+    if(cmpPeakEl){
+      cmpPeakEl.textContent  = pct(peak);
+      cmpFrontEl.textContent = pct(front);
+      cmpLeftEl.textContent  = pct(left);
+      cmpRightEl.textContent = pct(right);
+      cmpRearEl.textContent  = pct(rear);
+    }
+  }
+
   // === Main draw ===
   function draw(){
-    resizeCanvas();
+    resizeCanvas(cv);
     const W = cv.width, H = cv.height;
     ctx.clearRect(0,0,W,H);
 
     const scale = W/1400;
 
-    // UFO anchor point (keep centered with margins)
     const cx = W*0.56;
     const cy = H*0.54;
 
-    // Telemetry snapshot
     const P = powerW();
     const v = vLocalFrac();
     const B = magneticB();
 
-    // Simple sizes
     const uW = 640*scale;
     const uH = 260*scale;
 
-    // Base bubble sizes (then clamped to stay inside canvas)
     let bubbleScale = (0.85 + 0.70*S.bubble) * (1.00 + 0.25*(S.field/100));
     let bx = uW*0.78*bubbleScale;
     let by = uH*0.56*bubbleScale;
 
-    // --- Clamp bubble so it never goes out of panel/canvas ---
     const margin = 26*scale;
     const maxRx = Math.min(cx - margin, (W - cx) - margin);
     const maxRy = Math.min(cy - margin, (H - cy) - margin);
 
-    // glow uses 1.20×, so fit that too
     const fitX = (bx*1.20 > maxRx) ? (maxRx/(bx*1.20)) : 1;
     const fitY = (by*1.20 > maxRy) ? (maxRy/(by*1.20)) : 1;
     const fit = Math.min(fitX, fitY, 1);
     bx *= fit;
     by *= fit;
 
-    // background subtle grid
+    // store geometry for compression (not changing visuals)
+    GEOM.cx=cx; GEOM.cy=cy; GEOM.bx=bx; GEOM.by=by; GEOM.uW=uW; GEOM.uH=uH; GEOM.scale=scale; GEOM.fit=fit;
+
     ctx.save();
     ctx.globalAlpha = 0.08;
     ctx.strokeStyle = "rgba(148,163,184,.35)";
@@ -652,7 +809,6 @@
     }
     ctx.restore();
 
-    // === Magnetic bubble glow (blue) ===
     ctx.save();
     ctx.translate(cx, cy);
 
@@ -667,19 +823,14 @@
     ctx.ellipse(0,0, bx*1.20, by*1.20, 0, 0, TAU);
     ctx.fill();
 
-    // magnetic ring
     drawRing(0,0, bx*1.04, by*1.04, "rgba(96,165,250,.65)", 0.55 + 0.35*(S.field/100), (2.0 + 4.0*(S.field/100))*scale);
-
-    // shield ring (green)
     drawRing(0,0, bx*0.94, by*0.94, "rgba(52,211,153,.70)", 0.10 + 0.70*S.shield, (2.0 + 6.0*S.shield)*scale);
 
     ctx.restore();
 
-    // === UFO body ===
     ctx.save();
     ctx.translate(cx, cy);
 
-    // body
     ctx.fillStyle = "rgba(148,163,184,.10)";
     ctx.strokeStyle = "rgba(148,163,184,.26)";
     ctx.lineWidth = 2*scale;
@@ -688,14 +839,12 @@
     ctx.fill();
     ctx.stroke();
 
-    // rim highlight depends on field
     ctx.strokeStyle = `rgba(96,165,250,${0.14 + 0.62*(S.field/100)})`;
     ctx.lineWidth = 3*scale;
     ctx.beginPath();
     ctx.ellipse(0, 0, uW*0.59, uH*0.34, 0, 0, TAU);
     ctx.stroke();
 
-    // dome
     ctx.fillStyle = "rgba(148,163,184,.14)";
     ctx.strokeStyle = "rgba(148,163,184,.30)";
     ctx.lineWidth = 2*scale;
@@ -705,7 +854,6 @@
     ctx.fill();
     ctx.stroke();
 
-    // underside
     ctx.fillStyle = "rgba(15,23,42,.60)";
     ctx.strokeStyle = "rgba(148,163,184,.22)";
     ctx.lineWidth = 1.6*scale;
@@ -714,8 +862,6 @@
     ctx.fill();
     ctx.stroke();
 
-    // --- Engine zones (labeled) ---
-    // Fusion core glow (m -> E)
     const coreR = uW*0.11 * (0.75 + 0.45*(S.energy/100));
     const core = ctx.createRadialGradient(0, uH*0.04, coreR*0.12, 0, uH*0.04, coreR);
     core.addColorStop(0, `rgba(251,191,36,${0.16 + 0.58*(S.energy/100)})`);
@@ -726,7 +872,6 @@
     ctx.arc(0, uH*0.04, coreR, 0, TAU);
     ctx.fill();
 
-    // Field shaper haze (E -> effective mass shell / coils proxy)
     const hazeR = coreR*1.55;
     const haze = ctx.createRadialGradient(0, 0, hazeR*0.2, 0, 0, hazeR);
     haze.addColorStop(0, `rgba(96,165,250,${0.10 + 0.20*(S.field/100)})`);
@@ -736,7 +881,6 @@
     ctx.arc(0, 0, hazeR, 0, TAU);
     ctx.fill();
 
-    // exhaust plume depends on energy
     const plume = 0.1 + 0.9*(S.energy/100);
     const len = uH*(0.30 + 0.55*plume);
     const w0  = uW*(0.03 + 0.07*plume);
@@ -760,8 +904,6 @@
 
     ctx.restore();
 
-    // === Ship labels (areas) ===
-    // Anchor points in canvas coords
     const hullAx  = cx + uW*0.50;
     const hullAy  = cy - uH*0.05;
     const domeAx  = cx - uW*0.12;
@@ -785,7 +927,6 @@
     drawLabel("Shield Ring (stability)", shieldAx, shieldAy, cx + uW*0.35, cy + uH*0.52);
     drawLabel("Exhaust / Thrust Port", exAx, exAy, cx - uW*0.12, cy + uH*0.64);
 
-    // === HUD ===
     ctx.save();
     ctx.fillStyle = "rgba(229,231,235,.86)";
     ctx.font = `${Math.max(12, 14*(W/1400))}px ${getComputedStyle(document.documentElement).getPropertyValue('--mono')}, ui-monospace`;
@@ -807,7 +948,6 @@
   ui.reset.addEventListener("click", ()=>{
     S.running=false;
     S.t=0;
-    // reset ship clock baseline
     S.shipMs = Date.now();
     out.statusText.textContent="Reset";
     out.tText.textContent="0.00s";
@@ -815,7 +955,6 @@
   ui.panic.addEventListener("click", ()=>{
     S.running=false;
     S.t=0;
-    // slam safe values
     ui.warp.value=1;
     ui.energy.value=10;
     ui.field.value=10;
@@ -838,9 +977,10 @@
       S.t += dtS;
       out.tText.textContent = S.t.toFixed(2) + "s";
     }
-    // telemetry & clocks update every frame (LIVE)
     updateTelemetry(dtMs);
     draw();
+    // NEW: compression panel updates every frame (LIVE)
+    drawCompressionPanel();
 
     requestAnimationFrame(loop);
   }
