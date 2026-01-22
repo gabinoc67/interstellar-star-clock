@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>CST Warp Console — Galaxy Navigation (Visual Fix: Exhaust + Equations + Labels)</title>
+<title>CST Warp Console — Galaxy Navigation (Live Panels Fixed)</title>
 
 <style>
   :root{
@@ -18,7 +18,6 @@
     --bad:#ff7272;
     --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
   }
-
   html,body{ margin:0; height:100%; background:var(--bg); overflow:hidden; font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:var(--ink); }
   canvas{ position:fixed; inset:0; }
 
@@ -85,6 +84,7 @@
     border-radius:10px;
     padding:8px;
     margin-top:8px;
+    min-height: 46px;
   }
 
   .toggleRow{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-top:8px; }
@@ -158,7 +158,7 @@
     <div class="hr"></div>
 
     <div class="label">Flight Plan Timeline</div>
-    <div class="tiny">Active step highlights as the trip runs. Warp ramps 1→10 then back down.</div>
+    <div class="tiny">Active step highlights as the trip runs. Plan ramps and then hands off to cruise.</div>
 
     <div style="margin-top:8px; max-height:280px; overflow:auto; border:1px solid rgba(148,163,184,.16); border-radius:10px;">
       <table>
@@ -282,6 +282,7 @@
 const el = (id)=>document.getElementById(id);
 const clamp = (x,a,b)=>Math.max(a,Math.min(b,x));
 const fmt = (x,d=2)=> (isFinite(x)?Number(x).toFixed(d):"—");
+const fmtPct = (x,d=1)=> (isFinite(x)?`${Number(x).toFixed(d)}%`:"—");
 
 function pad2(n){ return String(n).padStart(2,"0"); }
 function hms(date){
@@ -323,7 +324,7 @@ function updateSafetyPanel(w){
   safeMsgEl.innerHTML = headline + `<div class="noteLine" style="margin-top:8px;white-space:pre-wrap">${SAFETY_BLOCK}</div>`;
 }
 
-/* ======================= STATIC PANELS ======================= */
+/* ======================= STATIC TEXT ======================= */
 el("purposeText").textContent =
 `AEWFC drives a negative-charge electron lattice, forming a central negative-energy pocket
 that assists warp control. On breach, the shield boosts locally and auto-heals after ~5 s,
@@ -364,7 +365,7 @@ const ledgerOut = el("ledgerOut");
 
 eqBox.textContent =
 `Toy Equations used for live panels (display):
-v(w) = c · w^(3/2)  (proxy)
+v(w) = c · w^(3/2)  (proxy; v(0)=0)
 FieldPressure = 0.600 + 0.080 w²
 Compression% = 100 · (w/10)
 Dilation% (Earth vs Ship) ≈ 1.5% · w² (capped)
@@ -425,6 +426,190 @@ ARRIVAL
 Arrival (CST) = ${hms(arrivalCST)}
 Arrival (Earth) = ${isFinite(arrivalEarthDays) ? `~${fmt(arrivalEarthDays,2)} days remaining` : "—"}`;
 }
+
+/* ======================= LIVE PANEL WRITERS (FIX) ======================= */
+const engineTelemetryEl = el("engineTelemetry");
+const vectoringTextEl   = el("vectoringText");
+const einsteinMiniEl    = el("einsteinMini");
+const stressEnergyEl    = el("stressEnergyBox");
+
+function writeEngineTelemetryLive(s){
+  // Toy outputs tied to warp + running
+  const shield = clamp(48.3 + (s.breachBoost*40) - s.warp*0.25, 0, 100);
+  const coreC  = 82 + (s.running ? (s.warp*s.warp*2.2) : 0) + (s.breachActive ? 35 : 0);
+  const coolC  = 55 + (s.running ? (s.warp*8.5) : 0) + (s.breachActive ? 18 : 0);
+
+  const Edot = 6.04e13 * (0.25 + s.warp/10);      // J/s (toy)
+  const mdot = Edot / (C_M_S*C_M_S);
+  const meff = mdot * 10;
+  const rhoShell = 7.33e-11 * (0.4 + s.warp/10);
+  const dK = -1.84e-19 * (0.6 + s.warp/10);
+  const vWarpProxy = (s.warp <= 0) ? 0 : (0.02*s.warp); // "c" units, toy
+
+  engineTelemetryEl.textContent =
+`Status
+${s.running ? "RUNNING" : "IDLE"}
+
+Shield
+${fmtPct(shield,1)}
+
+Core Temp
+${fmt(coreC,0)} °C
+
+Coolant Temp
+${fmt(coolC,0)} °C
+
+Ė = ${Edot.toExponential(2)} J/s
+ṁ = Ė/c² = ${mdot.toExponential(2)} kg/s
+m_eff (stored) = ${meff.toExponential(2)} kg
+ρ_shell = ${rhoShell.toExponential(2)} kg/m³
+Δκ (proxy) = ${dK.toExponential(2)}
+v_warp (proxy) = ${fmt(vWarpProxy,2)} c`;
+}
+
+function writeVectoringLive(s, t){
+  // Smooth oscillations so the panel stays alive even when cruising
+  const front = clamp((Math.sin(t*0.7)*6 + s.warp*0.2), -20, 20);
+  const rear  = clamp((Math.cos(t*0.6)*6 + s.warp*0.2), -20, 20);
+  const lr    = clamp((Math.sin(t*0.9+1.3)*4), -15, 15);
+  const ud    = clamp((Math.cos(t*0.8+0.7)*5), -15, 15);
+
+  vectoringTextEl.textContent =
+`Reactor Output (MW)
+5000
+
+Front Contraction %
+${fmtPct(front,1)}
+
+Rear Expansion %
+${fmtPct(rear,1)}
+
+Left / Right Bias %
+${fmtPct(lr,1)}
+
+Up / Down Bias %
+${fmtPct(ud,1)}
+
+Intake Mode
+Balanced (±)
+
+Power Allocation
+Field Coils: 2025 MW
+Vectoring Vanes: 1750 MW
+Containment: 100 MW`;
+}
+
+function writeEinsteinMiniLive(s, t){
+  // Simple proxy values
+  const gtt = 1.0 - 0.02*s.warp + (s.breachActive ? -0.06 : 0);
+  const gradPhi = Math.abs(0.08 + 0.03*s.warp + 0.02*Math.sin(t*1.2));
+  const rhoEm = (gradPhi*gradPhi) * 1e-8; // toy scaling
+
+  const gttMin = Math.min(1.0, gtt);
+  const rhoMin = rhoEm * 0.02;
+  const rhoMax = rhoEm * 1.35;
+
+  const throttle = (gtt <= 0) ? "AUTO-THROTTLE: ACTIVE" : "Auto-throttle if gtt ≤ 0";
+
+  einsteinMiniEl.textContent =
+`Gμν proxy • ρem from |∇Φ|² (visual)
+${throttle}
+
+gtt min: ${fmt(gttMin,6)}
+ρem min/max: ${rhoMin.toExponential(3)} / ${rhoMax.toExponential(3)}
+EC: ✅ NEC • ✅ WEC • ✅ SEC
+Horizons: None`;
+}
+
+function writeStressEnergyLive(s, t){
+  // Communication model (toy)
+  const a = 0.62 + 0.08*Math.sin(t*0.9);
+  const b = 0.22 + (s.breachActive ? 0.10 : 0.00);
+  const c = 0.18 + 0.06*(s.warp/10);
+  const photons = 1.0;
+  const casimir = 1.0;
+  const control = 1.0;
+
+  const rho = a*photons - b*casimir + c*control;
+  const w = clamp(0.12 + 0.08*(s.warp/10), 0, 1);
+  const p = w*rho;
+
+  const pr = p*(0.95 + 0.05*Math.sin(t*1.1));
+  const pth = p*(0.90 + 0.07*Math.cos(t*0.8));
+  const pph = p*(0.92 + 0.06*Math.sin(t*0.6+1.4));
+
+  stressEnergyEl.textContent =
+`We present a model form for communication:
+Tμν = diag(ρ, pr, pθ, pφ)
+
+ρ = a·Photons − b·Casimir + c·Control
+p = w·ρ with 0 ≤ w ≤ 1 (demo)
+
+ρ  ${fmt(rho,3)}
+pr ${fmt(pr,3)}
+pθ ${fmt(pth,3)}
+pφ ${fmt(pph,3)}`;
+}
+
+/* ======================= BREACH SIM (FIX) ======================= */
+const btnBreachStar = el("btnBreachStar");
+const btnHeal = el("btnHeal");
+const boostBar = el("boostBar");
+const boostLbl = el("boostLbl");
+const warpAssistLbl = el("warpAssistLbl");
+const negEnergyLbl = el("negEnergyLbl");
+const containLbl = el("containLbl");
+const healEtaLbl = el("healEtaLbl");
+
+let breach = {
+  active:false,
+  boost:0,         // 0..1
+  healTimer:0      // seconds remaining
+};
+
+function triggerBreach(){
+  breach.active = true;
+  breach.boost = 1;
+  breach.healTimer = 5.0; // toy auto-heal
+}
+function healNow(){
+  breach.active = false;
+  breach.boost = 0;
+  breach.healTimer = 0;
+}
+
+btnBreachStar.onclick = triggerBreach;
+btnHeal.onclick = healNow;
+
+function updateBreach(dt, warp){
+  if(breach.active){
+    breach.healTimer = Math.max(0, breach.healTimer - dt);
+    // boost decays but stays nonzero while active
+    breach.boost = clamp(breach.boost - dt*0.08, 0.25, 1.0);
+    if(breach.healTimer <= 0){
+      // auto-heal
+      breach.active = false;
+      breach.boost = 0;
+      breach.healTimer = 0;
+    }
+  } else {
+    breach.boost = Math.max(0, breach.boost - dt*0.25);
+  }
+
+  const boostPct = Math.round(clamp(breach.boost*100,0,100));
+  boostLbl.textContent = String(boostPct);
+  boostBar.style.width = `${boostPct}%`;
+
+  // Field readouts (toy)
+  const warpAssist = clamp((warp/10)*0.85 + breach.boost*0.25, 0, 1);
+  const negLikely = clamp(0.18 + (warp/10)*0.22 + (breach.active?0.18:0), 0, 1);
+
+  warpAssistLbl.textContent = fmtPct(warpAssist*100,1);
+  negEnergyLbl.textContent = fmtPct(negLikely*100,1);
+
+  containLbl.textContent = breach.active ? "Breach Active" : "Stable";
+  healEtaLbl.textContent = breach.active ? `${fmt(breach.healTimer,1)} s` : "—";
+}
 /* ======================= CANVAS ======================= */
 const canvas = document.getElementById("sim");
 const ctx = canvas.getContext("2d");
@@ -459,14 +644,11 @@ function drawStars(){
   ctx.restore();
 }
 
-/* ======================= VISUALS YOU REQUESTED ======================= */
-
-/* Ship outline (same) */
+/* ======================= SHIP VISUALS (UNCHANGED) ======================= */
 function drawShipOutline(){
   ctx.save(); ctx.translate(cx,cy);
   ctx.strokeStyle="rgba(120,180,255,0.7)"; ctx.lineWidth=2;
 
-  // main hull
   ctx.beginPath();
   ctx.moveTo(0,-200);
   ctx.quadraticCurveTo(60,-80,60,60);
@@ -474,7 +656,6 @@ function drawShipOutline(){
   ctx.quadraticCurveTo(-60,150,-60,60);
   ctx.quadraticCurveTo(-60,-80,0,-200);
 
-  // nacelles (your rockets)
   ctx.moveTo(-110,-40);
   ctx.quadraticCurveTo(-160,50,-110,160);
   ctx.quadraticCurveTo(-60,80,-110,-40);
@@ -485,7 +666,6 @@ function drawShipOutline(){
 
   ctx.stroke();
 
-  // rocket nozzles (small rings at bottom of each nacelle)
   ctx.strokeStyle="rgba(200,230,255,0.65)";
   ctx.lineWidth=1.5;
   ctx.beginPath();
@@ -495,15 +675,11 @@ function drawShipOutline(){
 
   ctx.restore();
 }
-
-/* Labels: add NUCLEAR REACTOR + FUSION CONVERT + keep others */
 function drawShipLabels(){
   if(!labelsOnEl.checked) return;
   ctx.save(); ctx.translate(cx,cy);
   ctx.font="12px "+getComputedStyle(document.documentElement).getPropertyValue("--mono");
   ctx.fillStyle="rgba(205,235,255,0.92)";
-
-  // existing
   ctx.fillText("DOME",-22,-185);
   ctx.fillText("RIM (FORE)",-45,-115);
   ctx.fillText("RIM (AFT)",-38,135);
@@ -511,60 +687,43 @@ function drawShipLabels(){
   ctx.fillText("PORT ROCKET",-175,75);
   ctx.fillText("STARBOARD ROCKET",70,75);
 
-  // NEW requested
   ctx.fillStyle="rgba(255,240,170,0.95)";
   ctx.fillText("NUCLEAR REACTOR",-78,10);
   ctx.fillText("FUSION CONVERT",-78,28);
-
   ctx.restore();
 }
-
-/* Yellow dotted lines with equations: e=mc² and m=E/c² */
 function drawEquationLines(warp){
   ctx.save(); ctx.translate(cx,cy);
-
   const alpha = 0.20 + 0.06*warp;
   ctx.strokeStyle = `rgba(255,220,90,${alpha})`;
   ctx.lineWidth = 2;
   ctx.setLineDash([6,8]);
-
-  // two dotted guide lines
   ctx.beginPath();
   ctx.moveTo(-220, -20);
   ctx.lineTo(220, -20);
   ctx.moveTo(-220, 40);
   ctx.lineTo(220, 40);
   ctx.stroke();
-
   ctx.setLineDash([]);
-
   ctx.font = "14px "+getComputedStyle(document.documentElement).getPropertyValue("--mono");
   ctx.fillStyle = `rgba(255,220,90,${Math.min(0.95, alpha+0.35)})`;
-
   ctx.fillText("e = mc²", -210, -28);
   ctx.fillText("m = E / c²", -210, 32);
-
   ctx.restore();
 }
-
-/* Rocket exhaust: dotted particles coming out + visible flame-ish taper */
 function drawRocketExhaust(warp, dt, ts){
-  // exhaust only visible when warp > 0.2 or running
   const strength = clamp(warp/10, 0, 1);
   if(strength <= 0.01) return;
-
   const t = ts*0.001;
 
   ctx.save(); ctx.translate(cx,cy);
 
-  // two exhaust cones
   const cones = [
     {x:-118,y:168, dirX:-0.20, dirY:1},
     {x: 118,y:168, dirX: 0.20, dirY:1}
   ];
 
   for(const c of cones){
-    // faint cone
     ctx.save();
     ctx.globalAlpha = 0.10 + 0.20*strength;
     ctx.fillStyle = "rgba(255,220,90,0.9)";
@@ -576,7 +735,6 @@ function drawRocketExhaust(warp, dt, ts){
     ctx.fill();
     ctx.restore();
 
-    // dotted exhaust particles
     const n = Math.floor(18 + 50*strength);
     for(let i=0;i<n;i++){
       const p = (i/n);
@@ -595,18 +753,12 @@ function drawRocketExhaust(warp, dt, ts){
 
   ctx.restore();
 }
-
-/* “Dot being repelled from outer circle” (field boundary) */
 function drawRepelledDot(fieldR, warp, ts){
   const strength = clamp(warp/10, 0, 1);
   const t = ts*0.001;
 
-  // a dot approaches the field and gets pushed outward
-  // approach radius oscillates; when near boundary, repel kicks in
   let r = fieldR * (0.75 + 0.25*Math.sin(t*0.8));
   const approach = fieldR * (0.98 + 0.03*Math.sin(t*1.7 + 1.2));
-
-  // “repel” when too close to boundary
   if(approach > fieldR*0.985){
     r = fieldR * (1.02 + 0.06*strength + 0.03*Math.sin(t*4.0));
   }
@@ -622,7 +774,6 @@ function drawRepelledDot(fieldR, warp, ts){
   ctx.arc(x,y, 3.2, 0, Math.PI*2);
   ctx.fill();
 
-  // tiny trail
   ctx.globalAlpha = 0.20 + 0.30*strength;
   ctx.strokeStyle = "rgba(255,240,160,0.75)";
   ctx.lineWidth = 1.5;
@@ -633,14 +784,11 @@ function drawRepelledDot(fieldR, warp, ts){
 
   ctx.restore();
 }
-
-/* Protection field */
 function drawProtectionField(R, warp){
   const innerAlpha = 0.18 + warp*0.06;
   const midAlpha = 0.10 + warp*0.05;
 
   ctx.save(); ctx.translate(cx,cy);
-
   const g = ctx.createRadialGradient(0,0,R*0.15,0,0,R);
   g.addColorStop(0, `rgba(200,250,255,${innerAlpha})`);
   g.addColorStop(0.4,`rgba(130,210,255,${midAlpha})`);
@@ -651,7 +799,6 @@ function drawProtectionField(R, warp){
   ctx.strokeStyle="rgba(165,225,255,0.95)";
   ctx.lineWidth=1.5+warp*0.2;
   ctx.beginPath(); ctx.arc(0,0,R,0,Math.PI*2); ctx.stroke();
-
   ctx.restore();
 }
 
@@ -688,6 +835,11 @@ const pwrValEl = el("pwrVal");
 const dilValEl = el("dilVal");
 const emcValEl = el("emcVal");
 
+const progBar = el("progBar");
+const progPctEl = el("progPct");
+const stepNowEl = el("stepNow");
+const phaseNowEl = el("phaseNow");
+
 const msgEl = el("msg");
 function setMessage(s){ msgEl.textContent = s; }
 
@@ -710,13 +862,13 @@ setDistUIFromPreset();
 
 /* Plan */
 const PLAN = [
-  {step:1, phase:"Departure / Field warm-up", w0:0, w1:1, dur:30, cst:"Lock CST baseline; verify field symmetry."},
-  {step:2, phase:"Corridor forming", w0:1, w1:3, dur:60, cst:"Monitor shear; stability must remain controlled."},
-  {step:3, phase:"Corridor closure check", w0:3, w1:4, dur:50, cst:"Verify closure threshold; log asymmetric zones."},
-  {step:4, phase:"Ramp to cruise", w0:4, w1:10, dur:120, cst:"Stability trend must improve with warp."},
-  {step:5, phase:"Warp-10 cruise window", w0:10, w1:10, dur:240, cst:"Hold deterministic logs; keep CST-locked display."},
-  {step:6, phase:"Decelerate / arrival shear", w0:10, w1:4, dur:120, cst:"Control corridor collapse; prevent shell breakup."},
-  {step:7, phase:"Final approach / corridor off", w0:4, w1:0, dur:60, cst:"Return to idle; finalize drift summary."}
+  {step:1, phase:"Departure / Field warm-up", w0:0, w1:1, dur:30,  cst:"Lock CST baseline; verify field symmetry."},
+  {step:2, phase:"Corridor forming",         w0:1, w1:3, dur:60,  cst:"Monitor shear; stability must remain controlled."},
+  {step:3, phase:"Corridor closure check",   w0:3, w1:4, dur:50,  cst:"Verify closure threshold; log asymmetric zones."},
+  {step:4, phase:"Ramp to cruise",           w0:4, w1:10,dur:120, cst:"Stability trend must improve with warp."},
+  {step:5, phase:"Warp-10 cruise window",    w0:10,w1:10,dur:240, cst:"Hold deterministic logs; keep CST-locked display."},
+  {step:6, phase:"Decelerate / arrival shear",w0:10,w1:4,dur:120, cst:"Control corridor collapse; prevent shell breakup."},
+  {step:7, phase:"Final approach / corridor off",w0:4,w1:0,dur:60, cst:"Return to idle; finalize drift summary."}
 ];
 const planBody = el("planBody");
 function buildPlanTable(){
@@ -729,10 +881,18 @@ function buildPlanTable(){
   }
 }
 buildPlanTable();
+
 function highlightPlan(step){
   const rows=planBody.querySelectorAll("tr");
   rows.forEach(r=> r.classList.toggle("active", step!==null && Number(r.dataset.step)===step));
 }
+
+function planTotalDuration(){
+  return PLAN.reduce((a,p)=>a+p.dur,0);
+}
+const PLAN_TOTAL = planTotalDuration();
+
+/* FIX: planAt returns null when past end (handoff to cruise) */
 function planAt(timeSec){
   let acc=0;
   for(const p of PLAN){
@@ -740,18 +900,17 @@ function planAt(timeSec){
     if(timeSec>=t0 && timeSec<t1){
       const frac=(timeSec-t0)/Math.max(1e-9,p.dur);
       const w=p.w0 + frac*(p.w1-p.w0);
-      return {p, frac, w};
+      return {p, frac, w, inPlan:true};
     }
     acc=t1;
   }
-  return {p:PLAN[PLAN.length-1], frac:1, w:0};
+  return {p:null, frac:1, w:NaN, inPlan:false};
 }
 
-/* Toy physics */
+/* ======================= Toy physics (FIX: v(0)=0) ======================= */
 function warpSpeedKmS(w){
-  const eff = Math.max(1e-6, w);
-  const base = Math.max(1, eff);
-  return C_KM_S * Math.pow(base, 1.5);
+  if(!(w>0)) return 0;
+  return C_KM_S * Math.pow(w, 1.5);
 }
 function fieldPressure(w){ return 0.600 + 0.080*w*w; }
 function compressionPct(w){ return clamp((w/10),0,1)*100; }
@@ -765,8 +924,24 @@ function computeTrip(){
   distTraveledKm = 0;
 }
 function calculateTrip(){ computeTrip(); setMessage(`Trip target set: ${Number(distLYEl.value).toLocaleString()} ly.`); }
-function engageWarp(){ if(distTotalKm<=0) calculateTrip(); running=true; setMessage("Warp simulation running (flight plan driving warp)."); }
-function stopWarp(){ running=false; warp=0; warpSelect.value="0"; updateSafetyPanel(warp); setMessage("Stopped."); }
+
+/* FIX: after plan ends, cruise at selected warp (or minimum 4 for safety) */
+let cruiseWarpTarget = 6;
+
+function engageWarp(){
+  if(distTotalKm<=0) calculateTrip();
+  running=true;
+  simT=0; // start plan fresh
+  cruiseWarpTarget = Math.max(0, Number(warpSelect.value) || 6);
+  setMessage("Warp simulation running (flight plan drives ramp; then cruises).");
+}
+
+function stopWarp(){
+  running=false; warp=0; warpSelect.value="0";
+  updateSafetyPanel(warp);
+  setMessage("Stopped.");
+}
+
 function resetAll(){
   running=false; warp=0; simT=0; warpSelect.value="0";
   distPresetEl.value="andromeda"; setDistUIFromPreset();
@@ -774,11 +949,16 @@ function resetAll(){
   computeTrip();
   updateSafetyPanel(0);
   highlightPlan(null);
+  stepNowEl.textContent="—";
+  phaseNowEl.textContent="—";
+  progPctEl.textContent="0";
+  progBar.style.width="0%";
   driftClockEl.textContent="—";
   arrivalClockEl.textContent="--:--:--";
   arrivalEarthClockEl.textContent="—";
   distRemainEl.textContent="—";
   timeRemainEl.textContent="—";
+  healNow(); // clear breach
   setMessage("Reset complete. Trip recalculated. Ready to Engage.");
 }
 
@@ -788,33 +968,28 @@ stopBtn.onclick = stopWarp;
 resetBtn.onclick = resetAll;
 
 warpSelect.onchange = ()=>{
-  if(!running) warp = Number(warpSelect.value);
+  // manual selection affects cruise target
+  cruiseWarpTarget = Math.max(0, Number(warpSelect.value) || 0);
+  if(!running) warp = cruiseWarpTarget;
   updateSafetyPanel(warp);
 };
 
 /* ======================= MAIN LOOP ======================= */
 function renderFrame(ts, dt){
   ctx.clearRect(0,0,W,H);
-
   updateStars(dt, warp);
   drawStars();
-
-  // ship
   drawShipOutline();
 
-  // field
   const baseR=210;
   const pulse=0.12*Math.sin(ts*0.004)+0.88;
   const warpBoost=1+warp*0.12;
   const fieldR = baseR*pulse*warpBoost;
 
   drawProtectionField(fieldR, warp);
-
-  // NEW requested visuals
   drawEquationLines(warp);
   drawRocketExhaust(warp, dt, ts);
   drawRepelledDot(fieldR, warp, ts);
-
   drawShipLabels();
 }
 
@@ -829,86 +1004,112 @@ function loop(ts){
   cstClockEl.textContent = hms(cstNow);
   shipClockEl.textContent = hms(cstNow);
 
+  // warp time display (toy)
   const warpRate = 1 - Math.min(0.35, (warp/10)*0.35);
   const warpNow = new Date(cstNow.getTime() - (simT*warpRate*200));
   warpClockEl.textContent = hms(warpNow);
 
   let wDot=0;
 
-  let pressure = fieldPressure(warp);
-  let comp     = compressionPct(warp);
-  let dil      = dilationFracEarthVsShip(warp);
-
-  let remainKm = Math.max(0, distTotalKm - distTraveledKm);
-
+  // ======================= RUNNING LOGIC (FIX) =======================
   if(running){
     const at = planAt(simT);
     const wPrev = warp;
-    warp = clamp(at.w, 0, 10);
+
+    if(at.inPlan){
+      warp = clamp(at.w, 0, 10);
+      highlightPlan(at.p.step);
+      stepNowEl.textContent = String(at.p.step);
+      phaseNowEl.textContent = at.p.phase;
+    } else {
+      // plan finished: cruise forever at target (minimum 4 recommended)
+      warp = clamp(cruiseWarpTarget, 0, 10);
+      highlightPlan(null);
+      stepNowEl.textContent = "CRUISE";
+      phaseNowEl.textContent = "Cruise (post-plan)";
+    }
+
     wDot = (dt>0)?(warp - wPrev)/dt:0;
 
     const v = warpSpeedKmS(warp);
     distTraveledKm += v * dt * simSpeed;
+
     if(distTotalKm>0 && distTraveledKm >= distTotalKm){
       distTraveledKm = distTotalKm;
       running=false;
       setMessage("Arrived (distance target reached).");
     }
 
-    pressure = fieldPressure(warp);
-    comp     = compressionPct(warp);
-    dil      = dilationFracEarthVsShip(warp);
-
-    highlightPlan(at.p.step);
     simT += dt*simSpeed;
   } else {
     highlightPlan(null);
+    stepNowEl.textContent = "—";
+    phaseNowEl.textContent = "—";
   }
 
-  remainKm = Math.max(0, distTotalKm - distTraveledKm);
-  const secRemain = (running && distTotalKm>0) ? (remainKm / warpSpeedKmS(warp)) : NaN;
+  // ======================= CALC READOUTS =======================
+  const remainKm = Math.max(0, distTotalKm - distTraveledKm);
+  const vKmS = running ? warpSpeedKmS(warp) : warpSpeedKmS(warp);
+  const secRemain = (distTotalKm>0 && vKmS>0) ? (remainKm / vKmS) : NaN;
+
+  // progress
+  const prog = (distTotalKm>0) ? clamp(distTraveledKm/distTotalKm,0,1) : 0;
+  const progPct = Math.round(prog*100);
+  progPctEl.textContent = String(progPct);
+  progBar.style.width = `${progPct}%`;
 
   distRemainEl.textContent = (distTotalKm>0) ? `${fmt(remainKm/LY_KM,2)} ly remaining` : "—";
+  timeRemainEl.textContent = (isFinite(secRemain)) ? `${fmt(secRemain/86400,2)} days (Earth frame)` : "—";
 
-  if(running && isFinite(secRemain)){
-    timeRemainEl.textContent = `${fmt(secRemain/86400,2)} days (Earth frame)`;
+  // drift + arrivals (only when secRemain finite)
+  const dil = dilationFracEarthVsShip(warp);
+  if(isFinite(secRemain)){
     driftClockEl.textContent = `${fmt((secRemain*dil)/3600,2)} h drift (Earth vs Ship)`;
-
     const arrivalCST = new Date(cstNow.getTime() + secRemain*1000);
     arrivalClockEl.textContent = hms(arrivalCST);
     arrivalEarthClockEl.textContent = `~${fmt(secRemain/86400,2)} days remaining (Earth frame)`;
   } else {
-    timeRemainEl.textContent = "—";
     driftClockEl.textContent = "—";
     arrivalClockEl.textContent = "--:--:--";
     arrivalEarthClockEl.textContent = "—";
   }
 
-  // keep these live
+  // field + telemetry proxies
+  const pressure = fieldPressure(warp);
+  const comp = compressionPct(warp);
+  const stab = clamp(0.40 + 0.06*warp - (breach.active?0.12:0), 0, 1);
+  const cool = 1.0 + 0.18*warp + (breach.active?0.35:0);
+  const pwr  = 90 + 8*warp*warp + (breach.active?45:0);
+
   pressValEl.textContent = fmt(pressure,3);
   compValEl.textContent  = `${fmt(comp,1)}%`;
-  stabValEl.textContent  = fmt(0.65 + 0.03*warp,3);
-  coolValEl.textContent  = fmt(1.0 + 0.18*warp,2);
-  pwrValEl.textContent   = fmt(90 + 8*warp*warp,1);
+  stabValEl.textContent  = fmt(stab,3);
+  coolValEl.textContent  = fmt(cool,2);
+  pwrValEl.textContent   = fmt(pwr,1);
   dilValEl.textContent   = `${fmt(dil*100,2)}%`;
   emcValEl.textContent   = `E ↔ m utilization index ≈ ${fmt(warp*1.5,2)}`;
 
-  // write ledger live (simple state)
+  // ======================= BREACH + LIVE PANEL UPDATES (FIX) =======================
+  updateBreach(dt, warp);
+
+  const t = ts*0.001;
+  writeEngineTelemetryLive({ running, warp, breachActive: breach.active, breachBoost: breach.boost });
+  writeVectoringLive({ running, warp }, t);
+  writeEinsteinMiniLive({ running, warp, breachActive: breach.active }, t);
+  writeStressEnergyLive({ running, warp, breachActive: breach.active }, t);
+
+  // ======================= LEDGER LIVE =======================
   writeMathAndLedgerLive({
     running, simT, simSpeed,
     warp, wDot,
     distTotalKm, distTraveledKm, remainKm,
-    vKmS: running ? warpSpeedKmS(warp) : NaN,
+    vKmS,
     secRemain,
-    pressure, comp,
-    stab: (0.65 + 0.03*warp),
-    cool: (1.0 + 0.18*warp),
-    pwr:  (90 + 8*warp*warp),
-    dil,
+    pressure, comp, stab, cool, pwr, dil,
     utcNow, cstNow, shipNow:cstNow, warpNow,
-    driftHours: (running && isFinite(secRemain)) ? (secRemain*dil)/3600 : NaN,
-    arrivalCST: (running && isFinite(secRemain)) ? new Date(cstNow.getTime() + secRemain*1000) : new Date(NaN),
-    arrivalEarthDays: (running && isFinite(secRemain)) ? (secRemain/86400) : NaN
+    driftHours: (isFinite(secRemain)) ? (secRemain*dil)/3600 : NaN,
+    arrivalCST: (isFinite(secRemain)) ? new Date(cstNow.getTime() + secRemain*1000) : new Date(NaN),
+    arrivalEarthDays: (isFinite(secRemain)) ? (secRemain/86400) : NaN
   });
 
   updateSafetyPanel(warp);
