@@ -1,10 +1,10 @@
-<!-- ======================= PART 1 / 3 ======================= -->
+<!-- ======================= PART 1 / 4 ======================= -->
 <!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Ice-Core + Station Metadata + Live Hum Wave Monitor</title>
+<title>Ice-Core + Station Metadata + Gravity-Hum Monitor</title>
 <style>
   :root{
     color-scheme: dark;
@@ -214,9 +214,9 @@
 
 <body>
 <header>
-  <h1>Ice-Core + Station Metadata + Live Hum Wave Monitor</h1>
-  <p>Real station metadata loads into the table (net/sta, lat/lon, start/end). The “hum amplitude” is a model proxy — with a live animated wave monitor across years.</p>
-  <p class="muted mini">If “Load Stations” is blocked (CORS), use Paste Import. The animation is purely local.</p>
+  <h1>Ice-Core + Station Metadata + Gravity-Hum Monitor</h1>
+  <p>Stations load real metadata (net/sta, lat/lon, start/end). The “hum amplitude” is a <b>physics-inspired proxy</b>; in this version you can drive it by <b>gravity/tidal cycles</b> (Milankovitch-style) rather than CO₂.</p>
+  <p class="muted mini">If “Load Stations” is blocked (CORS), use Paste Import. The animation and proxy model are purely local.</p>
 </header>
 
 <div class="container">
@@ -319,9 +319,10 @@
         <input type="number" id="winEnd" value="0" min="-200" step="10" style="width:110px" />
       </label>
 
-      <label>Hum mode:
+      <label>Hum driver:
         <select id="humMode">
-          <option value="climate" selected>Climate-linked (toy)</option>
+          <option value="gravity" selected>Gravity-linked (tides/orbital cycles)</option>
+          <option value="climate">Climate-linked (CO₂ toy)</option>
           <option value="storms">Storm/microseism (toy)</option>
           <option value="flat">Constant (control)</option>
         </select>
@@ -363,7 +364,7 @@
       </div>
       <canvas id="wave"></canvas>
       <div class="muted mini" style="margin-top:6px;">
-        This is a <b>live animated waveform</b> whose amplitude follows the hum proxy at the current year cursor.
+        Live waveform whose amplitude follows the proxy hum at the current year cursor.
       </div>
     </div>
 
@@ -380,7 +381,7 @@
 
   </section>
 </div>
-
+<!-- ======================= PART 2 / 4 ======================= -->
 <script>
   // ================= Helpers =================
   const $ = (id)=>document.getElementById(id);
@@ -417,8 +418,7 @@
     box.textContent = "Status: " + msg;
   }
 
-  // ================= Ice-core dataset (RESTORED + EXPANDED) =================
-  // You can add more events safely by copying the object format below.
+  // ================= Ice-core dataset =================
   const iceItems = [
     { id:"mpt", kind:"ice", name:"Mid-Pleistocene Transition (41k → 100k yr cycles)", scale:"Global",
       siteName:"Antarctica — Dome C / Little Dome C", siteLat:-75.1, siteLon:123.3,
@@ -561,7 +561,6 @@
         document.querySelectorAll("#eventTableBody tr").forEach(r=>r.classList.remove("active-row"));
         tr.classList.add("active-row");
         renderDetails(it);
-        // recomputeAndPlot is defined in PART 3; safe because this runs on click after load.
         if (typeof recomputeAndPlot === "function") recomputeAndPlot();
       });
 
@@ -593,7 +592,7 @@
         <div class="coords">Station: ${it.netSta} — Lat ${it.siteLat.toFixed(4)}°, Lon ${it.siteLon.toFixed(4)}°, Elev ${(it.elev ?? 0).toFixed(1)} m</div>
         <div class="muted mini" style="margin-top:8px;"><b>Site name:</b> ${it.siteName || "—"}</div>
         <div class="muted mini" style="margin-top:6px;"><b>Operating:</b> ${it.startISO || "—"} → ${it.endISO || "—"}</div>
-        <div class="muted mini" style="margin-top:6px;"><b>Note:</b> These are real metadata rows loaded/imported; the “hum waveform” is still a model output.</div>
+        <div class="muted mini" style="margin-top:6px;"><b>Note:</b> Metadata is real. Hum is a physics-inspired proxy driver (gravity / climate / storms).</div>
       `;
     }
   }
@@ -601,7 +600,10 @@
   catFilter.addEventListener("change", renderTable);
   searchBox.addEventListener("input", renderTable);
   sortMode.addEventListener("change", renderTable);
-
+</script>
+<!-- ======================= PART 3 / 4 ======================= -->
+<script>
+  // ================= Station loading/parsing =================
   function buildStationURL(){
     const base = $("serviceBase").value.trim();
     const net = encodeURIComponent(($("netCode").value || "").trim() || "*");
@@ -629,6 +631,7 @@
     const rows = [];
     for (const line of lines){
       if (!line || line.startsWith("#")) continue;
+
       const parts = line.includes("|") ? line.split("|").map(x=>x.trim()) : line.split(/\s+/);
       if (parts.length < 5) continue;
 
@@ -641,7 +644,12 @@
       if (!net || !sta || !isFinite(lat) || !isFinite(lon)) continue;
 
       const siteName = parts[5] || "";
-      const isoLike = parts.filter(p => /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(p));
+
+      // Accept either full ISO (with T) or YYYY-MM-DD
+      const isoLike = parts.filter(p => (
+        /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(p) ||
+        /^\d{4}-\d{2}-\d{2}$/.test(p)
+      ));
       const startISO = isoLike[0] || "";
       const endISO = isoLike[1] || "";
 
@@ -773,19 +781,28 @@ IU|KONO|59.6490|9.5980|216.0|Kongsberg, Norway|1991-01-01T00:00:00|2599-12-31T23
     if (typeof recomputeAndPlot === "function") recomputeAndPlot();
   });
 
-  // Initial table + default selection (NO recompute here; recompute is in PART 3)
+  // ===== Initial render + default selection =====
   catFilter.value = "all";
   renderTable();
   selectedId = "mpt";
   renderDetails(iceItems.find(x=>x.id==="mpt") || iceItems[0]);
 </script>
-<!-- ======================= PART 2 / 3 ======================= -->
+<!-- ======================= PART 4 / 4 ======================= -->
 <script>
-  // This block is intentionally separated as PART 2 so your file stays in "3 parts".
-  // It also restores/keeps the CO2 anchor logic and hum proxy math used by the plot + wave.
+  // ==========================================================
+  // HUM MODEL (checked & upgraded)
+  //
+  // Your old code: hum ≈ CO2-driven + tiny rotation term.
+  // New code: adds a GRAVITY driver:
+  //   - Milankovitch-style cycles (100k, 41k, 23k years)
+  //   - Long tidal-friction drift term (very slow trend)
+  //   - Optional storm spikiness mode
+  //
+  // IMPORTANT: This remains a "proxy" (not measured ocean acoustics).
+  // But it aligns with the idea: gravity → tides/energy injection → broad ocean “hum”.
+  // ==========================================================
 
   function co2StateForIce(it){
-    // visualization anchors only (proxy)
     const id = it.id;
     if (id === "lgm") return 190;
     if (id === "82ka") return 265;
@@ -817,7 +834,6 @@ IU|KONO|59.6490|9.5980|216.0|Kongsberg, Norway|1991-01-01T00:00:00|2599-12-31T23
 
     if (a.length >= 2) return a;
 
-    // fallback nearest
     const all = iceItems
       .map(it=>({ bp: bpMid(it.ageRangeBP), co2: co2StateForIce(it) }))
       .filter(p=>p.bp != null)
@@ -843,37 +859,58 @@ IU|KONO|59.6490|9.5980|216.0|Kongsberg, Norway|1991-01-01T00:00:00|2599-12-31T23
     return anchors[anchors.length-1].co2;
   }
 
-  function rotationProxy(bp){
-    const My = Math.max(0,bp) / 1e6;
-    return clamp(0.02 * My, 0, 1.0);
-  }
   function pseudoNoise(x){
     const s = Math.sin(x*12.9898) * 43758.5453;
     return s - Math.floor(s);
   }
 
-  // Return hum proxy at a single BP (so the wave can animate)
+  // --- Gravity / tide proxy (physics-inspired, still simplified) ---
+  // bp in years before 1950. Use it as "time" for cycles.
+  function gravityTideProxy(bp){
+    // cycles: eccentricity (~100k), obliquity (~41k), precession (~23k)
+    const t = bp; // years
+    const ecc = 0.55 + 0.45 * Math.sin((2*Math.PI * t) / 100000);
+    const obl = 0.55 + 0.45 * Math.sin((2*Math.PI * t) / 41000 + 1.1);
+    const pre = 0.55 + 0.45 * Math.sin((2*Math.PI * t) / 23000 + 2.2);
+
+    // long drift: tidal friction / ocean-basin reorg proxy (very slow, low amplitude)
+    // scaled so 0..1 over ~2 million years (clamped)
+    const drift = clamp((Math.max(0, bp) / 2_000_000), 0, 1); // older -> bigger
+    const slow = 0.65 - 0.25*drift; // slightly decreasing toward older times (toy)
+
+    // combine, then normalize-ish
+    const g = (0.42*ecc + 0.33*obl + 0.25*pre) * slow;
+    return clamp(g, 0, 1);
+  }
+
+  // Return hum proxy at a single BP (used for plot and live wave)
   function humAtBP(bp, co2, mode, coupling){
     const co2Norm = clamp((co2 - 180) / (420 - 180), 0, 1);
-    const rot = rotationProxy(bp);
-    const base = 0.45 + 0.10*rot;
+    const g = gravityTideProxy(bp);
+
+    // base: always some background “ocean noise floor”
+    const base = 0.28 + 0.10*g;
 
     let hum;
     if (mode === "flat"){
       hum = 0.50;
     } else if (mode === "storms"){
+      // storm/microseism: heavy-tailed spikes + mild gravity modulation
       const n = pseudoNoise(bp/75);
       const spikes = Math.pow(n, 8);
-      hum = base + 0.15*coupling*co2Norm + 0.35*spikes;
-    } else {
+      hum = base + 0.18*coupling*g + 0.12*coupling*co2Norm + 0.40*spikes;
+    } else if (mode === "climate"){
+      // climate: CO2 drives, gravity slightly modulates
       const wig = (pseudoNoise(bp/120) - 0.5) * 0.06;
-      hum = base + coupling*0.35*co2Norm + wig;
+      hum = base + coupling*(0.34*co2Norm + 0.10*g) + wig;
+    } else {
+      // gravity (default): gravity drives, CO2 only slightly modulates
+      const wig = (pseudoNoise(bp/160) - 0.5) * 0.04;
+      hum = base + coupling*(0.48*g + 0.06*co2Norm) + wig;
     }
     return clamp(hum, 0, 1);
   }
-</script>
-<!-- ======================= PART 3 / 3 ======================= -->
-<script>
+
   // ================= Plot + Live Wave Animation =================
   const plotCanvas = $("plot");
   const plotCtx = plotCanvas.getContext("2d");
@@ -883,20 +920,24 @@ IU|KONO|59.6490|9.5980|216.0|Kongsberg, Norway|1991-01-01T00:00:00|2599-12-31T23
   function resizeCanvas(c, ctx){
     const dpr = window.devicePixelRatio || 1;
     const rect = c.getBoundingClientRect();
-    c.width = Math.max(320, Math.floor(rect.width * dpr));
-    c.height = Math.max(160, Math.floor(rect.height * dpr));
-    ctx.setTransform(dpr,0,0,dpr,0,0);
-  }
 
-  window.addEventListener("resize", ()=>{
-    resizeCanvas(plotCanvas, plotCtx);
-    resizeCanvas(waveCanvas, waveCtx);
-    recomputeAndPlot();
-  });
+    // ✅ Fix: avoid 0×0 at load/layout moments
+    const cssW = Math.max(320, Math.floor(rect.width || 320));
+    const cssH = Math.max(160, Math.floor(rect.height || 160));
+
+    c.width = Math.floor(cssW * dpr);
+    c.height = Math.floor(cssH * dpr);
+
+    // draw in CSS pixels
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    return { cssW, cssH };
+  }
 
   function computeSeries(){
     const startBP = Number($("winStart").value);
     const endBP = Number($("winEnd").value);
+
+    // keep sane ordering and allow negative BP
     const lo = Math.max(endBP, -500);
     const hi = Math.max(startBP, lo+1);
 
@@ -911,16 +952,13 @@ IU|KONO|59.6490|9.5980|216.0|Kongsberg, Norway|1991-01-01T00:00:00|2599-12-31T23
       const bp = lerp(hi, lo, t);
       const co2 = interpCO2(bp, anchors);
       const hum = humAtBP(bp, co2, mode, coupling);
-      series.push({ bp, co2, hum });
+      series.push({ bp, co2, hum, g: gravityTideProxy(bp) });
     }
     return { series, anchors, startBP:hi, endBP:lo, mode, couplingLabel:$("humCoupling").value };
   }
 
   function drawPlot(model){
-    resizeCanvas(plotCanvas, plotCtx);
-    const W = plotCanvas.getBoundingClientRect().width;
-    const H = plotCanvas.getBoundingClientRect().height;
-
+    const { cssW:W, cssH:H } = resizeCanvas(plotCanvas, plotCtx);
     plotCtx.clearRect(0,0,W,H);
 
     const padL = 44, padR = 10, padT = 12, padB = 24;
@@ -979,7 +1017,7 @@ IU|KONO|59.6490|9.5980|216.0|Kongsberg, Norway|1991-01-01T00:00:00|2599-12-31T23
       plotCtx.beginPath(); plotCtx.arc(x,y,3,0,Math.PI*2); plotCtx.fill();
     });
 
-    return { xFor, y0, y1 };
+    return { xFor, y0, y1, W, H };
   }
 
   // ================= Live Wave Animation =================
@@ -988,28 +1026,25 @@ IU|KONO|59.6490|9.5980|216.0|Kongsberg, Norway|1991-01-01T00:00:00|2599-12-31T23
   let lastTS = null;
 
   function drawWave(model, cursorBP){
-    resizeCanvas(waveCanvas, waveCtx);
-    const W = waveCanvas.getBoundingClientRect().width;
-    const H = waveCanvas.getBoundingClientRect().height;
-
+    const { cssW:W, cssH:H } = resizeCanvas(waveCanvas, waveCtx);
     waveCtx.clearRect(0,0,W,H);
 
-    // compute current hum at cursor
     const co2 = interpCO2(cursorBP, model.anchors);
+    const g = gravityTideProxy(cursorBP);
     const hum = humAtBP(cursorBP, co2, model.mode, getCoupling());
 
-    // readout
     const yearLabel = (cursorBP >= 0)
       ? `${Math.round(cursorBP)} BP`
       : `${Math.round(-cursorBP)} yrs after 1950`;
-    $("waveReadout").textContent = `Year: ${yearLabel} | Hum: ${hum.toFixed(3)} | CO₂: ${co2.toFixed(0)} ppm`;
+
+    $("waveReadout").textContent =
+      `Year: ${yearLabel} | Hum: ${hum.toFixed(3)} | Grav: ${g.toFixed(3)} | CO₂: ${co2.toFixed(0)} ppm`;
 
     const mid = H/2;
     const amp = (H*0.40) * hum;
     const freq = 2 + 10*hum;
     const phase = performance.now() * 0.006;
 
-    // center line
     waveCtx.strokeStyle = "rgba(148,163,184,0.22)";
     waveCtx.lineWidth = 1;
     waveCtx.beginPath();
@@ -1017,7 +1052,6 @@ IU|KONO|59.6490|9.5980|216.0|Kongsberg, Norway|1991-01-01T00:00:00|2599-12-31T23
     waveCtx.lineTo(W, mid);
     waveCtx.stroke();
 
-    // wave
     waveCtx.strokeStyle = "rgba(34,197,94,0.95)";
     waveCtx.lineWidth = 2;
     waveCtx.beginPath();
@@ -1028,7 +1062,6 @@ IU|KONO|59.6490|9.5980|216.0|Kongsberg, Norway|1991-01-01T00:00:00|2599-12-31T23
     }
     waveCtx.stroke();
 
-    // glow overlay
     waveCtx.strokeStyle = "rgba(34,197,94,0.25)";
     waveCtx.lineWidth = 6;
     waveCtx.beginPath();
@@ -1040,22 +1073,20 @@ IU|KONO|59.6490|9.5980|216.0|Kongsberg, Norway|1991-01-01T00:00:00|2599-12-31T23
     waveCtx.stroke();
   }
 
-  // IMPORTANT: recomputeAndPlot is called from PART 1, so it MUST exist globally.
+  // IMPORTANT: must exist globally (PART 1 calls it)
   function recomputeAndPlot(){
     const model = computeSeries();
     const plotGeom = drawPlot(model);
 
     $("plotNote").textContent =
-      `Window: ${model.startBP} → ${model.endBP} BP | Hum mode="${model.mode}" | Coupling="${model.couplingLabel}" | Stations loaded: ${stationItems.length}`;
+      `Window: ${model.startBP} → ${model.endBP} BP | Hum driver="${model.mode}" | Coupling="${model.couplingLabel}" | Stations loaded: ${stationItems.length}`;
 
     const cursorBP = lerp(model.startBP, model.endBP, clamp(cursorT,0,1));
     drawWave(model, cursorBP);
 
-    // plot cursor line
-    const W = plotCanvas.getBoundingClientRect().width;
-    const H = plotCanvas.getBoundingClientRect().height;
+    // cursor line
     const padT = 12, padB = 24;
-    const y0 = padT, y1 = H - padB;
+    const y0 = padT, y1 = plotGeom.H - padB;
     const x = plotGeom.xFor(cursorBP);
 
     plotCtx.strokeStyle = "rgba(248,250,252,0.70)";
@@ -1092,23 +1123,32 @@ IU|KONO|59.6490|9.5980|216.0|Kongsberg, Norway|1991-01-01T00:00:00|2599-12-31T23
 
   $("btnExport").addEventListener("click", ()=>{
     const model = computeSeries();
-    const head = "bp_years,co2_ppm_proxy,hum_amp_proxy\n";
-    const rows = model.series.map(p=>`${p.bp.toFixed(2)},${p.co2.toFixed(2)},${p.hum.toFixed(6)}`).join("\n");
+    const head = "bp_years,co2_ppm_proxy,gravity_proxy,hum_amp_proxy\n";
+    const rows = model.series.map(p=>`${p.bp.toFixed(2)},${p.co2.toFixed(2)},${p.g.toFixed(6)},${p.hum.toFixed(6)}`).join("\n");
     const csv = head + rows + "\n";
     const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "icecore_hum_proxy_plot.csv";
+    a.download = "icecore_gravity_hum_proxy_plot.csv";
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
   });
 
+  // recompute when controls change (prevents “nothing updates” feeling)
+  $("humMode").addEventListener("change", recomputeAndPlot);
+  $("humCoupling").addEventListener("change", recomputeAndPlot);
+  $("winStart").addEventListener("change", recomputeAndPlot);
+  $("winEnd").addEventListener("change", recomputeAndPlot);
+
+  // resize handling
+  window.addEventListener("resize", ()=>{
+    recomputeAndPlot();
+  });
+
   // first render
-  resizeCanvas(plotCanvas, plotCtx);
-  resizeCanvas(waveCanvas, waveCtx);
   recomputeAndPlot();
 </script>
 
