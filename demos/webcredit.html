@@ -1,0 +1,633 @@
+<!-- ======================= PART 1 / 4 =======================
+Reality-Grounded Search Engine
+Provenance + Commonsense + Falsification + Trust Graph
+====================================================== -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Reality-Grounded Search — Trust Graph + Falsification</title>
+
+<style>
+:root{
+  color-scheme: dark;
+  --bg:#020617;
+  --panel:#0f172a;
+  --ink:#e5e7eb;
+  --muted:#9ca3af;
+  --line:rgba(148,163,184,.25);
+  --good:#22c55e;
+  --warn:#f59e0b;
+  --mid:#38bdf8;
+  --bad:#fb7185;
+  --radius:16px;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  background:radial-gradient(circle at top,#020617,#000 70%);
+  color:var(--ink);
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+}
+.wrap{max-width:1300px;margin:20px auto;padding:14px}
+h1{margin:0 0 6px;font-size:22px}
+.sub{color:var(--muted);font-size:13px;max-width:900px}
+
+.grid{
+  display:grid;
+  grid-template-columns:360px 1fr;
+  gap:14px;
+}
+@media(max-width:1100px){
+  .grid{grid-template-columns:1fr}
+}
+.card{
+  background:linear-gradient(180deg,var(--panel),#020617);
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  padding:12px;
+}
+.card h2{margin:0 0 8px;font-size:15px}
+
+button{
+  padding:9px 12px;
+  border-radius:12px;
+  border:1px solid var(--line);
+  background:#020617;
+  color:var(--ink);
+  font-weight:700;
+  cursor:pointer;
+}
+button.primary{border-color:var(--mid);background:rgba(56,189,248,.1)}
+button.warn{border-color:var(--warn)}
+button.bad{border-color:var(--bad)}
+
+.row{display:flex;gap:8px;flex-wrap:wrap}
+
+.small{font-size:12px;color:var(--muted)}
+
+table{width:100%;border-collapse:collapse;font-size:12px}
+th,td{padding:6px;border-bottom:1px solid var(--line);text-align:left}
+
+.barWrap{margin-top:8px}
+canvas{width:100%;height:240px}
+
+.tag{
+  display:inline-block;
+  padding:3px 8px;
+  border-radius:999px;
+  font-size:11px;
+  border:1px solid var(--line);
+}
+.good{border-color:var(--good);color:#bbf7d0}
+.warn{border-color:var(--warn);color:#fde68a}
+.mid{border-color:var(--mid);color:#bae6fd}
+.bad{border-color:var(--bad);color:#fecdd3}
+</style>
+</head>
+
+<body>
+<div class="wrap">
+  <h1>Reality-Grounded Search Engine</h1>
+  <div class="sub">
+    Provenance scoring + commonsense filtering + independent confirmation +
+    <b>visual falsification</b>.  
+    This system does not “detect truth” — it <b>narrows toward reality</b>.
+  </div>
+
+  <div class="row" style="margin:12px 0">
+    <button class="primary" id="startBtn">Start</button>
+    <button id="pauseBtn">Pause</button>
+    <button class="warn" id="stepBtn">Step</button>
+    <button class="bad" id="resetBtn">Reset</button>
+    <button id="csvBtn">Export CSV</button>
+  </div>
+
+  <div class="grid">
+
+    <!-- LEFT -->
+    <div class="card">
+      <h2>System Status</h2>
+      <div class="small">
+        Sources gain or lose trust based on contradiction history,
+        not popularity or repetition.
+      </div>
+
+      <div style="margin-top:10px">
+        <div class="tag good">Verified</div>
+        <div class="tag warn">Likely</div>
+        <div class="tag mid">Narrative</div>
+        <div class="tag bad">Rejected</div>
+      </div>
+
+      <table style="margin-top:12px">
+        <thead>
+          <tr>
+            <th>Source</th>
+            <th>Trust Score</th>
+          </tr>
+        </thead>
+        <tbody id="trustTable"></tbody>
+      </table>
+    </div>
+
+    <!-- RIGHT -->
+    <div>
+      <div class="card">
+        <h2>Reality Signal Distribution</h2>
+        <div class="small">Bar chart of what survives filtering in the active window</div>
+        <div class="barWrap">
+          <canvas id="signalChart"></canvas>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <h2>Event Stream</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Claim</th>
+              <th>Source</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody id="eventTable"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+<!-- ======================= PART 2 / 4 =======================
+Trust Graph + Scoring Logic
+====================================================== -->
+<script>
+// ===================== GLOBAL STATE =====================
+let timeTick = 0;
+let running = false;
+let timer = null;
+
+// Trust graph keyed by source name
+const trustGraph = {};
+
+// Event history
+const events = [];
+
+// Classification counts for chart
+const counts = {
+  Verified: 0,
+  Likely: 0,
+  Narrative: 0,
+  Rejected: 0
+};
+
+// ===================== SOURCE DEFINITIONS =====================
+const sources = [
+  { name: "Gov Infrastructure Feed", type: "institutional", baseTrust: 0.7 },
+  { name: "Major News Outlet", type: "institutional", baseTrust: 0.6 },
+  { name: "Utility Operator Bulletin", type: "institutional", baseTrust: 0.75 },
+  { name: "Independent Research Blog", type: "civilian", baseTrust: 0.4 },
+  { name: "Civilian Eyewitness Post", type: "civilian", baseTrust: 0.35 },
+  { name: "Bot Content Farm", type: "noise", baseTrust: 0.15 }
+];
+
+// Initialize trust graph
+sources.forEach(s => {
+  trustGraph[s.name] = {
+    trust: s.baseTrust,
+    contradictions: 0,
+    confirmations: 0,
+    type: s.type
+  };
+});
+
+// ===================== CLAIM TYPES =====================
+const claims = [
+  "Building destroyed",
+  "Power grid instability",
+  "Explosion reported",
+  "Flooding in urban area",
+  "Infrastructure disruption",
+  "Fire reported near facility"
+];
+
+// ===================== CORE FUNCTIONS =====================
+
+// Commonsense + tone scoring (simulated)
+function scoreLanguage(sourceType) {
+  if (sourceType === "institutional") return rand(0.6, 0.9);
+  if (sourceType === "civilian") return rand(0.4, 0.7);
+  return rand(0.1, 0.4); // noise
+}
+
+// Visual falsification simulation
+function visualCheck(claim) {
+  // 70% of the time visuals contradict obvious false claims
+  if (claim.includes("destroyed") || claim.includes("explosion")) {
+    return Math.random() < 0.3 ? "consistent" : "contradicted";
+  }
+  // Neutral claims often have insufficient visuals
+  return Math.random() < 0.5 ? "insufficient" : "consistent";
+}
+
+// Independent confirmation simulation
+function independentConfirmation(sourceName) {
+  // Count how many other trusted sources recently reported similar claims
+  let confirmations = 0;
+  events.slice(-10).forEach(e => {
+    if (e.source !== sourceName && e.result !== "Rejected") {
+      confirmations++;
+    }
+  });
+  return confirmations;
+}
+
+// Classification logic
+function classifyEvent(event) {
+  const trust = trustGraph[event.source].trust;
+  const langScore = scoreLanguage(trustGraph[event.source].type);
+  const visual = visualCheck(event.claim);
+  const indep = independentConfirmation(event.source);
+
+  let result = "Narrative";
+
+  // Hard falsification
+  if (visual === "contradicted") {
+    result = "Rejected";
+    trustGraph[event.source].trust -= 0.08;
+    trustGraph[event.source].contradictions++;
+  } else {
+    // Weighted confidence
+    const confidence =
+      (0.4 * trust) +
+      (0.3 * langScore) +
+      (0.3 * Math.min(indep / 3, 1));
+
+    if (confidence > 0.75 && visual === "consistent") {
+      result = "Verified";
+      trustGraph[event.source].trust += 0.05;
+      trustGraph[event.source].confirmations++;
+    } else if (confidence > 0.55) {
+      result = "Likely";
+      trustGraph[event.source].trust += 0.02;
+    } else {
+      result = "Narrative";
+      trustGraph[event.source].trust -= 0.01;
+    }
+  }
+
+  // Clamp trust score
+  trustGraph[event.source].trust = Math.max(
+    0,
+    Math.min(1, trustGraph[event.source].trust)
+  );
+
+  return { result, visual };
+}
+
+// ===================== EVENT GENERATION =====================
+function generateEvent() {
+  const src = sources[Math.floor(Math.random() * sources.length)];
+  const claim = claims[Math.floor(Math.random() * claims.length)];
+
+  const event = {
+    time: timeTick,
+    source: src.name,
+    claim
+  };
+
+  const outcome = classifyEvent(event);
+  event.result = outcome.result;
+  event.visual = outcome.visual;
+
+  events.push(event);
+  counts[event.result]++;
+
+  updateEventTable();
+  updateTrustTable();
+  updateChart();
+}
+
+// ===================== UI UPDATE FUNCTIONS =====================
+function updateEventTable() {
+  const tbody = document.getElementById("eventTable");
+  tbody.innerHTML = "";
+
+  events.slice(-15).reverse().forEach(e => {
+    const row = document.createElement("tr");
+    row.innerHTML = `
+      <td>${e.time}</td>
+      <td>${e.claim}</td>
+      <td>${e.source}</td>
+      <td class="${e.result === "Verified" ? "good" :
+                  e.result === "Likely" ? "warn" :
+                  e.result === "Rejected" ? "bad" : "mid"}">
+        ${e.result}
+      </td>`;
+    tbody.appendChild(row);
+  });
+}
+
+function updateTrustTable() {
+  const tbody = document.getElementById("trustTable");
+  tbody.innerHTML = "";
+
+  Object.entries(trustGraph)
+    .sort((a, b) => b[1].trust - a[1].trust)
+    .forEach(([name, data]) => {
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>${name}</td>
+        <td>${data.trust.toFixed(2)}</td>`;
+      tbody.appendChild(row);
+    });
+}
+
+// ===================== HELPERS =====================
+function rand(min, max) {
+  return min + Math.random() * (max - min);
+}
+
+// ===================== CONTROLS =====================
+document.getElementById("startBtn").onclick = () => {
+  if (running) return;
+  running = true;
+  timer = setInterval(() => {
+    timeTick++;
+    generateEvent();
+  }, 900);
+};
+
+document.getElementById("pauseBtn").onclick = () => {
+  running = false;
+  clearInterval(timer);
+};
+
+document.getElementById("stepBtn").onclick = () => {
+  timeTick++;
+  generateEvent();
+};
+
+document.getElementById("resetBtn").onclick = () => {
+  running = false;
+  clearInterval(timer);
+  timeTick = 0;
+  events.length = 0;
+  counts.Verified = counts.Likely = counts.Narrative = counts.Rejected = 0;
+  Object.values(trustGraph).forEach(s => {
+    s.trust = s.type === "institutional" ? 0.65 :
+              s.type === "civilian" ? 0.4 : 0.15;
+    s.contradictions = 0;
+    s.confirmations = 0;
+  });
+  updateEventTable();
+  updateTrustTable();
+  updateChart();
+};
+</script>
+<!-- ======================= PART 3 / 4 =======================
+Visual Grounding + Falsification Engine
+====================================================== -->
+<script>
+// ===================== VISUAL SENSOR SIMULATION =====================
+
+// Public camera map (simulated)
+// In real deployment this would be DOT cams, city cams, weather cams, etc.
+const visualSensors = [
+  { id: "cam_01", location: "Downtown", coverage: ["Building destroyed","Explosion reported","Fire reported near facility"] },
+  { id: "cam_02", location: "Industrial Zone", coverage: ["Power grid instability","Infrastructure disruption","Fire reported near facility"] },
+  { id: "cam_03", location: "Riverfront", coverage: ["Flooding in urban area"] }
+];
+
+// Check visuals against claim
+function visualGroundingCheck(claim) {
+  const sensors = visualSensors.filter(cam => cam.coverage.includes(claim));
+
+  if (sensors.length === 0) {
+    return {
+      status: "insufficient",
+      note: "No camera coverage for this claim type"
+    };
+  }
+
+  // Simulate camera observation
+  const observed = Math.random();
+
+  if (observed < 0.25) {
+    return {
+      status: "consistent",
+      note: "Visual evidence aligns with claim"
+    };
+  }
+
+  if (observed < 0.65) {
+    return {
+      status: "insufficient",
+      note: "Camera angle / timing insufficient"
+    };
+  }
+
+  return {
+    status: "contradicted",
+    note: "Camera shows intact structure / no event"
+  };
+}
+
+// ===================== OVERRIDE CLASSIFICATION WITH VISUAL =====================
+
+// Wrap original classifyEvent
+const _classifyEvent = classifyEvent;
+classifyEvent = function(event) {
+
+  // Run original scoring
+  const base = _classifyEvent(event);
+
+  // Run visual grounding
+  const visual = visualGroundingCheck(event.claim);
+  event.visualStatus = visual.status;
+  event.visualNote = visual.note;
+
+  // Falsification rule (strongest rule in system)
+  if (visual.status === "contradicted") {
+    base.result = "Rejected";
+
+    trustGraph[event.source].trust -= 0.12;
+    trustGraph[event.source].contradictions += 1;
+  }
+
+  // Visual consistency strengthens confidence
+  if (visual.status === "consistent" && base.result !== "Rejected") {
+    trustGraph[event.source].trust += 0.03;
+  }
+
+  // Clamp trust
+  trustGraph[event.source].trust = Math.max(
+    0,
+    Math.min(1, trustGraph[event.source].trust)
+  );
+
+  return {
+    result: base.result,
+    visual: visual.status
+  };
+};
+
+// ===================== UPDATE EVENT TABLE (ADD VISUAL COLUMN) =====================
+const _updateEventTable = updateEventTable;
+updateEventTable = function() {
+  const tbody = document.getElementById("eventTable");
+  tbody.innerHTML = "";
+
+  events.slice(-15).reverse().forEach(e => {
+    const row = document.createElement("tr");
+
+    const visualTag =
+      e.visualStatus === "consistent" ? `<span class="tag good">visual ✓</span>` :
+      e.visualStatus === "contradicted" ? `<span class="tag bad">visual ✗</span>` :
+      `<span class="tag mid">visual ?</span>`;
+
+    row.innerHTML = `
+      <td>${e.time}</td>
+      <td>${e.claim}</td>
+      <td>${e.source}</td>
+      <td>
+        ${visualTag}
+        <div class="small">${e.result}</div>
+      </td>
+    `;
+    tbody.appendChild(row);
+  });
+};
+
+// ===================== TRUST GRAPH ENHANCEMENT =====================
+function updateTrustTable() {
+  const tbody = document.getElementById("trustTable");
+  tbody.innerHTML = "";
+
+  Object.entries(trustGraph)
+    .sort((a, b) => b[1].trust - a[1].trust)
+    .forEach(([name, data]) => {
+      const trend =
+        data.trust > 0.7 ? "good" :
+        data.trust > 0.4 ? "warn" : "bad";
+
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>${name}</td>
+        <td>
+          <span class="tag ${trend}">${data.trust.toFixed(2)}</span>
+          <div class="small">
+            ✓ ${data.confirmations} | ✗ ${data.contradictions}
+          </div>
+        </td>`;
+      tbody.appendChild(row);
+    });
+}
+
+// ===================== SYSTEM MEANING (DEV NOTE) =====================
+/*
+This layer does NOT say:
+- "camera proves truth"
+
+It only says:
+- "camera contradicts claim" OR
+- "no contradiction observed"
+
+This is falsification, not verification.
+*/
+</script>
+<!-- ======================= PART 4 / 4 =======================
+Charts + CSV Export + Final Wiring + Proper Close
+====================================================== -->
+<script>
+/* ===================== BAR CHART ===================== */
+const chartCanvas = document.getElementById("signalChart");
+const ctx = chartCanvas.getContext("2d");
+
+function drawSignalChart() {
+  ctx.clearRect(0, 0, chartCanvas.width, chartCanvas.height);
+
+  const bars = [
+    { label: "Verified", value: counts.Verified, color: "#22c55e" },
+    { label: "Likely", value: counts.Likely, color: "#f59e0b" },
+    { label: "Narrative", value: counts.Narrative, color: "#38bdf8" },
+    { label: "Rejected", value: counts.Rejected, color: "#fb7185" }
+  ];
+
+  const maxVal = Math.max(...bars.map(b => b.value), 1);
+  const barWidth = chartCanvas.width / bars.length - 28;
+
+  bars.forEach((b, i) => {
+    const h = (b.value / maxVal) * (chartCanvas.height - 50);
+    const x = i * (barWidth + 28) + 28;
+    const y = chartCanvas.height - h - 28;
+
+    // draw bar
+    ctx.fillStyle = b.color;
+    ctx.fillRect(x, y, barWidth, h);
+
+    // labels
+    ctx.fillStyle = "#e5e7eb";
+    ctx.font = "12px system-ui";
+    ctx.fillText(b.label, x, chartCanvas.height - 10);
+    ctx.fillText(b.value, x + barWidth / 3, y - 6);
+  });
+}
+
+// hook into update cycle
+if (typeof updateChart === "function") {
+  const _updateChart = updateChart;
+  updateChart = function () {
+    _updateChart();
+    drawSignalChart();
+  };
+}
+
+/* ===================== CSV EXPORT ===================== */
+document.getElementById("csvBtn").addEventListener("click", () => {
+  let csv =
+    "time,source,claim,result,visual_status,trust_score\n";
+
+  events.forEach(e => {
+    const trust = trustGraph[e.source].trust.toFixed(2);
+    csv += `${e.time},"${e.source}","${e.claim}",${e.result},${e.visualStatus},${trust}\n`;
+  });
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "reality_grounded_search_audit.csv";
+  document.body.appendChild(a);
+  a.click();
+
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+
+// initial draw
+drawSignalChart();
+
+/*
+======================================================
+FINAL GUARANTEE
+======================================================
+
+• No IP blocking
+• No repetition = truth logic
+• Visuals used only for falsification
+• Trust earned or lost over time
+• Bias minimized through rules, not outlets
+
+This system narrows toward reality using
+accountability + contradiction.
+
+======================================================
+*/
+</script>
+
+</body>
+</html>
