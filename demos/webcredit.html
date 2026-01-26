@@ -1,678 +1,249 @@
-<!-- ======================= PART 1 / 4 =======================
-Fixes:
-- Reset now restores DEFAULT FEEDS (and clears results + status)
-- Search uses the EXACT words you type (no cached/old query)
-- Adds a safe RSS fetch path using an optional CORS proxy (AllOrigins)
-- Shows why you might see “no articles yet” (fetch/filter errors)
-============================================================== -->
 <!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Facts-Only RSS — Verified/Likely + Trust + AI-Risk Filters</title>
+<title>Facts-Only Live RSS Monitor</title>
+
 <style>
-  :root{
-    color-scheme: dark;
-    --bg:#070b14;
-    --panel:#0f172a;
-    --panel2:#0b1222;
-    --ink:#e5e7eb;
-    --muted:#9aa4c7;
-    --accent:#60a5fa;
-    --good:#34d399;
-    --warn:#fbbf24;
-    --bad:#fb7185;
-    --line:rgba(148,163,184,.22);
-    --radius:16px;
-    --shadow:0 18px 40px rgba(0,0,0,.45);
-    --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
-  }
-  *{box-sizing:border-box}
-  html,body{height:100%}
-  body{
-    margin:0;
-    font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-    background:radial-gradient(900px 520px at 20% -10%, rgba(96,165,250,.22), transparent 60%),
-               radial-gradient(900px 520px at 80% 0%, rgba(52,211,153,.10), transparent 55%),
-               var(--bg);
-    color:var(--ink);
-  }
-  .wrap{max-width:1200px;margin:22px auto;padding:16px}
-  .title{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
-  .title h1{margin:0;font-size:22px;letter-spacing:.2px}
-  .pill{font-size:12px;color:var(--muted);border:1px solid var(--line);padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.02)}
-  .grid{display:grid;grid-template-columns: 1.1fr .9fr; gap:14px; margin-top:14px}
-  @media (max-width:980px){.grid{grid-template-columns:1fr}}
-  .card{
-    background:linear-gradient(180deg, rgba(15,23,42,.96), rgba(15,23,42,.82));
-    border:1px solid var(--line);
-    border-radius:var(--radius);
-    box-shadow:var(--shadow);
-    overflow:hidden;
-  }
-  .card .hd{
-    padding:14px 14px 10px;
-    border-bottom:1px solid var(--line);
-    display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap
-  }
-  .card .hd h2{margin:0;font-size:14px;color:var(--ink);letter-spacing:.2px}
-  .sub{color:var(--muted);font-size:12px}
-  .bd{padding:14px}
-  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-  .row > *{flex:1}
-  .row .tight{flex:0 0 auto}
-  input[type="text"], textarea, select{
-    width:100%;
-    background:rgba(2,6,23,.65);
-    border:1px solid rgba(148,163,184,.25);
-    color:var(--ink);
-    border-radius:12px;
-    padding:10px 11px;
-    outline:none;
-  }
-  textarea{min-height:150px;resize:vertical; font-family:var(--mono); font-size:12px; line-height:1.35}
-  input[type="text"]{font-size:14px}
-  .btn{
-    background:linear-gradient(180deg, rgba(96,165,250,.95), rgba(96,165,250,.72));
-    border:none;
-    color:#071021;
-    font-weight:800;
-    padding:10px 12px;
-    border-radius:12px;
-    cursor:pointer;
-    box-shadow:0 12px 22px rgba(96,165,250,.18);
-  }
-  .btn.secondary{
-    background:rgba(255,255,255,.06);
-    color:var(--ink);
-    border:1px solid rgba(148,163,184,.28);
-    box-shadow:none;
-    font-weight:700;
-  }
-  .btn:active{transform:translateY(1px)}
-  .mini{font-size:12px;color:var(--muted)}
-  .kvs{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px}
-  @media (max-width:980px){.kvs{grid-template-columns:1fr}}
-  .kv{padding:10px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.02)}
-  .kv .k{font-size:11px;color:var(--muted)}
-  .kv .v{font-size:14px;font-weight:800;margin-top:3px}
-  .filters{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
-  @media (max-width:560px){.filters{grid-template-columns:1fr}}
-  .slider{display:flex;flex-direction:column;gap:6px}
-  .slider label{font-size:12px;color:var(--muted);display:flex;justify-content:space-between;gap:10px}
-  input[type="range"]{width:100%}
-  .table{
-    width:100%;
-    border-collapse:collapse;
-    font-size:13px;
-  }
-  .table th,.table td{
-    border-bottom:1px solid rgba(148,163,184,.18);
-    padding:10px 8px;
-    vertical-align:top;
-  }
-  .table th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.12em}
-  .tag{
-    display:inline-flex;align-items:center;gap:6px;
-    padding:3px 9px;border-radius:999px;
-    border:1px solid rgba(148,163,184,.22);
-    font-size:12px;color:var(--muted);
-    background:rgba(255,255,255,.02);
-    white-space:nowrap;
-  }
-  .dot{width:8px;height:8px;border-radius:50%}
-  .dot.good{background:var(--good)}
-  .dot.warn{background:var(--warn)}
-  .dot.bad{background:var(--bad)}
-  .status{
-    margin-top:10px;
-    padding:10px 12px;
-    border-radius:14px;
-    border:1px solid rgba(148,163,184,.22);
-    background:rgba(0,0,0,.20);
-    color:var(--muted);
-    font-size:12px;
-    font-family:var(--mono);
-    white-space:pre-wrap;
-  }
-  a{color:var(--accent);text-decoration:none}
-  a:hover{text-decoration:underline}
-  .muted{color:var(--muted)}
+:root{
+  --bg:#070b14;
+  --panel:#0f172a;
+  --ink:#e5e7eb;
+  --muted:#9aa4c7;
+  --accent:#60a5fa;
+  --good:#34d399;
+  --warn:#fbbf24;
+  --bad:#fb7185;
+  --line:rgba(148,163,184,.25);
+  --radius:16px;
+  --mono: ui-monospace, Consolas, monospace;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--ink);
+  font-family:system-ui,Segoe UI,Roboto,Arial;
+}
+.wrap{max-width:1200px;margin:20px auto;padding:14px}
+.card{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  padding:14px;
+  margin-bottom:14px;
+}
+h1{margin:0 0 8px;font-size:22px}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+input,textarea,select,button{
+  background:#020617;
+  color:var(--ink);
+  border:1px solid var(--line);
+  border-radius:10px;
+  padding:8px 10px;
+}
+textarea{min-height:130px;width:100%;font-family:var(--mono)}
+button{
+  background:linear-gradient(180deg,#60a5fa,#3b82f6);
+  color:#020617;
+  font-weight:800;
+  cursor:pointer;
+}
+button.secondary{
+  background:#111827;
+  color:var(--ink);
+}
+table{
+  width:100%;
+  border-collapse:collapse;
+  font-size:13px;
+}
+th,td{
+  border-bottom:1px solid var(--line);
+  padding:8px;
+  vertical-align:top;
+}
+th{color:var(--muted);font-size:11px;text-transform:uppercase}
+.status{
+  font-family:var(--mono);
+  font-size:12px;
+  white-space:pre-wrap;
+  color:var(--muted);
+}
+.tag{
+  padding:3px 8px;
+  border-radius:999px;
+  font-size:11px;
+  border:1px solid var(--line);
+}
+.good{color:var(--good)}
+.warn{color:var(--warn)}
+.bad{color:var(--bad)}
 </style>
 </head>
 <body>
+
 <div class="wrap">
-  <div class="title">
-    <h1>Facts-only Articles <span class="muted">(click to read)</span></h1>
-    <span class="pill">Verified/Likely + Min trust + Max AI-like risk</span>
-    <span class="pill">Reset restores default feeds + clears results</span>
+  <h1>Facts-Only Live RSS Monitor</h1>
+
+  <div class="card">
+    <div class="row">
+      <input id="query" placeholder='keywords / hashtags (earthquake #tsunami nasa)' style="flex:1"/>
+      <select id="mode">
+        <option value="proxy">CORS Proxy</option>
+        <option value="direct">Direct</option>
+      </select>
+    </div>
+
+    <div class="row" style="margin-top:10px">
+      <button id="btnStart">Start</button>
+      <button id="btnPause" class="secondary">Pause</button>
+      <button id="btnStop" class="secondary">Stop</button>
+      <button id="btnReset" class="secondary">Reset</button>
+    </div>
+  </div>
+  <div class="card">
+    <h3>RSS Feeds (one per line)</h3>
+    <textarea id="feeds"></textarea>
   </div>
 
-  <div class="grid">
-    <section class="card">
-      <div class="hd">
-        <div>
-          <h2>Facts-only Articles (filtered list)</h2>
-          <div class="sub">Result list is generated from your RSS feeds + your search words + filters.</div>
-        </div>
-        <div class="row tight" style="gap:8px">
-          <button id="btnRun" class="btn">Run Search</button>
-          <button id="btnReset" class="btn secondary">Reset</button>
-          <button id="btnClear" class="btn secondary">Clear Results</button>
-        </div>
-      </div>
-      <div class="bd">
-        <div class="row">
-          <div>
-            <div class="mini">Search words (required for matching)</div>
-            <input id="q" type="text" placeholder='Example: earthquake OR tsunami OR "space weather" OR NASA'/>
-          </div>
-          <div class="tight" style="min-width:210px">
-            <div class="mini">Fetch mode</div>
-            <select id="fetchMode">
-              <option value="proxy" selected>Use CORS proxy (recommended)</option>
-              <option value="direct">Direct fetch (may be blocked)</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="filters">
-          <div class="slider">
-            <label>
-              <span>Min trust (0–100)</span>
-              <strong id="minTrustLbl">70</strong>
-            </label>
-            <input id="minTrust" type="range" min="0" max="100" step="1" value="70"/>
-          </div>
-          <div class="slider">
-            <label>
-              <span>Max AI-like risk (0–100)</span>
-              <strong id="maxRiskLbl">30</strong>
-            </label>
-            <input id="maxRisk" type="range" min="0" max="100" step="1" value="30"/>
-          </div>
-          <div class="slider">
-            <label>
-              <span>Allow “Likely” (else Verified only)</span>
-              <strong id="allowLikelyLbl">Yes</strong>
-            </label>
-            <input id="allowLikely" type="range" min="0" max="1" step="1" value="1"/>
-          </div>
-          <div class="slider">
-            <label>
-              <span>Max items</span>
-              <strong id="maxItemsLbl">50</strong>
-            </label>
-            <input id="maxItems" type="range" min="10" max="200" step="10" value="50"/>
-          </div>
-        </div>
-
-        <div class="kvs">
-          <div class="kv"><div class="k">Feeds</div><div class="v" id="statFeeds">—</div></div>
-          <div class="kv"><div class="k">Fetched items</div><div class="v" id="statFetched">—</div></div>
-          <div class="kv"><div class="k">Facts-only shown</div><div class="v" id="statShown">—</div></div>
-        </div>
-
-        <div style="margin-top:12px; overflow:auto; border-radius:14px; border:1px solid rgba(148,163,184,.18)">
-          <table class="table" id="tbl">
-            <thead>
-              <tr>
-                <th style="width:90px">Result</th>
-                <th>Article</th>
-                <th style="width:170px">Source</th>
-              </tr>
-            </thead>
-            <tbody id="tbody">
-              <tr><td colspan="3" class="muted">No facts-only articles yet. Run a search, or lower filters.</td></tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div id="status" class="status">Ready.</div>
-      </div>
-    </section>
-<!-- ======================= PART 2 / 4 ======================= -->
-    <aside class="card">
-      <div class="hd">
-        <div>
-          <h2>RSS feeds (one per line)</h2>
-          <div class="sub">Reset will restore this list to defaults.</div>
-        </div>
-      </div>
-      <div class="bd">
-        <textarea id="feeds"></textarea>
-        <div class="row" style="margin-top:10px">
-          <button id="btnTestOne" class="btn secondary tight">Test first feed</button>
-          <div class="mini">Tip: if you see 0 items and errors, your browser is blocking RSS (CORS). Keep “Use CORS proxy”.</div>
-        </div>
-
-        <div class="kv" style="margin-top:12px">
-          <div class="k">What was wrong (common causes)</div>
-          <div class="v" style="font-size:12px; font-weight:700; color:var(--muted); line-height:1.35">
-            • Reset changed the UI text but didn’t actually restore the textarea value / clear results.<br/>
-            • Search used a stored query variable instead of reading the input at click time.<br/>
-            • RSS fetch returned blocked/empty due to CORS, so the filter always had “nothing to show”.<br/>
-            This file fixes all three.
-          </div>
-        </div>
-      </div>
-    </aside>
+  <div class="card">
+    <h3>Articles (live)</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Status</th>
+          <th>Article</th>
+          <th>Source</th>
+        </tr>
+      </thead>
+      <tbody id="results">
+        <tr><td colspan="3" class="muted">Waiting…</td></tr>
+      </tbody>
+    </table>
   </div>
+
+  <div class="card status" id="status">Idle.</div>
 </div>
 
 <script>
-/* ===================== Defaults ===================== */
 const DEFAULT_FEEDS = [
-  "https://feeds.bbci.co.uk/news/world/rss.xml",
-  "https://www.theguardian.com/world/rss",
-  "https://feeds.npr.org/1004/rss.xml",
-  "https://www.usgs.gov/feeds/earthquakes/feed",
-  "https://www.noaa.gov/rss.xml",
-  "https://www.nasa.gov/rss/dyn/breaking_news.rss"
+ "https://feeds.bbci.co.uk/news/world/rss.xml",
+ "https://feeds.npr.org/1004/rss.xml",
+ "https://www.usgs.gov/feeds/earthquakes/feed",
+ "https://www.noaa.gov/rss.xml",
+ "https://www.nasa.gov/rss/dyn/breaking_news.rss"
 ].join("\n");
 
-/* ===================== Simple trust map ===================== */
-const TRUST_BY_HOST = {
-  "feeds.bbci.co.uk": 90,
-  "bbc.co.uk": 90,
-  "theguardian.com": 85,
-  "feeds.npr.org": 85,
-  "npr.org": 85,
-  "usgs.gov": 95,
-  "noaa.gov": 95,
-  "nasa.gov": 95
+const TRUST = {
+ "usgs.gov":95,"noaa.gov":95,"nasa.gov":95,
+ "bbc.co.uk":85,"npr.org":85
 };
 
-/* ===================== Helpers ===================== */
-const $ = (id) => document.getElementById(id);
+let timer = null;
+let paused = false;
 
-function setStatus(msg){
-  $("status").textContent = msg;
+const $ = id => document.getElementById(id);
+
+function setStatus(t){ $("status").textContent = t; }
+function host(u){ try{return new URL(u).host}catch{return""} }
+function norm(s){ return (s||"").toLowerCase(); }
+
+function scoreItem(item, keys){
+ let score = 0;
+ keys.forEach(k=>{
+  if(norm(item.title).includes(k)) score+=3;
+  if(norm(item.desc).includes(k)) score+=2;
+  if(k.startsWith("#") && norm(item.desc).includes(k.slice(1))) score+=2;
+  if(norm(item.host).includes(k)) score+=1;
+ });
+ const trust = TRUST[item.host]||50;
+ return {score, trust, final: score*(trust/100)};
 }
 
-function parseLines(txt){
-  return txt.split("\n").map(s=>s.trim()).filter(Boolean);
+async function fetchFeed(url){
+ const u = $("mode").value==="proxy"
+ ? "https://api.allorigins.win/raw?url="+encodeURIComponent(url)
+ : url;
+ const r = await fetch(u);
+ const t = await r.text();
+ const d = new DOMParser().parseFromString(t,"text/xml");
+ return [...d.querySelectorAll("item")].map(it=>({
+  title: it.querySelector("title")?.textContent||"",
+  link: it.querySelector("link")?.textContent||"",
+  desc: it.querySelector("description")?.textContent||"",
+ }));
 }
+async function runCycle(){
+ if(paused) return;
+ const keys = norm($("query").value).split(/\s+/).filter(Boolean);
+ const feeds = $("feeds").value.split("\n").map(s=>s.trim()).filter(Boolean);
+ let rows = [];
+ let fetched = 0;
 
-function hostOf(url){
-  try { return new URL(url).host; } catch { return ""; }
-}
-
-function clamp(n, a, b){ return Math.max(a, Math.min(b, n)); }
-
-function normalize(s){
-  return (s || "")
-    .toLowerCase()
-    .replace(/\s+/g," ")
-    .trim();
-}
-
-/* Tokenizer supports: words, OR, AND, quotes "space weather" */
-function tokenizeQuery(raw){
-  const s = (raw || "").trim();
-  if(!s) return { groups: [], raw:"" };
-
-  // Split by OR at top level.
-  // Example: earthquake OR tsunami OR "space weather"
-  const parts = [];
-  let cur = "";
-  let inQ = false;
-  for(let i=0;i<s.length;i++){
-    const ch = s[i];
-    if(ch === '"') inQ = !inQ;
-    if(!inQ && i+1 < s.length && s.slice(i, i+2).toUpperCase() === "OR"){
-      // ensure OR is standalone
-      const before = s[i-1] || " ";
-      const after = s[i+2] || " ";
-      if(/\s/.test(before) && /\s/.test(after)){
-        parts.push(cur.trim()); cur=""; i+=1; continue;
-      }
-    }
-    cur += ch;
-  }
-  if(cur.trim()) parts.push(cur.trim());
-
-  const groups = parts.map(p=>{
-    // AND is implicit by default inside each group
-    const tokens = [];
-    let buf = "";
-    let q = false;
-    for(let i=0;i<p.length;i++){
-      const ch = p[i];
-      if(ch === '"'){ q = !q; continue; }
-      if(!q && /\s/.test(ch)){
-        if(buf.trim()) tokens.push(buf.trim());
-        buf = "";
-      } else {
-        buf += ch;
-      }
-    }
-    if(buf.trim()) tokens.push(buf.trim());
-
-    // Remove explicit AND tokens if present
-    return tokens.filter(t => t.toUpperCase() !== "AND");
-  }).filter(g=>g.length);
-
-  return { groups, raw:s };
-}
-
-function matchesQuery(itemText, queryObj){
-  if(!queryObj.groups.length) return true; // if user leaves empty, we’ll still fetch but show none later
-  const text = normalize(itemText);
-  // OR across groups; AND within group.
-  return queryObj.groups.some(group => group.every(tok => text.includes(normalize(tok))));
-}
-
-/* ===================== Risk heuristic (very simple) ===================== */
-function aiLikeRiskScore(title, desc){
-  const t = normalize(title);
-  const d = normalize(desc);
-  let score = 0;
-
-  // clickbait-ish / overly generic phrasing
-  const patterns = [
-    "you won't believe",
-    "shocking",
-    "mind-blowing",
-    "incredible",
-    "the truth about",
-    "what happens next",
-    "explained",
-    "everything you need to know",
-    "here's why"
-  ];
-  patterns.forEach(p => { if(t.includes(p)) score += 18; });
-
-  // too many adjectives / hype words
-  const hype = ["amazing","stunning","insane","wild","epic","unbelievable"];
-  hype.forEach(w => { if(t.includes(w)) score += 10; });
-
-  // excessive punctuation
-  const bangs = (title.match(/[!?]/g) || []).length;
-  score += bangs * 6;
-
-  // very short titles with generic meaning
-  if(t.split(" ").length <= 4) score += 10;
-
-  // long “summary style” descriptions
-  if((d || "").length > 350) score += 8;
-
-  return clamp(score, 0, 100);
-}
-
-/* ===================== Verified/Likely label ===================== */
-function trustScoreFromSource(feedUrl, itemLink){
-  const h1 = hostOf(feedUrl);
-  const h2 = hostOf(itemLink || "");
-  const base = TRUST_BY_HOST[h2] ?? TRUST_BY_HOST[h1] ?? 50;
-  return clamp(base, 0, 100);
-}
-function verifiedLikelyFromTrust(trust){
-  if(trust >= 85) return "Verified";
-  if(trust >= 70) return "Likely";
-  return "Unverified";
-}
-
-/* ===================== Fetch RSS (with optional proxy) ===================== */
-async function fetchText(url, mode){
-  if(mode === "direct"){
-    const r = await fetch(url, { cache:"no-store" });
-    if(!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
-    return await r.text();
-  }
-  // proxy mode (AllOrigins raw)
-  const prox = "https://api.allorigins.win/raw?url=" + encodeURIComponent(url);
-  const r = await fetch(prox, { cache:"no-store" });
-  if(!r.ok) throw new Error(`Proxy HTTP ${r.status} ${r.statusText}`);
-  return await r.text();
-}
-
-function parseRSS(xmlText){
-  const doc = new DOMParser().parseFromString(xmlText, "text/xml");
-  const rssItems = Array.from(doc.querySelectorAll("item"));
-  const atomEntries = Array.from(doc.querySelectorAll("entry"));
-
-  const items = [];
-  for(const it of rssItems){
-    const title = it.querySelector("title")?.textContent?.trim() || "";
-    const link  = it.querySelector("link")?.textContent?.trim() || "";
-    const pub   = it.querySelector("pubDate")?.textContent?.trim() || "";
-    const desc  = it.querySelector("description")?.textContent?.trim() || "";
-    items.push({ title, link, pubDate: pub, description: desc });
-  }
-  for(const en of atomEntries){
-    const title = en.querySelector("title")?.textContent?.trim() || "";
-    const link  = en.querySelector("link")?.getAttribute("href") || "";
-    const pub   = en.querySelector("updated, published")?.textContent?.trim() || "";
-    const desc  = en.querySelector("summary, content")?.textContent?.trim() || "";
-    items.push({ title, link, pubDate: pub, description: desc });
-  }
-  return items;
-}
-</script>
-<!-- ======================= PART 3 / 4 ======================= -->
-<script>
-/* ===================== UI wiring ===================== */
-function updateLabels(){
-  $("minTrustLbl").textContent = $("minTrust").value;
-  $("maxRiskLbl").textContent  = $("maxRisk").value;
-  $("maxItemsLbl").textContent = $("maxItems").value;
-  $("allowLikelyLbl").textContent = ($("allowLikely").value === "1") ? "Yes" : "No";
-}
-["minTrust","maxRisk","maxItems","allowLikely"].forEach(id=>{
-  $(id).addEventListener("input", updateLabels);
-});
-updateLabels();
-
-function clearResults(msg="Cleared."){
-  const tb = $("tbody");
-  tb.innerHTML = `<tr><td colspan="3" class="muted">No facts-only articles yet. Run a search, or lower filters.</td></tr>`;
-  $("statFetched").textContent = "—";
-  $("statShown").textContent = "—";
-  setStatus(msg);
-}
-
-function resetAll(){
-  $("feeds").value = DEFAULT_FEEDS;   // <-- this is the key fix (actually restores)
-  $("q").value = "";
-  $("minTrust").value = "70";
-  $("maxRisk").value = "30";
-  $("allowLikely").value = "1";
-  $("maxItems").value = "50";
-  $("fetchMode").value = "proxy";
-  updateLabels();
-  clearResults("Reset complete. Default feeds restored. Results cleared.");
-  $("statFeeds").textContent = parseLines($("feeds").value).length.toString();
-}
-
-$("btnReset").addEventListener("click", resetAll);
-$("btnClear").addEventListener("click", () => clearResults("Results cleared."));
-$("feeds").addEventListener("input", ()=>{
-  $("statFeeds").textContent = parseLines($("feeds").value).length.toString();
-});
-
-/* ===================== Render ===================== */
-function badge(result){
-  const map = {
-    "Verified": { cls:"good", txt:"Verified" },
-    "Likely": { cls:"warn", txt:"Likely" },
-    "Unverified": { cls:"bad", txt:"Unverified" }
-  };
-  const b = map[result] || map["Unverified"];
-  return `<span class="tag"><span class="dot ${b.cls}"></span>${b.txt}</span>`;
-}
-
-function safeText(s){
-  return (s || "").replace(/[<>&]/g, c=>({ "<":"&lt;", ">":"&gt;", "&":"&amp;" }[c]));
-}
-
-function renderRows(rows){
-  const tb = $("tbody");
-  if(!rows.length){
-    tb.innerHTML = `<tr><td colspan="3" class="muted">No facts-only articles yet. Run a search, or lower filters.</td></tr>`;
-    return;
-  }
-  tb.innerHTML = rows.map(r=>{
-    const t = safeText(r.title || "(untitled)");
-    const src = safeText(r.sourceHost || "—");
-    const pub = safeText(r.pubDate || "");
-    const risk = Math.round(r.aiRisk);
-    const trust = Math.round(r.trust);
-    const meta = `<div class="mini">Trust ${trust} · AI-risk ${risk}${pub ? " · " + pub : ""}</div>`;
-    const link = r.link ? `<a href="${r.link}" target="_blank" rel="noopener">${t}</a>` : t;
-    return `
-      <tr>
-        <td>${badge(r.vl)}</td>
-        <td>${link}${meta}</td>
-        <td>${src}</td>
-      </tr>
-    `;
-  }).join("");
-}
-
-/* ===================== Main search ===================== */
-async function runSearch(){
-  // IMPORTANT: read CURRENT UI values here (no cached variables)
-  const feeds = parseLines($("feeds").value);
-  const qRaw  = $("q").value; // <-- uses your typed words exactly
-  const qObj  = tokenizeQuery(qRaw);
-
-  const minTrust = parseInt($("minTrust").value, 10);
-  const maxRisk  = parseInt($("maxRisk").value, 10);
-  const allowLikely = $("allowLikely").value === "1";
-  const maxItems = parseInt($("maxItems").value, 10);
-  const mode = $("fetchMode").value;
-
-  $("statFeeds").textContent = feeds.length.toString();
-  clearResults("Searching…");
-
-  if(!qObj.raw){
-    setStatus("Type search words first. Example: earthquake OR tsunami OR NASA");
-    return;
-  }
-  if(!feeds.length){
-    setStatus("No RSS feeds provided.");
-    return;
-  }
-
-  let fetchedCount = 0;
-  let errors = 0;
-  const collected = [];
-
-  setStatus(`Searching for: ${qObj.raw}\nFeeds: ${feeds.length}\nMode: ${mode}\n…fetching…`);
-
-  for(let i=0;i<feeds.length;i++){
-    const feedUrl = feeds[i];
-    try{
-      const xml = await fetchText(feedUrl, mode);
-      const items = parseRSS(xml);
-      fetchedCount += items.length;
-
-      for(const it of items){
-        const trust = trustScoreFromSource(feedUrl, it.link);
-        const vl = verifiedLikelyFromTrust(trust);
-        const aiRisk = aiLikeRiskScore(it.title, it.description);
-
-        const text = `${it.title || ""} ${it.description || ""} ${it.link || ""}`;
-        const matches = matchesQuery(text, qObj);
-        if(!matches) continue;
-
-        // facts-only filters
-        if(trust < minTrust) continue;
-        if(aiRisk > maxRisk) continue;
-        if(vl === "Unverified") continue;
-        if(!allowLikely && vl !== "Verified") continue;
-
-        collected.push({
-          title: it.title,
-          link: it.link,
-          pubDate: it.pubDate,
-          trust,
-          vl,
-          aiRisk,
-          sourceHost: hostOf(it.link) || hostOf(feedUrl)
-        });
-      }
-    }catch(err){
-      errors++;
-      // keep going
-      setStatus(prevStatus() + `\n[FEED ERROR] ${feedUrl}\n  ${String(err.message || err)}`);
-    }
-  }
-
-  // Deduplicate by link/title
-  const seen = new Set();
-  const deduped = [];
-  for(const r of collected){
-    const key = (r.link || "") + "||" + (r.title || "");
-    if(seen.has(key)) continue;
-    seen.add(key);
-    deduped.push(r);
-  }
-
-  // Sort: higher trust first, then lower risk, then newest-ish (string compare fallback)
-  deduped.sort((a,b)=>{
-    if(b.trust !== a.trust) return b.trust - a.trust;
-    if(a.aiRisk !== b.aiRisk) return a.aiRisk - b.aiRisk;
-    return String(b.pubDate).localeCompare(String(a.pubDate));
-  });
-
-  const finalRows = deduped.slice(0, maxItems);
-
-  $("statFetched").textContent = fetchedCount.toString();
-  $("statShown").textContent = finalRows.length.toString();
-
-  renderRows(finalRows);
-
-  const whyNone = finalRows.length === 0
-    ? "\n\nNo items passed filters. Try:\n- Lower Min trust\n- Raise Max AI-risk\n- Allow Likely\n- Or broaden your search words\nAlso check feed errors (CORS/blocking)."
-    : "";
-
-  setStatus(
-    `Done.\nSearch: ${qObj.raw}\nFeeds: ${feeds.length}\nFetched items: ${fetchedCount}\nShown: ${finalRows.length}\nFeed errors: ${errors}` + whyNone
-  );
-}
-
-function prevStatus(){ return $("status").textContent || ""; }
-
-$("btnRun").addEventListener("click", runSearch);
-
-/* Quick test button */
-$("btnTestOne").addEventListener("click", async ()=>{
-  const feeds = parseLines($("feeds").value);
-  if(!feeds.length){ setStatus("No feeds to test."); return; }
-  const mode = $("fetchMode").value;
-  const u = feeds[0];
-  setStatus(`Testing first feed:\n${u}\nMode: ${mode}\n…`);
+ for(const f of feeds){
   try{
-    const xml = await fetchText(u, mode);
-    const items = parseRSS(xml);
-    setStatus(`Test OK.\nItems found: ${items.length}\nFirst title: ${items[0]?.title || "(none)"}`);
-  }catch(err){
-    setStatus(`Test FAILED.\n${u}\n${String(err.message || err)}\n\nIf this is a browser CORS block, keep “Use CORS proxy”.`);
-  }
-});
+   const items = await fetchFeed(f);
+   fetched += items.length;
+   items.forEach(it=>{
+    const h = host(it.link)||host(f);
+    const s = scoreItem({...it,host:h}, keys);
+    if(s.score>0){
+     rows.push({...it,host:h,...s});
+    }
+   });
+  }catch(e){}
+ }
 
-/* Initialize */
+ rows.sort((a,b)=>b.final-a.final);
+ const tb = $("results");
+ tb.innerHTML = rows.slice(0,50).map(r=>`
+  <tr>
+   <td class="${r.trust>=85?"good":"warn"}">${r.trust>=85?"Verified":"Likely"}</td>
+   <td><a href="${r.link}" target="_blank">${r.title}</a></td>
+   <td>${r.host}</td>
+  </tr>
+ `).join("") || `<tr><td colspan="3">No matches</td></tr>`;
+
+ setStatus(`Live search running
+Feeds: ${feeds.length}
+Fetched: ${fetched}
+Shown: ${rows.length}`);
+}
+
+$("btnStart").onclick=()=>{
+ if(timer) return;
+ paused=false;
+ runCycle();
+ timer=setInterval(runCycle,15000);
+ setStatus("Started live search.");
+};
+
+$("btnPause").onclick=()=>{
+ paused=!paused;
+ setStatus(paused?"Paused.":"Resumed.");
+};
+
+$("btnStop").onclick=()=>{
+ clearInterval(timer);
+ timer=null;
+ setStatus("Stopped.");
+};
+
+$("btnReset").onclick=()=>{
+ clearInterval(timer);
+ timer=null;
+ paused=false;
+ $("feeds").value=DEFAULT_FEEDS;
+ $("results").innerHTML=`<tr><td colspan="3">Reset.</td></tr>`;
+ setStatus("Reset complete. Default feeds restored.");
+};
+
 (function init(){
-  $("feeds").value = DEFAULT_FEEDS;
-  $("statFeeds").textContent = parseLines($("feeds").value).length.toString();
-  clearResults("Ready. Type search words, then Run Search.");
+ $("feeds").value=DEFAULT_FEEDS;
 })();
 </script>
+
 </body>
 </html>
-<!-- ======================= PART 4 / 4 =======================
-NOTES (in-code, for you):
-1) If you still see 0 articles:
-   - Look at the Status box for [FEED ERROR]. That usually means CORS.
-   - Keep “Use CORS proxy (recommended)”.
-2) If you see “No items passed filters”:
-   - Your filters are too strict for the current query.
-   - Lower Min trust to 60, raise Max AI-risk to 50, or allow Likely.
-3) “Wrong data not using the words” was typically caused by:
-   - reading an old cached query variable
-   - or running search with empty query and then filtering everything out.
-This version reads $("q").value at click time every run.
-============================================================== -->
