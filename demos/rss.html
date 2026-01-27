@@ -1,0 +1,545 @@
+<!-- ======================= PART 1 / 3 ======================= -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>5-Minute RSS Monitor (Guaranteed Buttons + CSV/Print)</title>
+
+<style>
+:root{
+  --bg:#070b14; --panel:#0f172a; --ink:#e5e7eb; --muted:#9aa4c7;
+  --accent:#60a5fa; --good:#34d399; --warn:#fbbf24; --bad:#fb7185;
+  --line:rgba(148,163,184,.25); --radius:16px; --mono: ui-monospace, Consolas, monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,Segoe UI,Roboto,Arial}
+.wrap{max-width:1200px;margin:20px auto;padding:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-bottom:14px}
+h1{margin:0 0 8px;font-size:22px}
+h3{margin:0 0 10px;font-size:14px;color:var(--muted)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+input,textarea,select,button{background:#020617;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+textarea{min-height:140px;width:100%;font-family:var(--mono)}
+button{background:linear-gradient(180deg,#60a5fa,#3b82f6);color:#020617;font-weight:900;cursor:pointer;border:0}
+button.secondary{background:#111827;color:var(--ink);border:1px solid var(--line)}
+button.danger{background:#3b0f18;color:#ffd7df;border:1px solid rgba(251,113,133,.45)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{border-bottom:1px solid var(--line);padding:10px 8px;vertical-align:top}
+th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.12em}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+.small{font-size:12px;color:var(--muted);line-height:1.5}
+.mono{font-family:var(--mono)}
+.pill{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:6px 10px;font-size:12px;color:var(--muted);margin-right:8px;margin-top:8px}
+.pill b{color:var(--ink)}
+.good{color:var(--good)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+.log{background:rgba(2,6,23,.4);border:1px solid var(--line);border-radius:12px;padding:10px;max-height:240px;overflow:auto;white-space:pre-wrap;font-family:var(--mono);font-size:12px;color:var(--muted)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:980px){.grid2{grid-template-columns:1fr}}
+
+#jsBanner{
+  background:#3b0f18;
+  border:1px solid rgba(251,113,133,.45);
+  color:#ffd7df;
+  padding:10px 12px;
+  border-radius:12px;
+  margin-bottom:12px;
+  font-weight:900;
+}
+</style>
+</head>
+
+<body>
+<div class="wrap">
+
+  <div id="jsBanner">JS NOT RUNNING — if this stays visible, the browser blocked scripts or the file is incomplete.</div>
+
+  <h1>5-Minute RSS Monitor <span class="small">(guaranteed buttons, persistent results, CSV/Print)</span></h1>
+
+  <div class="card">
+    <div class="row">
+      <input id="query" placeholder="Example: protest state" style="flex:1;min-width:260px"/>
+      <label class="small"><input id="strictAll" type="checkbox" checked/> Require ALL words</label>
+      <label class="small"><input id="smartMatch" type="checkbox" checked/> Smart match</label>
+      <label class="small">Min Trust:
+        <input id="minTrust" type="number" min="0" max="100" value="70" style="width:90px"/>
+      </label>
+      <label class="small">Run time:
+        <select id="runMins">
+          <option value="1">1 min</option>
+          <option value="3">3 min</option>
+          <option value="5" selected>5 min</option>
+          <option value="10">10 min</option>
+        </select>
+      </label>
+      <label class="small">Proxy:
+        <select id="proxy">
+          <option value="allorigins" selected>AllOrigins</option>
+          <option value="corsproxy">corsproxy.io</option>
+        </select>
+      </label>
+    </div>
+
+    <!-- INLINE onclick => buttons work even if addEventListener fails -->
+    <div class="row" style="margin-top:10px">
+      <button onclick="APP.start()">Start</button>
+      <button onclick="APP.stop()" class="secondary">Stop</button>
+      <button onclick="APP.resetUI()" class="secondary">Reset</button>
+      <button onclick="APP.downloadCSV()" class="secondary">Download CSV</button>
+      <button onclick="window.print()" class="secondary">Print</button>
+      <button onclick="APP.clearSaved()" class="danger">Clear Saved Results</button>
+
+      <span class="pill">Status: <b id="kStatus">Idle</b></span>
+      <span class="pill">Time left: <b id="kLeft">—</b></span>
+      <span class="pill">Fetched: <b id="kFetched">0</b></span>
+      <span class="pill">Matched: <b id="kMatched">0</b></span>
+      <span class="pill">Errors: <b id="kErrors">0</b></span>
+      <span class="pill">Clicks: <b id="kClicks">0</b></span>
+    </div>
+
+    <div class="small" style="margin-top:10px">
+      If your results were “only MPR”, that means other feeds were failing or not RSS/Atom.
+      This version logs every click and every feed success/failure.
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>Feeds (one per line)</h3>
+      <textarea id="feeds"></textarea>
+      <div class="small">If a feed fails, it will show as FAIL in the log with the reason.</div>
+    </div>
+
+    <div class="card">
+      <h3>Feed Health / Debug Log</h3>
+      <div id="log" class="log">Idle.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Matched Articles (saved — won’t disappear)</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Trust</th>
+          <th>Quality</th>
+          <th>Article</th>
+          <th>Source</th>
+          <th>Matched</th>
+          <th>Time</th>
+        </tr>
+      </thead>
+      <tbody id="results">
+        <tr><td colspan="6" class="small">Waiting…</td></tr>
+      </tbody>
+    </table>
+  </div>
+<!-- ======================= PART 2 / 3 ======================= -->
+<script>
+/* ========== APP (single global) ========== */
+const APP = (() => {
+  const STORE_KEY = "facts_rss_saved_v2";
+
+  // Defaults that often work. (Some networks change RSS endpoints frequently.)
+  const DEFAULT_FEEDS = [
+    "https://feeds.publicradio.org/public_feeds/mpr-news-update",
+    "https://feeds.bbci.co.uk/news/world/rss.xml",
+    "https://feeds.npr.org/1004/rss.xml",
+    "https://news.un.org/feed/subscribe/en/news/all/rss.xml",
+    "https://www.who.int/feeds/entity/csr/don/en/rss.xml"
+  ].join("\n");
+
+  const TRUST = {
+    "mprnews.org":80,
+    "publicradio.org":80,
+    "bbc.co.uk":85,
+    "npr.org":85,
+    "feeds.npr.org":85,
+    "news.un.org":88,
+    "who.int":90
+  };
+
+  let timer = null;
+  let stopTimer = null;
+  let clicks = 0;
+  let fetchedTotal = 0;
+  let errorTotal = 0;
+
+  let saved = loadSaved();
+
+  const $ = id => document.getElementById(id);
+  const norm = s => (s||"").toLowerCase();
+
+  function k(id, v){ $(id).textContent = String(v); }
+  function click(){ clicks++; k("kClicks", clicks); }
+  function setStatus(s){ k("kStatus", s); }
+  function nowStamp(){ return new Date().toLocaleString(); }
+  function host(u){ try{return new URL(u).hostname.replace(/^www\./,"")}catch{return ""} }
+  function esc(s){ return (s||"").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+
+  function logReset(lines){ $("log").textContent = lines.join("\n"); }
+  function logLine(line){ $("log").textContent = ($("log").textContent.trim()? $("log").textContent+"\n":"") + line; }
+
+  function loadSaved(){
+    try{
+      const raw = localStorage.getItem(STORE_KEY);
+      if(!raw) return {items:[], byLink:{}};
+      const items = JSON.parse(raw);
+      const byLink = {};
+      for(const it of items){ if(it.link) byLink[it.link]=true; }
+      return {items, byLink};
+    }catch{
+      return {items:[], byLink:{}};
+    }
+  }
+  function persist(){
+    try{
+      localStorage.setItem(STORE_KEY, JSON.stringify(saved.items.slice(0,400)));
+    }catch(e){
+      // localStorage blocked => still works, just not persistent
+      logLine("WARN localStorage blocked (results will not persist).");
+    }
+  }
+
+  function parseWords(q){
+    return norm(q).split(/\s+/).map(x=>x.trim()).filter(Boolean);
+  }
+  function variants(w){
+    w = (w||"").toLowerCase().trim();
+    const set = new Set([w, w+"s", w+"es", w+"ed", w+"ing"]);
+    if(w.endsWith("s") && w.length>3) set.add(w.slice(0,-1));
+    if(w.length>=5) set.add("prefix:"+w);
+    return [...set];
+  }
+  function blob(it){
+    return norm([it.title,it.desc,it.source,it.link,it.host].join(" "));
+  }
+  function hit(b, tok){
+    if(tok.startsWith("prefix:")) return b.includes(tok.slice(7));
+    return b.includes(tok);
+  }
+  function hitsForItem(it, words){
+    const b = blob(it);
+    const smart = $("smartMatch").checked;
+    const hits = [];
+    for(const w of words){
+      if(!smart){
+        if(b.includes(w)) hits.push(w);
+      }else{
+        const vars = variants(w);
+        if(vars.some(v => hit(b, v))) hits.push(w);
+      }
+    }
+    return hits;
+  }
+
+  function trustScore(h){ return TRUST[h] ?? 50; }
+  function trustLabel(t){
+    if(t>=80) return {txt:"High", cls:"good"};
+    if(t>=65) return {txt:"Medium", cls:"warn"};
+    return {txt:"Unknown", cls:"bad"};
+  }
+
+  function qualityRisk(text){
+    const t = norm(text||"");
+    let r = 0;
+    if((t.match(/!/g)||[]).length>=5) r += 20;
+    if((text||"").match(/\b[A-Z]{6,}\b/g)?.length>=3) r += 15;
+    if(/\b(shocking|unbelievable|you won't believe|miracle|secret revealed)\b/i.test(text||"")) r += 35;
+    if(/\b(as an ai|as a language model|in conclusion|delve into|tapestry|robust framework)\b/i.test(text||"")) r += 25;
+    return Math.min(100, r);
+  }
+
+  async function fetchText(url){
+    const p = $("proxy").value;
+
+    // Proxy 1: AllOrigins
+    const u1 = "https://api.allorigins.win/raw?url=" + encodeURIComponent(url);
+
+    // Proxy 2: corsproxy.io (sometimes needs encoded full url)
+    const u2 = "https://corsproxy.io/?" + encodeURIComponent(url);
+
+    const tryFetch = async (u) => {
+      const r = await fetch(u, {cache:"no-store"});
+      if(!r.ok) throw new Error("HTTP "+r.status);
+      return await r.text();
+    };
+
+    // Preferred selection + fallback
+    try{
+      return await tryFetch(p==="corsproxy" ? u2 : u1);
+    }catch(e1){
+      // fallback to the other proxy
+      try{
+        return await tryFetch(p==="corsproxy" ? u1 : u2);
+      }catch(e2){
+        throw new Error(`Proxy failed: ${e1.message} / ${e2.message}`);
+      }
+    }
+  }
+
+  function parseFeed(xmlText, fallbackSource){
+    const doc = new DOMParser().parseFromString(xmlText, "text/xml");
+    if(doc.querySelector("parsererror")) throw new Error("Invalid XML (not RSS/Atom).");
+
+    const channelTitle =
+      doc.querySelector("channel>title")?.textContent?.trim()
+      || doc.querySelector("feed>title")?.textContent?.trim()
+      || fallbackSource
+      || "unknown";
+
+    const rss = [...doc.querySelectorAll("item")].map(it=>({
+      title: it.querySelector("title")?.textContent?.trim() || "",
+      link:  it.querySelector("link")?.textContent?.trim() || "",
+      desc:  it.querySelector("description")?.textContent?.trim() || "",
+      source: channelTitle
+    }));
+
+    const atom = [...doc.querySelectorAll("entry")].map(en=>{
+      const linkEl = en.querySelector("link[rel='alternate']") || en.querySelector("link") || null;
+      const href = linkEl?.getAttribute("href") || linkEl?.textContent || "";
+      return {
+        title: en.querySelector("title")?.textContent?.trim() || "",
+        link:  (href||"").trim(),
+        desc:  en.querySelector("summary")?.textContent?.trim()
+            || en.querySelector("content")?.textContent?.trim()
+            || "",
+        source: channelTitle
+      };
+    });
+
+    return [...rss, ...atom].filter(x => x.title || x.link);
+  }
+
+  function addItem(raw, hits){
+    const h = host(raw.link) || host(raw.feed) || "unknown";
+    const t = trustScore(h);
+    const q = qualityRisk((raw.title||"") + " " + (raw.desc||""));
+    const item = {
+      title: raw.title||"",
+      link: raw.link||"",
+      source: raw.source||"",
+      host: h,
+      trust: t,
+      qRisk: q,
+      hits: hits||[],
+      time: nowStamp()
+    };
+    if(!item.link) return;
+    if(saved.byLink[item.link]) return;
+
+    saved.byLink[item.link]=true;
+    saved.items.unshift(item);
+    saved.items = saved.items.slice(0, 400);
+    persist();
+  }
+
+  function render(){
+    const tb = $("results");
+    if(!saved.items.length){
+      tb.innerHTML = `<tr><td colspan="6">No saved results yet. Click Start.</td></tr>`;
+      return;
+    }
+    tb.innerHTML = saved.items.slice(0,300).map(it=>{
+      const tl = trustLabel(it.trust);
+      const q = it.qRisk;
+      const qTxt = q>=60 ? "Warning" : (q>=30 ? "Check" : "OK");
+      const qCls = q>=60 ? "bad" : (q>=30 ? "warn" : "good");
+      return `
+        <tr>
+          <td class="${tl.cls}">${tl.txt} <span class="small">(${it.trust})</span></td>
+          <td class="${qCls}">${qTxt} <span class="small">(${q})</span></td>
+          <td><a href="${it.link}" target="_blank" rel="noopener">${esc(it.title||"(untitled)")}</a></td>
+          <td>${esc(it.host)} <span class="small">(${esc(it.source)})</span></td>
+          <td class="mono">${esc((it.hits||[]).join(", "))}</td>
+          <td class="small">${esc(it.time||"")}</td>
+        </tr>
+      `;
+    }).join("");
+    k("kMatched", saved.items.length);
+  }
+
+  async function cycleOnce(){
+    const words = parseWords($("query").value);
+    const strictAll = $("strictAll").checked;
+    const minTrust = Math.max(0, Math.min(100, +$("minTrust").value || 0));
+    const feeds = $("feeds").value.split("\n").map(x=>x.trim()).filter(Boolean);
+
+    if(!words.length){
+      logLine("Type keywords first (example: protest state).");
+      return;
+    }
+
+    for(const feed of feeds){
+      const label = host(feed) || feed;
+      try{
+        const xml = await fetchText(feed);
+        const items = parseFeed(xml, label);
+        fetchedTotal += items.length;
+
+        let added = 0;
+        for(const it of items){
+          const h = host(it.link) || host(feed) || "";
+          const t = trustScore(h);
+          if(t < minTrust) continue;
+
+          const hits = hitsForItem({...it, host:h, feed}, words);
+          if(strictAll){
+            if(hits.length !== words.length) continue;
+          }else{
+            if(hits.length === 0) continue;
+          }
+
+          addItem({...it, host:h, feed}, hits);
+          added++;
+        }
+
+        logLine(`OK   ${label}  items=${items.length}  added=${added}`);
+      }catch(e){
+        errorTotal++;
+        logLine(`FAIL ${label}  (${e.message || e})`);
+      }
+    }
+
+    k("kFetched", fetchedTotal);
+    k("kErrors", errorTotal);
+    render();
+  }
+
+  function start(){
+    click();
+    // prove JS is alive
+    logLine("CLICK Start");
+
+    // stop old timers
+    stop();
+
+    fetchedTotal = 0;
+    errorTotal = 0;
+    k("kFetched", 0);
+    k("kErrors", 0);
+
+    const mins = Math.max(1, +$("runMins").value || 5);
+    const totalMs = mins * 60 * 1000;
+    const startAt = Date.now();
+
+    setStatus("Running");
+    logReset([`Started @ ${nowStamp()}`, `Auto-stop after ${mins} minute(s).`, "---"]);
+
+    // countdown
+    const countdown = setInterval(()=>{
+      const left = Math.max(0, totalMs - (Date.now()-startAt));
+      const sec = Math.ceil(left/1000);
+      k("kLeft", sec>0 ? `${sec}s` : "0s");
+      if(left<=0) clearInterval(countdown);
+    }, 250);
+
+    // run now + every 15s
+    cycleOnce();
+    timer = setInterval(cycleOnce, 15000);
+
+    // auto stop
+    stopTimer = setTimeout(()=>{
+      stop();
+      logLine("---");
+      logLine("Auto-stopped (5-minute limit reached).");
+    }, totalMs);
+  }
+
+  function stop(){
+    click();
+    logLine("CLICK Stop");
+    if(timer) clearInterval(timer);
+    if(stopTimer) clearTimeout(stopTimer);
+    timer = null;
+    stopTimer = null;
+    setStatus("Stopped");
+    k("kLeft","—");
+  }
+
+  function resetUI(){
+    click();
+    logLine("CLICK Reset");
+    if(timer || stopTimer) stop();
+    setStatus("Idle");
+    k("kLeft","—");
+    fetchedTotal = 0;
+    errorTotal = 0;
+    k("kFetched",0);
+    k("kErrors",0);
+    logReset(["Reset complete. (Saved results remain unless you clear them.)"]);
+    render();
+  }
+
+  function clearSaved(){
+    click();
+    logLine("CLICK Clear Saved Results");
+    try{ localStorage.removeItem(STORE_KEY); }catch{}
+    saved = {items:[], byLink:{}};
+    render();
+    logLine("Saved results cleared.");
+  }
+
+  function downloadCSV(){
+    click();
+    logLine("CLICK Download CSV");
+    const rows = saved.items.slice().reverse();
+    const header = ["time","trust","qualityRisk","host","source","title","link","matchedWords"];
+    const csv = [
+      header.join(","),
+      ...rows.map(it=>{
+        const line = [
+          it.time, it.trust, it.qRisk, it.host, it.source, it.title, it.link, (it.hits||[]).join(" ")
+        ].map(v => `"${String(v||"").replace(/"/g,'""')}"`).join(",");
+        return line;
+      })
+    ].join("\n");
+
+    const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "rss_results.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function init(){
+    // Hide the JS banner if scripts are running
+    const banner = document.getElementById("jsBanner");
+    if(banner) banner.style.display = "none";
+
+    $("feeds").value = DEFAULT_FEEDS;
+    setStatus("Idle");
+    k("kClicks", 0);
+    k("kFetched", 0);
+    k("kErrors", 0);
+    k("kLeft", "—");
+    render();
+    logReset(["Ready. Type keywords and click Start."]);
+  }
+
+  return { init, start, stop, resetUI, clearSaved, downloadCSV };
+})();
+</script>
+<!-- ======================= PART 3 / 3 ======================= -->
+<script>
+// Init MUST run after the DOM exists
+document.addEventListener("DOMContentLoaded", () => {
+  try{
+    APP.init();
+  }catch(e){
+    // If init fails, show it in the log and leave the JS banner visible
+    const log = document.getElementById("log");
+    if(log){
+      log.textContent = "FATAL JS ERROR:\n" + (e?.stack || e?.message || String(e));
+    }
+  }
+});
+</script>
+
+</body>
+</html>
