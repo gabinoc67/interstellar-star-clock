@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Live RSS Keyword Monitor (Simple + Working)</title>
+<title>5-Minute Facts RSS Monitor (Persistent + CSV/Print)</title>
 
 <style>
 :root{
@@ -20,9 +20,10 @@ h1{margin:0 0 8px;font-size:22px}
 h3{margin:0 0 10px;font-size:14px;color:var(--muted)}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 input,textarea,select,button{background:#020617;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
-textarea{min-height:130px;width:100%;font-family:var(--mono)}
+textarea{min-height:140px;width:100%;font-family:var(--mono)}
 button{background:linear-gradient(180deg,#60a5fa,#3b82f6);color:#020617;font-weight:900;cursor:pointer;border:0}
 button.secondary{background:#111827;color:var(--ink);border:1px solid var(--line)}
+button.danger{background:#3b0f18;color:#ffd7df;border:1px solid rgba(251,113,133,.45)}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th,td{border-bottom:1px solid var(--line);padding:10px 8px;vertical-align:top}
 th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.12em}
@@ -33,6 +34,7 @@ a:hover{text-decoration:underline}
 .pill{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:6px 10px;font-size:12px;color:var(--muted);margin-right:8px;margin-top:8px}
 .pill b{color:var(--ink)}
 .good{color:var(--good)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+.tag{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:3px 8px;font-size:11px;margin-right:6px;color:var(--muted)}
 .log{background:rgba(2,6,23,.4);border:1px solid var(--line);border-radius:12px;padding:10px;max-height:220px;overflow:auto;white-space:pre-wrap;font-family:var(--mono);font-size:12px;color:var(--muted)}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 @media (max-width:980px){.grid2{grid-template-columns:1fr}}
@@ -41,39 +43,45 @@ a:hover{text-decoration:underline}
 
 <body>
 <div class="wrap">
-  <h1>Live RSS Keyword Monitor <span class="small">(buttons + matching made obvious)</span></h1>
+  <h1>5-Minute Facts RSS Monitor <span class="small">(persistent results + CSV/Print)</span></h1>
 
   <div class="card">
     <div class="row">
       <input id="query" placeholder="Example: Minnesota groups protest" style="flex:1;min-width:280px"/>
-      <select id="mode">
-        <option value="proxy" selected>Proxy (recommended)</option>
-        <option value="direct">Direct (often blocked)</option>
-      </select>
-
       <label class="small"><input id="strictAll" type="checkbox" checked/> Require ALL words</label>
       <label class="small"><input id="smartMatch" type="checkbox" checked/> Smart match (plural/suffix)</label>
-      <label class="small"><input id="showNear" type="checkbox" checked/> Show near matches</label>
+      <label class="small">Min Trust:
+        <input id="minTrust" type="number" min="0" max="100" value="70" style="width:84px"/>
+      </label>
+      <label class="small">Run time:
+        <select id="runMins">
+          <option value="1">1 min</option>
+          <option value="3">3 min</option>
+          <option value="5" selected>5 min</option>
+          <option value="10">10 min</option>
+        </select>
+      </label>
     </div>
 
     <div class="row" style="margin-top:10px">
-      <button id="btnStart">Start</button>
-      <button id="btnRunOnce" class="secondary">Run Once</button>
-      <button id="btnPause" class="secondary">Pause</button>
+      <button id="btnStart">Start (5 min)</button>
       <button id="btnStop" class="secondary">Stop</button>
       <button id="btnReset" class="secondary">Reset</button>
-      <span class="pill">Clicks: <b id="kClicks">0</b></span>
-      <span class="pill">Feeds: <b id="kFeeds">0</b></span>
+      <button id="btnCSV" class="secondary">Download CSV</button>
+      <button id="btnPrint" class="secondary">Print</button>
+      <button id="btnClearSaved" class="danger">Clear Saved Results</button>
+
+      <span class="pill">Status: <b id="kStatus">Idle</b></span>
+      <span class="pill">Time left: <b id="kLeft">—</b></span>
       <span class="pill">Fetched: <b id="kFetched">0</b></span>
       <span class="pill">Matched: <b id="kMatched">0</b></span>
-      <span class="pill">Near: <b id="kNear">0</b></span>
       <span class="pill">Errors: <b id="kErrors">0</b></span>
-      <span class="pill">Last Run: <b id="kLast">—</b></span>
     </div>
 
     <div class="small" style="margin-top:10px">
-      If you get <b>Fetched &gt; 0</b> but <b>Matched = 0</b>, that means the feeds did not contain your words.
-      The <b>Near Matches</b> panel will prove the monitor is alive by showing partial hits (1–2 words).
+      Results are <b>saved</b>. If you refresh or go back, they will still be here.
+      This tool labels source trust (High/Medium/Unknown) and flags “low quality” patterns,
+      but it cannot mathematically “prove truth” in a browser.
     </div>
   </div>
 
@@ -81,7 +89,10 @@ a:hover{text-decoration:underline}
     <div class="card">
       <h3>Feeds (one per line)</h3>
       <textarea id="feeds"></textarea>
-      <div class="small">Use Proxy mode if Direct returns 0 fetched. The log will show which feeds fail.</div>
+      <div class="small">
+        If you only see one website (like mprnews.org), it’s because your other feeds are failing or not real RSS/Atom endpoints.
+        Check the log to see which fail.
+      </div>
     </div>
 
     <div class="card">
@@ -90,52 +101,83 @@ a:hover{text-decoration:underline}
     </div>
   </div>
 
-  <div class="grid2">
-    <div class="card">
-      <h3>Matched Articles (ALL words)</h3>
-      <table>
-        <thead><tr><th>Status</th><th>Article</th><th>Source</th><th>Hits</th></tr></thead>
-        <tbody id="results"><tr><td colspan="4" class="small">Waiting…</td></tr></tbody>
-      </table>
-    </div>
-
-    <div class="card">
-      <h3>Near Matches (partial hits)</h3>
-      <table>
-        <thead><tr><th>Hits</th><th>Article</th><th>Source</th></tr></thead>
-        <tbody id="near"><tr><td colspan="3" class="small">Waiting…</td></tr></tbody>
-      </table>
-    </div>
+  <div class="card">
+    <h3>Matched Articles (persisted)</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Trust</th>
+          <th>Quality</th>
+          <th>Article</th>
+          <th>Source</th>
+          <th>Matched</th>
+          <th>Time</th>
+        </tr>
+      </thead>
+      <tbody id="results">
+        <tr><td colspan="6" class="small">Waiting…</td></tr>
+      </tbody>
+    </table>
   </div>
 <!-- ======================= PART 2 / 3 ======================= -->
 <script>
-/* Defaults include Minnesota-relevant sources + broad baseline sources */
+/* ========= Defaults =========
+   You can edit this list anytime.
+   Note: Many TV networks do NOT expose clean RSS for every section, so some URLs may fail.
+*/
 const DEFAULT_FEEDS = [
+  // Local / Minnesota (works often)
   "https://feeds.publicradio.org/public_feeds/mpr-news-update",
-  "http://www.startribune.com/rss-index/112994779/",
+
+  // National / general (commonly works)
+  "http://feeds.nbcnews.com/feeds/topstories",
+  "http://rss.cnn.com/rss/cnn_topstories.rss",
+  "http://www.cbsnews.com/latest/rss/main",
+  "https://feeds.texastribune.org/feeds/main/",
   "https://feeds.bbci.co.uk/news/world/rss.xml",
-  "https://feeds.npr.org/1004/rss.xml",
-  "https://www.nasa.gov/rss/dyn/breaking_news.rss",
-  "https://www.usgs.gov/feeds/earthquakes/feed",
-  "https://www.noaa.gov/rss.xml"
+  "https://feeds.npr.org/1004/rss.xml"
 ].join("\n");
 
-let timer=null;
-let paused=false;
-let cycleNo=0;
-let clickCount=0;
+/* ========= Trust map (domain-based) ========= */
+const TRUST = {
+  "mprnews.org":80,
+  "publicradio.org":80,
+
+  "nbcnews.com":80,
+  "feeds.nbcnews.com":80,
+
+  "cnn.com":75,
+  "rss.cnn.com":75,
+
+  "cbsnews.com":75,
+
+  "texastribune.org":75,
+  "feeds.texastribune.org":75,
+
+  "bbc.co.uk":85,
+  "npr.org":85,
+  "feeds.npr.org":85
+};
+
+const STORE_KEY = "facts_rss_saved_v1";
+
+let timer = null;
+let stopTimer = null;
+let paused = false;
+
+let fetchedTotal = 0;
+let errorTotal = 0;
+
+// persisted results (unique by link)
+let saved = loadSaved(); // { items: [...], byLink: {link:true} }
 
 const $ = id => document.getElementById(id);
 const norm = s => (s||"").toLowerCase();
 
-function nowTime(){
+function nowStamp(){
   const d = new Date();
-  return d.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit", second:"2-digit"});
+  return d.toLocaleString();
 }
-function setKpi(id, v){ $(id).textContent = String(v); }
-function logReset(lines){ $("log").textContent = lines.join("\n"); }
-function logLine(line){ $("log").textContent = ($("log").textContent.trim()? $("log").textContent+"\n":"") + line; }
-
 function hostFromUrl(u){
   try{ return new URL(u).hostname.replace(/^www\./,""); }catch{ return ""; }
 }
@@ -143,75 +185,88 @@ function escapeHtml(s){
   return (s||"").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 }
 
+function logReset(lines){ $("log").textContent = lines.join("\n"); }
+function logLine(line){ $("log").textContent = ($("log").textContent.trim()? $("log").textContent+"\n":"") + line; }
+
+function setStatus(s){ $("kStatus").textContent = s; }
+function setKpi(id,v){ $(id).textContent = String(v); }
+
+function loadSaved(){
+  try{
+    const raw = localStorage.getItem(STORE_KEY);
+    if(!raw) return {items:[], byLink:{}};
+    const items = JSON.parse(raw);
+    const byLink = {};
+    for(const it of items){ if(it.link) byLink[it.link] = true; }
+    return {items, byLink};
+  }catch{
+    return {items:[], byLink:{}};
+  }
+}
+function persist(){
+  try{
+    localStorage.setItem(STORE_KEY, JSON.stringify(saved.items.slice(0, 400)));
+  }catch{}
+}
+
+/* Words parsing + smart variants */
 function parseWords(q){
   return norm(q).split(/\s+/).map(x=>x.trim()).filter(Boolean);
 }
-
-/* Smart variants: protest -> protests, protesting, protested */
 function variants(word){
   const w = word.trim().toLowerCase();
-  if(!w) return [];
   const set = new Set([w]);
-
-  // simple plural/tense
-  set.add(w+"s");
-  set.add(w+"es");
-  set.add(w+"ed");
-  set.add(w+"ing");
-
-  // if ends with 's' already, include singular-ish
+  set.add(w+"s"); set.add(w+"es"); set.add(w+"ed"); set.add(w+"ing");
   if(w.endsWith("s") && w.length>3) set.add(w.slice(0,-1));
-
-  // allow prefix match for long words (e.g., "protest" matches "protests")
-  // represented by a special token "prefix:protest"
   if(w.length>=5) set.add("prefix:"+w);
-
   return [...set];
 }
-
-function itemBlob(it){
-  return norm([it.title,it.desc,it.source,it.link].join(" "));
+function blob(it){
+  return norm([it.title,it.desc,it.source,it.link,it.host].join(" "));
 }
-
-function hitWord(blob, token){
-  if(token.startsWith("prefix:")){
-    const p = token.slice(7);
-    return blob.includes(p); // cheap but effective for plural/suffix cases
-  }
-  return blob.includes(token);
+function hit(blobText, token){
+  if(token.startsWith("prefix:")) return blobText.includes(token.slice(7));
+  return blobText.includes(token);
 }
-
 function hitsForItem(it, words){
-  const blob = itemBlob(it);
+  const b = blob(it);
   const smart = $("smartMatch").checked;
-
   const hits = [];
   for(const w of words){
     if(!smart){
-      if(blob.includes(w)) hits.push(w);
-      continue;
-    }
-    const vars = variants(w);
-    if(vars.some(v => hitWord(blob, v))){
-      hits.push(w);
+      if(b.includes(w)) hits.push(w);
+    }else{
+      const vars = variants(w);
+      if(vars.some(v => hit(b, v))) hits.push(w);
     }
   }
   return hits;
 }
 
+/* Simple “quality warning” (not truth detection) */
+function qualityFlag(text){
+  const t = norm(text || "");
+  const ex = (t.match(/!/g)||[]).length;
+  const caps = (text||"").match(/\b[A-Z]{6,}\b/g)?.length || 0;
+  const clickbait = /\b(shocking|unbelievable|you won't believe|miracle|secret revealed)\b/i.test(text||"");
+  const aiish = /\b(as an ai|as a language model|in conclusion|delve into|tapestry|robust framework)\b/i.test(text||"");
+  let risk = 0;
+  if(ex>=5) risk += 20;
+  if(caps>=3) risk += 15;
+  if(clickbait) risk += 35;
+  if(aiish) risk += 25;
+  return Math.min(100, risk);
+}
+
+/* Proxy fetch (browser-safe) */
 async function fetchText(url){
-  const mode = $("mode").value;
-  if(mode==="direct"){
-    const r = await fetch(url, {cache:"no-store"});
-    if(!r.ok) throw new Error("HTTP "+r.status);
-    return await r.text();
-  }
   const proxy = "https://api.allorigins.win/raw?url=" + encodeURIComponent(url);
   const r = await fetch(proxy, {cache:"no-store"});
-  if(!r.ok) throw new Error("Proxy HTTP "+r.status);
+  if(!r.ok) throw new Error("HTTP " + r.status);
   return await r.text();
 }
 
+/* Parse RSS + Atom */
 function parseFeed(xmlText, fallbackSource){
   const doc = new DOMParser().parseFromString(xmlText, "text/xml");
   if(doc.querySelector("parsererror")) throw new Error("Invalid XML (not RSS/Atom).");
@@ -245,179 +300,227 @@ function parseFeed(xmlText, fallbackSource){
   return [...rss, ...atom].filter(x => x.title || x.link);
 }
 
-function renderMatches(rows){
+function trustForHost(h){
+  return TRUST[h] ?? 50;
+}
+function trustLabel(score){
+  if(score>=80) return {txt:"High", cls:"good"};
+  if(score>=65) return {txt:"Medium", cls:"warn"};
+  return {txt:"Unknown", cls:"bad"};
+}
+<!-- ======================= PART 3 / 3 ======================= -->
+<script>
+function render(){
   const tb = $("results");
-  if(!rows.length){
-    tb.innerHTML = `<tr><td colspan="4">No matches. (Check Near Matches to confirm it’s alive.)</td></tr>`;
+
+  if(!saved.items.length){
+    tb.innerHTML = `<tr><td colspan="6">No saved results yet. Run Start.</td></tr>`;
     return;
   }
-  tb.innerHTML = rows.map(r=>{
-    const host = hostFromUrl(r.link) || hostFromUrl(r.feed) || "unknown";
-    const hits = r.hits.join(", ");
+
+  tb.innerHTML = saved.items.slice(0, 300).map(it=>{
+    const tl = trustLabel(it.trust);
+    const q = it.qRisk;
+    const qTxt = q>=60 ? "Warning" : (q>=30 ? "Check" : "OK");
+    const qCls = q>=60 ? "bad" : (q>=30 ? "warn" : "good");
+
     return `
       <tr>
-        <td class="good">OK</td>
-        <td><a href="${r.link}" target="_blank" rel="noopener">${escapeHtml(r.title||"(untitled)")}</a></td>
-        <td>${escapeHtml(host)} <span class="small">(${escapeHtml(r.source)})</span></td>
-        <td class="mono">${escapeHtml(hits)}</td>
+        <td class="${tl.cls}">${tl.txt} <span class="small">(${it.trust})</span></td>
+        <td class="${qCls}">${qTxt} <span class="small">(${q})</span></td>
+        <td><a href="${it.link}" target="_blank" rel="noopener">${escapeHtml(it.title||"(untitled)")}</a></td>
+        <td>${escapeHtml(it.host)} <span class="small">(${escapeHtml(it.source)})</span></td>
+        <td class="mono">${escapeHtml((it.hits||[]).join(", "))}</td>
+        <td class="small">${escapeHtml(it.time || "")}</td>
       </tr>
     `;
   }).join("");
 }
 
-function renderNear(rows){
-  const tb = $("near");
-  if(!rows.length){
-    tb.innerHTML = `<tr><td colspan="3">No near matches found.</td></tr>`;
-    return;
-  }
-  tb.innerHTML = rows.map(r=>{
-    const host = hostFromUrl(r.link) || hostFromUrl(r.feed) || "unknown";
-    return `
-      <tr>
-        <td class="mono">${r.hits.length}</td>
-        <td><a href="${r.link}" target="_blank" rel="noopener">${escapeHtml(r.title||"(untitled)")}</a></td>
-        <td>${escapeHtml(host)}</td>
-      </tr>
-    `;
-  }).join("");
+function addItem(raw, hits){
+  const h = hostFromUrl(raw.link) || hostFromUrl(raw.feed) || "unknown";
+  const trust = trustForHost(h);
+  const qRisk = qualityFlag((raw.title||"") + " " + (raw.desc||""));
+
+  const item = {
+    title: raw.title || "",
+    link: raw.link || "",
+    desc: raw.desc || "",
+    source: raw.source || "",
+    host: h,
+    trust,
+    qRisk,
+    hits,
+    time: nowStamp()
+  };
+
+  if(!item.link) return;
+  if(saved.byLink[item.link]) return;
+
+  saved.byLink[item.link] = true;
+  saved.items.unshift(item);          // newest first
+  saved.items = saved.items.slice(0, 400);
+  persist();
 }
-</script>
-<!-- ======================= PART 3 / 3 ======================= -->
-<script>
+
 async function runCycle(){
   if(paused) return;
-  cycleNo++;
 
   const words = parseWords($("query").value);
   const strictAll = $("strictAll").checked;
-  const showNear = $("showNear").checked;
+  const minTrust = Math.max(0, Math.min(100, +$("minTrust").value || 0));
 
   const feeds = $("feeds").value.split("\n").map(x=>x.trim()).filter(Boolean);
-  setKpi("kFeeds", feeds.length);
-  setKpi("kLast", nowTime());
 
   if(!words.length){
-    logReset([`Cycle ${cycleNo} @ ${nowTime()}`, "Type keywords first. Example: Minnesota groups protest"]);
-    setKpi("kFetched", 0); setKpi("kMatched", 0); setKpi("kNear", 0); setKpi("kErrors", 0);
-    renderMatches([]); renderNear([]);
+    logLine("Type keywords first (example: Minnesota groups protest).");
     return;
   }
-
-  let fetched=0, errors=0;
-  const matched=[], near=[];
-
-  logReset([`Cycle ${cycleNo} @ ${nowTime()}`, `Mode: ${$("mode").value}`, `Words: [${words.join(", ")}]  StrictAll=${strictAll}  SmartMatch=${$("smartMatch").checked}`, "---"]);
 
   for(const feed of feeds){
     const label = hostFromUrl(feed) || feed;
     try{
       const xml = await fetchText(feed);
       const items = parseFeed(xml, label);
-      fetched += items.length;
+      fetchedTotal += items.length;
 
-      let localMatch=0, localNear=0;
+      let localAdd = 0;
 
       for(const it of items){
-        const hits = hitsForItem({...it, feed}, words);
+        const host = hostFromUrl(it.link) || hostFromUrl(feed) || "";
+        const trust = trustForHost(host);
+        if(trust < minTrust) continue;
+
+        const hits = hitsForItem({...it, host}, words);
 
         if(strictAll){
-          if(hits.length === words.length){
-            matched.push({...it, feed, hits});
-            localMatch++;
-          }else if(showNear && hits.length>0){
-            near.push({...it, feed, hits});
-            localNear++;
-          }
+          if(hits.length !== words.length) continue;
         }else{
-          if(hits.length>0){
-            matched.push({...it, feed, hits});
-            localMatch++;
-          }
+          if(hits.length === 0) continue;
         }
+
+        addItem({...it, feed, host}, hits);
+        localAdd++;
       }
 
-      logLine(`OK   ${label}  items=${items.length}  match=${localMatch}${showNear?`  near=${localNear}`:""}`);
+      logLine(`OK   ${label}  items=${items.length}  added=${localAdd}`);
     }catch(e){
-      errors++;
+      errorTotal++;
       logLine(`FAIL ${label}  (${e.message || e})`);
     }
   }
 
-  // Sort matched by hits then title length
-  matched.sort((a,b)=> (b.hits.length-a.hits.length) || ((b.title||"").length-(a.title||"").length));
-  near.sort((a,b)=> (b.hits.length-a.hits.length) || ((b.title||"").length-(a.title||"").length));
-
-  setKpi("kFetched", fetched);
-  setKpi("kMatched", matched.length);
-  setKpi("kNear", near.length);
-  setKpi("kErrors", errors);
-
-  renderMatches(matched.slice(0,60));
-  renderNear(showNear ? near.slice(0,60) : []);
+  setKpi("kFetched", fetchedTotal);
+  setKpi("kMatched", saved.items.length);
+  setKpi("kErrors", errorTotal);
+  render();
 }
 
-function clickMark(){
-  clickCount++;
-  setKpi("kClicks", clickCount);
+/* ===== 5-minute run control ===== */
+function startTimedRun(){
+  const mins = Math.max(1, +$("runMins").value || 5);
+  const totalMs = mins * 60 * 1000;
+  const start = Date.now();
+
+  // Clear any old timers
+  if(timer) clearInterval(timer);
+  if(stopTimer) clearTimeout(stopTimer);
+
+  paused = false;
+  fetchedTotal = 0;
+  errorTotal = 0;
+
+  setStatus("Running");
+  logReset([`Started @ ${nowStamp()}`, `Will auto-stop after ${mins} minute(s).`, "---"]);
+
+  // run immediately + every 15 seconds
+  runCycle();
+  timer = setInterval(runCycle, 15000);
+
+  // countdown UI
+  const countdown = setInterval(()=>{
+    const left = Math.max(0, totalMs - (Date.now() - start));
+    const sec = Math.ceil(left/1000);
+    setKpi("kLeft", sec>0 ? `${sec}s` : "0s");
+    if(left<=0){
+      clearInterval(countdown);
+    }
+  }, 250);
+
+  // auto-stop
+  stopTimer = setTimeout(()=>{
+    stopRun();
+    logLine("---");
+    logLine("Auto-stopped (time limit reached).");
+  }, totalMs);
+}
+
+function stopRun(){
+  if(timer) clearInterval(timer);
+  if(stopTimer) clearTimeout(stopTimer);
+  timer = null;
+  stopTimer = null;
+  paused = false;
+  setStatus("Stopped");
+  setKpi("kLeft", "—");
+}
+
+function downloadCSV(){
+  const rows = saved.items.slice().reverse(); // oldest -> newest in CSV
+  const header = ["time","trust","qualityRisk","host","source","title","link","matchedWords"];
+  const csv = [
+    header.join(","),
+    ...rows.map(it=>{
+      const line = [
+        it.time, it.trust, it.qRisk, it.host, it.source, it.title, it.link, (it.hits||[]).join(" ")
+      ].map(v => `"${String(v||"").replace(/"/g,'""')}"`).join(",");
+      return line;
+    })
+  ].join("\n");
+
+  const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "facts_rss_results.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 document.addEventListener("DOMContentLoaded", ()=>{
   $("feeds").value = DEFAULT_FEEDS;
-  setKpi("kFeeds", DEFAULT_FEEDS.split("\n").filter(Boolean).length);
-  logReset(["Idle. Choose Proxy mode and click Start."]);
 
-  $("btnStart").addEventListener("click", ()=>{
-    clickMark();
-    if(timer) { logLine("Start ignored (already running)."); return; }
-    paused=false;
-    runCycle();
-    timer=setInterval(runCycle, 15000);
-    logLine("---");
-    logLine("Started (every 15s).");
-  });
+  // load any saved results on page load (so they DON'T disappear)
+  render();
+  setKpi("kMatched", saved.items.length);
 
-  $("btnRunOnce").addEventListener("click", ()=>{
-    clickMark();
-    paused=false;
-    runCycle();
-    logLine("Run once complete.");
-  });
-
-  $("btnPause").addEventListener("click", ()=>{
-    clickMark();
-    paused=!paused;
-    logLine(paused ? "Paused." : "Resumed.");
-  });
-
-  $("btnStop").addEventListener("click", ()=>{
-    clickMark();
-    clearInterval(timer);
-    timer=null;
-    paused=false;
-    logLine("Stopped.");
-  });
+  $("btnStart").addEventListener("click", startTimedRun);
+  $("btnStop").addEventListener("click", ()=>{ stopRun(); logLine("Stopped by user."); });
 
   $("btnReset").addEventListener("click", ()=>{
-    clickMark();
-    clearInterval(timer);
-    timer=null;
-    paused=false;
-    cycleNo=0;
-
-    $("query").value="";
-    $("mode").value="proxy";
-    $("strictAll").checked=true;
-    $("smartMatch").checked=true;
-    $("showNear").checked=true;
-
-    $("feeds").value=DEFAULT_FEEDS;
-    $("results").innerHTML = `<tr><td colspan="4">Reset complete.</td></tr>`;
-    $("near").innerHTML = `<tr><td colspan="3">Reset complete.</td></tr>`;
-    setKpi("kFetched",0); setKpi("kMatched",0); setKpi("kNear",0); setKpi("kErrors",0);
-    setKpi("kLast","—");
-    logReset(["Reset complete. Click Start."]);
+    stopRun();
+    fetchedTotal = 0;
+    errorTotal = 0;
+    setKpi("kFetched",0); setKpi("kErrors",0); setKpi("kLeft","—");
+    setStatus("Idle");
+    logReset(["Reset complete. Saved results are still kept unless you clear them."]);
   });
+
+  $("btnCSV").addEventListener("click", downloadCSV);
+  $("btnPrint").addEventListener("click", ()=>window.print());
+
+  $("btnClearSaved").addEventListener("click", ()=>{
+    stopRun();
+    localStorage.removeItem(STORE_KEY);
+    saved = {items:[], byLink:{}};
+    render();
+    setKpi("kMatched",0);
+    logReset(["Saved results cleared."]);
+  });
+
+  setStatus("Idle");
 });
 </script>
 
