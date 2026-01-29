@@ -1,0 +1,1392 @@
+<!-- ======================= PART 1 / 5 =======================
+5-Gear Earth-to-Orbit Launch Planner (Grounded Physics)
+- 2-stage rocket (chem / NTR / photon-assist component)
+- External assist: rotation + track (Δv) + ground beam EM push (force, power-limited)
+- Live: fuel used, thrust, TWR, drag/heat proxies, coolant, hotspot map, clocks (display frames)
+============================================================== -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>5-Gear Earth Launch Planner — External Beam + 2-Stage Rocket (Grounded)</title>
+<style>
+  :root{
+    color-scheme:dark;
+    --bg:#070b14; --panel:#0f172a; --panel2:#0b1222;
+    --ink:#e5e7eb; --muted:#9aa4c7; --line:rgba(148,163,184,.22);
+    --accent:#60a5fa; --good:#34d399; --warn:#fbbf24; --bad:#fb7185;
+    --radius:16px; --shadow:0 18px 40px rgba(0,0,0,.45);
+    --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    font-family: ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu;
+    background:radial-gradient(1200px 800px at 20% -10%,#14203b,var(--bg));
+    color:var(--ink);
+  }
+  .wrap{max-width:1600px;margin:16px auto;padding:14px}
+  .topbar{
+    display:flex;gap:12px;align-items:flex-start;justify-content:space-between;
+    padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius);
+    background:linear-gradient(180deg, rgba(15,23,42,.92), rgba(15,23,42,.72));
+    box-shadow:var(--shadow);
+  }
+  h1{margin:0;font-size:18px;letter-spacing:.2px}
+  .sub{color:var(--muted);font-size:12px;line-height:1.35;margin-top:4px;max-width:980px}
+  .btns{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+  button{
+    appearance:none;border:1px solid var(--line);background:rgba(96,165,250,.12);
+    color:var(--ink);padding:9px 12px;border-radius:12px;cursor:pointer;
+    font-weight:750;letter-spacing:.2px
+  }
+  button:hover{border-color:rgba(96,165,250,.55)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .grid{
+    margin-top:12px;
+    display:grid;
+    grid-template-columns: 1.35fr .65fr;
+    gap:12px;
+  }
+  @media(max-width:1180px){ .grid{grid-template-columns:1fr} }
+
+  .card{
+    border:1px solid var(--line);border-radius:var(--radius);
+    background:linear-gradient(180deg, rgba(15,23,42,.92), rgba(11,18,34,.88));
+    box-shadow:var(--shadow); overflow:hidden;
+  }
+  .card h2{
+    margin:0;padding:12px 14px;border-bottom:1px solid var(--line);
+    font-size:13px;letter-spacing:.25px;text-transform:uppercase;color:#cbd5e1;
+  }
+  .pad{padding:12px 14px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start}
+  .field{
+    flex:1 1 260px;
+    background:rgba(2,6,23,.55);
+    border:1px solid var(--line);
+    border-radius:14px;padding:10px 10px;
+  }
+  .field label{display:block;color:var(--muted);font-size:11px;margin-bottom:6px}
+  .field input[type="number"], .field select{
+    width:100%; background:rgba(15,23,42,.55); color:var(--ink);
+    border:1px solid rgba(148,163,184,.25); border-radius:12px;
+    padding:9px 10px; font-family:var(--mono); outline:none;
+  }
+  .tog{display:flex;align-items:center;gap:10px;margin:6px 0 0;color:var(--muted);font-size:12px}
+  .tog input{transform:scale(1.08)}
+  .kpis{display:grid;grid-template-columns:repeat(3, minmax(0,1fr));gap:10px}
+  @media(max-width:860px){ .kpis{grid-template-columns:repeat(2, minmax(0,1fr))} }
+  @media(max-width:520px){ .kpis{grid-template-columns:1fr} }
+  .kpi{
+    background:rgba(2,6,23,.55);border:1px solid var(--line);border-radius:14px;
+    padding:10px;
+  }
+  .kpi .lab{color:var(--muted);font-size:11px}
+  .kpi .val{font-family:var(--mono);font-size:13px;margin-top:6px}
+  .bar{
+    height:10px;border-radius:999px;background:rgba(148,163,184,.16);
+    overflow:hidden;border:1px solid rgba(148,163,184,.18); margin-top:8px;
+  }
+  .bar > i{display:block;height:100%;width:0%;background:rgba(96,165,250,.75)}
+  .pill{
+    display:inline-flex;align-items:center;gap:8px;
+    padding:6px 10px;border-radius:999px;
+    border:1px solid rgba(148,163,184,.25);
+    background:rgba(2,6,23,.45);
+    color:#cbd5e1;font-size:12px;
+  }
+  .pill b{color:var(--ink)}
+  .mono{font-family:var(--mono)}
+  .small{color:var(--muted);font-size:12px;line-height:1.35}
+  .warnbox{
+    border:1px solid rgba(251,191,36,.35);
+    background:rgba(251,191,36,.08);
+    border-radius:14px;padding:10px;color:#fde68a;font-size:12px;line-height:1.35;
+  }
+  .ok{color:var(--good)} .no{color:var(--bad)} .mid{color:var(--warn)}
+  .log{
+    font-family:var(--mono); font-size:12px; white-space:pre-wrap;
+    background:rgba(2,6,23,.60); border:1px solid var(--line);
+    border-radius:14px; padding:10px; max-height:260px; overflow:auto;
+  }
+
+  /* Right rocket view */
+  .viewWrap{display:grid;gap:12px}
+  canvas{
+    width:100%; height:560px;
+    background:radial-gradient(1000px 560px at 50% 30%, #0f1740 0%, #070b16 60%);
+    border-radius:14px; border:1px solid rgba(148,163,184,.22);
+  }
+
+  .table{
+    width:100%; border-collapse:separate;border-spacing:0;
+    overflow:hidden;border-radius:14px;border:1px solid var(--line);
+    background:rgba(2,6,23,.55);
+  }
+  .table th,.table td{
+    padding:9px 10px;border-bottom:1px solid rgba(148,163,184,.16);
+    font-size:12px;
+    vertical-align:top;
+  }
+  .table th{color:#cbd5e1;text-align:left;background:rgba(15,23,42,.65)}
+  .table td{color:var(--ink);font-family:var(--mono)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div>
+      <h1>5-Gear Earth Launch Planner — External Beam + 2-Stage Rocket (Grounded)</h1>
+      <div class="sub">
+        This is a <b>physics-grounded</b> launch dashboard: thrust + rocket equation + gravity + drag/heat proxies.
+        <b>Beam/magnetics</b> are modeled as <b>external infrastructure</b> (power-limited, fades quickly).
+        <b>m = E/c²</b> appears only as an <b>accounting readout</b> (photon component uses <span class="mono">F = P/c</span>, <span class="mono">ṁ = P/c²</span>).
+        Clocks (UTC/CST/Interstellar/Geodisc/Galactic) are <b>display frames</b>, not propulsion.
+      </div>
+    </div>
+    <div class="btns">
+      <button id="btnStart">Start</button>
+      <button id="btnStop" disabled>Stop</button>
+      <button id="btnReset">Reset</button>
+      <button id="btnPresetA">Preset A (Heavy-lift)</button>
+      <button id="btnCSV">Download CSV</button>
+      <button id="btnPrint">Print</button>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- LEFT -->
+    <div class="card">
+      <h2>Inputs — 2 Stages, External Assist, Cooling, Power</h2>
+      <div class="pad">
+
+        <div class="row">
+          <div class="field">
+            <label>Total liftoff mass m₀ (kg)</label>
+            <input id="m0" type="number" step="1000" value="550000"/>
+            <label style="margin-top:8px">Total dry mass m_dry (kg)</label>
+            <input id="mdry" type="number" step="1000" value="80000"/>
+            <label style="margin-top:8px">Stage-1 propellant fraction (0–1)</label>
+            <input id="stage1Frac" type="number" step="0.01" value="0.74"/>
+            <label style="margin-top:8px">Stage separation dead mass penalty (kg)</label>
+            <input id="sepPenalty" type="number" step="100" value="3500"/>
+            <div class="small">Propellant = m − m_dry. Stage-1 burns its fraction, then drops stage hardware (toy) + penalty.</div>
+          </div>
+
+          <div class="field">
+            <label>Stage 1 engine mode</label>
+            <select id="mode1">
+              <option value="chem" selected>Chemical</option>
+              <option value="ntr">NTR (hydrogen propellant)</option>
+            </select>
+            <label style="margin-top:8px">Stage 1 thrust (MN)</label>
+            <input id="thrust1MN" type="number" step="0.1" value="7.6"/>
+            <label style="margin-top:8px">Stage 1 Isp (vac) (s)</label>
+            <input id="isp1" type="number" step="1" value="330"/>
+            <div class="small">Chemical typical 300–450 s. NTR typical ~850–950 s but not sea-level optimized.</div>
+          </div>
+
+          <div class="field">
+            <label>Stage 2 engine mode</label>
+            <select id="mode2">
+              <option value="chem" selected>Chemical</option>
+              <option value="ntr">NTR (hydrogen propellant)</option>
+              <option value="photon">Photon (real math, impractical)</option>
+            </select>
+            <label style="margin-top:8px">Stage 2 thrust (MN) (chem/NTR)</label>
+            <input id="thrust2MN" type="number" step="0.05" value="1.10"/>
+            <label style="margin-top:8px">Stage 2 Isp (vac) (s)</label>
+            <input id="isp2" type="number" step="1" value="360"/>
+            <div class="small">Photon uses <span class="mono">F = P/c</span> (needs gigantic power). If thrust can’t lift, it will NO-GO.</div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label>External assist: track / mass-driver boost (m/s)</label>
+            <input id="vTrack" type="number" step="10" value="650"/>
+            <div class="tog"><input id="useTrack" type="checkbox" checked/> Use track boost (Gear 1)</div>
+
+            <label style="margin-top:10px">Launch latitude (deg) (Earth rotation boost)</label>
+            <input id="latDeg" type="number" step="0.1" value="25.7"/>
+            <div class="tog"><input id="useRot" type="checkbox" checked/> Include Earth rotation boost (eastward)</div>
+
+            <label style="margin-top:10px">Ground “beam push” (kN) (external EM infrastructure)</label>
+            <input id="beamkN" type="number" step="10" value="250"/>
+            <div class="tog"><input id="useBeam" type="checkbox" checked/> Use beam assist (Gear 2–early Gear 3)</div>
+
+            <div class="small">
+              Beam is modeled as external momentum transfer onto a conductive “pusher plate” on the rocket base.
+              It is <b>power-limited</b> and fades with altitude/time (coupling drops).
+            </div>
+          </div>
+
+          <div class="field">
+            <label>Cooling: coolant mass (kg)</label>
+            <input id="coolMass" type="number" step="10" value="6500"/>
+            <label style="margin-top:8px">Coolant capacity (kJ/kg·K)</label>
+            <input id="coolCp" type="number" step="0.1" value="4.18"/>
+
+            <label style="margin-top:10px">Available electrical power (MW) (pumps + controls + beam budget)</label>
+            <input id="pMW" type="number" step="10" value="350"/>
+
+            <label style="margin-top:8px">Photon share (%) (only matters if Stage 2 = Photon)</label>
+            <input id="pSplit" type="number" step="1" value="25"/>
+
+            <div class="small">
+              Photon thrust is tiny unless power is enormous. Mass↔energy accounting is shown:
+              <span class="mono">ṁ_eq = P/c²</span> and <span class="mono">F = P/c</span>.
+            </div>
+          </div>
+
+          <div class="field">
+            <label>Guidance: “gravity turn” start (km)</label>
+            <input id="turnStartKm" type="number" step="1" value="10"/>
+            <label style="margin-top:8px">Guidance: “gravity turn” end (km)</label>
+            <input id="turnEndKm" type="number" step="1" value="110"/>
+            <label style="margin-top:8px">Max-Q proxy limit</label>
+            <input id="qLimit" type="number" step="0.1" value="1.8"/>
+
+            <div class="warnbox" style="margin-top:10px">
+              <b>Reality constraint:</b> Time dilation does not create lift or Δv. It is an effect of speed & gravity.
+              This simulator shows it as a <b>measurement</b>, while propulsion comes from <b>momentum exchange</b>.
+            </div>
+          </div>
+        </div>
+
+        <div class="kpis" id="kpiGrid"></div>
+      </div>
+    </div>
+
+    <!-- RIGHT -->
+    <div class="viewWrap">
+      <div class="card">
+        <h2>Rocket View — Atmosphere Layers + Beam/Magnetics + Hotspots</h2>
+        <div class="pad">
+          <div class="row" style="justify-content:space-between;align-items:flex-start">
+            <div class="pill">Gear: <b id="gearOut">0</b> / 5</div>
+            <div class="pill">Stage: <b id="stageOut">0</b> / 2</div>
+            <div class="pill">Phase: <b id="phaseOut">Idle</b></div>
+            <div class="pill">t: <b id="tOut">0.0 s</b></div>
+          </div>
+
+          <canvas id="view" width="1200" height="560"></canvas>
+
+          <div class="small" style="margin-top:10px">
+            The rocket is surrounded by “magnetic field” in this sim only as a <b>control/containment proxy</b> (plasma shaping),
+            while real lift/Δv comes from thrust + external assist (track/beam).
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Run Log (Step-by-step)</h2>
+        <div class="pad">
+          <div class="log" id="logBox">Ready.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <h2>5 Gears — What the rocket is doing (GO/NO-GO gates)</h2>
+    <div class="pad">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Gear</th><th>What happens</th><th>Gate (GO / NO-GO)</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>1</td><td>External momentum setup (Earth rotation + track)</td><td>Track boost enabled OR Stage-1 TWR ≥ 1.2</td><td id="g1">—</td></tr>
+          <tr><td>2</td><td>Liftoff through dense air (beam allowed early)</td><td>TWR ≥ 1.2 and heat/max-Q below limits</td><td id="g2">—</td></tr>
+          <tr><td>3</td><td>Max-Q wall (smart throttle)</td><td>qProxy ≤ limit (throttle if needed)</td><td id="g3">—</td></tr>
+          <tr><td>4</td><td>Upper atmosphere climb + gravity turn (build vx)</td><td>Enough propellant and dvRem ≥ requirement</td><td id="g4">—</td></tr>
+          <tr><td>5</td><td>Orbit insertion (toy) (vx target + altitude)</td><td>alt ≥ 200 km AND vx ≥ 7800 m/s (toy)</td><td id="g5">—</td></tr>
+        </tbody>
+      </table>
+      <div class="small" style="margin-top:10px">
+        Notes: This is a simplified 2-D model. Drag/heating are proxies. It’s meant to be <b>consistent</b>, not high-fidelity.
+      </div>
+    </div>
+  </div>
+<!-- ======================= PART 2 / 5 =======================
+Physics helpers + State + KPI cards + CSV
+=========================================================== -->
+<script>
+const $ = (id)=>document.getElementById(id);
+function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
+function fmt(n,d=2){ return Number(n).toFixed(d); }
+function nowISO(){
+  const d=new Date(); const z=(x)=>String(x).padStart(2,"0");
+  return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}`;
+}
+
+// Constants
+const g0 = 9.80665;
+const c  = 299792458;
+const Re = 6371000;
+
+// Atmosphere proxy
+function rhoFactor(altM){
+  const H=7500;
+  return clamp(Math.exp(-altM/H), 0, 1);
+}
+function qProxy(rhoF, v){ return 0.5 * rhoF * Math.pow(v/1000,2); }      // unitless-ish
+function heatProxy(rhoF, v){ return rhoF * Math.pow(v/1000,3); }         // unitless-ish
+
+// Earth rotation boost (eastward component)
+function earthRotBoostMS(latDeg){
+  const lat = latDeg * Math.PI/180;
+  const vEq = 465.1;
+  return vEq * Math.cos(lat);
+}
+
+// Gravity with altitude
+function gAtAlt(alt){ return g0 * Math.pow(Re/(Re+alt), 2); }
+
+// Rocket equation (remaining ideal dv from current mass to dry)
+function idealDvRemaining(m, mdry, isp){
+  const mp = Math.max(0, m - mdry);
+  if(mp<=0 || m<=0 || mdry<=0) return 0;
+  const ve = isp * g0;
+  return ve * Math.log(m/mdry);
+}
+
+// Proper-time drift rate (display only; tiny)
+function dTauOverDt(v, alt){
+  // dτ/dt ≈ 1 - v^2/(2c^2) + Φ/c^2 (weak-field approx; tiny)
+  const sr = 1 - (v*v)/(2*c*c);
+  const phi0 = -6.26e7;              // J/kg (approx)
+  const phi  = phi0 * (Re/(Re+alt)); // less negative with altitude
+  const gr = 1 + (phi/(c*c));
+  return sr * gr;
+}
+
+// Display-frame clocks (NOT propulsion)
+function formatTime(d, tz){
+  return d.toLocaleTimeString('en-US',{hour12:false,timeZone:tz});
+}
+function frameClock(baseMs, rate=1, offsetMs=0){
+  // returns ms in that “display frame”
+  return baseMs*rate + offsetMs;
+}
+
+// Engine models
+function thrustFromPower(Pw){ return Pw / c; }      // F = P/c
+function mdotEqFromPower(Pw){ return Pw / (c*c); }  // m = E/c^2 => mdot = P/c^2
+
+function massFlow(thrust, isp){
+  const ve = isp*g0;
+  if(ve<=0) return 0;
+  return thrust / ve;
+}
+
+// Build KPI cards
+function buildKPIs(){
+  const g = $("kpiGrid");
+  g.innerHTML = "";
+  const cards = [
+    ["Altitude (km)","alt","Height above Earth"],
+    ["vx (m/s)","vx","Horizontal speed"],
+    ["vy (m/s)","vy","Vertical speed"],
+    ["Speed |v| (m/s)","v","Magnitude"],
+    ["Pitch (deg)","pitch","Thrust direction (90°=up, 0°=east)"],
+    ["Mass (kg)","m","Total remaining mass"],
+    ["Prop1 left (kg)","p1","Stage-1 prop left"],
+    ["Prop2 left (kg)","p2","Stage-2 prop left"],
+    ["TWR","twr","(Thrust+beam) / Weight"],
+    ["dvRem (m/s)","dvrem","Ideal remaining Δv (current stage isp)"],
+    ["Max-Q proxy","maxq","qProxy (keep under limit)"],
+    ["Heat proxy","heat","Drives hotspots + coolant"],
+    ["Coolant temp (°C)","tcool","Boiloff above ~95°C (toy)"],
+    ["Coolant left (kg)","cool","Thermal margin"],
+    ["Beam force (kN)","beam","External push (early only)"],
+    ["Beam power est (MW)","beamp","≈F·v / η (toy)"],
+    ["Mag field proxy (T)","B","Control/containment proxy"],
+    ["Photon thrust (N)","phF","If Stage-2 photon active"],
+    ["ṁ_eq from power (mg/s)","meq","m=E/c² accounting (photon)"],
+    ["UTC","utc","Wall clock UTC"],
+    ["Local (Monterrey)","local","Local time (display)"],
+    ["CST (Cosmic Sync)","cst","Display frame"],
+    ["Interstellar","is","Display frame"],
+    ["Geodisc","geo","Display frame"],
+    ["Galactic","gal","Display frame"],
+    ["Δτ drift (μs)","tau","Proper time drift (tiny)"],
+  ];
+  for(const [lab,id,tip] of cards){
+    const d=document.createElement("div");
+    d.className="kpi";
+    d.innerHTML = `
+      <div class="lab">${lab}</div>
+      <div class="val mono" id="k_${id}">—</div>
+      <div class="small">${tip}</div>
+      <div class="bar"><i id="b_${id}"></i></div>
+    `;
+    g.appendChild(d);
+  }
+}
+buildKPIs();
+
+// CSV
+let csvRows=[];
+function csvHeader(){
+  csvRows=[];
+  csvRows.push([
+    "time_s","gear","stage","phase",
+    "alt_m","x_m","vx","vy","v",
+    "pitch_deg","mass_kg","p1_kg","p2_kg",
+    "thrust_N","beam_N","twr","isp_s",
+    "q_proxy","heat_proxy","cool_kg","coolC",
+    "noseC","skinC","baseC",
+    "B_T","beamMW","photonN","mdotEq_mg_s",
+    "tau_us","note"
+  ].join(","));
+}
+function csvAdd(S){
+  const row = [
+    fmt(S.t,1), S.gear, S.stage, `"${S.phase}"`,
+    Math.round(S.alt), Math.round(S.x), Math.round(S.vx), Math.round(S.vy), Math.round(S.v),
+    fmt(S.pitchDeg,1),
+    Math.round(S.m), Math.round(S.p1), Math.round(S.p2),
+    Math.round(S.thrust), Math.round(S.beamN), fmt(S.twr,3), fmt(S.isp,1),
+    fmt(S.q,4), fmt(S.heat,4),
+    Math.round(S.coolMass), fmt(S.coolC,1),
+    fmt(S.noseC,1), fmt(S.skinC,1), fmt(S.baseC,1),
+    fmt(S.B,4), fmt(S.beamMW,2), Math.round(S.photonN), fmt(S.mdotEq_mg_s,2),
+    fmt(S.tauUS,3),
+    `"${(S.note||"").replaceAll('"','""')}"`
+  ].join(",");
+  csvRows.push(row);
+}
+
+// State
+const S = {
+  running:false,
+  t:0, dt:0.2,
+  gear:0, stage:0,
+  phase:"IDLE",
+  // kinematics (2-D)
+  alt:0, x:0,
+  vx:0, vy:0, v:0,
+  pitchDeg:90,
+
+  // masses
+  m0:0, mdry:0,
+  m:0,
+  p1:0, p2:0,
+  stage1Prop0:0, stage2Prop0:0,
+
+  // engines
+  mode1:"chem", mode2:"chem",
+  thrust1:0, thrust2:0,
+  isp1:330, isp2:360,
+
+  // forces/power
+  thrust:0, isp:0,
+  beamN:0, beamMW:0,
+  B:0,
+  photonN:0, mdotEq_mg_s:0,
+
+  // environment
+  q:0, heat:0,
+  twr:0,
+  dvRem:0,
+
+  // thermal/hotspots
+  coolMass:0, coolCp:4.18, coolC:20,
+  noseC:25, skinC:25, baseC:25,
+
+  // time dilation display
+  tauUS:0,
+
+  // flags
+  appliedGear1:false,
+  separated:false,
+  go:{g1:false,g2:false,g3:false,g4:false,g5:false},
+  note:""
+};
+
+// Logging + gates
+function pushLog(s){
+  const line = `[${nowISO()}] ${s}`;
+  const box=$("logBox");
+  box.textContent = (box.textContent==="Ready." ? "" : box.textContent+"\n") + line;
+  box.scrollTop = box.scrollHeight;
+}
+function setGate(id, ok){
+  const el=$(id);
+  if(!el) return;
+  el.textContent = ok ? "GO" : "NO-GO";
+  el.className = ok ? "ok" : "no";
+}
+function updateGateTable(){
+  setGate("g1", S.go.g1);
+  setGate("g2", S.go.g2);
+  setGate("g3", S.go.g3);
+  setGate("g4", S.go.g4);
+  setGate("g5", S.go.g5);
+}
+
+// Read inputs
+function readInputs(){
+  const m0 = Number($("m0").value);
+  const mdry = Number($("mdry").value);
+  const stage1Frac = clamp(Number($("stage1Frac").value), 0.05, 0.95);
+  const sepPenalty = Math.max(0, Number($("sepPenalty").value));
+
+  const mode1 = $("mode1").value;
+  const mode2 = $("mode2").value;
+
+  const thrust1MN = Math.max(0, Number($("thrust1MN").value));
+  const thrust2MN = Math.max(0, Number($("thrust2MN").value));
+  let isp1 = Math.max(1, Number($("isp1").value));
+  let isp2 = Math.max(1, Number($("isp2").value));
+
+  // NTR default-ish if user leaves low
+  if(mode1==="ntr" && isp1 < 600) isp1 = 900;
+  if(mode2==="ntr" && isp2 < 600) isp2 = 900;
+
+  const useTrack = $("useTrack").checked;
+  const vTrack = Number($("vTrack").value);
+
+  const useRot = $("useRot").checked;
+  const latDeg = Number($("latDeg").value);
+
+  const useBeam = $("useBeam").checked;
+  const beamkN = Math.max(0, Number($("beamkN").value));
+
+  const coolMass = Math.max(0, Number($("coolMass").value));
+  const coolCp   = Math.max(0.1, Number($("coolCp").value));
+
+  const pMW   = Math.max(0, Number($("pMW").value));
+  const pSplit= clamp(Number($("pSplit").value), 0, 100);
+
+  const turnStartKm = Math.max(0, Number($("turnStartKm").value));
+  const turnEndKm   = Math.max(turnStartKm+1, Number($("turnEndKm").value));
+  const qLimit      = Math.max(0.1, Number($("qLimit").value));
+
+  return {
+    m0, mdry, stage1Frac, sepPenalty,
+    mode1, mode2,
+    thrust1MN, thrust2MN, isp1, isp2,
+    useTrack, vTrack,
+    useRot, latDeg,
+    useBeam, beamkN,
+    coolMass, coolCp,
+    pMW, pSplit,
+    turnStartKm, turnEndKm,
+    qLimit
+  };
+}
+</script>
+<!-- ======================= PART 3 / 5 =======================
+Simulation loop: staging + guidance + external beam (power-limited) + GO/NO-GO
+=========================================================== -->
+<script>
+function resetSim(){
+  const I = readInputs();
+  S.running=false;
+  S.t=0; S.alt=0; S.x=0; S.vx=0; S.vy=0; S.v=0;
+  S.gear=0; S.stage=0; S.phase="IDLE";
+  S.pitchDeg=90;
+
+  S.m0=I.m0; S.mdry=I.mdry; S.m=I.m0;
+  S.mode1=I.mode1; S.mode2=I.mode2;
+  S.thrust1=I.thrust1MN*1e6;
+  S.thrust2=I.thrust2MN*1e6;
+  S.isp1=I.isp1; S.isp2=I.isp2;
+
+  const propTot = Math.max(0, I.m0 - I.mdry);
+  S.stage1Prop0 = propTot * I.stage1Frac;
+  S.stage2Prop0 = propTot - S.stage1Prop0;
+  S.p1 = S.stage1Prop0;
+  S.p2 = S.stage2Prop0;
+
+  S.thrust=0; S.isp=0;
+  S.beamN=0; S.beamMW=0;
+  S.B=0;
+  S.photonN=0; S.mdotEq_mg_s=0;
+
+  S.q=0; S.heat=0; S.twr=0; S.dvRem=0;
+
+  S.coolMass=I.coolMass; S.coolCp=I.coolCp; S.coolC=20;
+  S.noseC=25; S.skinC=25; S.baseC=25;
+
+  S.tauUS=0;
+  S.appliedGear1=false;
+  S.separated=false;
+  S.go={g1:false,g2:false,g3:false,g4:false,g5:false};
+  S.note="";
+
+  $("btnStart").disabled=false;
+  $("btnStop").disabled=true;
+  $("gearOut").textContent="0";
+  $("stageOut").textContent="0";
+  $("phaseOut").textContent="Idle";
+  $("tOut").textContent="0.0 s";
+  $("logBox").textContent="Ready.";
+  csvHeader();
+  updateUI();
+  updateGateTable();
+  draw();
+}
+
+function startSim(){
+  if(S.running) return;
+  S.running=true;
+  $("btnStart").disabled=true;
+  $("btnStop").disabled=false;
+  pushLog("Start. Gear 1: apply Earth rotation + optional track boost.");
+}
+function stopSim(){
+  S.running=false;
+  $("btnStart").disabled=false;
+  $("btnStop").disabled=true;
+  pushLog("Stopped.");
+}
+
+function computePitchDeg(altM, turnStartKm, turnEndKm){
+  // 90° up -> 0° east by turnEnd
+  const a0 = turnStartKm*1000;
+  const a1 = turnEndKm*1000;
+  if(altM <= a0) return 90;
+  if(altM >= a1) return 0;
+  const t = (altM - a0) / (a1 - a0);
+  // ease
+  const e = t*t*(3-2*t);
+  return 90*(1-e);
+}
+
+function currentStage(){
+  // Stage 1 until it runs out or separation trigger, then stage 2
+  if(!S.separated) return 1;
+  return 2;
+}
+
+function stageSeparation(I){
+  if(S.separated) return;
+  S.separated=true;
+  S.stage=2;
+  // Drop a toy amount of stage hardware + penalty.
+  // We don’t have separate dry masses; we approximate stage-1 hardware as a fraction of dry.
+  const stage1Hardware = S.mdry * 0.55;
+  const drop = stage1Hardware + I.sepPenalty;
+  S.m = Math.max(S.mdry*0.45, S.m - drop);
+  pushLog(`Stage separation: dropped ~${Math.round(drop)} kg (stage hardware + penalty). Stage 2 ignition.`);
+}
+
+function computeEngine(I){
+  const st = currentStage();
+  if(st===1){
+    S.stage=1;
+    S.isp = S.isp1;
+    S.thrust = S.thrust1;
+    return;
+  }
+  // Stage 2
+  S.stage=2;
+  if(I.mode2==="photon"){
+    // Photon thrust from a share of available power
+    const Pw = (I.pMW*1e6) * (I.pSplit/100);
+    const Fp = thrustFromPower(Pw);
+    S.photonN = Fp;
+    S.mdotEq_mg_s = mdotEqFromPower(Pw) * 1e6; // kg/s -> mg/s
+    S.isp = 1e12;      // not used for photon dv like a rocket in this toy
+    S.thrust = Fp;     // pure photon thrust
+  } else {
+    S.photonN = 0;
+    S.mdotEq_mg_s = 0;
+    S.isp = S.isp2;
+    S.thrust = S.thrust2;
+  }
+}
+
+function computeBeamAssist(I){
+  // Beam is external “push” on a base plate: limited by coupling + power.
+  // Coupling fades with altitude/time and with decreasing atmospheric density (line-of-sight & plasma/air coupling proxy).
+  if(!I.useBeam){ S.beamN=0; S.beamMW=0; return; }
+
+  const alt = S.alt;
+  const t   = S.t;
+
+  // Only early: roughly first 120s and below 25 km
+  const timeFade = clamp(1 - t/120, 0, 1);
+  const altFade  = clamp(1 - alt/25000, 0, 1);
+  const rhoFade  = clamp(rhoFactor(alt), 0, 1);
+
+  // Overall coupling
+  const eta = 0.55; // toy efficiency coupling
+  const coupling = timeFade * altFade * (0.35 + 0.65*rhoFade);
+
+  const Fmax = I.beamkN*1000; // N
+  const F = Fmax * coupling;
+
+  // Power estimate ~ F * speed / eta, with speed limited so it doesn't blow up at v=0.
+  const vEff = Math.max(60, S.v);
+  const P = (F * vEff) / Math.max(0.15, eta); // W
+  const PMW = P/1e6;
+
+  // Power-limited by available MW (beam budget is the non-photon share)
+  const beamBudgetMW = I.pMW * (I.mode2==="photon" ? (1 - I.pSplit/100) : 1);
+  const limit = Math.max(0, beamBudgetMW);
+
+  let scale = 1;
+  if(PMW > limit && PMW>0) scale = limit/PMW;
+
+  S.beamN  = F * scale;
+  S.beamMW = PMW * scale;
+
+  // “Mag field proxy” (control/containment): grow with beam current proxy and thrust power proxy (display only)
+  // B ~ k * sqrt(P) * coupling
+  const B = 0.00018 * Math.sqrt(Math.max(0, S.beamMW*1e6)) * coupling; // Tesla-ish proxy
+  S.B = clamp(B, 0, 8); // keep readable
+}
+
+function updateGO(I){
+  // Determine gear by altitude bands (like your original, but uses vx/vy)
+  if(S.phase==="IDLE"){ S.gear=0; return; }
+  if(S.alt < 12000) S.gear = 2;
+  else if(S.alt < 50000) S.gear = 3;
+  else if(S.alt < 100000) S.gear = 4;
+  else S.gear = 5;
+
+  const g = gAtAlt(S.alt);
+  const weight = S.m * g;
+
+  const totalLiftLike = S.thrust + S.beamN; // both act along rocket axis; we use them in TWR
+  const twr = totalLiftLike / Math.max(1, weight);
+  S.twr = twr;
+
+  const g1 = (I.useTrack && I.vTrack>0) || (twr >= 1.2);
+  const g2 = (twr >= 1.2) && (S.heat <= 2.0) && (S.q <= 2.0);
+  const g3 = (S.q <= I.qLimit);
+
+  // dv remaining uses current Isp for stage 1/2 (photon is effectively "no dv" unless insane power)
+  const dvRem = (I.mode2==="photon" && currentStage()===2) ? 0 : idealDvRemaining(S.m, Math.max(1, S.m - (currentStage()===1 ? S.p1 : S.p2) ), S.isp);
+  // Simpler: show remaining dv from current stage prop only
+  const ve = S.isp*g0;
+  const mDryEffective = Math.max(1, S.m - (currentStage()===1 ? S.p1 : S.p2));
+  S.dvRem = ve>0 ? ve*Math.log(Math.max(1, S.m)/mDryEffective) : 0;
+
+  const g4 = (S.dvRem >= 2400) && (S.m > mDryEffective + 50);
+
+  // Orbit condition (toy): altitude and horizontal speed
+  const g5 = (S.alt >= 200000) && (S.vx >= 7800);
+
+  S.go={g1,g2,g3,g4,g5};
+}
+
+function applyGear1Boosts(I){
+  if(S.appliedGear1) return;
+  let dvx = 0;
+
+  if(I.useRot){
+    const rot = earthRotBoostMS(I.latDeg);
+    dvx += rot;
+    pushLog(`Gear 1: Earth rotation eastward boost +${fmt(rot,1)} m/s (vx).`);
+  }
+  if(I.useTrack){
+    dvx += I.vTrack;
+    pushLog(`Gear 1: Track/mass-driver boost +${fmt(I.vTrack,0)} m/s (vx).`);
+  }
+
+  S.vx += dvx;
+  S.appliedGear1=true;
+}
+
+function burnPropellant(thrustN, ispS, dt, stage){
+  // Use prop of current stage
+  if(thrustN<=0) return {used:0, dv:0};
+
+  const ve = ispS*g0;
+  if(ve<=0) return {used:0, dv:0};
+
+  const mdot = thrustN / ve;
+  const dmReq = mdot * dt;
+
+  if(stage===1){
+    const used = Math.min(dmReq, S.p1);
+    if(used<=0) return {used:0,dv:0};
+    const mBefore = S.m;
+    S.p1 -= used;
+    S.m  -= used;
+    const dv = ve * Math.log(mBefore/Math.max(1, S.m));
+    return {used, dv};
+  } else {
+    // Stage 2
+    if(readInputs().mode2==="photon"){
+      // Photon: no propellant burn (thrust is power-based)
+      return {used:0, dv:0};
+    }
+    const used = Math.min(dmReq, S.p2);
+    if(used<=0) return {used:0,dv:0};
+    const mBefore = S.m;
+    S.p2 -= used;
+    S.m  -= used;
+    const dv = ve * Math.log(mBefore/Math.max(1, S.m));
+    return {used, dv};
+  }
+}
+
+function stepOnce(){
+  if(!S.running) return;
+  const I = readInputs();
+
+  if(S.t===0 && S.phase==="IDLE"){
+    S.phase="GEAR1_INIT";
+    pushLog("Gear 1 init: external momentum setup (rotation + track).");
+  }
+
+  // Apply Gear 1 once
+  applyGear1Boosts(I);
+
+  // Determine stage / engine
+  computeEngine(I);
+
+  // Environment
+  S.v = Math.hypot(S.vx, S.vy);
+  const rf = rhoFactor(S.alt);
+  S.q = qProxy(rf, S.v);
+  S.heat = heatProxy(rf, S.v);
+
+  // Beam assist (external)
+  computeBeamAssist(I);
+
+  // Guidance / pitch
+  S.pitchDeg = computePitchDeg(S.alt, I.turnStartKm, I.turnEndKm);
+  const pitch = S.pitchDeg * Math.PI/180;
+  const ux = Math.cos(pitch); // 0°=east => ux=1
+  const uy = Math.sin(pitch); // 90°=up  => uy=1
+
+  // GO/NO-GO & throttle
+  updateGO(I);
+
+  let throttle = 1.0;
+  if(S.gear===2 && !S.go.g2) throttle = 0.72;
+  if(S.gear===3 && !S.go.g3) throttle = 0.45; // maxQ throttle
+  if(S.gear>=4 && !S.go.g4) throttle = 0.0;
+
+  // Photon liftoff sanity
+  if(currentStage()===2 && I.mode2==="photon"){
+    const g = gAtAlt(S.alt);
+    const weight = S.m*g;
+    if((S.thrust + S.beamN) / Math.max(1, weight) < 1.0 && S.alt < 3000){
+      throttle = 0.0;
+      S.note = "NO-GO: photon thrust too low for liftoff (needs enormous power).";
+    }
+  }
+
+  // Stage separation trigger: if stage-1 prop depleted OR above ~60 km
+  if(!S.separated && (S.p1 <= 1 || S.alt >= 60000)){
+    stageSeparation(I);
+  }
+
+  // Apply thrust (scaled by throttle)
+  const thrustEff = S.thrust * throttle;
+  const stage = currentStage();
+
+  // Rocket dv (from expelling mass) — applies along thrust direction
+  const burn = burnPropellant(thrustEff, S.isp, S.dt, stage);
+
+  // Convert dv to velocity components
+  S.vx += burn.dv * ux;
+  S.vy += burn.dv * uy;
+
+  // Beam adds acceleration along same axis (external push, no propellant)
+  const aBeam = (S.beamN * throttle) / Math.max(1, S.m);
+  S.vx += (aBeam * ux) * S.dt;
+  S.vy += (aBeam * uy) * S.dt;
+
+  // Gravity + drag
+  const g = gAtAlt(S.alt);
+  S.vy -= g * S.dt;
+
+  // Drag (toy): opposes motion, scales with rho and v^2
+  const v = Math.hypot(S.vx, S.vy);
+  const CdA_over_m = 0.00000055; // toy coefficient
+  const aDrag = rf * CdA_over_m * v*v;
+  if(v>1e-6){
+    S.vx -= (aDrag * (S.vx/v)) * S.dt;
+    S.vy -= (aDrag * (S.vy/v)) * S.dt;
+  }
+
+  // Integrate position
+  S.x   += S.vx * S.dt;
+  S.alt += Math.max(-200, S.vy) * S.dt; // allow slight down but clamp
+  S.alt = Math.max(0, S.alt);
+
+  // Thermal + hotspots (toy but consistent): nose sees heat and q; base sees plume/beam; skin sees both
+  const heatKW = S.heat * 8000;           // toy mapping
+  const qKW    = S.q * 2500;              // toy mapping
+  const baseKW = (thrustEff/1e6)*180 + (S.beamN/1e3)*0.08; // toy plume + beam coupling heating
+  const noseLoad = heatKW*0.55 + qKW*0.35;
+  const skinLoad = heatKW*0.35 + qKW*0.25;
+  const baseLoad = baseKW;
+
+  function applyThermal(node, kW){
+    const dE_kJ = kW * S.dt;
+    // If coolant exists, it removes a portion depending on remaining coolant and “plumbing”
+    const coolAbility = (S.coolMass>0) ? clamp(S.coolMass/6000, 0.2, 1.0) : 0.0;
+    const removed_kJ = dE_kJ * 0.55 * coolAbility;
+    const net_kJ = Math.max(0, dE_kJ - removed_kJ);
+
+    // Temperature rise proxy
+    const dT = net_kJ / 420; // toy heat capacity for that node
+    return node + dT;
+  }
+
+  S.noseC = applyThermal(S.noseC, noseLoad);
+  S.skinC = applyThermal(S.skinC, skinLoad);
+  S.baseC = applyThermal(S.baseC, baseLoad);
+
+  // Coolant heats up + boiloff
+  const totalLoadKW = noseLoad + skinLoad + baseLoad;
+  const dE_kJ = totalLoadKW * S.dt * 0.45; // portion routed into coolant
+  if(S.coolMass>0){
+    const dT = dE_kJ / Math.max(1, S.coolMass * S.coolCp);
+    S.coolC += dT;
+    if(S.coolC > 95){
+      const boil = clamp((S.coolC-95)*0.02, 0, 3.0) * S.dt;
+      const lost = Math.min(boil, S.coolMass);
+      S.coolMass -= lost;
+      S.coolC -= lost>0 ? 0.12 : 0;
+    }
+  } else {
+    S.coolC = Math.min(350, S.coolC + 0.08*S.heat);
+  }
+
+  // Proper-time drift (display only)
+  const rate = dTauOverDt(Math.hypot(S.vx,S.vy), S.alt);
+  const dTau = (rate - 1) * S.dt;
+  S.tauUS += dTau * 1e6;
+
+  // Phase label
+  S.phase = (
+    S.gear===2 ? "Liftoff + Dense Air (beam allowed)" :
+    S.gear===3 ? "Max-Q Wall (throttle)" :
+    S.gear===4 ? "Upper Atmosphere (build vx)" :
+    S.gear===5 ? "Orbit Insert (toy)" :
+    "Gear 1 Init"
+  );
+
+  // Finish
+  if(S.go.g5){
+    pushLog("Gear 5 GO: toy LEO condition achieved (alt≥200 km, vx≥7800 m/s).");
+    S.running=false;
+    $("btnStart").disabled=false;
+    $("btnStop").disabled=true;
+  }
+
+  // CSV every 1 second
+  S.t += S.dt;
+  if(Math.abs((S.t % 1.0) - 0) < S.dt) csvAdd(S);
+}
+
+let timer=null;
+function runLoop(){
+  if(timer) clearInterval(timer);
+  timer=setInterval(()=>{
+    // multiple substeps for stability
+    for(let i=0;i<3;i++) stepOnce();
+    updateUI();
+    draw();
+    updateGateTable();
+  }, 60);
+}
+</script>
+<!-- ======================= PART 4 / 5 =======================
+Rendering: atmosphere bands + rocket + beam + magnetic field + hotspot zones + labels
+=========================================================== -->
+<script>
+const canvas = $("view");
+const ctx = canvas.getContext("2d");
+
+function drawAtmosphereScale(){
+  const W=canvas.width, H=canvas.height;
+  const altMax = 220000;
+  const yFromAlt = (alt)=> H - clamp(alt/altMax,0,1)*H;
+
+  const bands = [
+    {alt:0,      name:"Sea level"},
+    {alt:12000,  name:"Tropopause 12 km"},
+    {alt:50000,  name:"Stratopause 50 km"},
+    {alt:85000,  name:"Mesopause 85 km"},
+    {alt:100000, name:"Kármán 100 km"},
+    {alt:200000, name:"Toy LEO 200 km"}
+  ];
+
+  ctx.save();
+  ctx.font="11px ui-monospace,Menlo,Consolas";
+  ctx.fillStyle="rgba(229,231,235,.18)";
+  ctx.strokeStyle="rgba(148,163,184,.22)";
+  ctx.lineWidth=1;
+
+  for(const b of bands){
+    const y=yFromAlt(b.alt);
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+    ctx.fillText(b.name, 12, y-6);
+  }
+  ctx.restore();
+
+  return yFromAlt;
+}
+
+function hotColor(tempC){
+  // simple mapping
+  if(tempC < 80) return "rgba(96,165,250,.35)";   // cool
+  if(tempC < 140) return "rgba(251,191,36,.45)";  // warm
+  return "rgba(251,113,133,.55)";                 // hot
+}
+
+function drawBeamUnderRocket(x, y, flame){
+  // beam looks like a column of light from ground to base, only early.
+  const beam = clamp(S.beamN/300000, 0, 1);
+  if(beam<=0.01) return;
+
+  ctx.save();
+  ctx.globalAlpha = 0.35 + 0.55*beam;
+  const grad = ctx.createLinearGradient(x, canvas.height, x, y+40);
+  grad.addColorStop(0, "rgba(96,165,250,.00)");
+  grad.addColorStop(0.2, "rgba(96,165,250,.45)");
+  grad.addColorStop(1, "rgba(255,220,168,.55)");
+  ctx.fillStyle=grad;
+  const w = 26 + beam*30;
+  ctx.fillRect(x-w/2, y+40, w, canvas.height-(y+40));
+  ctx.globalAlpha = 1;
+  ctx.restore();
+
+  // “magnetic lightning” arcs around rocket base (visual proxy only)
+  ctx.save();
+  ctx.globalAlpha = 0.18 + 0.25*beam;
+  ctx.strokeStyle="rgba(51,225,181,.85)";
+  ctx.lineWidth=1.2;
+  for(let i=0;i<6;i++){
+    const a = (performance.now()*0.002 + i)*Math.PI/3;
+    const rx = 28 + 18*beam;
+    const ry = 40 + 22*beam;
+    ctx.beginPath();
+    ctx.moveTo(x + Math.cos(a)*rx, y + 40 + Math.sin(a)*ry);
+    ctx.lineTo(x + Math.cos(a+0.6)*rx*0.6, y + 40 + Math.sin(a+0.6)*ry*0.6);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawMagField(x, y, strengthT){
+  // rings around rocket (proxy, not thrust)
+  const s = clamp(strengthT/3.5, 0, 1);
+  if(s<=0.01) return;
+  ctx.save();
+  ctx.strokeStyle = "rgba(51,225,181,.28)";
+  ctx.lineWidth = 2;
+  for(let i=0;i<5;i++){
+    const rx = 40 + i*12 + s*25;
+    const ry = 90 + i*10 + s*18;
+    ctx.beginPath();
+    ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI*2);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawRocket(yFromAlt){
+  const W=canvas.width;
+  const y = yFromAlt(S.alt);
+  const x = Math.round(W*0.72);
+
+  const bodyH = 140;
+  const bodyW = 38;
+
+  const thrustRef = 8e6;
+  const flame = clamp((S.thrust)/thrustRef, 0, 1);
+
+  // beam under rocket
+  drawBeamUnderRocket(x, y, flame);
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  // draw magnetic field rings centered on rocket (proxy)
+  drawMagField(0, 0, S.B);
+
+  // hotspots (colored overlays)
+  // nose (top)
+  ctx.fillStyle = hotColor(S.noseC);
+  ctx.beginPath();
+  ctx.roundRect(-bodyW/2, -bodyH/2-30, bodyW, 40, 10);
+  ctx.fill();
+
+  // skin (mid)
+  ctx.fillStyle = hotColor(S.skinC);
+  ctx.beginPath();
+  ctx.roundRect(-bodyW/2, -bodyH/2+10, bodyW, bodyH-20, 10);
+  ctx.fill();
+
+  // base (bottom)
+  ctx.fillStyle = hotColor(S.baseC);
+  ctx.beginPath();
+  ctx.roundRect(-bodyW/2, bodyH/2-20, bodyW, 28, 10);
+  ctx.fill();
+
+  // flame from rocket engine (not beam)
+  if(flame>0.01){
+    ctx.globalAlpha = 0.8;
+    ctx.fillStyle = "rgba(255,220,168,.65)";
+    ctx.beginPath();
+    ctx.moveTo(-12, bodyH/2);
+    ctx.lineTo(12, bodyH/2);
+    ctx.lineTo(0, bodyH/2 + 45 + flame*85);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // rocket body outline
+  ctx.fillStyle="rgba(203,213,225,.65)";
+  ctx.strokeStyle="rgba(148,163,184,.35)";
+  ctx.lineWidth=2;
+  ctx.beginPath();
+  ctx.roundRect(-bodyW/2, -bodyH/2, bodyW, bodyH, 12);
+  ctx.fill(); ctx.stroke();
+
+  // nose cone
+  ctx.fillStyle="rgba(96,165,250,.55)";
+  ctx.beginPath();
+  ctx.moveTo(-bodyW/2, -bodyH/2+12);
+  ctx.lineTo(bodyW/2, -bodyH/2+12);
+  ctx.lineTo(0, -bodyH/2-28);
+  ctx.closePath();
+  ctx.fill();
+
+  // status tag
+  ctx.fillStyle="rgba(2,6,23,.75)";
+  ctx.strokeStyle="rgba(148,163,184,.28)";
+  ctx.lineWidth=1;
+  ctx.beginPath();
+  ctx.roundRect(-150, -bodyH/2-70, 300, 46, 12);
+  ctx.fill(); ctx.stroke();
+
+  ctx.fillStyle="#e5e7eb";
+  ctx.font="12px ui-monospace,Menlo,Consolas";
+  ctx.textAlign="center"; ctx.textBaseline="middle";
+  ctx.fillText(`Gear ${S.gear} | Stage ${S.stage} | alt ${(S.alt/1000).toFixed(1)} km`, 0, -bodyH/2-51);
+  ctx.fillText(`vx ${Math.round(S.vx)} m/s | vy ${Math.round(S.vy)} m/s | TWR ${fmt(S.twr,2)}`, 0, -bodyH/2-33);
+
+  // labels on rocket hotspots
+  ctx.font="11px ui-monospace,Menlo,Consolas";
+  ctx.textAlign="left";
+  ctx.fillStyle="rgba(229,231,235,.9)";
+  ctx.fillText(`Nose ${fmt(S.noseC,0)}°C`, bodyW/2+10, -bodyH/2-12);
+  ctx.fillText(`Skin ${fmt(S.skinC,0)}°C`, bodyW/2+10, -2);
+  ctx.fillText(`Base ${fmt(S.baseC,0)}°C`, bodyW/2+10, bodyH/2-6);
+
+  ctx.restore();
+}
+
+function drawHUD(){
+  // Left HUD area
+  ctx.save();
+  ctx.fillStyle="rgba(229,231,235,.92)";
+  ctx.font="12px ui-monospace,Menlo,Consolas";
+  ctx.textAlign="left";
+
+  const I = readInputs();
+  const status = (S.gear===0) ? "—" :
+    (S.gear===2 ? (S.go.g2?"GO":"NO-GO") :
+     S.gear===3 ? (S.go.g3?"GO":"NO-GO") :
+     S.gear===4 ? (S.go.g4?"GO":"NO-GO") :
+     S.gear===5 ? (S.go.g5?"GO":"NO-GO") : (S.go.g1?"GO":"NO-GO"));
+
+  ctx.fillStyle = (status==="GO") ? "rgba(52,211,153,.95)" :
+                  (status==="NO-GO") ? "rgba(251,113,133,.95)" :
+                  "rgba(251,191,36,.85)";
+  ctx.beginPath(); ctx.roundRect(14, 14, 132, 28, 12); ctx.fill();
+
+  ctx.fillStyle="#0b1020";
+  ctx.fillText(`STATUS: ${status}`, 24, 34);
+
+  ctx.fillStyle="rgba(229,231,235,.92)";
+  ctx.fillText(`Phase: ${S.phase}`, 14, 70);
+  ctx.fillText(`Pitch: ${fmt(S.pitchDeg,1)}° (turn program)`, 14, 90);
+
+  ctx.fillText(`qProxy: ${fmt(S.q,3)} (limit ${fmt(I.qLimit,1)}) | heat: ${fmt(S.heat,3)}`, 14, 112);
+  ctx.fillText(`Coolant: ${fmt(S.coolC,1)}°C | ${Math.round(S.coolMass)} kg`, 14, 132);
+
+  ctx.fillText(`Beam: ${Math.round(S.beamN/1000)} kN | Power est: ${fmt(S.beamMW,1)} MW | B proxy: ${fmt(S.B,2)} T`, 14, 154);
+
+  if(I.mode2==="photon"){
+    ctx.fillText(`Photon: F=${Math.round(S.photonN)} N | ṁ_eq=${fmt(S.mdotEq_mg_s,2)} mg/s (m=E/c²)`, 14, 176);
+  } else {
+    ctx.fillText(`Engines: thrust=${Math.round(S.thrust/1000)} kN | isp=${fmt(S.isp,1)} s`, 14, 176);
+  }
+
+  ctx.fillText(`Δτ drift: ${fmt(S.tauUS,3)} μs (display-only)`, 14, 198);
+
+  ctx.restore();
+}
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // vertical line showing “rocket column”
+  ctx.save();
+  ctx.strokeStyle="rgba(148,163,184,.16)";
+  ctx.beginPath();
+  ctx.moveTo(canvas.width*0.72, 0);
+  ctx.lineTo(canvas.width*0.72, canvas.height);
+  ctx.stroke();
+  ctx.restore();
+
+  const yFromAlt = drawAtmosphereScale();
+  drawHUD();
+  drawRocket(yFromAlt);
+}
+</script>
+<!-- ======================= PART 5 / 5 =======================
+UI update + buttons + presets + clocks + explanation log
+=========================================================== -->
+<script>
+function updateUI(){
+  $("gearOut").textContent = String(S.gear);
+  $("stageOut").textContent = String(S.stage);
+  $("phaseOut").textContent = S.phase;
+  $("tOut").textContent = `${fmt(S.t,1)} s`;
+
+  // KPI helper
+  const set = (id, val, frac)=>{
+    const el=$("k_"+id);
+    const b=$("b_"+id);
+    if(el) el.textContent = val;
+    if(b) b.style.width = `${clamp(frac,0,1)*100}%`;
+  };
+
+  const v = Math.hypot(S.vx,S.vy);
+  set("alt", `${fmt(S.alt/1000,2)} km`, clamp(S.alt/220000,0,1));
+  set("vx", `${Math.round(S.vx)} m/s`, clamp(S.vx/9000,0,1));
+  set("vy", `${Math.round(S.vy)} m/s`, clamp((S.vy+500)/4000,0,1));
+  set("v",  `${Math.round(v)} m/s`, clamp(v/10000,0,1));
+  set("pitch", `${fmt(S.pitchDeg,1)}°`, clamp(S.pitchDeg/90,0,1));
+
+  set("m", `${Math.round(S.m)} kg`, clamp(S.m/Math.max(1,S.m0),0,1));
+  set("p1", `${Math.round(S.p1)} kg`, clamp(S.p1/Math.max(1,S.stage1Prop0),0,1));
+  set("p2", `${Math.round(S.p2)} kg`, clamp(S.p2/Math.max(1,S.stage2Prop0),0,1));
+
+  set("twr", `${fmt(S.twr,3)}`, clamp(S.twr/2.2,0,1));
+  set("dvrem", `${Math.round(S.dvRem)} m/s`, clamp(S.dvRem/9000,0,1));
+  set("maxq", `${fmt(S.q,4)}`, clamp(S.q/2.2,0,1));
+  set("heat", `${fmt(S.heat,4)}`, clamp(S.heat/2.5,0,1));
+
+  set("tcool", `${fmt(S.coolC,1)} °C`, clamp(S.coolC/140,0,1));
+  set("cool", `${Math.round(S.coolMass)} kg`, clamp(S.coolMass/Math.max(1,Number($("coolMass").value)||1),0,1));
+
+  set("beam", `${Math.round(S.beamN/1000)} kN`, clamp(S.beamN/400000,0,1));
+  set("beamp", `${fmt(S.beamMW,1)} MW`, clamp(S.beamMW/400,0,1));
+  set("B", `${fmt(S.B,2)} T`, clamp(S.B/4,0,1));
+
+  set("phF", `${Math.round(S.photonN)} N`, clamp(S.photonN/500000,0,1));
+  set("meq", `${fmt(S.mdotEq_mg_s,2)} mg/s`, clamp(S.mdotEq_mg_s/10,0,1));
+
+  // clocks (display frames only)
+  const now = Date.now();
+  const utc = new Date(now);
+  set("utc", formatTime(utc, "UTC"), 0);
+  set("local", formatTime(utc, "America/Monterrey"), 0);
+
+  // “Cosmic Sync” (CST) display: offset + tiny drift with mission time
+  const cstMs = frameClock(now, 1.0, 0) + S.t*2; // +2ms over mission as a toy drift
+  set("cst", new Date(cstMs).toISOString().slice(11,19), 0);
+
+  // Other display frames (tiny rate offsets)
+  const isMs  = frameClock(now, 1.0000000003,  2000); // “Interstellar”
+  const geoMs = frameClock(now, 0.9999999997, -5000); // “Geodisc”
+  const galMs = frameClock(now, 1.0000000012,  9000); // “Galactic”
+  set("is",  new Date(isMs ).toISOString().slice(11,19), 0);
+  set("geo", new Date(geoMs).toISOString().slice(11,19), 0);
+  set("gal", new Date(galMs).toISOString().slice(11,19), 0);
+
+  set("tau", `${fmt(S.tauUS,3)} μs`, clamp(Math.abs(S.tauUS)/60,0,1));
+
+  // Gates
+  updateGateTable();
+}
+
+function explainOnce(){
+  pushLog("Step-by-step (grounded):");
+  pushLog("Gear 1: apply eastward velocity from Earth rotation + optional mass-driver track (external momentum).");
+  pushLog("Gear 2: Stage-1 thrust provides main lift; beam can add limited external push early (power-limited, fades with altitude/time).");
+  pushLog("Gear 3: max-Q wall: throttle reduces qProxy (~0.5*rho*v^2 proxy) to protect structure/thermal margins.");
+  pushLog("Gear 4: gravity turn shifts thrust direction from vertical to horizontal to build vx (orbital speed).");
+  pushLog("Gear 5: toy orbit if alt≥200 km and vx≥7800 m/s. Time dilation shown is microseconds (measurement only).");
+  pushLog("Key equations used:");
+  pushLog(" - Rocket: Δv = ve ln(m0/mf), ve = Isp*g0; thrust -> mass flow mdot = F/ve.");
+  pushLog(" - Photon (if selected): F = P/c and (m=E/c^2) => mdot_eq = P/c^2 (accounting readout).");
+  pushLog(" - Beam power estimate: P ≈ F·v/η, limited by available MW (external infrastructure).");
+  pushLog(" - Proper time drift (tiny): dτ/dt ≈ 1 - v^2/(2c^2) + Φ/c^2.");
+}
+
+function presetA(){
+  // Heavy-lift tuned to reach toy orbit reliably
+  $("m0").value = 550000;
+  $("mdry").value = 80000;
+  $("stage1Frac").value = 0.74;
+  $("sepPenalty").value = 3500;
+
+  $("mode1").value = "chem";
+  $("thrust1MN").value = 7.6;
+  $("isp1").value = 330;
+
+  $("mode2").value = "chem";
+  $("thrust2MN").value = 1.10;
+  $("isp2").value = 360;
+
+  $("useTrack").checked = true;
+  $("vTrack").value = 650;
+  $("useRot").checked = true;
+  $("latDeg").value = 25.7;
+
+  $("useBeam").checked = true;
+  $("beamkN").value = 250;
+
+  $("coolMass").value = 6500;
+  $("coolCp").value = 4.18;
+
+  $("pMW").value = 350;
+  $("pSplit").value = 25;
+
+  $("turnStartKm").value = 10;
+  $("turnEndKm").value = 110;
+  $("qLimit").value = 1.8;
+
+  pushLog("Preset A loaded (heavy-lift baseline).");
+}
+
+// Buttons
+$("btnStart").addEventListener("click", ()=>{ startSim(); runLoop(); });
+$("btnStop").addEventListener("click", ()=>{ stopSim(); });
+$("btnReset").addEventListener("click", ()=>{ stopSim(); resetSim(); explainOnce(); });
+$("btnPresetA").addEventListener("click", ()=>{ presetA(); resetSim(); explainOnce(); });
+
+$("btnCSV").addEventListener("click", ()=>{
+  if(csvRows.length<=1) csvAdd(S);
+  const blob = new Blob([csvRows.join("\n")], {type:"text/csv;charset=utf-8"});
+  const url = URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;
+  a.download=`5gear_launch_${Date.now()}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+});
+$("btnPrint").addEventListener("click", ()=>window.print());
+
+// Init
+resetSim();
+explainOnce();
+</script>
+</div>
+</body>
+</html>
