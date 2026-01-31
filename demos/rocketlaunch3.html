@@ -1,11 +1,3 @@
-<!-- ======================= PART 1 / 5 =======================
-Rocket Corridor A→B (4D-ish) Toy Simulator
-- Buttons: Calculate → Launch → Stop → Reset → Print Report
-- Includes: Earth rotation, atmosphere density, dynamic pressure q (compression),
-  drag, simple heat proxy, coolant usage, thrust, prop burn, staging, energy ε,
-  “free space” (ε trending toward 0), and a curved eastward corridor.
-- Not too complex: 2D (east x, up y), simple exponential atmosphere, simple guidance.
-============================================================= -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -53,9 +45,7 @@ Rocket Corridor A→B (4D-ish) Toy Simulator
     grid-template-columns: 380px 1fr;
     align-items:start;
   }
-  @media (max-width: 980px){
-    .grid{grid-template-columns: 1fr;}
-  }
+  @media (max-width: 980px){ .grid{grid-template-columns: 1fr;} }
   .card{
     background:linear-gradient(180deg, rgba(15,23,42,.92), rgba(11,18,34,.86));
     border:1px solid var(--line);
@@ -116,7 +106,12 @@ Rocket Corridor A→B (4D-ish) Toy Simulator
   .kv:last-child{border-bottom:none}
   .kv .k{color:var(--muted); font-family: system-ui}
   .kv .v{color:var(--ink)}
-  canvas{width:100%; height:520px; display:block; background:radial-gradient(circle at 70% 30%, rgba(96,165,250,.12), rgba(0,0,0,.0) 55%), linear-gradient(180deg, rgba(2,6,23,.25), rgba(0,0,0,.0));}
+  canvas{
+    width:100%; height:520px; display:block;
+    background:
+      radial-gradient(circle at 70% 30%, rgba(96,165,250,.12), rgba(0,0,0,.0) 55%),
+      linear-gradient(180deg, rgba(2,6,23,.25), rgba(0,0,0,.0));
+  }
   .small{font-size:12px;color:var(--muted)}
   .log{
     font-family:var(--mono);
@@ -174,7 +169,6 @@ Rocket Corridor A→B (4D-ish) Toy Simulator
 
 <div class="wrap">
   <div class="grid">
-    <!-- LEFT: inputs + controls + live gauges -->
     <div class="card noPrint">
       <h2>Point A → Point B Inputs (simple defaults)</h2>
       <div class="body">
@@ -188,6 +182,7 @@ Rocket Corridor A→B (4D-ish) Toy Simulator
             <input id="h0" type="number" step="1" value="10">
           </div>
         </div>
+
         <div class="row" style="margin-top:10px">
           <div>
             <label>Target Point B Altitude (m)</label>
@@ -237,6 +232,7 @@ Rocket Corridor A→B (4D-ish) Toy Simulator
 
         <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
           <div class="small">Vehicle (2 stages, simple):</div>
+
           <div class="row" style="margin-top:10px">
             <div>
               <label>Total liftoff mass m₀ (kg)</label>
@@ -305,7 +301,6 @@ Rocket Corridor A→B (4D-ish) Toy Simulator
       </div>
     </div>
 
-    <!-- RIGHT: sim canvas + live readouts -->
     <div class="card">
       <h2>Trajectory View (East x vs Up y) + Live Gauges</h2>
       <div class="body">
@@ -328,13 +323,12 @@ Rocket Corridor A→B (4D-ish) Toy Simulator
         </div>
 
         <div style="margin-top:8px" class="small">
-          Notes: This is a <b>toy</b> corridor solver. It’s designed to visualize your A→B idea (rotation + atmosphere + corridor + compression + stability + fuel) without getting overly complex.
+          Notes: This is a <b>toy</b> corridor solver. Visualizes A→B (rotation + atmosphere + corridor + compression + fuel) without being overly complex.
         </div>
       </div>
     </div>
   </div>
 
-  <!-- PRINT-ONLY REPORT (filled after run) -->
   <div class="reportWrap">
     <div class="card" style="margin-top:12px">
       <h2>Printed Report — Corridor A→B</h2>
@@ -347,14 +341,15 @@ Rocket Corridor A→B (4D-ish) Toy Simulator
 </div>
 
 <script>
-/* ======================= PART 2 / 5 =======================
-Core constants, helpers, atmosphere, “corridor plan”, logging
-============================================================ */
+/* ===================== PART 2 / 4 =====================
+Core constants, helpers, atmosphere, drawing
+======================================================== */
 
 const $ = (id)=>document.getElementById(id);
-const logEl = $("log");
+let logEl, cv, ctx;
 
 function log(msg){
+  if (!logEl) return;
   const t = new Date().toLocaleTimeString();
   logEl.innerHTML = `<div>[${t}] ${msg}</div>` + logEl.innerHTML;
 }
@@ -376,7 +371,6 @@ function nowUTC(){
   const d = new Date();
   return d.toISOString().replace("T"," ").slice(0,19)+"Z";
 }
-setInterval(()=> $("utcNow").textContent = nowUTC(), 250);
 
 // Earth / physics constants (toy)
 const Re = 6371000;              // m
@@ -394,49 +388,37 @@ function rhoAt(h){
   return rho0 * Math.exp(-h / H);
 }
 
-// “Heat proxy” (toy): increases with speed and density
-// This is NOT a real heating law; it’s a simple limiter.
+// Heat proxy (toy)
 function heatProxy(rho, v){
-  // roughly: proportional to sqrt(rho)*v^3 (common-ish scaling feel)
   return Math.sqrt(Math.max(0,rho)) * v*v*v * 1e-5;
 }
 
-// Earth rotation free speed at latitude (eastward component)
+// Earth rotation free speed at latitude (eastward)
 function earthRotSpeed(latDeg){
   const lat = latDeg * Math.PI/180;
   return omega * Re * Math.cos(lat);
 }
 
-// A simple “guidance” pitch program (eastward corridor):
-// - Start vertical
-// - Begin pitching over after pitchStart
-// - Reach near-horizontal by end of stage 2
+// Pitch program: angle from +x (east) toward +y (up)
+// vertical = 90deg, horizontal = 0deg
 function pitchAngleRad(t, pitchStart, tEnd){
-  // pitch angle measured from +x (east) toward +y (up):
-  // vertical = 90deg, horizontal = 0deg
   if (t < pitchStart) return Math.PI/2;
   const u = clamp((t - pitchStart) / Math.max(1, (tEnd - pitchStart)), 0, 1);
-  // ease to keep it smooth
   const s = u*u*(3 - 2*u);
-  const deg = 90*(1 - s); // 90 -> 0
+  const deg = 90*(1 - s);
   return deg * Math.PI/180;
 }
 
-// Lift direction: perpendicular to velocity, “upward bias” for stability (toy)
+// Lift direction perpendicular to velocity
 function liftDir(vx, vy){
   const v = Math.hypot(vx,vy) || 1;
-  // perpendicular to v: (-vy, vx)
   return {lx: -vy/v, ly: vx/v};
 }
 
-// Compute specific orbital energy epsilon
+// specific orbital energy epsilon
 function epsilon(r, v){
   return 0.5*v*v - mu/r;
 }
-
-// Canvas drawing helpers
-const cv = $("cv");
-const ctx = cv.getContext("2d");
 
 function clearCanvas(){
   ctx.clearRect(0,0,cv.width,cv.height);
@@ -446,10 +428,8 @@ function drawScene(path, rocket, B){
   const W=cv.width, Hh=cv.height;
   clearCanvas();
 
-  // coordinate mapping: we draw a window around trajectory
   const margin = 40;
 
-  // Determine extents from path + target
   let minX=0, maxX=0, maxY=0;
   for (const p of path){
     minX = Math.min(minX, p.x);
@@ -465,6 +445,7 @@ function drawScene(path, rocket, B){
 
   const spanX = Math.max(1, maxX - minX);
   const spanY = Math.max(1, maxY);
+
   const sx = (W-2*margin)/spanX;
   const sy = (Hh-2*margin)/spanY;
   const s = Math.min(sx, sy);
@@ -485,7 +466,7 @@ function drawScene(path, rocket, B){
   ctx.lineTo(g1p.px,g1p.py);
   ctx.stroke();
 
-  // draw atmosphere bands (toy)
+  // atmosphere bands
   const bands = [10000,30000,60000,100000,150000,200000];
   for (const hh of bands){
     const p0 = toPx(minX,hh);
@@ -511,7 +492,7 @@ function drawScene(path, rocket, B){
     ctx.stroke();
   }
 
-  // target B marker
+  // target B
   if (B){
     const pb = toPx(B.x,B.y);
     ctx.fillStyle="rgba(52,211,153,.95)";
@@ -519,11 +500,11 @@ function drawScene(path, rocket, B){
     ctx.arc(pb.px,pb.py,5,0,Math.PI*2);
     ctx.fill();
     ctx.fillStyle="rgba(229,231,235,.9)";
-    ctx.font="12px var(--mono)";
+    ctx.font="12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono','Courier New', monospace";
     ctx.fillText("Point B", pb.px+8, pb.py-8);
   }
 
-  // rocket marker
+  // rocket
   if (rocket){
     const pr = toPx(rocket.x, rocket.y);
     ctx.save();
@@ -541,17 +522,17 @@ function drawScene(path, rocket, B){
     ctx.restore();
   }
 
-  // small legend
   ctx.fillStyle="rgba(229,231,235,.8)";
   ctx.font="12px system-ui";
   ctx.fillText("East →", W-80, 18);
   ctx.fillText("Up ↑", W-55, 34);
 }
-/* ======================= PART 3 / 5 =======================
-Simulation state, “Calculate”, integrator, constraints, stages
-============================================================ */
+/* ===================== PART 3 / 4 =====================
+Simulation state, Calculate, integrator, constraints, stages
+======================================================== */
 
 let sim = null;
+let raf = null;
 
 function defaultInputs(){
   return {
@@ -580,21 +561,14 @@ function defaultInputs(){
 }
 
 function buildPlan(inp){
-  // Point A in local tangent: x=0 at pad, y=h0
-  // include Earth rotation as initial vx
-  const vrot = earthRotSpeed(inp.lat); // m/s east
+  const vrot = earthRotSpeed(inp.lat);
   const r0 = Re + inp.h0;
 
-  // Choose a simple “B” in this 2D view:
-  // - place B at altitude hB, and some downrange distance so it’s “eastward corridor”
-  // - we’ll target xB as a function of hB to make an arc
-  const xB = Math.max(150000, inp.hB * 1.9); // meters, toy
+  const xB = Math.max(150000, inp.hB * 1.9);
   const B = { x: xB, y: inp.hB, r: Re + inp.hB };
 
-  // Total burn time
   const tEnd = inp.t1 + inp.t2;
 
-  // split prop across stages (simple): 70% stage1, 30% stage2
   const mPropTotal = Math.max(1, inp.m0 - inp.mdry);
   const mProp1 = 0.70 * mPropTotal;
   const mProp2 = 0.30 * mPropTotal;
@@ -602,16 +576,20 @@ function buildPlan(inp){
   return { vrot, r0, B, tEnd, mPropTotal, mProp1, mProp2 };
 }
 
-function resetSim(){
+function clearGauges(){
+  ["g_t","g_h","g_v","g_q","g_qdot","g_cool","g_m","g_T","g_eps"]
+    .forEach(id=>$(id).textContent="—");
+}
+
+function resetSimCore(){
   sim = null;
-  setStatus("Idle");
   $("stageNow").textContent = "—";
   $("btnLaunch").disabled = true;
   $("btnStop").disabled = true;
   $("btnPrint").disabled = true;
-  logEl.innerHTML = "";
-  // clear gauges
-  ["g_t","g_h","g_v","g_q","g_qdot","g_cool","g_m","g_T","g_eps"].forEach(id=>$(id).textContent="—");
+  $("btnCalc").disabled = false;
+  clearGauges();
+  if (logEl) logEl.innerHTML = "";
   drawScene([], null, null);
 }
 
@@ -619,31 +597,26 @@ function calcSim(){
   const inp = defaultInputs();
   const plan = buildPlan(inp);
 
-  // Initialize sim state
   sim = {
     inp, plan,
     running:false,
     done:false,
     t:0,
     dt:0.25,
-    // local “east-up” coordinates:
     x:0,
     y:inp.h0,
-    vx: plan.vrot,    // start with Earth rotation east speed
+    vx: plan.vrot,
     vy: 0,
     m: inp.m0,
     coolUsed: 0,
-    coolStored: 0, // “heat accumulated after coolant”
+    coolStored: 0,
     stage: 1,
     sepDone:false,
-
-    // histories for report
     path: [{x:0,y:inp.h0}],
-    hist: [], // per step snapshots
+    hist: [],
     events: [],
   };
 
-  // Pre-calc & log
   log(`Calculated Point A→B plan. Earth rotation bonus v_rot ≈ ${fmt(plan.vrot,1)} m/s at latitude ${fmt(inp.lat,2)}°.`);
   log(`Target B: x_B ≈ ${fmt(plan.B.x,0)} m east, h_B = ${fmt(plan.B.y,0)} m. Mode: ${inp.mode}.`);
   log(`Propellant: total ≈ ${fmtInt(plan.mPropTotal)} kg (Stage1 ~${fmtInt(plan.mProp1)} kg, Stage2 ~${fmtInt(plan.mProp2)} kg).`);
@@ -653,7 +626,6 @@ function calcSim(){
   $("btnLaunch").disabled = false;
   $("btnPrint").disabled = true;
 
-  // draw initial scene
   drawScene(sim.path, {x:sim.x,y:sim.y,vx:sim.vx,vy:sim.vy}, plan.B);
 }
 
@@ -661,20 +633,18 @@ function stageParams(sim){
   const {inp, plan} = sim;
   const t = sim.t;
 
-  // staging logic
   if (t < inp.t1){
-    return {stage:1, T: inp.T1, Isp: inp.Isp1, mPropAvail: plan.mProp1, burnEnd: inp.t1};
+    return {stage:1, T: inp.T1, Isp: inp.Isp1, burnEnd: inp.t1};
   } else if (t < inp.t1 + inp.t2){
-    // execute separation once when stage2 starts
     if (!sim.sepDone){
       sim.sepDone = true;
       sim.m = Math.max(1, sim.m - inp.sepMass);
       sim.events.push({t:sim.t, type:"Stage Sep", note:`Dropped sep mass ${inp.sepMass} kg`});
       log(`Stage separation: dropped ${fmtInt(inp.sepMass)} kg at t=${fmt(sim.t,1)} s.`);
     }
-    return {stage:2, T: inp.T2, Isp: inp.Isp2, mPropAvail: plan.mProp2, burnEnd: inp.t1 + inp.t2};
+    return {stage:2, T: inp.T2, Isp: inp.Isp2, burnEnd: inp.t1 + inp.t2};
   } else {
-    return {stage:0, T: 0, Isp: 1, mPropAvail: 0, burnEnd: inp.t1 + inp.t2};
+    return {stage:0, T: 0, Isp: 1, burnEnd: inp.t1 + inp.t2};
   }
 }
 
@@ -683,10 +653,24 @@ function reachedB(sim){
   if (inp.mode === "orbit"){
     return sim.y >= plan.B.y && sim.x >= plan.B.x*0.98;
   }
-  // escape: epsilon >= 0 at current radius r
   const r = Re + sim.y;
   const v = Math.hypot(sim.vx, sim.vy);
-  return epsilon(r,v) >= 0 && sim.y > 120000; // also require thin air
+  return epsilon(r,v) >= 0 && sim.y > 120000;
+}
+
+function updateGauges(sim){
+  const last = sim.hist[sim.hist.length-1];
+  if (!last) return;
+
+  $("g_t").textContent = fmt(last.t,1);
+  $("g_h").textContent = fmtInt(last.h);
+  $("g_v").textContent = fmt(last.v,1);
+  $("g_q").textContent = fmtInt(last.q);
+  $("g_qdot").textContent = fmt(last.qdot,1);
+  $("g_cool").textContent = `${fmtInt(last.coolUsed)} / ${fmtInt(sim.inp.coolCap)}`;
+  $("g_m").textContent = fmtInt(last.m);
+  $("g_T").textContent = fmtInt(last.T);
+  $("g_eps").textContent = fmt(last.eps,1);
 }
 
 function stepSim(){
@@ -695,86 +679,66 @@ function stepSim(){
   const {inp, plan} = sim;
   const dt = sim.dt;
 
-  // stage params
   const sp = stageParams(sim);
   sim.stage = sp.stage;
   $("stageNow").textContent = sp.stage===0 ? "Coast" : `Stage ${sp.stage}`;
 
-  // physics at current state
   const r = Re + sim.y;
   const v = Math.hypot(sim.vx, sim.vy) || 1e-9;
   const rho = rhoAt(sim.y);
 
-  // compression term
   const q = 0.5 * rho * v*v;
-
-  // drag (toy): D = q * CdA
   const D = q * inp.cda;
-
-  // lift (toy): proportional to q * CdA * liftK
   const L = q * inp.cda * inp.liftK;
 
-  // heat proxy and coolant
   const qdot = heatProxy(rho, v);
+
   let coolNow = 0;
   if (qdot > inp.qdotmax){
-    // apply coolant up to max flow to clamp
     coolNow = clamp((qdot - inp.qdotmax), 0, inp.coolFlow);
   }
-  // accumulate coolant usage and any remaining heat “stored”
   sim.coolUsed += coolNow * dt;
   const excessHeat = Math.max(0, qdot - inp.qdotmax - coolNow);
   sim.coolStored += excessHeat * dt;
 
-  // corridor throttle management (simple):
-  // if q exceeds qmax, throttle down; if coolant capacity exceeded, throttle down
   let throttle = 1.0;
   if (q > inp.qmax) throttle *= clamp(inp.qmax / q, 0.25, 1.0);
   if (sim.coolUsed > inp.coolCap) throttle *= 0.25;
 
-  // thrust direction (pitch program)
-  const ang = pitchAngleRad(sim.t, inp.pitchStart, plan.tEnd); // from +x toward +y
+  const ang = pitchAngleRad(sim.t, inp.pitchStart, plan.tEnd);
   const ux = Math.cos(ang);
   const uy = Math.sin(ang);
 
-  // thrust magnitude
   const T = sp.T * throttle;
 
-  // mass flow (if burning)
   let mdot = 0;
   if (T > 0 && sp.stage > 0){
     mdot = T / (sp.Isp * g0);
   }
 
-  // thrust acceleration
   const axT = (T / sim.m) * ux;
   const ayT = (T / sim.m) * uy;
 
-  // drag accel opposite velocity
   const axD = -(D / sim.m) * (sim.vx / v);
   const ayD = -(D / sim.m) * (sim.vy / v);
 
-  // lift accel perpendicular to velocity (toy)
   const ld = liftDir(sim.vx, sim.vy);
   const axL = (L / sim.m) * ld.lx;
   const ayL = (L / sim.m) * ld.ly;
 
-  // gravity accel downward in local “up” y approximation
   const g = mu / (r*r);
   const ayG = -g;
 
-  // integrate (semi-implicit Euler)
   sim.vx += (axT + axD + axL) * dt;
   sim.vy += (ayT + ayD + ayL + ayG) * dt;
 
   sim.x += sim.vx * dt;
   sim.y += sim.vy * dt;
 
-  // consume propellant
   sim.m = Math.max(inp.mdry, sim.m - mdot * dt);
 
-  // record
   sim.t += dt;
+
   sim.path.push({x:sim.x, y:sim.y});
   sim.hist.push({
     t: sim.t,
@@ -789,7 +753,6 @@ function stepSim(){
     eps: epsilon(Re+sim.y, Math.hypot(sim.vx,sim.vy)),
   });
 
-  // stop conditions
   const fail = (sim.y < 0) || (sim.t > 1200) || (!isFinite(sim.x+sim.y+sim.vx+sim.vy+sim.m));
   if (fail){
     sim.done = true;
@@ -809,7 +772,6 @@ function stepSim(){
     return;
   }
 
-  // end of burns -> coast and allow stop if above B altitude
   if (sim.stage===0 && sim.y >= inp.hB){
     sim.done = true;
     sim.running = false;
@@ -819,33 +781,15 @@ function stepSim(){
     return;
   }
 
-  // update UI gauges & drawing
   updateGauges(sim);
   drawScene(sim.path, {x:sim.x,y:sim.y,vx:sim.vx,vy:sim.vy}, plan.B);
 }
+/* ===================== PART 4 / 4 =====================
+Run loop, report builder, print, UI wiring, safe init
+======================================================== */
 
-function updateGauges(sim){
-  const last = sim.hist[sim.hist.length-1];
-  if (!last) return;
-
-  $("g_t").textContent = fmt(last.t,1);
-  $("g_h").textContent = fmtInt(last.h);
-  $("g_v").textContent = fmt(last.v,1);
-  $("g_q").textContent = fmtInt(last.q);
-  $("g_qdot").textContent = fmt(last.qdot,1);
-  $("g_cool").textContent = `${fmtInt(last.coolUsed)} / ${fmtInt(sim.inp.coolCap)}`;
-  $("g_m").textContent = fmtInt(last.m);
-  $("g_T").textContent = fmtInt(last.T);
-  $("g_eps").textContent = fmt(last.eps,1);
-}
-/* ======================= PART 4 / 5 =======================
-Run loop, report builder, print, UI wiring
-============================================================ */
-
-let raf = null;
 function loop(){
   if (!sim || !sim.running) return;
-  // step multiple times per frame for smoother travel
   for (let i=0;i<3;i++){
     if (!sim.running) break;
     stepSim();
@@ -885,46 +829,44 @@ function finalizeReport(){
   $("btnLaunch").disabled = true;
   $("btnPrint").disabled = false;
 
-  // Summaries
   const H = sim.hist;
   const last = H[H.length-1] || {};
   const inp = sim.inp;
   const plan = sim.plan;
 
-  // Compute peak values
   let qPeak=0, qdotPeak=0, DPeak=0, vPeak=0;
   let tQPeak=0, tQdotPeak=0;
-  let fuelUsed = inp.m0 - last.m;
+
+  const fuelUsed = (isFinite(last.m) ? inp.m0 - last.m : 0);
+
   let stage1Fuel=0, stage2Fuel=0;
   for (const s of H){
     if (s.q > qPeak){ qPeak=s.q; tQPeak=s.t; }
     if (s.qdot > qdotPeak){ qdotPeak=s.qdot; tQdotPeak=s.t; }
     if (s.D > DPeak) DPeak=s.D;
     if (s.v > vPeak) vPeak=s.v;
-    // stage fuel split approximate by time in each stage
+
+    // massflow reconstruction (approx)
     if (s.stage===1) stage1Fuel += (s.T/(inp.Isp1*g0))*sim.dt;
     if (s.stage===2) stage2Fuel += (s.T/(inp.Isp2*g0))*sim.dt;
   }
 
-  // Basic “money” placeholder: fuel cost factor (toy)
-  const costPerKg = 2.5; // arbitrary
+  const costPerKg = 2.5; // toy
   const fuelCost = fuelUsed * costPerKg;
 
   const summaryHTML = `
-    <div><b>UTC Start:</b> ${nowUTC()}</div>
-    <div><b>Point A:</b> lat ${fmt(inp.lat,2)}°, h0 ${fmtInt(inp.h0)} m · Earth rotation bonus v_rot ${fmt(plan.vrot,1)} m/s</div>
-    <div><b>Point B:</b> hB ${fmtInt(inp.hB)} m · xB ${fmtInt(plan.B.x)} m (east) · Mode: ${inp.mode}</div>
-    <div style="margin-top:8px"><b>Result:</b> ${$("status").textContent} at t=${fmt(last.t,1)} s · x=${fmtInt(last.x||0)} m · h=${fmtInt(last.h||0)} m · v=${fmt(last.v||0,1)} m/s</div>
+    <div><b>UTC:</b> ${nowUTC()}</div>
+    <div><b>Point A:</b> lat ${fmt(inp.lat,2)}°, h0 ${fmtInt(inp.h0)} m · v_rot ${fmt(plan.vrot,1)} m/s</div>
+    <div><b>Point B:</b> hB ${fmtInt(inp.hB)} m · xB ${fmtInt(plan.B.x)} m · Mode: ${inp.mode}</div>
+    <div style="margin-top:8px"><b>Result:</b> ${$("status").textContent} at t=${fmt(last.t||0,1)} s · x=${fmtInt(last.x||0)} m · h=${fmtInt(last.h||0)} m · v=${fmt(last.v||0,1)} m/s</div>
     <div style="margin-top:8px"><b>Fuel used:</b> ${fmtInt(fuelUsed)} kg (Stage1 ~${fmtInt(stage1Fuel)} kg, Stage2 ~${fmtInt(stage2Fuel)} kg) · <b>Toy fuel cost:</b> ${fmtInt(fuelCost)} credits</div>
     <div><b>Compression peak (q):</b> ${fmtInt(qPeak)} Pa at t≈${fmt(tQPeak,1)} s (q_max=${fmtInt(inp.qmax)} Pa)</div>
     <div><b>Heat proxy peak:</b> ${fmt(qdotPeak,1)} at t≈${fmt(tQdotPeak,1)} s (heat_max=${fmtInt(inp.qdotmax)} arb)</div>
     <div><b>Coolant used:</b> ${fmtInt(last.coolUsed||0)} / ${fmtInt(inp.coolCap)} arb · <b>Stored heat:</b> ${fmtInt(last.coolStored||0)} arb</div>
     <div><b>“Free space” ε:</b> ${fmt(last.eps||0,1)} J/kg (escape when ε ≥ 0)</div>
   `;
-
   $("printSummary").innerHTML = summaryHTML;
 
-  // Build a small time-sampled table (every Nth row)
   const stride = Math.max(1, Math.floor(H.length / 26));
   let rows = "";
   for (let i=0;i<H.length;i+=stride){
@@ -965,61 +907,56 @@ function finalizeReport(){
       <tbody>${rows}</tbody>
     </table>
     <div class="small" style="margin-top:10px">
-      Corridor logic used:
-      q cap throttles down when q &gt; q_max, heat proxy cap consumes coolant (up to max flow), and pitch program turns eastward after pitchStart.
+      Corridor logic: throttle reduces when q&gt;q_max; coolant clamps heat proxy (up to max flow); pitch program turns eastward after pitchStart.
     </div>
   `;
-
   $("printTables").innerHTML = tableHTML;
-
-  // enable print
-  $("btnPrint").disabled = false;
 }
 
-$("btnCalc").addEventListener("click", ()=>{
-  try{
-    calcSim();
-  }catch(e){
-    log("ERROR in Calculate: " + (e?.message||e));
-    console.error(e);
-    setStatus("Error");
-  }
-});
+function wireUI(){
+  $("btnCalc").addEventListener("click", ()=>{
+    try{ calcSim(); }
+    catch(e){
+      console.error(e);
+      setStatus("Error");
+      log("ERROR in Calculate: " + (e?.message||e));
+    }
+  });
 
-$("btnLaunch").addEventListener("click", ()=>{
-  if (!sim){ log("Run Calculate first."); return; }
-  startLaunch();
-});
+  $("btnLaunch").addEventListener("click", ()=>{
+    if (!sim){ log("Run Calculate first."); return; }
+    startLaunch();
+  });
 
-$("btnStop").addEventListener("click", ()=>{
-  stopSim();
-});
+  $("btnStop").addEventListener("click", ()=> stopSim());
 
-$("btnReset").addEventListener("click", ()=>{
-  if (raf) cancelAnimationFrame(raf);
-  raf = null;
-  resetSim();
+  $("btnReset").addEventListener("click", ()=>{
+    if (raf) cancelAnimationFrame(raf);
+    raf = null;
+    resetSimCore();
+    setStatus("Idle");
+    log("Reset complete. Click Calculate to build corridor plan again.");
+  });
+
+  $("btnPrint").addEventListener("click", ()=>{
+    if (!sim) return;
+    finalizeReport();
+    window.print();
+  });
+}
+
+window.addEventListener("load", ()=>{
+  logEl = $("log");
+  cv = $("cv");
+  ctx = cv.getContext("2d");
+
+  // UTC ticker
+  setInterval(()=>{ $("utcNow").textContent = nowUTC(); }, 250);
+
+  resetSimCore();
   setStatus("Idle");
-  log("Reset complete. Click Calculate to build corridor plan again.");
+  log("Ready. 1) Click Calculate. 2) Click Launch. 3) Auto-stops at B (or escape). 4) Print Report or Reset.");
 });
-
-$("btnPrint").addEventListener("click", ()=>{
-  if (!sim){ return; }
-  // ensure report is up to date
-  finalizeReport();
-  window.print();
-});
-
-// initial
-resetSim();
-log("Ready. 1) Click Calculate (build corridor + constraints). 2) Click Launch (fly eastward arc). 3) Stops at Point B. 4) Print Report or Reset.");
-<!-- ======================= PART 5 / 5 =======================
-End of file (kept simple).
-How to use:
-1) Save as: rocket_corridor_A_to_B.html
-2) Open in your browser
-3) Click Calculate → Launch → (auto stops) → Print Report → Reset
-============================================================ -->
 </script>
 </body>
 </html>
