@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Rocket Corridor A→B — 5 Stages — Live Gauges (Fixed 4)</title>
+<title>Rocket Corridor A→B — 5 Stages — Arrive at Point B (Fixed 5)</title>
 <style>
   :root{
     color-scheme: dark;
@@ -12,7 +12,7 @@
     --line:rgba(148,163,184,.22);
     --shadow:0 18px 40px rgba(0,0,0,.45);
     --radius:16px;
-    --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","CourierNew", monospace;
   }
   *{box-sizing:border-box}
   body{
@@ -128,6 +128,25 @@
     color:var(--muted);
     font-size:12px;
   }
+
+  /* NEW: explanation panel under trajectory */
+  .explain{
+    margin-top:12px;
+    padding:12px;
+    border:1px solid rgba(148,163,184,.20);
+    border-radius:14px;
+    background:rgba(2,6,23,.35);
+    color:var(--muted);
+  }
+  .explain h3{
+    margin:0 0 8px 0;
+    font-size:13px;
+    color:rgba(229,231,235,.92);
+    letter-spacing:.1px;
+  }
+  .explain b{color:rgba(229,231,235,.92)}
+  .explain ul{margin:8px 0 0 18px; padding:0}
+  .explain li{margin:6px 0}
 </style>
 </head>
 <body>
@@ -135,8 +154,8 @@
 <header>
   <div class="wrap title">
     <div>
-      <h1>Rocket Corridor A→B — 5 Stages — Live Readings (Fixed 4)</h1>
-      <div class="sub">All right-side gauges are live each frame (including v_rot(h)). Stops at Point B orbit altitude.</div>
+      <h1>Rocket Corridor A→B — 5 Stages — Arrive at Point B (Fixed 5)</h1>
+      <div class="sub">Stops when the rocket reaches the <b>B circle</b> (not just the 200 km line). Adds a visible <b>A circle</b>.</div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <span class="pill">UTC <b id="utcNow">—</b></span>
@@ -173,7 +192,7 @@
           <div>
             <label>Stop Mode</label>
             <select id="mode">
-              <option value="orbit">Stop at Orbit Altitude (Point B)</option>
+              <option value="orbit">Stop when reaching Point B (circle)</option>
               <option value="escape">Stop if ε ≥ 0 (toy)</option>
             </select>
           </div>
@@ -249,7 +268,7 @@
           </div>
 
           <div class="hint">
-            Fixes: (1) v_rot is computed as v_rot(h)=ω(Re+h)cos(lat) so it’s truly live. (2) “Climb assist” guarantees upward climb until reaching Point B.
+            Change made: Orbit mode now stops when the rocket <b>arrives at the B circle</b> (both altitude and downrange proximity), not merely crossing the 200 km line.
           </div>
 
           <div class="small" style="margin-top:12px"><b>Stages 1 → 5</b></div>
@@ -286,7 +305,7 @@
           </div>
           <div class="row">
             <div><label>Isp5 (s)</label><input id="Isp5" type="number" value="650"></div>
-            <div><label>—</label><input disabled value="Stops at Point B (Orbit mode)"></div>
+            <div><label>—</label><input disabled value="Stops at B circle (Orbit mode)"></div>
           </div>
         </div>
 
@@ -343,7 +362,28 @@
           <div class="kv"><div class="k">v_rot(h) (m/s)</div><div class="v" id="g_vrot">—</div></div>
         </div>
 
-        <div class="small" style="margin-top:8px">
+        <!-- NEW: explanation panel -->
+        <div class="explain">
+          <h3>What this simulation is doing</h3>
+          <div>
+            This is a <b>toy corridor ascent</b> from <b>Point A</b> to <b>Point B</b> in a local East–Up (x–y) view.
+            It blends:
+            <b>Earth rotation</b> (eastward “v_rot”), <b>atmosphere compression</b> (dynamic pressure q),
+            <b>drag + lift</b>, a simple <b>heat proxy + coolant cap</b>, and a <b>5-stage burn</b>.
+          </div>
+          <ul>
+            <li><b>Point A (lat/long concept)</b> matters because Earth’s rotation bonus depends on latitude. A good starting latitude can reduce “work” the rocket must do for eastward speed.</li>
+            <li><b>Point B (vector / geodisc idea)</b>: targeting a specific corridor endpoint (a vector to B) makes the path more stable than “straight up,” because guidance can trade vertical vs eastward speed smoothly.</li>
+            <li><b>Curvature + stability</b>: a corridor arc can keep loads (q/heat) inside limits while still building downrange velocity, which can reduce wasteful drag losses.</li>
+            <li><b>Fuel savings (toy claim)</b>: when rotation + corridor guidance provide part of the needed eastward velocity, less propellant is burned for the same endpoint.</li>
+            <li><b>CST time readouts</b>: UTC/CST clocks are shown so you can think of timing windows and coordination; this toy does not “prove” real spacetime effects, but it supports your workflow for planning A→B corridors.</li>
+          </ul>
+          <div style="margin-top:8px">
+            In short: using <b>Point A</b> + a defined <b>Point B vector/geodisc target</b> can improve corridor stability, control compression/heat, and reduce fuel waste compared with naive profiles.
+          </div>
+        </div>
+
+        <div class="small" style="margin-top:10px">
           Atmosphere lines: 10/30/60/100/150/200 km (bold white). Target B dashed green. Stage boundaries are marked on the path.
         </div>
       </div>
@@ -397,7 +437,7 @@ const mu=3.986004418e14;
 const omega=7.2921159e-5;
 const g0=9.80665;
 
-/* atmosphere (simple exponential) */
+/* atmosphere */
 const rho0=1.225;
 const H=8500;
 function rhoAt(h){
@@ -411,7 +451,7 @@ function heatProxy(rho,v){
   return Math.sqrt(Math.max(0,rho))*v*v*v*1e-5;
 }
 
-/* LIVE earth rotation speed at altitude */
+/* LIVE rotation at altitude */
 function earthRotSpeedAt(latDeg, h){
   const lat=latDeg*Math.PI/180;
   return omega*(Re + Math.max(0,h))*Math.cos(lat);
@@ -426,22 +466,23 @@ function liftDir(vx,vy){
   return {lx:-vy/v, ly:vx/v};
 }
 
-/* guidance: vertical until vertUntil, then smooth pitch toward east by pitchEndAlt */
+/* guidance by altitude */
 function pitchAngleRadByAlt(y, vertUntil, pitchEndAlt){
-  if(y < vertUntil) return Math.PI/2; // vertical
+  if(y < vertUntil) return Math.PI/2;
   const u = clamp((y - vertUntil)/Math.max(1,(pitchEndAlt - vertUntil)), 0, 1);
   const s = u*u*(3-2*u);
-  const deg = 90*(1 - s); // 90 -> 0
+  const deg = 90*(1 - s);
   return deg*Math.PI/180;
 }
 
-/* drawing */
-function drawScene(path, rocket, B, stageMarks){
+/* drawing: now includes Point A circle */
+function drawScene(path, rocket, A, B, stageMarks){
   const W=cv.width, H=cv.height;
   ctx.clearRect(0,0,W,H);
 
   const yTop = Math.max(240000, (B?.y||200000) + 40000);
-  let minX=0, maxX=Math.max(420000, (B?.x||360000) + 80000);
+  let minX = -20000;
+  let maxX = Math.max(420000, (B?.x||360000) + 80000);
   for(const p of path){ maxX=Math.max(maxX,p.x); }
 
   const margin=58;
@@ -461,7 +502,7 @@ function drawScene(path, rocket, B, stageMarks){
   let a=toPx(minX,0), b=toPx(maxX,0);
   ctx.moveTo(a.px,a.py); ctx.lineTo(b.px,b.py); ctx.stroke();
 
-  // atmosphere lines (VERY BOLD WHITE)
+  // atmosphere lines (bold white)
   const atm=[10000,30000,60000,100000,150000,200000];
   ctx.font="14px system-ui";
   for(const h of atm){
@@ -473,7 +514,7 @@ function drawScene(path, rocket, B, stageMarks){
     ctx.fillText(`${Math.round(h/1000)} km`, p0.px+10, p0.py-8);
   }
 
-  // target B dashed green
+  // target B dashed green line (visual ref)
   if(B){
     const p0=toPx(minX,B.y), p1=toPx(maxX,B.y);
     ctx.setLineDash([10,7]);
@@ -513,7 +554,20 @@ function drawScene(path, rocket, B, stageMarks){
     }
   }
 
-  // B marker
+  // Point A circle (NEW)
+  if(A){
+    const pa=toPx(A.x,A.y);
+    ctx.fillStyle="rgba(96,165,250,.98)";
+    ctx.beginPath(); ctx.arc(pa.px,pa.py,10,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle="rgba(255,255,255,.95)";
+    ctx.lineWidth=3.0;
+    ctx.stroke();
+    ctx.fillStyle="rgba(255,255,255,.98)";
+    ctx.font="14px system-ui";
+    ctx.fillText("Point A", pa.px+14, pa.py-10);
+  }
+
+  // Point B circle
   if(B){
     const pb=toPx(B.x,B.y);
     ctx.fillStyle="rgba(52,211,153,.98)";
@@ -526,7 +580,7 @@ function drawScene(path, rocket, B, stageMarks){
     ctx.fillText("Point B", pb.px+14, pb.py-10);
   }
 
-  // rocket (outline)
+  // rocket
   if(rocket){
     const pr=toPx(rocket.x,rocket.y);
     ctx.save();
@@ -597,8 +651,9 @@ function readInputs(){
 }
 
 function buildPlan(inp){
+  // Keep same simple corridor: B is east and up.
   const xB = Math.max(180000, inp.hB*1.8);
-  return { B:{x:xB,y:inp.hB} };
+  return { A:{x:0,y:inp.h0}, B:{x:xB,y:inp.hB} };
 }
 
 function buildStages(inp){
@@ -611,7 +666,6 @@ function buildStages(inp){
   ];
 }
 
-// allocate prop across stages by nominal mdot*t weighting
 function allocateProp(inp, stages){
   const drops = 4*inp.sepMass;
   const propTotal = Math.max(0, inp.m0 - inp.mdry - drops);
@@ -625,7 +679,7 @@ function updateAllGauges(sim, extras){
   const r = Re + sim.y;
   const g = mu/(r*r);
   const v = Math.hypot(sim.vx,sim.vy);
-  const vrot = earthRotSpeedAt(sim.inp.lat, sim.y); // LIVE with altitude
+  const vrot = earthRotSpeedAt(sim.inp.lat, sim.y);
 
   $("g_t").textContent = fmt(sim.t,1);
   $("g_h").textContent = fmtInt(sim.y);
@@ -641,6 +695,7 @@ function updateAllGauges(sim, extras){
 
   $("g_q").textContent = fmtInt(extras.q);
   $("g_qdot").textContent = fmt(extras.qdot,1);
+
   const coolLeft = Math.max(0, sim.inp.coolCap - sim.coolUsed);
   $("g_cool").textContent = `${fmtInt(sim.coolUsed)} / ${fmtInt(coolLeft)}`;
 
@@ -671,7 +726,6 @@ function calcSim(){
     x:0,
     y:inp.h0,
 
-    // initial velocity includes live v_rot at pad altitude
     vx: earthRotSpeedAt(inp.lat, inp.h0),
     vy: 0,
 
@@ -692,7 +746,6 @@ function calcSim(){
   $("btnLaunch").disabled=false;
   $("btnStop").disabled=true;
 
-  // update gauges right away (not static)
   updateAllGauges(sim, {
     stageLabel:"Stage 1",
     stageFuelLeft: sim.stageProp[0],
@@ -701,10 +754,10 @@ function calcSim(){
     eps: epsilon(Re+sim.y, Math.hypot(sim.vx,sim.vy))
   });
 
-  log(`Calculated. Total prop ≈ ${fmtInt(sim.propTotal)} kg. Target B = ${fmtInt(inp.hB)} m.`);
-  log(`v_rot(h) will update with altitude. Click Launch.`);
+  log(`Calculated. Total prop ≈ ${fmtInt(sim.propTotal)} kg. Point B: x≈${fmtInt(plan.B.x)} m, h=${fmtInt(plan.B.y)} m.`);
+  log(`Orbit mode now stops when rocket reaches the B circle (x & h proximity).`);
 
-  drawScene(sim.path, {x:sim.x,y:sim.y,vx:sim.vx,vy:sim.vy}, sim.plan.B, sim.stageMarks);
+  drawScene(sim.path, {x:sim.x,y:sim.y,vx:sim.vx,vy:sim.vy}, sim.plan.A, sim.plan.B, sim.stageMarks);
 }
 
 function stopNow(reason){
@@ -741,6 +794,16 @@ function transitionStage(sim){
   }
 }
 
+/* NEW: B-circle arrival test (not just altitude) */
+function arrivedAtB(sim){
+  const B = sim.plan.B;
+  // stop radius in meters around the B circle
+  const rStop = 12000; // 12 km “arrival bubble” (toy)
+  const dx = sim.x - B.x;
+  const dy = sim.y - B.y;
+  return (dx*dx + dy*dy) <= (rStop*rStop);
+}
+
 function stepSim(){
   if(!sim || sim.done) return;
 
@@ -749,12 +812,11 @@ function stepSim(){
 
   const st=currentStage(sim);
 
-  // gravity
   const r = Re + sim.y;
   const g = mu/(r*r);
 
   // guidance
-  const pitchEndAlt = Math.max(inp.pitchEndAlt, inp.hB + 5000); // guarantee still climbing to B
+  const pitchEndAlt = Math.max(inp.pitchEndAlt, inp.hB + 5000);
   const ang = pitchAngleRadByAlt(sim.y, inp.vertUntil, pitchEndAlt);
   let ux=Math.cos(ang), uy=Math.sin(ang);
 
@@ -775,13 +837,12 @@ function stepSim(){
   const excessHeat=Math.max(0, qdot-inp.qdotmax-coolNow);
   sim.coolStored += excessHeat*dt;
 
-  // thrust + prop burn limited by stage prop budget
+  // thrust + prop
   let T=0, mdot=0;
 
   if(st){
     sim.stageT += dt;
 
-    // stage ends by time OR fuel depletion
     const propLeft = Math.max(0, sim.stageProp[sim.si]);
     if(sim.stageT >= st.t || propLeft <= 0.5){
       transitionStage(sim);
@@ -790,10 +851,9 @@ function stepSim(){
 
     T = st.T;
 
-    // CLIMB AUTOPILOT: maintain upward acceleration until hB reached
-    // require net upward accel ≈ climbAssist (m/s^2)
-    if(sim.y < inp.hB){
-      const aReq = g + Math.max(0, inp.climbAssist); // want ayT - g >= climbAssist
+    // climb assist until B reached
+    if(inp.mode==="orbit" && !arrivedAtB(sim)){
+      const aReq = g + Math.max(0, inp.climbAssist);
       const ayFromT = (T/sim.m)*uy;
       if(uy > 0.2 && ayFromT < aReq){
         const boost = clamp(aReq/Math.max(1e-9, ayFromT), 1.0, 3.2);
@@ -803,7 +863,7 @@ function stepSim(){
 
     mdot = T/(st.Isp*g0);
 
-    // do not burn more than stage prop left
+    // limit burn by stage prop
     const burn = mdot*dt;
     if(burn > propLeft){
       const scale = propLeft / Math.max(1e-9, burn);
@@ -835,8 +895,8 @@ function stepSim(){
   sim.x += sim.vx*dt;
   sim.y += sim.vy*dt;
 
-  // prevent dive-back while powered and below target
-  if(st && sim.y < inp.hB && sim.y < yPrev){
+  // prevent dive-back while powered
+  if(st && sim.y < yPrev && inp.mode==="orbit" && !arrivedAtB(sim)){
     sim.y = yPrev;
     if(sim.vy < 0) sim.vy = 0;
   }
@@ -850,7 +910,6 @@ function stepSim(){
   // mass + fuel
   const burned = mdot*dt;
   sim.m = Math.max(inp.mdry, sim.m - burned);
-
   if(st){
     sim.stageProp[sim.si] = Math.max(0, sim.stageProp[sim.si] - burned);
   }
@@ -864,15 +923,15 @@ function stepSim(){
 
   const eps = epsilon(Re+sim.y, Math.hypot(sim.vx,sim.vy));
 
-  // STOP CONDITIONS (your request: stop at Point B)
-  if(inp.mode==="orbit" && sim.y >= inp.hB){
-    stopNow("Orbit altitude reached (Point B)");
+  // STOP CONDITIONS
+  if(inp.mode==="orbit" && arrivedAtB(sim)){
+    stopNow("Arrived at Point B (circle)");
   }
   if(inp.mode==="escape" && eps>=0 && sim.y>120000){
     stopNow("Escape ε ≥ 0");
   }
 
-  // update gauges LIVE every step
+  // update gauges
   updateAllGauges(sim, {
     stageLabel: st ? `Stage ${st.stage}` : "Coast",
     stageFuelLeft,
@@ -882,8 +941,8 @@ function stepSim(){
     eps
   });
 
-  // redraw
-  drawScene(sim.path, {x:sim.x,y:sim.y,vx:sim.vx,vy:sim.vy}, sim.plan.B, sim.stageMarks);
+  // redraw (A + B shown)
+  drawScene(sim.path, {x:sim.x,y:sim.y,vx:sim.vx,vy:sim.vy}, sim.plan.A, sim.plan.B, sim.stageMarks);
 
   // safety
   if(!isFinite(sim.x+sim.y+sim.vx+sim.vy+sim.m+eps) || sim.t>4000){
@@ -911,7 +970,7 @@ function startLaunch(){
   $("btnLaunch").disabled=true;
   $("btnStop").disabled=false;
 
-  log("Launch started. All right-side gauges update continuously through stages until Point B.");
+  log("Launch started. Stops when it reaches the B circle.");
 
   if(raf) cancelAnimationFrame(raf);
   raf=requestAnimationFrame(loop);
@@ -939,7 +998,6 @@ function hardReset(){
   $("btnLaunch").disabled=true;
   $("btnStop").disabled=true;
 
-  // clear gauges
   ["g_t","g_h","g_stage","g_vx","g_vy","g_v","g_stageFuelLeft","g_totalFuelLeft","g_m",
    "g_q","g_qdot","g_cool","g_T","g_mdot","g_eps","g_r","g_g","g_vrot"]
     .forEach(id=>$(id).textContent="—");
@@ -947,9 +1005,9 @@ function hardReset(){
   logEl.innerHTML="";
   log("Reset complete. Click Calculate → Launch.");
 
-  // baseline scene
+  const A={x:0,y:10};
   const B={x:360000,y:200000};
-  drawScene([], null, B, []);
+  drawScene([], null, A, B, []);
 }
 
 window.addEventListener("load", ()=>{
@@ -957,21 +1015,23 @@ window.addEventListener("load", ()=>{
   ctx=cv.getContext("2d");
   logEl=$("log");
 
-  // clocks
   setInterval(()=>{
     $("utcNow").textContent=nowUTC();
     $("cstNow").textContent=nowCST();
   },250);
 
-  // button wiring
-  $("btnCalc").addEventListener("click", ()=>{ try{ calcSim(); }catch(e){ console.error(e); log("ERROR: "+(e?.message||e)); setStatus("Error"); }});
+  $("btnCalc").addEventListener("click", ()=>{ 
+    try{ calcSim(); }
+    catch(e){ console.error(e); log("ERROR: "+(e?.message||e)); setStatus("Error"); }
+  });
   $("btnLaunch").addEventListener("click", ()=>startLaunch());
   $("btnStop").addEventListener("click", ()=>stopSim());
   $("btnReset").addEventListener("click", ()=>hardReset());
 
-  // initial draw with bold lines
-  drawScene([], null, {x:360000,y:200000}, []);
-  log("Ready. 1) Calculate 2) Launch (stages run live) 3) Stops at Point B 4) Stop anytime 5) Reset.");
+  const A={x:0,y:10};
+  const B={x:360000,y:200000};
+  drawScene([], null, A, B, []);
+  log("Ready. 1) Calculate 2) Launch 3) Stops at Point B circle 4) Stop anytime 5) Reset.");
 });
 </script>
 </body>
