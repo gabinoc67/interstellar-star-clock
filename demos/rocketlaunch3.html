@@ -1,12 +1,10 @@
 <!-- ======================= PART 1 / 4 =======================
-Rocket Corridor A→B — 5 Stages — Arrive at Point B (FINAL FIXES)
-FIXES YOU ASKED FOR:
-1) Atmosphere lines “too close”:
-   ✅ Canvas mapping now uses INDEPENDENT X/Y scaling + a vertical exaggeration factor,
-      so the 10/30/60/100/150/200 km lines are spaced farther apart (clearer).
-2) Rocket reaches 200 km but passes Point B then falls:
-   ✅ Arrival detection is now “segment hits circle” (it can’t skip over B between frames).
-   ✅ When arrival happens, we SNAP the rocket to Point B and zero velocities (it truly stops on the circle).
+Rocket Corridor A→B — 5 Stages — Arrive at Point B
+FIX (only what you asked):
+- The rocket “disappeared” because the vertical exaggeration pushed the 200 km line + B above the visible canvas.
+✅ Fix: make the trajectory canvas taller AND remove the vertical exaggeration (keep locked viewport).
+✅ Fix: increase yTop so 200 km line + Point B + rocket are always inside the panel.
+Everything else (fuel-based stages + segment-hit stop-on-B) is kept.
 ============================================================== -->
 <!doctype html>
 <html lang="en">
@@ -115,9 +113,10 @@ FIXES YOU ASKED FOR:
   .kv .k{color:var(--muted); font-family: system-ui}
   .kv .v{color:var(--ink)}
 
+  /* ✅ Bigger trajectory panel so 200 km + B + rocket always visible */
   canvas{
     width:100%;
-    height:620px;
+    height:900px; /* was 620 */
     display:block;
     background:
       radial-gradient(circle at 70% 30%, rgba(96,165,250,.12), rgba(0,0,0,.0) 55%),
@@ -162,7 +161,7 @@ FIXES YOU ASKED FOR:
   <div class="wrap title">
     <div>
       <h1>Rocket Corridor A→B — 5 Stages — Arrive at Point B</h1>
-      <div class="sub">Calculate → Launch → Stop/Reset. Vertical spacing improved. Stops by “crossing B circle” (can’t skip).</div>
+      <div class="sub">Calculate → Launch → Stop/Reset. Bigger panel shows 200 km line + Point B + rocket stop.</div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <span class="pill">UTC <b id="utcNow">—</b></span>
@@ -230,7 +229,7 @@ FIXES YOU ASKED FOR:
           </div>
 
           <div class="hint">
-            Arrival fix: even if the rocket crosses Point B between frames, the sim detects the segment hitting the B circle and stops ON the circle.
+            Bigger trajectory panel: 200 km line and Point B are always visible; rocket stops ON the B circle (segment-hit + snap).
           </div>
 
           <div class="small" style="margin-top:12px"><b>Stages 1 → 5</b></div>
@@ -286,7 +285,7 @@ FIXES YOU ASKED FOR:
     <div class="card">
       <h2>Trajectory + Live Readings</h2>
       <div class="body">
-        <canvas id="cv" width="900" height="620"></canvas>
+        <canvas id="cv" width="900" height="900"></canvas>
 
         <div class="row3" style="margin-top:10px">
           <div class="kv"><div class="k">t (s)</div><div class="v" id="g_t">—</div></div>
@@ -322,12 +321,12 @@ FIXES YOU ASKED FOR:
         <div class="explain">
           <h3>What this simulation is doing</h3>
           <div>
-            Toy ascent from <b>Point A</b> to <b>Point B</b> in East–Up. It reaches <b>200 km</b> and then stops exactly on the <b>Point B circle</b>.
+            Toy ascent from <b>Point A</b> to <b>Point B</b> in East–Up. Stops exactly on <b>Point B circle</b>.
           </div>
         </div>
 
         <div class="small" style="margin-top:10px">
-          Bold atmosphere lines at 10/30/60/100/150/200 km (visually spaced). Stage ends are marked by fuel depletion.
+          Bold atmosphere lines at 10/30/60/100/150/200 km. Bigger panel keeps 200 km + B visible.
         </div>
       </div>
     </div>
@@ -336,7 +335,7 @@ FIXES YOU ASKED FOR:
 </div>
 <!-- ======================= PART 2 / 4 ======================= -->
 <script>
-/* Core helpers + drawing (improved vertical spacing + locked viewport) */
+/* Core helpers + drawing (locked viewport + bigger yTop so 200km line is always visible) */
 
 const $ = (id)=>document.getElementById(id);
 let cv=null, ctx=null, logEl=null;
@@ -414,19 +413,21 @@ function resizeCanvasToCSS(){
   }
 }
 
-/* Locked viewport (does not depend on path) */
+/* Locked viewport window (not dependent on path) */
 function getViewWindow(A,B){
   const minX = -25000;
   const Bx = (B?.x ?? 360000);
   const By = (B?.y ?? 200000);
+
   const maxX = Bx + 180000;
-  const yTop = Math.max(240000, By + 50000);
+
+  // ✅ yTop is deliberately higher so 200km line + B never clip offscreen
+  // (bigger canvas + bigger yTop = you can always see the rocket at B)
+  const yTop = Math.max(320000, By + 120000);
+
   return {minX, maxX, yTop};
 }
 
-/* Increased vertical separation:
-   Use independent scaling (sx for x, sy for y) + vertical exaggeration.
-*/
 function drawScene(path, rocket, A, B, stageMarks){
   if(!cv || !ctx) return;
   resizeCanvasToCSS();
@@ -436,26 +437,20 @@ function drawScene(path, rocket, A, B, stageMarks){
   const vw=getViewWindow(A,B);
   const minX=vw.minX, maxX=vw.maxX, yTop=vw.yTop;
 
-  const margin=70;
+  const margin=80;
   const spanX=Math.max(1,maxX-minX);
   const spanY=Math.max(1,yTop);
 
+  // independent scaling (keeps vertical space generous due to taller canvas)
   const sx=(W-2*margin)/spanX;
-  const syBase=(H-2*margin)/spanY;
-
-  // vertical exaggeration factor (bigger = more spacing between altitude lines)
-  const yExag = 1.55;
-  const sy = syBase * yExag;
+  const sy=(H-2*margin)/spanY;
 
   function toPx(x,y){
     y = clamp(y,0,yTop);
-    return {
-      px: margin + (x-minX)*sx,
-      py: H - margin - y*sy
-    };
+    return {px: margin + (x-minX)*sx, py: H - margin - y*sy};
   }
 
-  // ground line
+  // ground
   ctx.strokeStyle="rgba(255,255,255,.70)";
   ctx.lineWidth=2.2;
   ctx.beginPath();
@@ -536,7 +531,7 @@ function drawScene(path, rocket, A, B, stageMarks){
     ctx.fillText("Point B", pb.px+18, pb.py-12);
   }
 
-  // rocket icon
+  // rocket
   if(rocket){
     const pr=toPx(rocket.x,rocket.y);
     ctx.save();
@@ -674,7 +669,7 @@ function updateGauges(sim, e){
   $("g_vrot").textContent = fmt(vrot,1);
 }
 
-/* Segment-circle hit test so you can't “skip past” B between frames */
+/* Segment-circle hit test so it cannot skip B */
 function segHitsCircle(x0,y0,x1,y1,cx,cy,r){
   const dx = x1-x0, dy = y1-y0;
   const fx = x0-cx, fy = y0-cy;
@@ -683,13 +678,11 @@ function segHitsCircle(x0,y0,x1,y1,cx,cy,r){
   const b = 2*(fx*dx + fy*dy);
   const c = fx*fx + fy*fy - r*r;
 
-  // Solve a t^2 + b t + c = 0
   let disc = b*b - 4*a*c;
   if(disc < 0 || a === 0) return false;
   disc = Math.sqrt(disc);
   const t1 = (-b - disc) / (2*a);
   const t2 = (-b + disc) / (2*a);
-  // Intersection within segment
   return (t1>=0 && t1<=1) || (t2>=0 && t2<=1);
 }
 
@@ -708,10 +701,8 @@ function calcSim(){
     dt:0.12,
     t:0,
 
-    x:0,
-    y:inp.h0,
-    xPrev:0,
-    yPrev:inp.h0,
+    x:0, y:inp.h0,
+    xPrev:0, yPrev:inp.h0,
 
     m: inp.m0,
 
@@ -732,7 +723,7 @@ function calcSim(){
   $("btnStop").disabled=true;
 
   log(`Calculated. v_rot ≈ ${fmt(sim.vx,1)} m/s. Point B: x≈${fmtInt(plan.B.x)} m, h=${fmtInt(plan.B.y)} m.`);
-  log(`Total prop ≈ ${fmtInt(sim.propTotal)} kg. Arrival uses segment-hit (no skipping).`);
+  log(`Trajectory panel is taller; 200 km line + B stay visible.`);
 
   updateGauges(sim, {
     stageLabel:"Stage 1",
@@ -829,7 +820,6 @@ function stepSim(){
   const r = Re + sim.y;
   const g = mu/(r*r);
 
-  // store previous position for segment-hit arrival
   sim.xPrev = sim.x;
   sim.yPrev = sim.y;
 
@@ -925,21 +915,19 @@ function stepSim(){
 
   sim.t += dt;
   sim.path.push({x:sim.x,y:sim.y});
-  if(sim.path.length>12000) sim.path.shift();
+  if(sim.path.length>14000) sim.path.shift();
 
   const totalFuelLeft = sim.stageProp.slice(sim.si).reduce((a,b)=>a+b,0);
   const stageFuelLeft = st ? sim.stageProp[sim.si] : 0;
   const eps = epsilon(Re+sim.y, Math.hypot(sim.vx,sim.vy));
 
-  // ARRIVAL: segment hit test + snap + full stop
+  // ARRIVAL: segment hit + snap + full stop
   if(inp.mode==="orbit"){
     const rStop = 9000;
     const hit = segHitsCircle(sim.xPrev, sim.yPrev, sim.x, sim.y, B.x, B.y, rStop);
     if(hit){
-      sim.x = B.x;
-      sim.y = B.y;
-      sim.vx = 0;
-      sim.vy = 0;
+      sim.x = B.x; sim.y = B.y;
+      sim.vx = 0; sim.vy = 0;
       sim.path.push({x:sim.x,y:sim.y});
       updateGauges(sim, {
         stageLabel: st ? `Stage ${st.stage}` : "Coast",
@@ -1017,7 +1005,7 @@ function startLaunch(){
   sim.running=true;
   setStatus("Launching...");
   setButtons("running");
-  log("Launch started. Will stop ON the Point B circle (segment-hit stop).");
+  log("Launch started. Bigger panel keeps 200 km + B visible. Stops ON the B circle.");
 
   if(raf) cancelAnimationFrame(raf);
   raf=requestAnimationFrame(loop);
