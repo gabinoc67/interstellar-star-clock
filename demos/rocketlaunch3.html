@@ -1,7 +1,10 @@
 <!-- ======================= PART 1 / 4 =======================
 Rocket Corridor A→B — 5 Stages — Arrive at Point B
-FIX: Trajectory panel disappearing was caused by sim.m never being initialized.
-Now sim.m starts at m0, so thrust/drag math stays finite and the rocket/lines/stages keep rendering.
+FIXED (buttons + trajectory + rocket):
+- Clean single, consistent wiring (DOMContentLoaded)
+- No duplicated/missing script sections
+- sim.m initialized (prevents NaN → blank canvas)
+- Canvas always draws preview on load + reset
 ============================================================== -->
 <!doctype html>
 <html lang="en">
@@ -285,7 +288,7 @@ Now sim.m starts at m0, so thrust/drag math stays finite and the rocket/lines/st
           </div>
 
           <div class="hint">
-            Fix in this build: after reaching orbit altitude, guidance keeps steering toward the <b>Point B circle</b> (with an upward bias) so it won’t dive straight down.
+            Guidance steers toward the <b>Point B circle</b> and avoids diving before arrival (Orbit mode).
           </div>
 
           <div class="small" style="margin-top:12px"><b>Stages 1 → 5</b></div>
@@ -382,15 +385,9 @@ Now sim.m starts at m0, so thrust/drag math stays finite and the rocket/lines/st
         <div class="explain">
           <h3>What this simulation is doing</h3>
           <div>
-            This is a <b>toy corridor ascent</b> from <b>Point A</b> to <b>Point B</b> in East–Up (x–y).
-            It blends <b>Earth rotation</b>, <b>q compression</b>, <b>drag/lift</b>, a simple <b>heat proxy + coolant</b>, and a <b>5-stage burn</b>.
+            Toy corridor ascent from <b>Point A</b> to <b>Point B</b> in East–Up (x–y) with Earth rotation,
+            drag/lift, heat proxy + coolant, and a 5-stage burn. Stops at the <b>Point B circle</b> (Orbit mode).
           </div>
-          <ul>
-            <li><b>Point A (latitude)</b> changes the rotation bonus v_rot (free eastward velocity).</li>
-            <li><b>Point B (vector target)</b> creates a stable “corridor” aimpoint instead of “straight up.”</li>
-            <li><b>Curvature control</b> helps manage q/heat peaks and reduces wasted steering (toy framing).</li>
-            <li><b>CST + UTC clocks</b> show timing windows (not claiming spacetime proof—just control/timing).</li>
-          </ul>
         </div>
 
         <div class="small" style="margin-top:10px">
@@ -401,10 +398,9 @@ Now sim.m starts at m0, so thrust/drag math stays finite and the rocket/lines/st
 
   </div>
 </div>
-
+<!-- ======================= PART 2 / 4 ======================= -->
 <script>
-/* ===================== PART 2 / 4 ===================== */
-/* IMPORTANT: Do not remove this script section. If this breaks, canvas/lines/rocket disappear. */
+/* Core helpers + drawing (kept stable so trajectory panel never disappears) */
 
 const $ = (id)=>document.getElementById(id);
 let cv=null, ctx=null, logEl=null;
@@ -412,6 +408,7 @@ let raf=null;
 let sim=null;
 
 function log(msg){
+  if(!logEl) return;
   const t=new Date().toLocaleTimeString();
   logEl.innerHTML = `<div>[${t}] ${msg}</div>` + logEl.innerHTML;
 }
@@ -425,7 +422,7 @@ function fmt(x,d=2){
   return x.toFixed(d);
 }
 function fmtInt(x){ return isFinite(x) ? Math.round(x).toLocaleString() : "—"; }
-function setStatus(s){ $("status").textContent=s; }
+function setStatus(s){ const el=$("status"); if(el) el.textContent=s; }
 
 function nowUTC(){ return new Date().toISOString().replace("T"," ").slice(0,19)+"Z"; }
 function nowCST(){
@@ -470,7 +467,6 @@ function liftDir(vx,vy){
 }
 
 function resizeCanvasToCSS(){
-  // keeps drawing crisp even if CSS scales canvas
   const rect=cv.getBoundingClientRect();
   const dpr = Math.max(1, window.devicePixelRatio || 1);
   const w = Math.max(10, Math.round(rect.width * dpr));
@@ -483,6 +479,7 @@ function resizeCanvasToCSS(){
 
 /* Drawing */
 function drawScene(path, rocket, A, B, stageMarks){
+  if(!cv || !ctx) return;
   resizeCanvasToCSS();
   const W=cv.width, H=cv.height;
   ctx.clearRect(0,0,W,H);
@@ -509,7 +506,7 @@ function drawScene(path, rocket, A, B, stageMarks){
   let p0=toPx(minX,0), p1=toPx(maxX,0);
   ctx.moveTo(p0.px,p0.py); ctx.lineTo(p1.px,p1.py); ctx.stroke();
 
-  // atmosphere lines (bold white)
+  // atmosphere lines
   const atm=[10000,30000,60000,100000,150000,200000];
   ctx.font=`${Math.round(14*(window.devicePixelRatio||1))}px system-ui`;
   for(const h of atm){
@@ -583,7 +580,7 @@ function drawScene(path, rocket, A, B, stageMarks){
     ctx.fillText("Point B", pb.px+18, pb.py-12);
   }
 
-  // rocket icon (outlined)
+  // rocket icon
   if(rocket){
     const pr=toPx(rocket.x,rocket.y);
     ctx.save();
@@ -602,7 +599,6 @@ function drawScene(path, rocket, A, B, stageMarks){
     ctx.closePath();
     ctx.fill(); ctx.stroke();
 
-    // tail fin
     ctx.fillStyle="rgba(96,165,250,.92)";
     ctx.beginPath();
     ctx.moveTo(-8,0);
@@ -620,7 +616,8 @@ function drawScene(path, rocket, A, B, stageMarks){
   ctx.fillText("East →", W-120, 30);
   ctx.fillText("Up ↑", W-85, 54);
 }
-<!-- ======================= PART 2 / 4 CONTINUED ======================= -->
+</script>
+<!-- ======================= PART 3 / 4 ======================= -->
 <script>
 function readInputs(){
   return {
@@ -667,7 +664,6 @@ function buildStages(inp){
   ];
 }
 
-// allocate prop (keeps it consistent)
 function allocateProp(inp, stages){
   const drops = 4*inp.sepMass;
   const propTotal = Math.max(0, inp.m0 - inp.mdry - drops);
@@ -683,7 +679,7 @@ function setGaugesBlank(){
     "g_stageFuelLeft","g_totalFuelLeft","g_m",
     "g_q","g_qdot","g_cool","g_T","g_mdot","g_eps",
     "g_r","g_g","g_vrot"
-  ].forEach(id=>$(id).textContent="—");
+  ].forEach(id=>{ const el=$(id); if(el) el.textContent="—"; });
 }
 
 function updateGauges(sim, e){
@@ -737,7 +733,7 @@ function calcSim(){
     x:0,
     y:inp.h0,
 
-    // FIX: initialize mass so physics stays finite (prevents trajectory panel going blank)
+    // critical: mass must be initialized
     m: inp.m0,
 
     vx: earthRotSpeedAt(inp.lat, inp.h0),
@@ -747,7 +743,6 @@ function calcSim(){
     stageT:0,
 
     coolUsed:0,
-    coolStored:0,
 
     path:[{x:0,y:inp.h0}],
     stageMarks:[]
@@ -771,16 +766,14 @@ function calcSim(){
 
   drawScene(sim.path, {x:sim.x,y:sim.y,vx:sim.vx,vy:sim.vy}, sim.plan.A, sim.plan.B, sim.stageMarks);
 }
-</script>
-<!-- ======================= PART 3 / 4 ======================= -->
-<script>
+
 function currentStage(sim){
   return (sim.si>=0 && sim.si<sim.stages.length) ? sim.stages[sim.si] : null;
 }
 
 function arrivedAtB(sim){
   const B = sim.plan.B;
-  const rStop = 12000; // keep your same “arrival radius”
+  const rStop = 12000;
   const dx = sim.x - B.x;
   const dy = sim.y - B.y;
   return (dx*dx + dy*dy) <= (rStop*rStop);
@@ -817,7 +810,7 @@ function transitionStage(sim){
   }
 }
 
-/* Guidance: vertical first, then steer toward B vector with upward bias near orbit */
+/* Guidance */
 function guidanceUnit(sim){
   const inp = sim.inp;
   const B = sim.plan.B;
@@ -841,12 +834,10 @@ function guidanceUnit(sim){
     dy = Math.max(dy, 12000);
   }
 
-  // normalize
   let n = Math.hypot(dx,dy) || 1;
   let ux = dx/n;
   let uy = dy/n;
 
-  // never aim downward in orbit mode unless already arrived
   if(inp.mode==="orbit" && !arrivedAtB(sim)){
     uy = Math.max(0.12, uy);
     const nn = Math.hypot(ux,uy) || 1;
@@ -866,11 +857,9 @@ function stepSim(){
   const r = Re + sim.y;
   const g = mu/(r*r);
 
-  // guidance
   const u = guidanceUnit(sim);
   const ux=u.ux, uy=u.uy;
 
-  // aero
   const v=Math.hypot(sim.vx,sim.vy)||1e-9;
   const rho=rhoAt(sim.y);
   const q=0.5*rho*v*v;
@@ -878,14 +867,12 @@ function stepSim(){
   const L=q*inp.cda*inp.liftK;
   const qdot=heatProxy(rho,v);
 
-  // coolant (toy limiter)
   let coolNow=0;
   if(qdot>inp.qdotmax){
     coolNow=clamp(qdot-inp.qdotmax, 0, inp.coolFlow);
   }
   sim.coolUsed += coolNow*dt;
 
-  // throttle: do not kill thrust; reduce gently when q > qmax
   let throttle = 1.0;
   if(q > inp.qmax){
     throttle *= clamp(inp.qmax/q, 0.35, 1.0);
@@ -894,7 +881,6 @@ function stepSim(){
     throttle *= 0.55;
   }
 
-  // thrust + prop
   let T=0, mdot=0;
 
   if(st){
@@ -902,7 +888,6 @@ function stepSim(){
 
     const propLeft = Math.max(0, sim.stageProp[sim.si]);
 
-    // stage end?
     if(sim.stageT >= st.t || propLeft <= 0.5){
       transitionStage(sim);
       return;
@@ -910,7 +895,6 @@ function stepSim(){
 
     T = st.T * throttle;
 
-    // ensure enough upward accel (prevents fall-back in toy)
     if(inp.mode==="orbit" && !arrivedAtB(sim)){
       const aReq = g + Math.max(0, inp.climbAssist);
       const ayFromT = (T/sim.m)*uy;
@@ -922,7 +906,6 @@ function stepSim(){
 
     mdot = T/(st.Isp*g0);
 
-    // burn cap by remaining stage prop
     const burn = mdot*dt;
     if(burn > propLeft){
       const scale = propLeft / Math.max(1e-9, burn);
@@ -931,7 +914,6 @@ function stepSim(){
     }
   }
 
-  // accelerations
   const axT=(T/sim.m)*ux;
   const ayT=(T/sim.m)*uy;
 
@@ -945,7 +927,6 @@ function stepSim(){
 
   const ayG=-g;
 
-  // integrate
   sim.vx += (axT+axD+axL)*dt;
   sim.vy += (ayT+ayD+ayL+ayG)*dt;
 
@@ -953,19 +934,16 @@ function stepSim(){
   sim.x += sim.vx*dt;
   sim.y += sim.vy*dt;
 
-  // clamp: if orbit mode and we start descending before arrival, prevent dive
   if(inp.mode==="orbit" && !arrivedAtB(sim) && sim.y < yPrev){
     sim.y = yPrev;
     if(sim.vy < 0) sim.vy = 0;
   }
 
-  // ground
   if(sim.y < 0){
     sim.y=0; sim.vy=0;
     stopNow("Stopped: hit ground");
   }
 
-  // mass + fuel
   const burned = mdot*dt;
   sim.m = Math.max(inp.mdry, sim.m - burned);
   if(st){
@@ -981,7 +959,6 @@ function stepSim(){
 
   const eps = epsilon(Re+sim.y, Math.hypot(sim.vx,sim.vy));
 
-  // stop conditions
   if(inp.mode==="orbit" && arrivedAtB(sim)){
     stopNow("Arrived at Point B (circle)");
   }
@@ -989,7 +966,6 @@ function stepSim(){
     stopNow("Escape ε ≥ 0");
   }
 
-  // live updates every step
   updateGauges(sim, {
     stageLabel: st ? `Stage ${st.stage}` : "Coast",
     stageFuelLeft,
@@ -1057,19 +1033,24 @@ function hardReset(){
   $("btnStop").disabled=true;
 
   setGaugesBlank();
-  logEl.innerHTML="";
+  if(logEl) logEl.innerHTML="";
   log("Reset complete. Click Calculate → Launch.");
 
-  // draw initial A/B preview so the trajectory panel is never blank
   const A={x:0,y:10};
   const B={x:360000,y:200000};
   drawScene([], null, A, B, []);
 }
 
-window.addEventListener("load", ()=>{
+document.addEventListener("DOMContentLoaded", ()=>{
+  // bind core elements
   cv=$("cv");
-  ctx=cv.getContext("2d");
   logEl=$("log");
+
+  if(!cv || !logEl){
+    console.error("Missing canvas or log element. Check IDs cv/log.");
+    return;
+  }
+  ctx=cv.getContext("2d");
 
   // clocks
   setInterval(()=>{
@@ -1077,26 +1058,22 @@ window.addEventListener("load", ()=>{
     $("cstNow").textContent=nowCST();
   },250);
 
-  // buttons
+  // buttons (single clean wiring)
   $("btnCalc").addEventListener("click", ()=>{
-    try{
-      calcSim();
-    }catch(e){
+    try{ calcSim(); }
+    catch(e){
       console.error(e);
       log("ERROR in Calculate: " + (e?.message||e));
       setStatus("Error");
     }
   });
-
   $("btnLaunch").addEventListener("click", ()=>startLaunch());
   $("btnStop").addEventListener("click", ()=>stopSim());
   $("btnReset").addEventListener("click", ()=>hardReset());
 
-  // first draw so canvas/lines are visible immediately
+  // initial draw so trajectory panel is never blank
   setGaugesBlank();
-  const A={x:0,y:10};
-  const B={x:360000,y:200000};
-  drawScene([], null, A, B, []);
+  drawScene([], null, {x:0,y:10}, {x:360000,y:200000}, []);
   log("Ready. 1) Calculate 2) Launch 3) Stops at B circle 4) Stop anytime 5) Reset.");
 });
 </script>
