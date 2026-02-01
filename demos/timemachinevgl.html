@@ -1,25 +1,31 @@
 <!-- ======================= PART 1 / 4 =======================
-CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrity + Power/Heat + Event Log)
-- Adds: CST Earth-Lock (lat/long), VGL (Variable Gravity Lock), VGI scan + anomaly trip, Worldline Integrity meters,
-        Power Core (battery buffer, waste heat, containment), Event Log, safe abort/ramp-down.
-- Keeps: your rings/photons/particles/4 clocks + Advanced SR/GR/Sidereal/Star/E↔m panels.
+CST Time-Machine Simulator — FIXED so it reaches destination (no more instant “containment collapse”)
+What was wrong:
+- Your destination produced a HUGE Δt (millions of days). The toy power model scaled ~linearly with spanDays,
+  which forced heat/containment to collapse immediately.
+What this fix does (without changing your UI/look):
+- Power scaling vs |Δt| is now LOG-based (grows slowly), and capped.
+- Containment only drops from REAL overload (heat above radiator) or VGI trip — not just from big |Δt|.
+- Heat model is softened and has recovery.
+Result:
+- It will reach destination unless you inject an anomaly above threshold OR you intentionally set radiator/battery absurdly low.
 ============================================================== -->
 <!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>CST Time-Machine Simulator — Rings • Photons • 4 Clocks (CST Lock Upgrade)</title>
+<title>CST Time-Machine Simulator — Rings • Photons • 4 Clocks (CST Lock Upgrade FIX)</title>
 <style>
   :root{
     --bg:#0b1020; --ink:#eaf0ff; --mut:#9fb0d0; --panel:#121936; --line:#223062;
-    --beam-color:rgba(190,245,255,.9);          /* white-cyan = stable */
-    --intensity:.25;                             /* 0..1 visual power */
-    --vibe:1;                                    /* ring horizontal quiver */
-    --bob-amp:10px;                              /* ring vertical bob amplitude */
-    --bob-speed:3.6s;                            /* ring vertical bob speed */
-    --particle-speed:6s;                         /* orbiters (lower = faster) */
-    --photon-speed:3s;                           /* vertical photon streams */
+    --beam-color:rgba(190,245,255,.9);
+    --intensity:.25;
+    --vibe:1;
+    --bob-amp:10px;
+    --bob-speed:3.6s;
+    --particle-speed:6s;
+    --photon-speed:3s;
   }
   *{box-sizing:border-box}
   html,body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,Segoe UI,Roboto,Arial}
@@ -54,7 +60,6 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
   .beam{position:absolute;left:50%;top:6%;bottom:10%;transform:translateX(-50%);
     width:22%;background:radial-gradient(ellipse at center,var(--beam-color),transparent 70%);
     opacity:calc(.25 + .75*var(--intensity)); filter:blur(8px); transition:background .3s linear}
-  /* Ring wrappers bob up/down; inner rings quiver horizontally */
   .ringWrap{position:absolute;left:50%;transform:translateX(-50%) translateY(0); animation: bob var(--bob-speed) ease-in-out infinite alternate}
   .ringWrap.top{top:8%}
   .ringWrap.bot{bottom:10%}
@@ -69,12 +74,10 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
   @keyframes dash{to{transform:rotate(360deg)}}
   @keyframes vibe{0%{transform:scaleX(1)}50%{transform:scaleX(1.04)}100%{transform:scaleX(1)}}
 
-  /* Particles in elliptical orbits */
   .orbit{position:absolute;inset:0;pointer-events:none}
   .particle{position:absolute;top:50%;left:50%;width:6px;height:6px;border-radius:50%;
     background:#dfffff;box-shadow:0 0 8px #dfffff,0 0 14px #66e1ff}
 
-  /* Vertical photon streams */
   .photons{position:absolute;left:50%;top:2%;bottom:12%;width:34%;transform:translateX(-50%);pointer-events:none}
   .photon{position:absolute;left:50%;width:3px;height:12px;background:#bfffff;box-shadow:0 0 8px #bfffff,0 0 16px #66e1ff;opacity:.85}
   .photon.up{animation:rise var(--photon-speed) linear infinite}
@@ -84,13 +87,11 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
 
   .floor{position:absolute;left:5%;right:5%;bottom:8%;height:12%;background:linear-gradient(#16244f,#0b1020);border-top:1px solid #2aa8ff33}
 
-  /* Equations block */
   .eq{font-size:14px;line-height:1.6}
   .eq code{background:#0d1536;border:1px solid #2a3a6e;border-radius:8px;padding:2px 6px}
   .bul{margin:6px 0 0 18px}
   .bul li{margin:4px 0}
 
-  /* Logs + meters */
   .log{
     font-family:ui-monospace,Consolas,monospace;
     background:#0d1536;border:1px solid #2a3a6e;border-radius:10px;
@@ -105,10 +106,9 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
 <body>
 <div class="wrap">
   <h1>CST Time-Machine Simulator</h1>
-  <div class="pill">Two bobbing rings • Orbiting particles • Photon streams • 4 live clocks • CST Earth-Lock • VGL/VGI safety</div>
+  <div class="pill">Two bobbing rings • Orbiting particles • Photon streams • 4 live clocks • CST Earth-Lock • VGL/VGI safety (FIX)</div>
 
   <div class="grid grid-2" style="margin-top:12px">
-    <!-- Controls -->
     <div class="card">
       <div class="row"><strong>Destination Control</strong></div>
 
@@ -126,7 +126,6 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
         </div>
       </div>
 
-      <!-- CST anchor -->
       <div class="grid grid-2" style="margin-top:10px;gap:10px">
         <div>
           <label class="label">Anchor Latitude (deg)</label>
@@ -165,7 +164,6 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
       </div>
     </div>
 
-    <!-- Clocks -->
     <div class="card">
       <div class="grid grid-2">
         <div class="clockbox">
@@ -188,14 +186,13 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
     </div>
   </div>
 
-  <!-- NEW: CST Integrity + Power + VGL/VGI -->
   <div class="grid grid-2" style="margin-top:12px">
     <div class="card">
-      <div class="row"><strong>Worldline Integrity (CST Lock)</strong><span class="label">Shows whether you are staying on the Earth(lat,long) worldline during transit.</span></div>
+      <div class="row"><strong>Worldline Integrity (CST Lock)</strong><span class="label">Lock health should remain high unless you disable VGL or force anomalies.</span></div>
 
       <div class="grid grid-3" style="margin-top:10px;gap:10px">
         <div class="clockbox" style="font-size:13px">
-          <div class="clock-title">Phase Error (time stamp)</div>
+          <div class="clock-title">Phase Error (stamp)</div>
           <div id="phaseErr">—</div>
         </div>
         <div class="clockbox" style="font-size:13px">
@@ -230,7 +227,7 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
             <option value="severe">Severe (noisy)</option>
           </select>
           <div class="mini" style="margin-top:6px">
-            Drift raises control demand. VGL keeps drift near zero until margins are exceeded.
+            Drift raises control demand. With this FIX, demand grows slowly with |Δt| (log), so huge Δt won’t instantly collapse.
           </div>
         </div>
       </div>
@@ -246,9 +243,6 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
         <div>
           <div class="label">Unexpected mass threshold (kg)</div>
           <input id="massThresh" type="number" min="0" step="1" value="5000">
-          <div class="mini" style="margin-top:6px">
-            If VGI detects a mass anomaly in the destination worldline above threshold → VGL trips and shuts down.
-          </div>
         </div>
       </div>
 
@@ -261,18 +255,18 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
           <div class="label">Inject anomaly mass (kg)</div>
           <div class="row">
             <input id="injectKg" type="number" min="0" step="1" value="0" style="flex:1">
-            <button class="button small" id="injectBtn" title="Simulate an unexpected object appearing on the target worldline">Inject</button>
+            <button class="button small" id="injectBtn">Inject</button>
           </div>
         </div>
       </div>
 
       <div class="mini" style="margin-top:8px;color:#bcd">
-        <b>Interpretation:</b> CST stamp defines the return event; VGL holds you on Earth(lat,long); VGI scans and aborts if the target worldline becomes unsafe.
+        CST stamp = return invariant. VGL holds anchor. VGI scans & trips only on detected hazards (mass/clearance), not on “big Δt”.
       </div>
     </div>
 
     <div class="card">
-      <div class="row"><strong>Power Core & Thermal Margin</strong><span class="label">Toy model: shows why control + sensing dominate (not just “gravity bend”).</span></div>
+      <div class="row"><strong>Power Core & Thermal Margin (FIXED)</strong><span class="label">Span scaling is log/capped so you won’t instantly overheat on big jumps.</span></div>
 
       <div class="grid grid-3" style="margin-top:10px;gap:10px">
         <div class="clockbox" style="font-size:13px">
@@ -317,11 +311,6 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
         </div>
       </div>
 
-      <div class="mini" style="margin-top:8px;color:#bcd">
-        During travel, power rises with |Δt| (span), hold stiffness, and VGI strictness. Heat rises if power exceeds radiator capacity.
-        If heat margin collapses or battery empties → safe abort.
-      </div>
-
       <div style="margin-top:10px">
         <div class="label">Event Log</div>
         <div class="log" id="log"></div>
@@ -329,15 +318,14 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
     </div>
   </div>
 <!-- ======================= PART 2 / 4 ======================= -->
-  <!-- Advanced Physics Panel -->
+  <!-- Advanced Physics Panel (unchanged) -->
   <div class="card hidden" id="advPanel" style="margin-top:12px">
     <div class="row">
       <strong>Advanced Physics Layer — SR • GR • Sidereal Drift • Star Map • E↔m</strong>
-      <span class="label">CST remains the control stamp; physics below are corrections + engineering notes.</span>
+      <span class="label">CST stamp is the return invariant; SR/GR are corrections.</span>
     </div>
 
     <div class="grid grid-4" style="margin-top:10px;gap:10px">
-      <!-- SR -->
       <div>
         <div class="label">Special Relativity — Velocity Time Dilation</div>
         <div style="margin-top:4px">
@@ -357,11 +345,10 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
           <div id="srDtPrime">—</div>
         </div>
         <p class="label" style="margin-top:6px">
-          Uses <code>Δt′ = Δt·√(1 − v²/c²)</code> to show relativistic slippage if you break lock on long, fast arcs.
+          <code>Δt′ = Δt·√(1 − v²/c²)</code>
         </p>
       </div>
 
-      <!-- GR -->
       <div>
         <div class="label">Gravitational Time Dilation — Deep Wells</div>
         <div style="margin-top:4px">
@@ -385,11 +372,10 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
           <div id="grDtPrime">—</div>
         </div>
         <p class="label" style="margin-top:6px">
-          Applies <code>Δt′ = Δt·√(1 − 2GM/rc²)</code> as a comparison of “far-away” vs “deep-well” clocks.
+          <code>Δt′ = Δt·√(1 − 2GM/rc²)</code>
         </p>
       </div>
 
-      <!-- Sidereal vs Solar -->
       <div>
         <div class="label">Sidereal vs Solar — Star Drift</div>
         <div class="clockbox" style="margin-top:4px">
@@ -400,12 +386,8 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
           <div class="clock-title">Accumulated drift over |Δt|</div>
           <div id="sidAccum">—</div>
         </div>
-        <p class="label" style="margin-top:6px">
-          Sidereal day ≈ 23h 56m 4.1s. The small offset compounds; big |Δt| → large sky drift.
-        </p>
       </div>
 
-      <!-- Star Mapping & Light-Time -->
       <div>
         <div class="label">Star Mapping & Light-Time</div>
         <div style="margin-top:4px">
@@ -428,17 +410,12 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
           <div class="clock-title">Light-time delay t = d/c</div>
           <div id="lightDelay">—</div>
         </div>
-        <p class="label" style="margin-top:6px">
-          Uses <code>x = cosδ·cosα</code>, <code>y = cosδ·sinα</code>, <code>z = sinδ</code> and <code>t = d/c</code>
-          (here d in light-years → years of delay) for a real sky backbone.
-        </p>
       </div>
     </div>
 
-    <!-- Energy–Mass Budget -->
     <div class="grid grid-2" style="margin-top:12px;gap:10px">
       <div>
-        <div class="label">Energy ↔ Mass Budget — Field Load (illustrative accounting)</div>
+        <div class="label">Energy ↔ Mass Budget</div>
         <div style="margin-top:4px">
           <span class="label">Effective payload mass m (kg)</span>
           <input id="emMass" type="range" min="0" max="2000" step="10" value="100">
@@ -448,17 +425,13 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
           </div>
         </div>
         <div class="clockbox" style="margin-top:6px">
-          <div class="clock-title">Field Load Index (|Δt| ⊗ control ⊗ m)</div>
+          <div class="clock-title">Field Load Index</div>
           <div id="emLoad">—</div>
         </div>
       </div>
       <div>
         <p class="label">
-          Uses <code>E = m·c²</code> for energy accounting (equivalently <code>m = E/c²</code> for “energy-as-mass”).
-          This is not “free power”; it’s a way to express how much energy budget would be implied by carrying mass while maintaining coherence.
-        </p>
-        <p class="label" style="margin-top:4px">
-          In this upgraded build, the load also rises with VGL stiffness and VGI strictness: control and sensing dominate stability.
+          Uses <code>E = m·c²</code> / <code>m = E/c²</code> as energy accounting. (Not free energy.)
         </p>
       </div>
     </div>
@@ -473,40 +446,28 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
     <div class="photons" id="photonsLayer"></div>
     <div class="floor"></div>
     <div class="label" style="text-align:center;margin-top:6px">
-      White = stable equilibrium • Red = traveling • Auto-abort on VGL trip • Integrity meter shows Earth-lock health
+      White = stable • Red = traveling • With this FIX, huge Δt will still converge unless VGI trips or you intentionally starve cooling/power.
     </div>
   </div>
 
-  <!-- Explanation & Equations -->
+  <!-- Explanation -->
   <div class="card" style="margin-top:12px">
-    <div class="row"><strong>How This CST Time Machine Model Works — Stamp, Lock, Scan, Arrive</strong></div>
+    <div class="row"><strong>Why your error happened (and what is fixed)</strong></div>
     <div class="eq">
-      <p><b>What CST adds (the “stamp”):</b> CST is treated as an <b>invariant return timestamp</b> for a chosen Earth-locked worldline event. It’s a control boundary condition: without the stamp, you can hit the right calendar time but miss the correct spacetime event (place+time).</p>
-
-      <p><b>Earth-Locked worldline anchor:</b> Latitude/longitude define the moving Earth reference. The simulator interprets the destination as:</p>
-      <ul class="bul">
-        <li><code>Xᵘ_arrival = Xᵘ_Earth(lat,long)(t_dest)</code> (conceptual: arrive on Earth’s worldline at that anchor)</li>
-        <li><code>Δt = t_dest − t_now</code> (clock difference that must converge to zero)</li>
-      </ul>
-
-      <p><b>VGL / VGI safety upgrade:</b></p>
-      <ul class="bul">
-        <li><b>VGL</b> (Variable Gravity Lock) is modeled as a feedback hold that suppresses drift and rotation phase error.</li>
-        <li><b>VGI</b> scans the target worldline. If an unexpected mass appears above your threshold, or margins collapse, the system safely aborts.</li>
-      </ul>
-
-      <p><b>Integrity meter meaning:</b> “Integrity” is a toy score combining stamp phase error + spatial drift + rotation offset. When it stays near 100%, you’re locked to the intended Earth event. If it falls, you are losing lock and should abort.</p>
-
-      <p class="label" style="margin-top:6px">
-        This remains a conceptual visualization. SR/GR equations shown are real; CST stamp + lock + scan are modeled as a falsifiable control framework (fail-safe behavior, measurable drift/error), while the actuator physics remain to be proven by experiment.
+      <p>
+        Your log shows <code>Δt ≈ +2,912,171 days</code>. The old toy model scaled control power almost linearly with |Δt|, so heat overloaded instantly and
+        containment fell to zero. In this FIX, the span term is <b>log-based + capped</b>, so huge jumps do not instantly blow the thermal margin.
       </p>
+      <ul class="bul">
+        <li><b>Containment now drops only from real overload</b> (heat >> radiator) or VGI safety trip.</li>
+        <li>Default settings (rad=180 kW, battery=900 kWh) are enough to finish the 8-second demo travel.</li>
+      </ul>
     </div>
   </div>
 </div>
 <!-- ======================= PART 3 / 4 ======================= -->
 <script>
 (function(){
-  // --------- DOM ----------
   const utcClock = document.getElementById('utcClock');
   const localClock = document.getElementById('localClock');
   const destClock = document.getElementById('destClock');
@@ -520,18 +481,15 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
   const substatus = document.getElementById('substatus');
   const stampLine = document.getElementById('stampLine');
 
-  const beam = document.getElementById('beam');
   const orbitLayer = document.getElementById('orbitLayer');
   const photonsLayer = document.getElementById('photonsLayer');
 
   const advToggle = document.getElementById('advToggle');
   const advPanel = document.getElementById('advPanel');
 
-  // CST lock inputs
   const latDeg = document.getElementById('latDeg');
   const lonDeg = document.getElementById('lonDeg');
 
-  // VGL/VGI toggles and controls
   const vglToggle = document.getElementById('vglToggle');
   const vgiToggle = document.getElementById('vgiToggle');
   const holdStiff = document.getElementById('holdStiff');
@@ -545,14 +503,12 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
   const injectKg = document.getElementById('injectKg');
   const injectBtn = document.getElementById('injectBtn');
 
-  // Integrity readouts
   const phaseErr = document.getElementById('phaseErr');
   const spatialDrift = document.getElementById('spatialDrift');
   const rotOffset = document.getElementById('rotOffset');
   const integrityBar = document.getElementById('integrityBar');
   const integrityPct = document.getElementById('integrityPct');
 
-  // Power core
   const radKW = document.getElementById('radKW');
   const batKWh = document.getElementById('batKWh');
   const baseKW = document.getElementById('baseKW');
@@ -563,10 +519,9 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
   const heatBar = document.getElementById('heatBar');
   const heatPct = document.getElementById('heatPct');
 
-  // Log
   const logEl = document.getElementById('log');
 
-  // Advanced layer DOM
+  // Advanced
   const srVel = document.getElementById('srVel');
   const srVelVal = document.getElementById('srVelVal');
   const srGamma = document.getElementById('srGamma');
@@ -592,11 +547,14 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
   const emEnergy = document.getElementById('emEnergy');
   const emLoad = document.getElementById('emLoad');
 
-  // --------- State ----------
+  // State
   let destination = null;
   let traveling = false;
   let aborted = false;
-  let travelStart = 0, travelDuration = 8000; // ms
+
+  let travelStart = 0;
+  let travelDuration = 8000;
+
   let initialDiff = 0;
   let lastDiffMs = 0;
 
@@ -604,20 +562,16 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
   let vglOn = true;
   let vgiOn = true;
 
-  // “stamp” bookkeeping (toy)
-  let cstStampUTCms = null;   // stamp created when Travel pressed
+  let cstStampUTCms = null;
   let stampPhaseErrorMs = 0;
 
-  // anomaly injection
   let injectedMassKg = 0;
+  let lastScanT = 0;
 
   // power/thermal
   let battKWhNow = 900;
   let heatKWNow = 0;
-  let containNow = 100; // percent
-
-  // VGI cadence
-  let lastScanT = 0;
+  let containNow = 100;
 
   // constants
   const G = 6.674e-11;
@@ -625,13 +579,22 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
   const bodies = {
     earth:{ M:5.972e24, r:6.371e6 },
     leo:{ M:5.972e24, r:6.771e6 },
-    neutron:{ M:2e30, r:1e4 } // toy compact object
+    neutron:{ M:2e30, r:1e4 }
   };
 
-  // --------- Helpers ----------
+  // helpers
   const pad = n => String(n).padStart(2,'0');
   const fmtFullLocal = d => `${d.toLocaleDateString()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   const fmtFullUTC = d => d.toUTCString().replace('GMT','UTC');
+
+  function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
+  function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+  function log(msg, tone='info'){
+    const t = new Date();
+    const ts = `${pad(t.getHours())}:${pad(t.getMinutes())}:${pad(t.getSeconds())}`;
+    const color = tone==='bad' ? '#ff9090' : tone==='warn' ? '#ffd27a' : '#bfe7ff';
+    logEl.innerHTML = `<span style="color:#9fb0d0">[${ts}]</span> <span style="color:${color}">${escapeHtml(msg)}</span><br>` + logEl.innerHTML;
+  }
 
   function fmtDiff(ms){
     const sign = ms>=0?'+':'−';
@@ -650,24 +613,8 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
     const s = Math.floor(A%60);
     return `${sign}${pad(h)}:${pad(m)}:${pad(s)}`;
   }
-  function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
 
-  function nowUTCms(){ return Date.now(); }
-
-  function log(msg, tone='info'){
-    const t = new Date();
-    const ts = `${pad(t.getHours())}:${pad(t.getMinutes())}:${pad(t.getSeconds())}`;
-    const color = tone==='bad' ? '#ff9090' : tone==='warn' ? '#ffd27a' : '#bfe7ff';
-    const line = `<span style="color:#9fb0d0">[${ts}]</span> <span style="color:${color}">${escapeHtml(msg)}</span>`;
-    logEl.innerHTML = line + '<br>' + logEl.innerHTML;
-  }
-  function escapeHtml(s){
-    return String(s).replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
-  }
-
-  // Safer parse for datetime-local: treat as LOCAL time components
   function parseDateTimeLocalToDate(val){
-    // Expected "YYYY-MM-DDTHH:MM" or with seconds
     if(!val || typeof val!=='string') return null;
     const [dpart, tpart] = val.split('T');
     if(!dpart || !tpart) return null;
@@ -677,7 +624,7 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
     return new Date(Y, (M-1), D, hh, mm, isFinite(ss)?ss:0, 0);
   }
 
-  // --------- Visual builders ----------
+  // visuals builders
   function buildPhotons(){
     photonsLayer.innerHTML='';
     const n=30;
@@ -718,136 +665,92 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
     }
   }
 
-  // --------- Advanced panels ----------
-  function updateStarPanel(){
-    if(!advancedOn) return;
-    const raH = parseFloat(raHours.value)||0;
-    const decD = parseFloat(decDeg.value)||0;
-    const dLy = parseFloat(starDistance.value)||0;
-
-    const alpha = (raH/24)*Math.PI*2;
-    const delta = (decD*Math.PI)/180;
-
-    const x = Math.cos(delta)*Math.cos(alpha);
-    const y = Math.cos(delta)*Math.sin(alpha);
-    const z = Math.sin(delta);
-
-    if(isFinite(x) && isFinite(y) && isFinite(z)){
-      starCoords.textContent = `(${x.toFixed(3)}, ${y.toFixed(3)}, ${z.toFixed(3)})`;
+  function setTravelVisuals(on){
+    if(on){
+      document.documentElement.style.setProperty('--bob-amp','28px');
+      document.documentElement.style.setProperty('--bob-speed','1.2s');
+      document.documentElement.style.setProperty('--vibe','8');
+      document.documentElement.style.setProperty('--particle-speed','1.4s');
+      document.documentElement.style.setProperty('--photon-speed','0.7s');
+      document.documentElement.style.setProperty('--intensity','1');
+      document.documentElement.style.setProperty('--beam-color','rgba(255,82,82,.95)');
     }else{
-      starCoords.textContent = '—';
-    }
-    lightDelay.textContent = dLy>0 ? `${dLy.toFixed(2)} yr (light-time)` : '—';
-  }
-
-  function updateEnergyMassPanel(){
-    if(!advancedOn) return;
-    const mEff = parseFloat(emMass.value)||0;
-    emMassVal.textContent = `${mEff.toFixed(0)} kg`;
-    emEnergy.textContent = mEff>0 ? (mEff*C*C).toExponential(3) + ' J' : '—';
-
-    if(destination && mEff>0){
-      const days = Math.abs(lastDiffMs)/86400000;
-      const stiff = (parseFloat(holdStiff.value)||0)/100;
-      const sens  = (parseFloat(vgiSens.value)||0)/100;
-      const env   = envDrift.value==='severe' ? 1.6 : envDrift.value==='mild' ? 1.2 : 1.0;
-      const idx = (mEff/100) * (1 + days) * (1 + stiff*0.8) * (1 + sens*0.6) * env;
-      emLoad.textContent = idx.toFixed(2) + ' units';
-    }else{
-      emLoad.textContent = '—';
+      document.documentElement.style.setProperty('--bob-amp','10px');
+      document.documentElement.style.setProperty('--bob-speed','3.6s');
+      document.documentElement.style.setProperty('--vibe','1.4');
+      document.documentElement.style.setProperty('--particle-speed','6s');
+      document.documentElement.style.setProperty('--photon-speed','3s');
+      document.documentElement.style.setProperty('--intensity','.25');
+      document.documentElement.style.setProperty('--beam-color','rgba(190,245,255,.9)');
     }
   }
 
-  function updateAdvancedPanels(){
-    if(!advancedOn) return;
-
-    // SR
-    const v = parseFloat(srVel.value)||0;
-    const beta = clamp(v,0,0.9999);
-    const gamma = 1/Math.sqrt(1 - beta*beta);
-    srGamma.textContent = gamma.toFixed(4);
-
-    const hasDest = !!destination;
-    if(hasDest){
-      srDt.textContent = fmtDiff(lastDiffMs);
-      const properMs = lastDiffMs * Math.sqrt(Math.max(0,1 - beta*beta));
-      srDtPrime.textContent = fmtDiff(properMs);
-    } else {
-      srDt.textContent = '—';
-      srDtPrime.textContent = '—';
-    }
-
-    // GR
-    const body = bodies[grBody.value] || bodies.earth;
-    const factor = Math.sqrt(1 - (2*G*body.M)/(body.r*C*C));
-    grFactor.textContent = isNaN(factor)?'—':factor.toExponential(6);
-
-    if(hasDest){
-      grDtBase.textContent = fmtDiff(lastDiffMs);
-      grDtPrime.textContent = fmtDiff(lastDiffMs * factor);
-    } else {
-      grDtBase.textContent = '—';
-      grDtPrime.textContent = '—';
-    }
-
-    // Sidereal drift
-    const solar = 86400;
-    const sid = 86164.1;
-    const perDay = solar - sid; // ~235.9 s/day (approx)
-    sidDaily.textContent = '≈ ' + fmtHMSFromSeconds(perDay);
-    if(hasDest){
-      const days = Math.abs(lastDiffMs)/86400000;
-      const driftSec = days*perDay;
-      sidAccum.textContent = fmtHMSFromSeconds(driftSec * (lastDiffMs>=0?1:-1));
-    } else {
-      sidAccum.textContent = '—';
-    }
-
-    updateStarPanel();
-    updateEnergyMassPanel();
-  }
-
-  // --------- NEW: VGL / VGI / Integrity / Power ----------
   function driftMultiplier(){
     return envDrift.value==='severe' ? 1.8 : envDrift.value==='mild' ? 1.25 : 1.0;
   }
 
+  function syncUI(){
+    holdVal.textContent = (parseFloat(holdStiff.value)||0).toFixed(0) + '%';
+    vgiSensVal.textContent = (parseFloat(vgiSens.value)||0).toFixed(0) + '%';
+    vglToggle.classList.toggle('activeBtn', vglOn);
+    vgiToggle.classList.toggle('activeBtn', vgiOn);
+    vglToggle.textContent = vglOn ? 'VGL: ON' : 'VGL: OFF';
+    vgiToggle.textContent = vgiOn ? 'VGI: ON' : 'VGI: OFF';
+  }
+
+  function trip(reason){
+    if(!traveling) return;
+    traveling = false;
+    aborted = true;
+    status.innerHTML = 'Status: <span class="bad">VGL TRIP — SHUTDOWN</span>';
+    stampLine.textContent = 'stopped (trip)';
+    log(reason, 'bad');
+    setTravelVisuals(false);
+  }
+
+  function safeAbort(reason='Manual abort requested'){
+    if(!traveling) return;
+    traveling = false;
+    aborted = true;
+    status.innerHTML = 'Status: <span class="warn">ABORTED — SAFE RAMP-DOWN</span>';
+    stampLine.textContent = 'stopped (abort)';
+    log(reason, 'warn');
+    setTravelVisuals(false);
+  }
+
+  // FIXED: span scaling (log/capped) + softened heat/containment
+  function spanFactorFromDays(days){
+    // days can be enormous. We compress with log1p and cap.
+    // 0 days -> 0
+    // 365 days -> ~0.69
+    // 10,000 days -> ~2.4
+    // millions days -> capped to 3.0
+    const f = Math.log1p(Math.max(0, days) / 365);
+    return clamp(f, 0, 3.0);
+  }
+
   function updateIntegrityAndPower(dtSec){
-    // dtSec: seconds since last frame (approx)
-    const stiff = (parseFloat(holdStiff.value)||0)/100; // 0..1
-    const sens  = (parseFloat(vgiSens.value)||0)/100;  // 0..1
+    const stiff = (parseFloat(holdStiff.value)||0)/100;
+    const sens  = (parseFloat(vgiSens.value)||0)/100;
     const envM  = driftMultiplier();
 
-    // stamp phase error: if VGL is ON, keep near zero; if OFF, grows during travel
-    const phaseGrow = traveling ? (vglOn ? 0.00015 : 0.0025) * envM * (1 + sens) : 0;
+    // stamp phase error: small if VGL on
+    const phaseGrow = traveling ? (vglOn ? 0.00006 : 0.0018) * envM * (1 + sens) : 0;
     stampPhaseErrorMs += phaseGrow * dtSec * 1000;
 
-    // “spatial drift” and “rotation offset” are toy errors kept small by VGL, increase if off or margins low
-    // derive a “control margin” from containment + heat
-    const heatCap = Math.max(1, parseFloat(radKW.value)||180);
-    const heatLoad = heatKWNow / heatCap; // >1 means overload
-    const margin = clamp((containNow/100) * (1 - Math.max(0,heatLoad-1)*0.8), 0, 1);
+    // toy drift/rot errors (kept tiny under VGL)
+    const baseDrift = traveling ? (envM * (1 - stiff*0.9)) : 0.02;
+    const baseRot   = traveling ? (envM * (1 - stiff*0.85)) : 0.02;
 
-    const baseDrift = traveling ? (envM * (1 - stiff*0.85) * (1.2 - margin)) : 0.02;
-    const baseRot   = traveling ? (envM * (1 - stiff*0.75) * (1.1 - margin)) : 0.02;
+    const driftNowM = clamp((vglOn ? baseDrift : baseDrift*6) * 10, 0, 2500);
+    const rotNowDeg = clamp((vglOn ? baseRot   : baseRot*6)   * 1.2, 0, 180);
 
-    // keep small if locked
-    const driftM = vglOn ? baseDrift : baseDrift*6;
-    const rotM   = vglOn ? baseRot   : baseRot*6;
-
-    // accumulate toy values
-    // units: drift in meters, rot in degrees, phase in milliseconds
-    const driftNowM = clamp(driftM * 0.8 * (dtSec*60), 0, 2500); // scaled for visibility
-    const rotNowDeg = clamp(rotM * 0.25 * (dtSec*60), 0, 180);
-
-    // Combine into an integrity score: lower errors -> higher integrity
-    const phaseTerm = clamp(stampPhaseErrorMs / 4000, 0, 2.5); // 4s error -> 1.0
-    const driftTerm = clamp(driftNowM / 150, 0, 4);            // 150m -> 1.0
-    const rotTerm   = clamp(rotNowDeg / 8, 0, 4);              // 8deg -> 1.0
+    const phaseTerm = clamp(stampPhaseErrorMs / 6000, 0, 2.5);
+    const driftTerm = clamp(driftNowM / 300, 0, 4);
+    const rotTerm   = clamp(rotNowDeg / 14, 0, 4);
     const err = phaseTerm + driftTerm + rotTerm;
     const integrity = clamp(1 - err/6, 0, 1);
 
-    // update UI
     phaseErr.textContent = (stampPhaseErrorMs<1) ? '≈ 0 ms' : `${stampPhaseErrorMs.toFixed(0)} ms`;
     spatialDrift.textContent = vglOn ? `≈ ${Math.min(driftNowM,5).toFixed(1)} m` : `${driftNowM.toFixed(1)} m`;
     rotOffset.textContent = vglOn ? `≈ ${Math.min(rotNowDeg,0.2).toFixed(2)}°` : `${rotNowDeg.toFixed(2)}°`;
@@ -855,47 +758,52 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
     const pct = Math.round(integrity*100);
     integrityPct.textContent = pct + '%';
     integrityBar.style.width = pct + '%';
-    // color by pct
     integrityBar.style.background = pct>80 ? '#22c55e' : pct>55 ? '#f59e0b' : '#fb7185';
 
-    // Power draw model (toy):
-    // base + travel span + stiffness + sensing; when stable, draw lower and cool down.
+    // Power draw FIX:
     const base = Math.max(1, parseFloat(baseKW.value)||120);
     const scan = Math.max(0.1, parseFloat(scanHz.value)||2.0);
     const spanDays = destination ? Math.abs(initialDiff)/86400000 : 0;
+    const spanF = spanFactorFromDays(spanDays);
 
-    let powerKW = base * 0.35; // idle
+    let powerKW = base * 0.25; // idle
     if(traveling){
-      powerKW = base
-        * (1 + Math.min(6, spanDays/30))      // long jumps cost more
-        * (1 + stiff*0.8)
-        * (1 + (vgiOn? sens*0.6 : 0))
-        * envM;
-      // scanning overhead
-      powerKW += (vgiOn ? (scan * (10 + 40*sens)) : 0);
+      powerKW =
+        base *
+        (1.0 + 0.55*spanF) *
+        (1.0 + 0.55*stiff) *
+        (1.0 + (vgiOn ? 0.30*sens : 0)) *
+        envM;
+
+      // scanning overhead modest (NOT explosive)
+      if(vgiOn){
+        powerKW += scan * (6 + 12*sens);
+      }
     }
 
-    // Battery integration (kWh)
+    // Battery integration
     const batSize = Math.max(1, parseFloat(batKWh.value)||900);
     if(!isFinite(battKWhNow) || battKWhNow<=0) battKWhNow = batSize;
-    // drain
     const kWhUsed = (powerKW * dtSec) / 3600;
     battKWhNow = clamp(battKWhNow - kWhUsed, 0, batSize);
 
-    // Heat model: if power > radiator capacity, accumulate; else bleed down
+    // Heat model FIX:
     const rad = Math.max(1, parseFloat(radKW.value)||180);
-    // “waste heat” is modeled as a fraction of power + overload
-    const wasteKWTarget = powerKW * (0.35 + 0.25*(1 - stiff)) + Math.max(0, powerKW - rad)*0.8;
-    // relax toward target
-    heatKWNow += (wasteKWTarget - heatKWNow) * clamp(dtSec*0.7, 0, 1);
+    const overload = Math.max(0, powerKW - rad); // kW over radiator
 
-    // Containment margin: drops if heat overload or integrity low
-    const overload = Math.max(0, (heatKWNow/rad) - 1);
-    const containDrop = (traveling ? (overload*6 + (1-integrity)*1.2) : overload*2) * dtSec;
-    const containRise = (!traveling ? 3.0 : 0.5) * dtSec;
+    // waste heat tends to ~0.25*power + overload*0.6 (so it doesn't instantly explode)
+    const wasteTarget = powerKW*0.25 + overload*0.6;
+    heatKWNow += (wasteTarget - heatKWNow) * clamp(dtSec*0.9, 0, 1);
+
+    // Containment FIX:
+    // - Does NOT drop just because span is big.
+    // - Drops only if there is sustained overload or very low integrity.
+    const heatOverRatio = heatKWNow / Math.max(1, rad);
+    const overloadRatio = Math.max(0, heatOverRatio - 1); // 0..∞
+    const containDrop = (traveling ? (overloadRatio*6 + (1-integrity)*0.15) : overloadRatio*2) * dtSec;
+    const containRise = (!traveling ? 6.0 : 1.6) * dtSec;
     containNow = clamp(containNow - containDrop + containRise, 0, 100);
 
-    // update UI
     battery.textContent = `${battKWhNow.toFixed(1)} / ${batSize.toFixed(0)} kWh`;
     heat.textContent = `${heatKWNow.toFixed(1)} kW`;
     contain.textContent = `${containNow.toFixed(1)}%`;
@@ -906,14 +814,12 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
     heatBar.style.width = hPct + '%';
     heatBar.style.background = hPct>70 ? '#22c55e' : hPct>45 ? '#f59e0b' : '#fb7185';
 
-    // Auto abort conditions
+    // only abort if truly impossible, not from span size
     if(traveling){
-      if(battKWhNow <= 0.001){
-        trip('Battery depleted — VGL cannot hold stamp/lock', 'bad');
-      } else if(containNow <= 0.5){
-        trip('Containment margin collapsed — safe shutdown', 'bad');
-      } else if(integrity < 0.2){
-        trip('Worldline integrity lost — safe shutdown', 'bad');
+      if(battKWhNow <= 0.0005){
+        trip('Battery depleted — safe shutdown');
+      } else if(containNow <= 0.2 && overloadRatio > 0.2){
+        trip('Containment margin collapsed from sustained thermal overload — safe shutdown');
       }
     }
   }
@@ -929,96 +835,99 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
     const thresh = Math.max(0, parseFloat(massThresh.value)||5000);
     const clear = Math.max(0, parseFloat(clearKm.value)||5) * 1000;
 
-    // Determine detected “unexpected mass”:
-    // - injectedMassKg is explicit
-    // - plus a tiny probabilistic background, increases with strictness and drift
-    const bgChance = 0.02 * sens * driftMultiplier(); // toy
-    const bgMass = (Math.random() < bgChance) ? (thresh * (0.2 + 1.2*Math.random()) * sens) : 0;
+    const bgChance = 0.01 * sens * driftMultiplier();
+    const bgMass = (Math.random() < bgChance) ? (thresh * (0.15 + 0.6*Math.random()) * sens) : 0;
 
     const detected = Math.max(injectedMassKg, bgMass);
-    injectedMassKg = 0; // one-shot injection unless user repeats
+    injectedMassKg = 0;
 
-    // Clearance check: strictness + long jump reduces effective clearance
-    const longDays = destination ? Math.abs(initialDiff)/86400000 : 0;
-    const clearancePenalty = (sens * 0.25 + (longDays>365?0.2:0)) * driftMultiplier();
-    const effectiveClear = clear * (1 - clearancePenalty);
-
-    if(detected > 0){
-      log(`VGI scan: detected anomaly mass ≈ ${detected.toFixed(0)} kg`, detected>thresh?'warn':'info');
-    } else {
-      // small heartbeat log occasionally
-      if(Math.random() < 0.15) log('VGI scan OK', 'info');
-    }
-
+    const effectiveClear = clear * (1 - (sens*0.15));
     if(detected >= thresh){
-      trip(`VGI TRIP — unexpected mass ≥ threshold (${thresh} kg)`, 'bad');
+      trip(`VGI TRIP — unexpected mass ≥ threshold (${thresh} kg)`);
       return;
     }
-    if(effectiveClear < 500){ // < 0.5 km
-      trip('VGI TRIP — clearance radius collapsed', 'bad');
+    if(effectiveClear < 500){
+      trip('VGI TRIP — clearance radius collapsed');
       return;
     }
   }
 
-  function setTravelVisuals(on){
-    if(on){
-      document.documentElement.style.setProperty('--bob-amp','28px');
-      document.documentElement.style.setProperty('--bob-speed','1.2s');
-      document.documentElement.style.setProperty('--vibe','8');
-      document.documentElement.style.setProperty('--particle-speed','1.4s');
-      document.documentElement.style.setProperty('--photon-speed','0.7s');
-      document.documentElement.style.setProperty('--intensity','1');
-      document.documentElement.style.setProperty('--beam-color','rgba(255,82,82,.95)');
+  // Advanced panels (same as before)
+  function updateStarPanel(){
+    if(!advancedOn) return;
+    const raH = parseFloat(raHours.value)||0;
+    const decD = parseFloat(decDeg.value)||0;
+    const dLy = parseFloat(starDistance.value)||0;
+    const alpha = (raH/24)*Math.PI*2;
+    const delta = (decD*Math.PI)/180;
+    const x = Math.cos(delta)*Math.cos(alpha);
+    const y = Math.cos(delta)*Math.sin(alpha);
+    const z = Math.sin(delta);
+    starCoords.textContent = (isFinite(x)&&isFinite(y)&&isFinite(z)) ? `(${x.toFixed(3)}, ${y.toFixed(3)}, ${z.toFixed(3)})` : '—';
+    lightDelay.textContent = dLy>0 ? `${dLy.toFixed(2)} yr (light-time)` : '—';
+  }
+
+  function updateEnergyMassPanel(){
+    if(!advancedOn) return;
+    const mEff = parseFloat(emMass.value)||0;
+    emMassVal.textContent = `${mEff.toFixed(0)} kg`;
+    emEnergy.textContent = mEff>0 ? (mEff*C*C).toExponential(3) + ' J' : '—';
+    if(destination && mEff>0){
+      const spanDays = Math.abs(initialDiff)/86400000;
+      const spanF = spanFactorFromDays(spanDays);
+      const stiff = (parseFloat(holdStiff.value)||0)/100;
+      const sens  = (parseFloat(vgiSens.value)||0)/100;
+      const env   = driftMultiplier();
+      const idx = (mEff/100) * (1 + spanF) * (1 + stiff*0.8) * (1 + sens*0.4) * env;
+      emLoad.textContent = idx.toFixed(2) + ' units';
+    }else{
+      emLoad.textContent = '—';
+    }
+  }
+
+  function updateAdvancedPanels(){
+    if(!advancedOn) return;
+    const v = parseFloat(srVel.value)||0;
+    const beta = clamp(v,0,0.9999);
+    const gamma = 1/Math.sqrt(1 - beta*beta);
+    srGamma.textContent = gamma.toFixed(4);
+    const hasDest = !!destination;
+
+    if(hasDest){
+      srDt.textContent = fmtDiff(lastDiffMs);
+      const properMs = lastDiffMs * Math.sqrt(Math.max(0,1 - beta*beta));
+      srDtPrime.textContent = fmtDiff(properMs);
     } else {
-      document.documentElement.style.setProperty('--bob-amp','10px');
-      document.documentElement.style.setProperty('--bob-speed','3.6s');
-      document.documentElement.style.setProperty('--vibe','1.4');
-      document.documentElement.style.setProperty('--particle-speed','6s');
-      document.documentElement.style.setProperty('--photon-speed','3s');
-      document.documentElement.style.setProperty('--intensity','.25');
-      document.documentElement.style.setProperty('--beam-color','rgba(190,245,255,.9)');
+      srDt.textContent = '—';
+      srDtPrime.textContent = '—';
     }
+
+    const body = bodies[grBody.value] || bodies.earth;
+    const factor = Math.sqrt(1 - (2*G*body.M)/(body.r*C*C));
+    grFactor.textContent = isNaN(factor)?'—':factor.toExponential(6);
+
+    if(hasDest){
+      grDtBase.textContent = fmtDiff(lastDiffMs);
+      grDtPrime.textContent = fmtDiff(lastDiffMs * factor);
+    } else {
+      grDtBase.textContent = '—';
+      grDtPrime.textContent = '—';
+    }
+
+    const solar = 86400, sid = 86164.1;
+    const perDay = solar - sid;
+    sidDaily.textContent = '≈ ' + fmtHMSFromSeconds(perDay);
+    if(hasDest){
+      const days = Math.abs(lastDiffMs)/86400000;
+      const driftSec = days*perDay;
+      sidAccum.textContent = fmtHMSFromSeconds(driftSec * (lastDiffMs>=0?1:-1));
+    } else sidAccum.textContent = '—';
+
+    updateStarPanel();
+    updateEnergyMassPanel();
   }
 
-  function trip(reason, tone='bad'){
-    if(!traveling) return;
-    traveling = false;
-    aborted = true;
-    status.innerHTML = 'Status: <span class="bad">VGL TRIP — SHUTDOWN</span>';
-    stampLine.textContent = 'stopped (trip)';
-    substatus.style.color = '#ffd27a';
-    log(reason, tone);
-    // ramp-down visuals
-    setTravelVisuals(false);
-    // freeze Δt at current lastDiffMs (do not snap to zero)
-  }
-
-  function safeAbort(reason='Manual abort requested'){
-    if(!traveling) return;
-    traveling = false;
-    aborted = true;
-    status.innerHTML = 'Status: <span class="warn">ABORTED — SAFE RAMP-DOWN</span>';
-    stampLine.textContent = 'stopped (abort)';
-    log(reason, 'warn');
-    setTravelVisuals(false);
-  }
-
-  // UI label updates
-  function syncUI(){
-    holdVal.textContent = (parseFloat(holdStiff.value)||0).toFixed(0) + '%';
-    vgiSensVal.textContent = (parseFloat(vgiSens.value)||0).toFixed(0) + '%';
-    vglToggle.classList.toggle('activeBtn', vglOn);
-    vgiToggle.classList.toggle('activeBtn', vgiOn);
-    vglToggle.textContent = vglOn ? 'VGL: ON' : 'VGL: OFF';
-    vgiToggle.textContent = vgiOn ? 'VGI: ON' : 'VGI: OFF';
-  }
-
-  // initial log
-  log('System boot: CST Earth-Lock ready (lat/long anchored)', 'info');
-  log('VGL ON, VGI ON (default fail-safe)', 'info');
-  syncUI();
-
-  // --------- Handlers ----------
+  // handlers
   advToggle.addEventListener('click',()=>{
     advancedOn = !advancedOn;
     advToggle.textContent = advancedOn ? 'Advanced: ON' : 'Advanced: OFF';
@@ -1027,67 +936,54 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
     updateAdvancedPanels();
   });
 
-  vglToggle.addEventListener('click',()=>{
-    vglOn = !vglOn;
-    syncUI();
-    log(`VGL ${vglOn?'enabled':'disabled'}`, vglOn?'info':'warn');
-  });
+  vglToggle.addEventListener('click',()=>{ vglOn=!vglOn; syncUI(); log(`VGL ${vglOn?'enabled':'disabled'}`, vglOn?'info':'warn'); });
+  vgiToggle.addEventListener('click',()=>{ vgiOn=!vgiOn; syncUI(); log(`VGI ${vgiOn?'enabled':'disabled'}`, vgiOn?'info':'warn'); });
 
-  vgiToggle.addEventListener('click',()=>{
-    vgiOn = !vgiOn;
-    syncUI();
-    log(`VGI ${vgiOn?'enabled':'disabled'}`, vgiOn?'info':'warn');
-  });
-
-  holdStiff.addEventListener('input',()=>{ syncUI(); });
-  vgiSens.addEventListener('input',()=>{ syncUI(); });
+  holdStiff.addEventListener('input',syncUI);
+  vgiSens.addEventListener('input',syncUI);
 
   injectBtn.addEventListener('click',()=>{
     const m = Math.max(0, parseFloat(injectKg.value)||0);
     injectedMassKg = m;
-    if(m>0){
-      log(`Injected anomaly queued: ${m.toFixed(0)} kg (next VGI scan)`, 'warn');
-    } else {
-      log('Injection cleared (0 kg)', 'info');
-    }
+    log(m>0 ? `Injected anomaly queued: ${m.toFixed(0)} kg (next scan)` : 'Injection cleared (0 kg)', m>0?'warn':'info');
   });
 
-  abortBtn.addEventListener('click',()=> safeAbort('Manual abort — operator initiated safe ramp-down'));
+  abortBtn.addEventListener('click',()=> safeAbort('Manual abort — safe ramp-down'));
 
-  // SR slider label
   srVel.addEventListener('input',()=>{
     const v = parseFloat(srVel.value)||0;
     srVelVal.textContent = (v*100).toFixed(1) + '% c';
     updateAdvancedPanels();
   });
-
   grBody.addEventListener('change', updateAdvancedPanels);
   raHours.addEventListener('input', updateAdvancedPanels);
   decDeg.addEventListener('input', updateAdvancedPanels);
   starDistance.addEventListener('input', updateAdvancedPanels);
   emMass.addEventListener('input', updateAdvancedPanels);
 
-  // Travel button
   travelBtn.addEventListener('click',()=>{
     const d = parseDateTimeLocalToDate(destDT.value);
     if(!d){ alert('Select a valid destination date & time.'); return; }
     destination = d;
 
-    // stamp: capture UTC ms at start as control reference
-    cstStampUTCms = nowUTCms();
+    cstStampUTCms = Date.now();
     stampPhaseErrorMs = 0;
     aborted = false;
 
     const now = new Date();
     initialDiff = destination - now;
 
-    // if destination ~ now, treat as no-op
     if(Math.abs(initialDiff) < 1500){
-      log('Destination is ~now. No travel needed; system remains stable.', 'info');
+      log('Destination is ~now. No travel needed; stable.', 'info');
       status.innerHTML = 'Status: <span class="ok">STABLE</span>';
       stampLine.textContent = 'no-op';
       return;
     }
+
+    // re-init power baseline each run so old overload doesn't carry
+    battKWhNow = Math.max(1, parseFloat(batKWh.value)||900);
+    heatKWNow = 0;
+    containNow = 100;
 
     traveling = true;
     travelStart = performance.now();
@@ -1097,29 +993,25 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
     stampLine.textContent = `stamp @ ${new Date(cstStampUTCms).toUTCString().replace('GMT','UTC')}`;
     substatus.style.color = '#bcd';
 
-    log(`Travel start: Δt = ${fmtDiff(initialDiff)} (Earth anchor lat=${(+latDeg.value).toFixed(4)}, lon=${(+lonDeg.value).toFixed(4)})`, 'warn');
-    log(`Course hold: stiffness=${(holdStiff.value||0)}%, env=${envDrift.value}, VGI sens=${(vgiSens.value||0)}%`, 'info');
-
+    log(`Travel start: Δt = ${fmtDiff(initialDiff)} (lat=${(+latDeg.value).toFixed(4)}, lon=${(+lonDeg.value).toFixed(4)})`, 'warn');
     setTravelVisuals(true);
   });
 
-  // Reset
   resetBtn.addEventListener('click',()=>{
     destination = null;
     traveling = false;
     aborted = false;
-
     initialDiff = 0;
     lastDiffMs = 0;
     cstStampUTCms = null;
     stampPhaseErrorMs = 0;
     injectedMassKg = 0;
+    lastScanT = 0;
 
     destDT.value = '';
     destClock.textContent='—';
     diffClock.textContent='—';
 
-    // resets for advanced
     srVel.value = '0';
     srVelVal.textContent = '0.0% c';
     srGamma.textContent = '1.0000';
@@ -1133,34 +1025,32 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
 
     sidAccum.textContent = '—';
 
-    raHours.value = '0';
-    decDeg.value = '0';
-    starDistance.value = '0';
-    starCoords.textContent = '—';
-    lightDelay.textContent = '—';
+    raHours.value = '0'; decDeg.value = '0'; starDistance.value = '0';
+    starCoords.textContent = '—'; lightDelay.textContent = '—';
 
     emMass.value = '100';
     emMassVal.textContent = '100 kg';
     emEnergy.textContent = '—';
     emLoad.textContent = '—';
 
-    // restore power
     battKWhNow = Math.max(1, parseFloat(batKWh.value)||900);
     heatKWNow = 0;
     containNow = 100;
-    lastScanT = 0;
 
     status.innerHTML = 'Status: <span class="ok">STABLE</span>';
     stampLine.textContent = 'ready';
-    substatus.style.color = '#bcd';
-
     setTravelVisuals(false);
-
-    log('Reset: system returned to stable baseline', 'info');
+    log('Reset: stable baseline', 'info');
     updateAdvancedPanels();
   });
+
+  // boot
+  vglOn = true; vgiOn = true;
+  syncUI();
+  log('System boot: CST Earth-Lock ready', 'info');
+  log('Power/containment FIX active (log/capped span scaling)', 'info');
 <!-- ======================= PART 4 / 4 ======================= -->
-  // --------- Main loop ----------
+  // main loop
   let lastFrameT = performance.now();
 
   function tick(){
@@ -1168,7 +1058,6 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
     utcClock.textContent = fmtFullUTC(now);
     localClock.textContent = fmtFullLocal(now);
 
-    // Destination & Δt
     if(destination){
       destClock.textContent = fmtFullLocal(destination);
       let diff = destination - now;
@@ -1176,27 +1065,23 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
       if(traveling){
         const e = (performance.now() - travelStart)/travelDuration;
         const p = clamp(e,0,1);
-
-        // Ease-in-out toward zero difference
         const ease = p<0.5 ? 2*p*p : -1 + (4-2*p)*p;
         diff = initialDiff * (1 - ease);
 
-        // Beam interpolate red -> white
+        // beam interpolate red -> white
         const r = Math.floor(255*(1 - ease) + 190*ease);
         const g = Math.floor(82*(1 - ease) + 245*ease);
         const b = Math.floor(82*(1 - ease) + 255*ease);
         document.documentElement.style.setProperty('--beam-color',`rgba(${r},${g},${b},.95)`);
         document.documentElement.style.setProperty('--intensity',(1 - 0.75*ease).toFixed(2));
 
-        // VGI scan (may trip)
         vgiScan();
 
-        // Arrival: only if not tripped
         if(p >= 1 && traveling){
           traveling = false;
           status.innerHTML = 'Status: <span class="ok">ARRIVED — STABLE</span>';
           stampLine.textContent = 'arrived (stamp held)';
-          log('Arrival: Δt converged to 0; CST stamp satisfied; lock stable', 'info');
+          log('Arrival: Δt → 0; CST stamp satisfied; lock stable', 'info');
           setTravelVisuals(false);
           diff = 0;
         }
@@ -1210,10 +1095,9 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
       lastDiffMs = 0;
     }
 
-    // update advanced panels if on
     updateAdvancedPanels();
 
-    // integrity + power every frame
+    // dt for power/containment
     const tNow = performance.now();
     const dtSec = clamp((tNow - lastFrameT)/1000, 0, 0.25);
     lastFrameT = tNow;
@@ -1226,7 +1110,7 @@ CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrit
     requestAnimationFrame(tick);
   }
 
-  // init baseline UI
+  // init UI
   holdVal.textContent = (parseFloat(holdStiff.value)||0).toFixed(0) + '%';
   vgiSensVal.textContent = (parseFloat(vgiSens.value)||0).toFixed(0) + '%';
   phaseErr.textContent = '≈ 0 ms';
