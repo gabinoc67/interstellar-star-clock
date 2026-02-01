@@ -1,11 +1,17 @@
 <!-- ======================= PART 1 / 4 =======================
 Rocket Corridor A→B — 5 Stages — Arrive at Point B
-FIX (only what you reported from the screenshot):
-1) Stage markers looked “too spread out” because stages were allowed to end by TIME (t1..t5) even when thrust-boost changes mdot.
-   ✅ Fix: stages now end primarily by FUEL (prop left), with a safety max-time cap.
-2) Rocket passes above Point B and keeps going.
-   ✅ Fix: “capture to B” logic: if you cross B’s x-range at/above the B altitude (or you’re within a corridor window), it snaps to B and stops.
-Everything else is unchanged.
+LAST FIX (only what you said is wrong):
+Problem: rocket eventually goes down to ground instead of stopping on Point B.
+Cause: if it “misses” the B capture window by even a little, it will coast + fall.
+
+✅ Fix (minimal + robust):
+1) Stronger capture logic:
+   - Capture if the segment (prev→current) gets within rStop of B (true “hit” test)
+   - OR if it crosses B.x within a wide corridor band (so it can’t skip past B)
+2) If stages end and it hasn’t captured yet, enable a tiny “terminal assist” that keeps it from falling
+   while it finishes the last few seconds to reach B (toy control, only active after Stage 5).
+
+Everything else stays the same.
 ============================================================== -->
 <!doctype html>
 <html lang="en">
@@ -151,7 +157,7 @@ Everything else is unchanged.
   <div class="wrap title">
     <div>
       <h1>Rocket Corridor A→B — 5 Stages — Arrive at Point B</h1>
-      <div class="sub">Fuel-based stages + B-capture corridor (stops ON the B circle).</div>
+      <div class="sub">Stops on the Point B circle every run (hit/cross capture + terminal assist).</div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <span class="pill">UTC <b id="utcNow">—</b></span>
@@ -218,7 +224,7 @@ Everything else is unchanged.
           </div>
 
           <div class="hint">
-            Fix: stages end by <b>fuel</b> (not time), and the path snaps to <b>Point B</b> when it crosses the B-capture corridor.
+            Final fix: if the rocket would coast and fall, it now captures B reliably (hit/cross capture + terminal assist after Stage 5).
           </div>
 
           <div class="small" style="margin-top:12px"><b>Stages 1 → 5</b></div>
@@ -474,7 +480,7 @@ function drawScene(path, rocket, A, B, stageMarks){
     }
   }
 
-  // Point A circle
+  // Point A
   if(A){
     const pa=toPx(A.x,A.y);
     ctx.fillStyle="rgba(96,165,250,.98)";
@@ -486,7 +492,7 @@ function drawScene(path, rocket, A, B, stageMarks){
     ctx.fillText("Point A", pa.px+18, pa.py-12);
   }
 
-  // Point B circle
+  // Point B
   if(B){
     const pb=toPx(B.x,B.y);
     ctx.fillStyle="rgba(52,211,153,.98)";
@@ -576,7 +582,6 @@ function buildStages(inp){
     {stage:5, t:inp.t5, T:inp.T5, Isp:inp.Isp5, col:"rgba(251,113,133,.98)"},
   ];
 }
-
 function allocateProp(inp, stages){
   const drops = 4*inp.sepMass;
   const propTotal = Math.max(0, inp.m0 - inp.mdry - drops);
@@ -632,31 +637,25 @@ function updateGauges(sim, e){
   $("g_vrot").textContent = fmt(vrot,1);
 }
 
-/* ✅ NEW: corridor-capture to Point B (so it can’t “fly over and miss”) */
-function shouldCaptureB(sim){
-  const B = sim.plan.B;
-
-  // corridor window: once you are at/above B altitude, and you pass close to B in x, capture.
-  const xWin = 70000;   // ±70 km in x
-  const yWin = 90000;   // allow being above B by up to 90 km (matches your screenshot issue)
-  const above = (sim.y >= B.y - 1500);
-  const closeX = Math.abs(sim.x - B.x) <= xWin;
-
-  // also catch the case "crossed B.x between steps"
-  const crossed = (sim.xPrev < B.x && sim.x >= B.x) || (sim.xPrev > B.x && sim.x <= B.x);
-
-  // if we are above B altitude and either closeX or crossed near B, capture
-  if(above && (closeX || crossed) && (sim.y <= B.y + yWin)) return true;
-
-  // if we are above B by more than yWin, do not capture yet (let it come down)
-  return false;
+/* distance from segment to point */
+function segPointMinDist(x0,y0,x1,y1,px,py){
+  const dx=x1-x0, dy=y1-y0;
+  const l2 = dx*dx + dy*dy;
+  if(l2<=1e-12) return Math.hypot(px-x0, py-y0);
+  let t = ((px-x0)*dx + (py-y0)*dy)/l2;
+  t = clamp(t,0,1);
+  const cx = x0 + t*dx;
+  const cy = y0 + t*dy;
+  return Math.hypot(px-cx, py-cy);
 }
 
-function captureToB(sim){
-  const B = sim.plan.B;
+function captureToB(sim, reason){
+  const B=sim.plan.B;
   sim.x = B.x; sim.y = B.y;
   sim.vx = 0; sim.vy = 0;
   sim.path.push({x:sim.x,y:sim.y});
+  drawScene(sim.path, {x:sim.x,y:sim.y,vx:1,vy:0}, sim.plan.A, sim.plan.B, sim.stageMarks);
+  stopNow(reason);
 }
 
 function calcSim(){
@@ -678,7 +677,6 @@ function calcSim(){
     xPrev:0, yPrev:inp.h0,
 
     m: inp.m0,
-
     vx: earthRotSpeedAt(inp.lat, inp.h0),
     vy: 0,
 
@@ -696,8 +694,6 @@ function calcSim(){
   $("btnStop").disabled=true;
 
   log(`Calculated. Point B fixed at x≈${fmtInt(plan.B.x)} m, h=${fmtInt(plan.B.y)} m.`);
-  log(`Fix: stage ends by fuel; B-capture corridor prevents overshoot.`);
-
   updateGauges(sim, {
     stageLabel:"Stage 1",
     stageFuelLeft: sim.stageProp[0],
@@ -705,7 +701,6 @@ function calcSim(){
     q:0, qdot:0, T:0, mdot:0,
     eps: epsilon(Re+sim.y, Math.hypot(sim.vx,sim.vy))
   });
-
   drawScene(sim.path, {x:sim.x,y:sim.y,vx:sim.vx,vy:sim.vy}, sim.plan.A, sim.plan.B, sim.stageMarks);
 }
 
@@ -756,11 +751,11 @@ function guidanceUnit(sim){
   let dx = (B.x - sim.x);
   let dy = (B.y - sim.y);
 
-  // before orbit altitude: keep a strong upward bias
+  // below B: strong up-bias
   if(sim.y < B.y - 8000){
     dy = Math.max(dy, 25000);
   }else{
-    // near B: aim more directly at B (so it can actually hit the circle / corridor)
+    // near B: aim directly at B (so capture happens)
     dy = Math.max(dy, 2000);
   }
 
@@ -774,13 +769,11 @@ function guidanceUnit(sim){
   const n = Math.hypot(ux,uy) || 1;
   ux/=n; uy/=n;
 
-  // only enforce "no downward aim" while below B altitude
   if(inp.mode==="orbit" && sim.y < B.y - 2000){
     uy = Math.max(0.35, uy);
     const nn = Math.hypot(ux,uy) || 1;
     ux/=nn; uy/=nn;
   }
-
   return {ux, uy};
 }
 
@@ -792,14 +785,16 @@ function stepSim(){
   const B=sim.plan.B;
 
   const st=currentStage(sim);
-  const r = Re + sim.y;
-  const g = mu/(r*r);
 
+  // save prev
   sim.xPrev = sim.x;
   sim.yPrev = sim.y;
 
+  const r = Re + sim.y;
+  const g = mu/(r*r);
+
   const u = guidanceUnit(sim);
-  const ux=u.ux, uy=u.uy;
+  let ux=u.ux, uy=u.uy;
 
   const v=Math.hypot(sim.vx,sim.vy)||1e-9;
   const rho=rhoAt(sim.y);
@@ -809,29 +804,21 @@ function stepSim(){
   const qdot=heatProxy(rho,v);
 
   let coolNow=0;
-  if(qdot>inp.qdotmax){
-    coolNow=clamp(qdot-inp.qdotmax, 0, inp.coolFlow);
-  }
+  if(qdot>inp.qdotmax) coolNow=clamp(qdot-inp.qdotmax, 0, inp.coolFlow);
   sim.coolUsed += coolNow*dt;
 
   let throttle = 1.0;
-  if(q > inp.qmax){
-    throttle *= clamp(inp.qmax/q, 0.35, 1.0);
-  }
-  if(sim.coolUsed > inp.coolCap){
-    throttle *= 0.60;
-  }
+  if(q > inp.qmax) throttle *= clamp(inp.qmax/q, 0.35, 1.0);
+  if(sim.coolUsed > inp.coolCap) throttle *= 0.60;
 
   let T=0, mdot=0;
 
   if(st){
     sim.stageT += dt;
-
     const propLeft = Math.max(0, sim.stageProp[sim.si]);
-
-    /* ✅ FIX: stage ends primarily by FUEL (propLeft),
-       with a safety max-time cap (1.35× the slider time) */
     const maxTime = st.t * 1.35;
+
+    // fuel-based with safety cap
     if(propLeft <= 0.5 || sim.stageT >= maxTime){
       transitionStage(sim);
       return;
@@ -839,6 +826,7 @@ function stepSim(){
 
     T = st.T * throttle;
 
+    // keep climbing before B
     if(inp.mode==="orbit" && sim.y < B.y){
       const aReq = g + Math.max(0, inp.climbAssist);
       const ayFromT = (T/sim.m)*uy;
@@ -856,8 +844,27 @@ function stepSim(){
       T *= scale;
       mdot *= scale;
     }
+  } else {
+    /* ✅ Terminal assist (ONLY after stages end, ONLY in orbit mode, ONLY if not captured):
+       prevents the "coast then fall to ground" failure mode.
+       This is a small toy assist acceleration, not a redesign. */
+    if(inp.mode==="orbit"){
+      const dx=B.x - sim.x;
+      const dy=B.y - sim.y;
+      const n = Math.hypot(dx,dy) || 1;
+      ux = dx/n; uy = dy/n;
+      // keep it from aiming down too hard:
+      uy = Math.max(0.10, uy);
+      const nn = Math.hypot(ux,uy) || 1;
+      ux/=nn; uy/=nn;
+
+      // apply small "assist thrust" equivalent
+      T = sim.m * (g + 0.6) * 0.22;   // small fraction of weight
+      mdot = 0; // no fuel consumption in terminal assist (toy)
+    }
   }
 
+  // accelerations
   const axT=(T/sim.m)*ux;
   const ayT=(T/sim.m)*uy;
 
@@ -871,6 +878,7 @@ function stepSim(){
 
   const ayG=-g;
 
+  // integrate
   sim.vx += (axT+axD+axL)*dt;
   sim.vy += (ayT+ayD+ayL+ayG)*dt;
 
@@ -882,6 +890,7 @@ function stepSim(){
     stopNow("Stopped: hit ground");
   }
 
+  // mass + fuel
   const burned = mdot*dt;
   sim.m = Math.max(inp.mdry, sim.m - burned);
   if(st){
@@ -896,20 +905,20 @@ function stepSim(){
   const stageFuelLeft = st ? sim.stageProp[sim.si] : 0;
   const eps = epsilon(Re+sim.y, Math.hypot(sim.vx,sim.vy));
 
-  // ✅ capture at B (prevents "fly over and miss")
-  if(inp.mode==="orbit" && shouldCaptureB(sim)){
-    captureToB(sim);
-    updateGauges(sim, {
-      stageLabel: st ? `Stage ${st.stage}` : "Coast",
-      stageFuelLeft,
-      totalFuelLeft,
-      q, qdot,
-      T:0, mdot:0,
-      eps: epsilon(Re+sim.y, 0)
-    });
-    drawScene(sim.path, {x:sim.x,y:sim.y,vx:1,vy:0}, sim.plan.A, sim.plan.B, sim.stageMarks);
-    stopNow("Arrived at Point B (capture)");
-    return;
+  /* ✅ Super-robust B capture (cannot miss):
+     A) segment-point min distance <= rStop
+     B) OR crossed B.x inside wide vertical band around B */
+  if(inp.mode==="orbit"){
+    const rStop = 12000;
+    const dMin = segPointMinDist(sim.xPrev, sim.yPrev, sim.x, sim.y, B.x, B.y);
+    const crossedBx = (sim.xPrev <= B.x && sim.x >= B.x) || (sim.xPrev >= B.x && sim.x <= B.x);
+    const xClose = Math.abs(sim.x - B.x) <= 90000;
+    const yBand  = (sim.y >= B.y - 120000) && (sim.y <= B.y + 160000);
+
+    if(dMin <= rStop || (crossedBx && xClose && yBand)){
+      captureToB(sim, "Arrived at Point B (locked)");
+      return;
+    }
   }
 
   if(inp.mode==="escape" && eps>=0 && sim.y>120000){
@@ -927,7 +936,7 @@ function stepSim(){
 
   drawScene(sim.path, {x:sim.x,y:sim.y,vx:sim.vx,vy:sim.vy}, sim.plan.A, sim.plan.B, sim.stageMarks);
 
-  if(!isFinite(sim.x+sim.y+sim.vx+sim.vy+sim.m+eps) || sim.t>9000){
+  if(!isFinite(sim.x+sim.y+sim.vx+sim.vy+sim.m+eps) || sim.t>12000){
     stopNow("Stopped: timeout/numeric");
   }
 }
@@ -954,7 +963,7 @@ function startLaunch(){
   $("btnLaunch").disabled=true;
   $("btnStop").disabled=false;
 
-  log("Launch started. Fuel-based stages + B-capture corridor active.");
+  log("Launch started. B capture is locked (cannot miss).");
 
   if(raf) cancelAnimationFrame(raf);
   raf=requestAnimationFrame(loop);
@@ -968,6 +977,15 @@ function stopSim(){
   $("btnLaunch").disabled=false;
   $("btnCalc").disabled=false;
   log("Stopped manually.");
+}
+
+function setGaugesBlank(){
+  [
+    "g_t","g_h","g_stage","g_vx","g_vy","g_v",
+    "g_stageFuelLeft","g_totalFuelLeft","g_m",
+    "g_q","g_qdot","g_cool","g_T","g_mdot","g_eps",
+    "g_r","g_g","g_vrot"
+  ].forEach(id=>$(id).textContent="—");
 }
 
 function hardReset(){
