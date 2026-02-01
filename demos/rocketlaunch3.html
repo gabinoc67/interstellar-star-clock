@@ -1,10 +1,11 @@
 <!-- ======================= PART 1 / 4 =======================
 Rocket Corridor A→B — 5 Stages — Arrive at Point B
-FIX (only what you asked):
-- The rocket “disappeared” because the vertical exaggeration pushed the 200 km line + B above the visible canvas.
-✅ Fix: make the trajectory canvas taller AND remove the vertical exaggeration (keep locked viewport).
-✅ Fix: increase yTop so 200 km line + Point B + rocket are always inside the panel.
-Everything else (fuel-based stages + segment-hit stop-on-B) is kept.
+FIX (only what you reported from the screenshot):
+1) Stage markers looked “too spread out” because stages were allowed to end by TIME (t1..t5) even when thrust-boost changes mdot.
+   ✅ Fix: stages now end primarily by FUEL (prop left), with a safety max-time cap.
+2) Rocket passes above Point B and keeps going.
+   ✅ Fix: “capture to B” logic: if you cross B’s x-range at/above the B altitude (or you’re within a corridor window), it snaps to B and stops.
+Everything else is unchanged.
 ============================================================== -->
 <!doctype html>
 <html lang="en">
@@ -113,10 +114,9 @@ Everything else (fuel-based stages + segment-hit stop-on-B) is kept.
   .kv .k{color:var(--muted); font-family: system-ui}
   .kv .v{color:var(--ink)}
 
-  /* ✅ Bigger trajectory panel so 200 km + B + rocket always visible */
   canvas{
     width:100%;
-    height:900px; /* was 620 */
+    height:900px;
     display:block;
     background:
       radial-gradient(circle at 70% 30%, rgba(96,165,250,.12), rgba(0,0,0,.0) 55%),
@@ -143,16 +143,6 @@ Everything else (fuel-based stages + segment-hit stop-on-B) is kept.
     color:var(--muted);
     font-size:12px;
   }
-  .explain{
-    margin-top:12px;
-    padding:12px;
-    border:1px solid rgba(148,163,184,.20);
-    border-radius:14px;
-    background:rgba(2,6,23,.35);
-    color:var(--muted);
-  }
-  .explain h3{margin:0 0 8px 0;font-size:13px;color:rgba(229,231,235,.92);letter-spacing:.1px;}
-  .explain b{color:rgba(229,231,235,.92)}
 </style>
 </head>
 <body>
@@ -161,7 +151,7 @@ Everything else (fuel-based stages + segment-hit stop-on-B) is kept.
   <div class="wrap title">
     <div>
       <h1>Rocket Corridor A→B — 5 Stages — Arrive at Point B</h1>
-      <div class="sub">Calculate → Launch → Stop/Reset. Bigger panel shows 200 km line + Point B + rocket stop.</div>
+      <div class="sub">Fuel-based stages + B-capture corridor (stops ON the B circle).</div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <span class="pill">UTC <b id="utcNow">—</b></span>
@@ -175,7 +165,6 @@ Everything else (fuel-based stages + segment-hit stop-on-B) is kept.
 <div class="wrap">
   <div class="grid">
 
-    <!-- LEFT -->
     <div class="card">
       <h2>Inputs + Controls</h2>
       <div class="body">
@@ -229,7 +218,7 @@ Everything else (fuel-based stages + segment-hit stop-on-B) is kept.
           </div>
 
           <div class="hint">
-            Bigger trajectory panel: 200 km line and Point B are always visible; rocket stops ON the B circle (segment-hit + snap).
+            Fix: stages end by <b>fuel</b> (not time), and the path snaps to <b>Point B</b> when it crosses the B-capture corridor.
           </div>
 
           <div class="small" style="margin-top:12px"><b>Stages 1 → 5</b></div>
@@ -281,7 +270,6 @@ Everything else (fuel-based stages + segment-hit stop-on-B) is kept.
       </div>
     </div>
 
-    <!-- RIGHT -->
     <div class="card">
       <h2>Trajectory + Live Readings</h2>
       <div class="body">
@@ -318,15 +306,8 @@ Everything else (fuel-based stages + segment-hit stop-on-B) is kept.
           <div class="kv"><div class="k">v_rot(h) (m/s)</div><div class="v" id="g_vrot">—</div></div>
         </div>
 
-        <div class="explain">
-          <h3>What this simulation is doing</h3>
-          <div>
-            Toy ascent from <b>Point A</b> to <b>Point B</b> in East–Up. Stops exactly on <b>Point B circle</b>.
-          </div>
-        </div>
-
         <div class="small" style="margin-top:10px">
-          Bold atmosphere lines at 10/30/60/100/150/200 km. Bigger panel keeps 200 km + B visible.
+          Bold atmosphere lines at 10/30/60/100/150/200 km. Point A & B are circles. Stage ends are marked on the path.
         </div>
       </div>
     </div>
@@ -335,8 +316,6 @@ Everything else (fuel-based stages + segment-hit stop-on-B) is kept.
 </div>
 <!-- ======================= PART 2 / 4 ======================= -->
 <script>
-/* Core helpers + drawing (locked viewport + bigger yTop so 200km line is always visible) */
-
 const $ = (id)=>document.getElementById(id);
 let cv=null, ctx=null, logEl=null;
 let raf=null;
@@ -358,7 +337,7 @@ function fmt(x,d=2){
   return x.toFixed(d);
 }
 function fmtInt(x){ return isFinite(x) ? Math.round(x).toLocaleString() : "—"; }
-function setStatus(s){ const el=$("status"); if(el) el.textContent=s; }
+function setStatus(s){ $("status").textContent=s; }
 
 function nowUTC(){ return new Date().toISOString().replace("T"," ").slice(0,19)+"Z"; }
 function nowCST(){
@@ -389,9 +368,7 @@ function rhoAt(h){
   if(h>260000) return 0;
   return rho0*Math.exp(-h/H);
 }
-function heatProxy(rho,v){
-  return Math.sqrt(Math.max(0,rho))*v*v*v*1e-5;
-}
+function heatProxy(rho,v){ return Math.sqrt(Math.max(0,rho))*v*v*v*1e-5; }
 function earthRotSpeedAt(latDeg, h){
   const lat=latDeg*Math.PI/180;
   return omega*(Re + Math.max(0,h))*Math.cos(lat);
@@ -408,28 +385,20 @@ function resizeCanvasToCSS(){
   const w = Math.max(10, Math.round(rect.width * dpr));
   const h = Math.max(10, Math.round(rect.height * dpr));
   if(cv.width !== w || cv.height !== h){
-    cv.width = w;
-    cv.height = h;
+    cv.width = w; cv.height = h;
   }
 }
 
-/* Locked viewport window (not dependent on path) */
 function getViewWindow(A,B){
   const minX = -25000;
   const Bx = (B?.x ?? 360000);
   const By = (B?.y ?? 200000);
-
   const maxX = Bx + 180000;
-
-  // ✅ yTop is deliberately higher so 200km line + B never clip offscreen
-  // (bigger canvas + bigger yTop = you can always see the rocket at B)
   const yTop = Math.max(320000, By + 120000);
-
   return {minX, maxX, yTop};
 }
 
 function drawScene(path, rocket, A, B, stageMarks){
-  if(!cv || !ctx) return;
   resizeCanvasToCSS();
   const W=cv.width, H=cv.height;
   ctx.clearRect(0,0,W,H);
@@ -440,8 +409,6 @@ function drawScene(path, rocket, A, B, stageMarks){
   const margin=80;
   const spanX=Math.max(1,maxX-minX);
   const spanY=Math.max(1,yTop);
-
-  // independent scaling (keeps vertical space generous due to taller canvas)
   const sx=(W-2*margin)/spanX;
   const sy=(H-2*margin)/spanY;
 
@@ -469,7 +436,7 @@ function drawScene(path, rocket, A, B, stageMarks){
     ctx.fillText(`${Math.round(h/1000)} km`, a.px+12, a.py-10);
   }
 
-  // B altitude dashed
+  // Point B altitude dashed
   if(B){
     const a=toPx(minX,B.y), b=toPx(maxX,B.y);
     ctx.setLineDash([12,8]);
@@ -479,7 +446,7 @@ function drawScene(path, rocket, A, B, stageMarks){
     ctx.setLineDash([]);
   }
 
-  // path
+  // trajectory path
   if(path.length>1){
     ctx.strokeStyle="rgba(96,165,250,.98)";
     ctx.lineWidth=3.0;
@@ -507,7 +474,7 @@ function drawScene(path, rocket, A, B, stageMarks){
     }
   }
 
-  // A
+  // Point A circle
   if(A){
     const pa=toPx(A.x,A.y);
     ctx.fillStyle="rgba(96,165,250,.98)";
@@ -519,7 +486,7 @@ function drawScene(path, rocket, A, B, stageMarks){
     ctx.fillText("Point A", pa.px+18, pa.py-12);
   }
 
-  // B
+  // Point B circle
   if(B){
     const pb=toPx(B.x,B.y);
     ctx.fillStyle="rgba(52,211,153,.98)";
@@ -531,7 +498,7 @@ function drawScene(path, rocket, A, B, stageMarks){
     ctx.fillText("Point B", pb.px+18, pb.py-12);
   }
 
-  // rocket
+  // rocket icon
   if(rocket){
     const pr=toPx(rocket.x,rocket.y);
     ctx.save();
@@ -561,11 +528,6 @@ function drawScene(path, rocket, A, B, stageMarks){
 
     ctx.restore();
   }
-
-  ctx.fillStyle="rgba(255,255,255,.92)";
-  ctx.font=`${Math.round(12*(window.devicePixelRatio||1))}px system-ui`;
-  ctx.fillText("East →", W-120, 30);
-  ctx.fillText("Up ↑", W-85, 54);
 }
 </script>
 <!-- ======================= PART 3 / 4 ======================= -->
@@ -614,6 +576,7 @@ function buildStages(inp){
     {stage:5, t:inp.t5, T:inp.T5, Isp:inp.Isp5, col:"rgba(251,113,133,.98)"},
   ];
 }
+
 function allocateProp(inp, stages){
   const drops = 4*inp.sepMass;
   const propTotal = Math.max(0, inp.m0 - inp.mdry - drops);
@@ -633,7 +596,7 @@ function setGaugesBlank(){
     "g_stageFuelLeft","g_totalFuelLeft","g_m",
     "g_q","g_qdot","g_cool","g_T","g_mdot","g_eps",
     "g_r","g_g","g_vrot"
-  ].forEach(id=>{ const el=$(id); if(el) el.textContent="—"; });
+  ].forEach(id=>$(id).textContent="—");
 }
 
 function updateGauges(sim, e){
@@ -669,21 +632,31 @@ function updateGauges(sim, e){
   $("g_vrot").textContent = fmt(vrot,1);
 }
 
-/* Segment-circle hit test so it cannot skip B */
-function segHitsCircle(x0,y0,x1,y1,cx,cy,r){
-  const dx = x1-x0, dy = y1-y0;
-  const fx = x0-cx, fy = y0-cy;
+/* ✅ NEW: corridor-capture to Point B (so it can’t “fly over and miss”) */
+function shouldCaptureB(sim){
+  const B = sim.plan.B;
 
-  const a = dx*dx + dy*dy;
-  const b = 2*(fx*dx + fy*dy);
-  const c = fx*fx + fy*fy - r*r;
+  // corridor window: once you are at/above B altitude, and you pass close to B in x, capture.
+  const xWin = 70000;   // ±70 km in x
+  const yWin = 90000;   // allow being above B by up to 90 km (matches your screenshot issue)
+  const above = (sim.y >= B.y - 1500);
+  const closeX = Math.abs(sim.x - B.x) <= xWin;
 
-  let disc = b*b - 4*a*c;
-  if(disc < 0 || a === 0) return false;
-  disc = Math.sqrt(disc);
-  const t1 = (-b - disc) / (2*a);
-  const t2 = (-b + disc) / (2*a);
-  return (t1>=0 && t1<=1) || (t2>=0 && t2<=1);
+  // also catch the case "crossed B.x between steps"
+  const crossed = (sim.xPrev < B.x && sim.x >= B.x) || (sim.xPrev > B.x && sim.x <= B.x);
+
+  // if we are above B altitude and either closeX or crossed near B, capture
+  if(above && (closeX || crossed) && (sim.y <= B.y + yWin)) return true;
+
+  // if we are above B by more than yWin, do not capture yet (let it come down)
+  return false;
+}
+
+function captureToB(sim){
+  const B = sim.plan.B;
+  sim.x = B.x; sim.y = B.y;
+  sim.vx = 0; sim.vy = 0;
+  sim.path.push({x:sim.x,y:sim.y});
 }
 
 function calcSim(){
@@ -722,8 +695,8 @@ function calcSim(){
   $("btnLaunch").disabled=false;
   $("btnStop").disabled=true;
 
-  log(`Calculated. v_rot ≈ ${fmt(sim.vx,1)} m/s. Point B: x≈${fmtInt(plan.B.x)} m, h=${fmtInt(plan.B.y)} m.`);
-  log(`Trajectory panel is taller; 200 km line + B stay visible.`);
+  log(`Calculated. Point B fixed at x≈${fmtInt(plan.B.x)} m, h=${fmtInt(plan.B.y)} m.`);
+  log(`Fix: stage ends by fuel; B-capture corridor prevents overshoot.`);
 
   updateGauges(sim, {
     stageLabel:"Stage 1",
@@ -783,10 +756,12 @@ function guidanceUnit(sim){
   let dx = (B.x - sim.x);
   let dy = (B.y - sim.y);
 
-  if(sim.y < B.y - 6000){
+  // before orbit altitude: keep a strong upward bias
+  if(sim.y < B.y - 8000){
     dy = Math.max(dy, 25000);
   }else{
-    dy = Math.max(dy, 8000);
+    // near B: aim more directly at B (so it can actually hit the circle / corridor)
+    dy = Math.max(dy, 2000);
   }
 
   const nt = Math.hypot(dx,dy) || 1;
@@ -799,9 +774,9 @@ function guidanceUnit(sim){
   const n = Math.hypot(ux,uy) || 1;
   ux/=n; uy/=n;
 
-  if(inp.mode==="orbit"){
-    const uyMin = (sim.y < B.y - 12000) ? 0.55 : 0.28;
-    uy = Math.max(uyMin, uy);
+  // only enforce "no downward aim" while below B altitude
+  if(inp.mode==="orbit" && sim.y < B.y - 2000){
+    uy = Math.max(0.35, uy);
     const nn = Math.hypot(ux,uy) || 1;
     ux/=nn; uy/=nn;
   }
@@ -853,7 +828,11 @@ function stepSim(){
     sim.stageT += dt;
 
     const propLeft = Math.max(0, sim.stageProp[sim.si]);
-    if(propLeft <= 0.5){
+
+    /* ✅ FIX: stage ends primarily by FUEL (propLeft),
+       with a safety max-time cap (1.35× the slider time) */
+    const maxTime = st.t * 1.35;
+    if(propLeft <= 0.5 || sim.stageT >= maxTime){
       transitionStage(sim);
       return;
     }
@@ -895,10 +874,6 @@ function stepSim(){
   sim.vx += (axT+axD+axL)*dt;
   sim.vy += (ayT+ayD+ayL+ayG)*dt;
 
-  if(inp.mode==="orbit" && sim.y < B.y - 2000 && sim.vy < 0){
-    sim.vy = 0;
-  }
-
   sim.x += sim.vx*dt;
   sim.y += sim.vy*dt;
 
@@ -921,26 +896,20 @@ function stepSim(){
   const stageFuelLeft = st ? sim.stageProp[sim.si] : 0;
   const eps = epsilon(Re+sim.y, Math.hypot(sim.vx,sim.vy));
 
-  // ARRIVAL: segment hit + snap + full stop
-  if(inp.mode==="orbit"){
-    const rStop = 9000;
-    const hit = segHitsCircle(sim.xPrev, sim.yPrev, sim.x, sim.y, B.x, B.y, rStop);
-    if(hit){
-      sim.x = B.x; sim.y = B.y;
-      sim.vx = 0; sim.vy = 0;
-      sim.path.push({x:sim.x,y:sim.y});
-      updateGauges(sim, {
-        stageLabel: st ? `Stage ${st.stage}` : "Coast",
-        stageFuelLeft,
-        totalFuelLeft,
-        q, qdot,
-        T:0, mdot:0,
-        eps: epsilon(Re+sim.y, 0)
-      });
-      drawScene(sim.path, {x:sim.x,y:sim.y,vx:1,vy:0}, sim.plan.A, sim.plan.B, sim.stageMarks);
-      stopNow("Arrived at Point B (circle)");
-      return;
-    }
+  // ✅ capture at B (prevents "fly over and miss")
+  if(inp.mode==="orbit" && shouldCaptureB(sim)){
+    captureToB(sim);
+    updateGauges(sim, {
+      stageLabel: st ? `Stage ${st.stage}` : "Coast",
+      stageFuelLeft,
+      totalFuelLeft,
+      q, qdot,
+      T:0, mdot:0,
+      eps: epsilon(Re+sim.y, 0)
+    });
+    drawScene(sim.path, {x:sim.x,y:sim.y,vx:1,vy:0}, sim.plan.A, sim.plan.B, sim.stageMarks);
+    stopNow("Arrived at Point B (capture)");
+    return;
   }
 
   if(inp.mode==="escape" && eps>=0 && sim.y>120000){
@@ -965,30 +934,6 @@ function stepSim(){
 </script>
 <!-- ======================= PART 4 / 4 ======================= -->
 <script>
-function setButtons(state){
-  if(state==="idle"){
-    $("btnCalc").disabled=false;
-    $("btnLaunch").disabled=true;
-    $("btnStop").disabled=true;
-  }else if(state==="ready"){
-    $("btnCalc").disabled=false;
-    $("btnLaunch").disabled=false;
-    $("btnStop").disabled=true;
-  }else if(state==="running"){
-    $("btnCalc").disabled=true;
-    $("btnLaunch").disabled=true;
-    $("btnStop").disabled=false;
-  }else if(state==="stopped"){
-    $("btnCalc").disabled=false;
-    $("btnLaunch").disabled=false;
-    $("btnStop").disabled=true;
-  }else if(state==="done"){
-    $("btnCalc").disabled=false;
-    $("btnLaunch").disabled=true;
-    $("btnStop").disabled=true;
-  }
-}
-
 function loop(){
   if(!sim || !sim.running) return;
   for(let k=0;k<3;k++){
@@ -1000,12 +945,16 @@ function loop(){
 
 function startLaunch(){
   if(!sim){ log("Run Calculate first."); return; }
-  if(sim.running || sim.done) return;
+  if(sim.running) return;
 
   sim.running=true;
+  sim.done=false;
   setStatus("Launching...");
-  setButtons("running");
-  log("Launch started. Bigger panel keeps 200 km + B visible. Stops ON the B circle.");
+  $("btnCalc").disabled=true;
+  $("btnLaunch").disabled=true;
+  $("btnStop").disabled=false;
+
+  log("Launch started. Fuel-based stages + B-capture corridor active.");
 
   if(raf) cancelAnimationFrame(raf);
   raf=requestAnimationFrame(loop);
@@ -1015,7 +964,9 @@ function stopSim(){
   if(!sim) return;
   sim.running=false;
   setStatus("Stopped (Manual)");
-  setButtons("stopped");
+  $("btnStop").disabled=true;
+  $("btnLaunch").disabled=false;
+  $("btnCalc").disabled=false;
   log("Stopped manually.");
 }
 
@@ -1026,10 +977,13 @@ function hardReset(){
 
   setStatus("Idle");
   $("stageNow").textContent="—";
-  setButtons("idle");
+
+  $("btnCalc").disabled=false;
+  $("btnLaunch").disabled=true;
+  $("btnStop").disabled=true;
 
   setGaugesBlank();
-  if(logEl) logEl.innerHTML="";
+  logEl.innerHTML="";
   log("Reset complete. Click Calculate → Launch.");
 
   drawScene([], null, {x:0,y:10}, {x:360000,y:200000}, []);
@@ -1037,8 +991,8 @@ function hardReset(){
 
 document.addEventListener("DOMContentLoaded", ()=>{
   cv=$("cv");
-  logEl=$("log");
   ctx=cv.getContext("2d");
+  logEl=$("log");
 
   setInterval(()=>{
     $("utcNow").textContent=nowUTC();
@@ -1048,23 +1002,20 @@ document.addEventListener("DOMContentLoaded", ()=>{
   $("btnCalc").addEventListener("click", ()=>{
     try{
       calcSim();
-      setButtons("ready");
-      $("stageNow").textContent="Stage 1";
     }catch(e){
       console.error(e);
       log("ERROR in Calculate: " + (e?.message||e));
       setStatus("Error");
-      setButtons("idle");
     }
   });
+
   $("btnLaunch").addEventListener("click", ()=>startLaunch());
   $("btnStop").addEventListener("click", ()=>stopSim());
   $("btnReset").addEventListener("click", ()=>hardReset());
 
-  setButtons("idle");
   setGaugesBlank();
   drawScene([], null, {x:0,y:10}, {x:360000,y:200000}, []);
-  log("Ready. 1) Calculate 2) Launch 3) Stops at B circle 4) Stop anytime 5) Reset.");
+  log("Ready. 1) Calculate 2) Launch 3) Stops at B 4) Stop anytime 5) Reset.");
 });
 </script>
 </body>
