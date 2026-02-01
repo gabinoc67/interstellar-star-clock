@@ -1,0 +1,1249 @@
+<!-- ======================= PART 1 / 4 =======================
+CST Time-Machine Simulator — UPGRADED (CST Lock + VGL/VGI + Worldline Integrity + Power/Heat + Event Log)
+- Adds: CST Earth-Lock (lat/long), VGL (Variable Gravity Lock), VGI scan + anomaly trip, Worldline Integrity meters,
+        Power Core (battery buffer, waste heat, containment), Event Log, safe abort/ramp-down.
+- Keeps: your rings/photons/particles/4 clocks + Advanced SR/GR/Sidereal/Star/E↔m panels.
+============================================================== -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>CST Time-Machine Simulator — Rings • Photons • 4 Clocks (CST Lock Upgrade)</title>
+<style>
+  :root{
+    --bg:#0b1020; --ink:#eaf0ff; --mut:#9fb0d0; --panel:#121936; --line:#223062;
+    --beam-color:rgba(190,245,255,.9);          /* white-cyan = stable */
+    --intensity:.25;                             /* 0..1 visual power */
+    --vibe:1;                                    /* ring horizontal quiver */
+    --bob-amp:10px;                              /* ring vertical bob amplitude */
+    --bob-speed:3.6s;                            /* ring vertical bob speed */
+    --particle-speed:6s;                         /* orbiters (lower = faster) */
+    --photon-speed:3s;                           /* vertical photon streams */
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,Segoe UI,Roboto,Arial}
+  .wrap{max-width:1200px;margin:0 auto;padding:18px}
+  h1{margin:0 0 8px;font-weight:900;letter-spacing:.2px}
+  .pill{display:inline-block;border:1px solid var(--line);padding:4px 10px;border-radius:999px;font-size:12px;color:#bcd}
+  .grid{display:grid;gap:14px}
+  .grid-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .grid-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .label{font-size:12px;color:var(--mut)}
+  .value{font-weight:800}
+  .button{cursor:pointer;font-weight:900;border-radius:14px;border:1px solid var(--line);
+          padding:10px 16px;background:#0f1841;color:var(--ink)}
+  .button:active{transform:translateY(1px)}
+  .button.small{padding:6px 10px;font-size:11px}
+  .button.activeBtn{border-color:#8fb4ff;box-shadow:0 0 0 1px #8fb4ff}
+  input[type="datetime-local"]{width:100%;background:#0d1536;border:1px solid #243468;border-radius:8px;padding:8px;color:#eaf0ff}
+  input[type="number"], select{
+    width:100%;background:#0d1536;border:1px solid #243468;border-radius:8px;padding:6px;color:#eaf0ff
+  }
+  input[type="range"]{width:100%}
+  .clockbox{font-family:ui-monospace,Consolas,monospace;font-size:16px;background:#0d1536;border-radius:10px;padding:10px;border:1px solid #2a3a6e;text-align:center}
+  .clock-title{font-size:12px;color:#9fb0d0;margin-bottom:4px}
+  .ok{color:#7cff9e} .bad{color:#ff9090} .warn{color:#ffd27a}
+  .hidden{display:none !important}
+
+  /* ------ Warp Chamber ------ */
+  .chamber{position:relative;overflow:hidden;min-height:380px;border-radius:18px;margin-top:12px}
+  .beam{position:absolute;left:50%;top:6%;bottom:10%;transform:translateX(-50%);
+    width:22%;background:radial-gradient(ellipse at center,var(--beam-color),transparent 70%);
+    opacity:calc(.25 + .75*var(--intensity)); filter:blur(8px); transition:background .3s linear}
+  /* Ring wrappers bob up/down; inner rings quiver horizontally */
+  .ringWrap{position:absolute;left:50%;transform:translateX(-50%) translateY(0); animation: bob var(--bob-speed) ease-in-out infinite alternate}
+  .ringWrap.top{top:8%}
+  .ringWrap.bot{bottom:10%}
+  @keyframes bob{
+    from{ transform:translateX(-50%) translateY(calc(var(--bob-amp)*-1)); }
+    to  { transform:translateX(-50%) translateY(var(--bob-amp)); }
+  }
+  .ring{width:80%;height:74px;border:2px solid #2aa8ff66;border-radius:999px;
+        box-shadow:0 0 20px #6ff6ff33 inset,0 0 25px #2aa8ff55;
+        transform:scaleX(calc(1 + .03*var(--vibe))); animation:vibe calc(.5s/var(--vibe)) linear infinite;position:relative}
+  .ring::after{content:"";position:absolute;inset:0;border-radius:inherit;border:1px dashed #aef7ff7a;animation:dash 8s linear infinite}
+  @keyframes dash{to{transform:rotate(360deg)}}
+  @keyframes vibe{0%{transform:scaleX(1)}50%{transform:scaleX(1.04)}100%{transform:scaleX(1)}}
+
+  /* Particles in elliptical orbits */
+  .orbit{position:absolute;inset:0;pointer-events:none}
+  .particle{position:absolute;top:50%;left:50%;width:6px;height:6px;border-radius:50%;
+    background:#dfffff;box-shadow:0 0 8px #dfffff,0 0 14px #66e1ff}
+
+  /* Vertical photon streams */
+  .photons{position:absolute;left:50%;top:2%;bottom:12%;width:34%;transform:translateX(-50%);pointer-events:none}
+  .photon{position:absolute;left:50%;width:3px;height:12px;background:#bfffff;box-shadow:0 0 8px #bfffff,0 0 16px #66e1ff;opacity:.85}
+  .photon.up{animation:rise var(--photon-speed) linear infinite}
+  .photon.down{animation:fall var(--photon-speed) linear infinite}
+  @keyframes rise{from{transform:translate(-50%,100%)} to{transform:translate(-50%,-10%)}}
+  @keyframes fall{from{transform:translate(-50%,-10%)} to{transform:translate(-50%,100%)}}
+
+  .floor{position:absolute;left:5%;right:5%;bottom:8%;height:12%;background:linear-gradient(#16244f,#0b1020);border-top:1px solid #2aa8ff33}
+
+  /* Equations block */
+  .eq{font-size:14px;line-height:1.6}
+  .eq code{background:#0d1536;border:1px solid #2a3a6e;border-radius:8px;padding:2px 6px}
+  .bul{margin:6px 0 0 18px}
+  .bul li{margin:4px 0}
+
+  /* Logs + meters */
+  .log{
+    font-family:ui-monospace,Consolas,monospace;
+    background:#0d1536;border:1px solid #2a3a6e;border-radius:10px;
+    padding:10px;max-height:180px;overflow:auto;font-size:12px;line-height:1.5
+  }
+  .meterRow{display:flex;justify-content:space-between;gap:10px;margin-top:6px}
+  .bar{height:10px;border-radius:999px;background:#0a1230;border:1px solid #2a3a6e;overflow:hidden;flex:1}
+  .bar > i{display:block;height:100%;width:0%}
+  .mini{font-size:11px;color:#a9b6d8}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>CST Time-Machine Simulator</h1>
+  <div class="pill">Two bobbing rings • Orbiting particles • Photon streams • 4 live clocks • CST Earth-Lock • VGL/VGI safety</div>
+
+  <div class="grid grid-2" style="margin-top:12px">
+    <!-- Controls -->
+    <div class="card">
+      <div class="row"><strong>Destination Control</strong></div>
+
+      <div class="grid grid-2" style="margin-top:10px;gap:10px">
+        <div>
+          <label class="label">Destination (Local calendar)</label>
+          <input id="destDT" type="datetime-local" />
+        </div>
+        <div>
+          <label class="label">CST Mode</label>
+          <div class="clockbox" style="padding:8px">
+            <div class="clock-title">Worldline Anchor</div>
+            <div id="cstMode" style="font-size:13px">Earth-Locked (lat/long)</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CST anchor -->
+      <div class="grid grid-2" style="margin-top:10px;gap:10px">
+        <div>
+          <label class="label">Anchor Latitude (deg)</label>
+          <input id="latDeg" type="number" step="0.0001" min="-90" max="90" value="25.9000">
+        </div>
+        <div>
+          <label class="label">Anchor Longitude (deg)</label>
+          <input id="lonDeg" type="number" step="0.0001" min="-180" max="180" value="-97.5000">
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:12px">
+        <button class="button" id="travelBtn">Travel to Destination</button>
+        <button class="button" id="resetBtn">Reset</button>
+        <button class="button small" id="abortBtn" title="Safe ramp-down / stop travel">Abort (Safe)</button>
+      </div>
+
+      <div class="row" style="margin-top:10px;justify-content:space-between">
+        <span class="label">Advanced Physics Layer</span>
+        <button class="button" id="advToggle">Advanced: OFF</button>
+      </div>
+
+      <div class="row" style="margin-top:10px;justify-content:space-between">
+        <span class="label">VGL (Variable Gravity Lock)</span>
+        <button class="button small activeBtn" id="vglToggle">VGL: ON</button>
+      </div>
+
+      <div class="row" style="margin-top:8px;justify-content:space-between">
+        <span class="label">VGI (Worldline Scan Sensors)</span>
+        <button class="button small activeBtn" id="vgiToggle">VGI: ON</button>
+      </div>
+
+      <div class="label" id="status" style="margin-top:8px">Status: <span class="ok">STABLE</span></div>
+      <div class="mini" id="substatus" style="margin-top:4px;color:#bcd">
+        CST stamp holds Earth-locked return event: <span class="value" id="stampLine">ready</span>
+      </div>
+    </div>
+
+    <!-- Clocks -->
+    <div class="card">
+      <div class="grid grid-2">
+        <div class="clockbox">
+          <div class="clock-title">UTC Cosmic Clock</div>
+          <div id="utcClock">—</div>
+        </div>
+        <div class="clockbox">
+          <div class="clock-title">Current Local Time</div>
+          <div id="localClock">—</div>
+        </div>
+        <div class="clockbox">
+          <div class="clock-title">Destination Time</div>
+          <div id="destClock">—</div>
+        </div>
+        <div class="clockbox">
+          <div class="clock-title">Δt (Difference)</div>
+          <div id="diffClock">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- NEW: CST Integrity + Power + VGL/VGI -->
+  <div class="grid grid-2" style="margin-top:12px">
+    <div class="card">
+      <div class="row"><strong>Worldline Integrity (CST Lock)</strong><span class="label">Shows whether you are staying on the Earth(lat,long) worldline during transit.</span></div>
+
+      <div class="grid grid-3" style="margin-top:10px;gap:10px">
+        <div class="clockbox" style="font-size:13px">
+          <div class="clock-title">Phase Error (time stamp)</div>
+          <div id="phaseErr">—</div>
+        </div>
+        <div class="clockbox" style="font-size:13px">
+          <div class="clock-title">Spatial Drift (anchor)</div>
+          <div id="spatialDrift">—</div>
+        </div>
+        <div class="clockbox" style="font-size:13px">
+          <div class="clock-title">Rotation Offset (Earth)</div>
+          <div id="rotOffset">—</div>
+        </div>
+      </div>
+
+      <div class="meterRow">
+        <span class="mini" style="width:120px">Integrity</span>
+        <div class="bar"><i id="integrityBar"></i></div>
+        <span class="mini" style="width:46px;text-align:right" id="integrityPct">—</span>
+      </div>
+
+      <div class="grid grid-2" style="margin-top:10px;gap:10px">
+        <div>
+          <div class="label">Hold stiffness (VGL)</div>
+          <input id="holdStiff" type="range" min="0" max="100" step="1" value="70">
+          <div class="row" style="justify-content:space-between;margin-top:4px">
+            <span class="mini">loose</span><span class="value" id="holdVal">70%</span><span class="mini">rigid</span>
+          </div>
+        </div>
+        <div>
+          <div class="label">Environment drift model</div>
+          <select id="envDrift">
+            <option value="none">None (lab)</option>
+            <option value="mild" selected>Mild (Earth/LEO)</option>
+            <option value="severe">Severe (noisy)</option>
+          </select>
+          <div class="mini" style="margin-top:6px">
+            Drift raises control demand. VGL keeps drift near zero until margins are exceeded.
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-2" style="margin-top:10px;gap:10px">
+        <div>
+          <div class="label">VGI sensitivity</div>
+          <input id="vgiSens" type="range" min="0" max="100" step="1" value="60">
+          <div class="row" style="justify-content:space-between;margin-top:4px">
+            <span class="mini">lenient</span><span class="value" id="vgiSensVal">60%</span><span class="mini">strict</span>
+          </div>
+        </div>
+        <div>
+          <div class="label">Unexpected mass threshold (kg)</div>
+          <input id="massThresh" type="number" min="0" step="1" value="5000">
+          <div class="mini" style="margin-top:6px">
+            If VGI detects a mass anomaly in the destination worldline above threshold → VGL trips and shuts down.
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-2" style="margin-top:10px;gap:10px">
+        <div>
+          <div class="label">Clearance radius (km)</div>
+          <input id="clearKm" type="number" min="0" step="0.1" value="5.0">
+        </div>
+        <div>
+          <div class="label">Inject anomaly mass (kg)</div>
+          <div class="row">
+            <input id="injectKg" type="number" min="0" step="1" value="0" style="flex:1">
+            <button class="button small" id="injectBtn" title="Simulate an unexpected object appearing on the target worldline">Inject</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="mini" style="margin-top:8px;color:#bcd">
+        <b>Interpretation:</b> CST stamp defines the return event; VGL holds you on Earth(lat,long); VGI scans and aborts if the target worldline becomes unsafe.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row"><strong>Power Core & Thermal Margin</strong><span class="label">Toy model: shows why control + sensing dominate (not just “gravity bend”).</span></div>
+
+      <div class="grid grid-3" style="margin-top:10px;gap:10px">
+        <div class="clockbox" style="font-size:13px">
+          <div class="clock-title">Battery Buffer</div>
+          <div id="battery">—</div>
+        </div>
+        <div class="clockbox" style="font-size:13px">
+          <div class="clock-title">Waste Heat</div>
+          <div id="heat">—</div>
+        </div>
+        <div class="clockbox" style="font-size:13px">
+          <div class="clock-title">Containment Margin</div>
+          <div id="contain">—</div>
+        </div>
+      </div>
+
+      <div class="meterRow">
+        <span class="mini" style="width:120px">Heat margin</span>
+        <div class="bar"><i id="heatBar"></i></div>
+        <span class="mini" style="width:46px;text-align:right" id="heatPct">—</span>
+      </div>
+
+      <div class="grid grid-2" style="margin-top:10px;gap:10px">
+        <div>
+          <div class="label">Radiator capacity (kW)</div>
+          <input id="radKW" type="number" min="1" step="1" value="180">
+        </div>
+        <div>
+          <div class="label">Battery size (kWh)</div>
+          <input id="batKWh" type="number" min="1" step="10" value="900">
+        </div>
+      </div>
+
+      <div class="grid grid-2" style="margin-top:10px;gap:10px">
+        <div>
+          <div class="label">Base field power (kW)</div>
+          <input id="baseKW" type="number" min="1" step="1" value="120">
+        </div>
+        <div>
+          <div class="label">Scan cadence (Hz)</div>
+          <input id="scanHz" type="number" min="0.1" step="0.1" value="2.0">
+        </div>
+      </div>
+
+      <div class="mini" style="margin-top:8px;color:#bcd">
+        During travel, power rises with |Δt| (span), hold stiffness, and VGI strictness. Heat rises if power exceeds radiator capacity.
+        If heat margin collapses or battery empties → safe abort.
+      </div>
+
+      <div style="margin-top:10px">
+        <div class="label">Event Log</div>
+        <div class="log" id="log"></div>
+      </div>
+    </div>
+  </div>
+<!-- ======================= PART 2 / 4 ======================= -->
+  <!-- Advanced Physics Panel -->
+  <div class="card hidden" id="advPanel" style="margin-top:12px">
+    <div class="row">
+      <strong>Advanced Physics Layer — SR • GR • Sidereal Drift • Star Map • E↔m</strong>
+      <span class="label">CST remains the control stamp; physics below are corrections + engineering notes.</span>
+    </div>
+
+    <div class="grid grid-4" style="margin-top:10px;gap:10px">
+      <!-- SR -->
+      <div>
+        <div class="label">Special Relativity — Velocity Time Dilation</div>
+        <div style="margin-top:4px">
+          <span class="label">Ship velocity (fraction of c)</span>
+          <input id="srVel" type="range" min="0" max="0.99" step="0.01" value="0" />
+          <div class="row" style="margin-top:4px;justify-content:space-between">
+            <span id="srVelVal" class="value">0.0% c</span>
+            <span class="label">γ = <span id="srGamma">1.0000</span></span>
+          </div>
+        </div>
+        <div class="clockbox" style="margin-top:6px">
+          <div class="clock-title">CST Δt (ideal)</div>
+          <div id="srDt">—</div>
+        </div>
+        <div class="clockbox" style="margin-top:6px">
+          <div class="clock-title">Proper Δt′ (SR)</div>
+          <div id="srDtPrime">—</div>
+        </div>
+        <p class="label" style="margin-top:6px">
+          Uses <code>Δt′ = Δt·√(1 − v²/c²)</code> to show relativistic slippage if you break lock on long, fast arcs.
+        </p>
+      </div>
+
+      <!-- GR -->
+      <div>
+        <div class="label">Gravitational Time Dilation — Deep Wells</div>
+        <div style="margin-top:4px">
+          <span class="label">Reference body</span>
+          <select id="grBody">
+            <option value="earth">Earth surface</option>
+            <option value="leo">Low Earth orbit (400 km)</option>
+            <option value="neutron">Toy neutron star</option>
+          </select>
+        </div>
+        <div class="clockbox" style="margin-top:6px">
+          <div class="clock-title">GR factor √(1 − 2GM/rc²)</div>
+          <div id="grFactor">—</div>
+        </div>
+        <div class="clockbox" style="margin-top:6px">
+          <div class="clock-title">CST Δt baseline</div>
+          <div id="grDtBase">—</div>
+        </div>
+        <div class="clockbox" style="margin-top:6px">
+          <div class="clock-title">Δt′ near body (GR)</div>
+          <div id="grDtPrime">—</div>
+        </div>
+        <p class="label" style="margin-top:6px">
+          Applies <code>Δt′ = Δt·√(1 − 2GM/rc²)</code> as a comparison of “far-away” vs “deep-well” clocks.
+        </p>
+      </div>
+
+      <!-- Sidereal vs Solar -->
+      <div>
+        <div class="label">Sidereal vs Solar — Star Drift</div>
+        <div class="clockbox" style="margin-top:4px">
+          <div class="clock-title">Per-day drift (solar−sidereal)</div>
+          <div id="sidDaily">—</div>
+        </div>
+        <div class="clockbox" style="margin-top:6px">
+          <div class="clock-title">Accumulated drift over |Δt|</div>
+          <div id="sidAccum">—</div>
+        </div>
+        <p class="label" style="margin-top:6px">
+          Sidereal day ≈ 23h 56m 4.1s. The small offset compounds; big |Δt| → large sky drift.
+        </p>
+      </div>
+
+      <!-- Star Mapping & Light-Time -->
+      <div>
+        <div class="label">Star Mapping & Light-Time</div>
+        <div style="margin-top:4px">
+          <span class="label">Right Ascension α (hours)</span>
+          <input id="raHours" type="number" min="0" max="24" step="0.1" value="0">
+        </div>
+        <div style="margin-top:6px">
+          <span class="label">Declination δ (deg)</span>
+          <input id="decDeg" type="number" min="-90" max="90" step="1" value="0">
+        </div>
+        <div style="margin-top:6px">
+          <span class="label">Distance d (light-years)</span>
+          <input id="starDistance" type="number" min="0" step="0.1" value="0">
+        </div>
+        <div class="clockbox" style="margin-top:6px;font-size:13px">
+          <div class="clock-title">Unit vector (x,y,z)</div>
+          <div id="starCoords">—</div>
+        </div>
+        <div class="clockbox" style="margin-top:6px;font-size:13px">
+          <div class="clock-title">Light-time delay t = d/c</div>
+          <div id="lightDelay">—</div>
+        </div>
+        <p class="label" style="margin-top:6px">
+          Uses <code>x = cosδ·cosα</code>, <code>y = cosδ·sinα</code>, <code>z = sinδ</code> and <code>t = d/c</code>
+          (here d in light-years → years of delay) for a real sky backbone.
+        </p>
+      </div>
+    </div>
+
+    <!-- Energy–Mass Budget -->
+    <div class="grid grid-2" style="margin-top:12px;gap:10px">
+      <div>
+        <div class="label">Energy ↔ Mass Budget — Field Load (illustrative accounting)</div>
+        <div style="margin-top:4px">
+          <span class="label">Effective payload mass m (kg)</span>
+          <input id="emMass" type="range" min="0" max="2000" step="10" value="100">
+          <div class="row" style="margin-top:4px;justify-content:space-between">
+            <span id="emMassVal" class="value">100 kg</span>
+            <span class="label">E = <span id="emEnergy">—</span></span>
+          </div>
+        </div>
+        <div class="clockbox" style="margin-top:6px">
+          <div class="clock-title">Field Load Index (|Δt| ⊗ control ⊗ m)</div>
+          <div id="emLoad">—</div>
+        </div>
+      </div>
+      <div>
+        <p class="label">
+          Uses <code>E = m·c²</code> for energy accounting (equivalently <code>m = E/c²</code> for “energy-as-mass”).
+          This is not “free power”; it’s a way to express how much energy budget would be implied by carrying mass while maintaining coherence.
+        </p>
+        <p class="label" style="margin-top:4px">
+          In this upgraded build, the load also rises with VGL stiffness and VGI strictness: control and sensing dominate stability.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chamber -->
+  <div class="card chamber">
+    <div class="ringWrap top"><div class="ring"></div></div>
+    <div class="ringWrap bot"><div class="ring"></div></div>
+    <div class="beam" id="beam"></div>
+    <div class="orbit" id="orbitLayer"></div>
+    <div class="photons" id="photonsLayer"></div>
+    <div class="floor"></div>
+    <div class="label" style="text-align:center;margin-top:6px">
+      White = stable equilibrium • Red = traveling • Auto-abort on VGL trip • Integrity meter shows Earth-lock health
+    </div>
+  </div>
+
+  <!-- Explanation & Equations -->
+  <div class="card" style="margin-top:12px">
+    <div class="row"><strong>How This CST Time Machine Model Works — Stamp, Lock, Scan, Arrive</strong></div>
+    <div class="eq">
+      <p><b>What CST adds (the “stamp”):</b> CST is treated as an <b>invariant return timestamp</b> for a chosen Earth-locked worldline event. It’s a control boundary condition: without the stamp, you can hit the right calendar time but miss the correct spacetime event (place+time).</p>
+
+      <p><b>Earth-Locked worldline anchor:</b> Latitude/longitude define the moving Earth reference. The simulator interprets the destination as:</p>
+      <ul class="bul">
+        <li><code>Xᵘ_arrival = Xᵘ_Earth(lat,long)(t_dest)</code> (conceptual: arrive on Earth’s worldline at that anchor)</li>
+        <li><code>Δt = t_dest − t_now</code> (clock difference that must converge to zero)</li>
+      </ul>
+
+      <p><b>VGL / VGI safety upgrade:</b></p>
+      <ul class="bul">
+        <li><b>VGL</b> (Variable Gravity Lock) is modeled as a feedback hold that suppresses drift and rotation phase error.</li>
+        <li><b>VGI</b> scans the target worldline. If an unexpected mass appears above your threshold, or margins collapse, the system safely aborts.</li>
+      </ul>
+
+      <p><b>Integrity meter meaning:</b> “Integrity” is a toy score combining stamp phase error + spatial drift + rotation offset. When it stays near 100%, you’re locked to the intended Earth event. If it falls, you are losing lock and should abort.</p>
+
+      <p class="label" style="margin-top:6px">
+        This remains a conceptual visualization. SR/GR equations shown are real; CST stamp + lock + scan are modeled as a falsifiable control framework (fail-safe behavior, measurable drift/error), while the actuator physics remain to be proven by experiment.
+      </p>
+    </div>
+  </div>
+</div>
+<!-- ======================= PART 3 / 4 ======================= -->
+<script>
+(function(){
+  // --------- DOM ----------
+  const utcClock = document.getElementById('utcClock');
+  const localClock = document.getElementById('localClock');
+  const destClock = document.getElementById('destClock');
+  const diffClock = document.getElementById('diffClock');
+
+  const destDT = document.getElementById('destDT');
+  const travelBtn = document.getElementById('travelBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const abortBtn = document.getElementById('abortBtn');
+  const status = document.getElementById('status');
+  const substatus = document.getElementById('substatus');
+  const stampLine = document.getElementById('stampLine');
+
+  const beam = document.getElementById('beam');
+  const orbitLayer = document.getElementById('orbitLayer');
+  const photonsLayer = document.getElementById('photonsLayer');
+
+  const advToggle = document.getElementById('advToggle');
+  const advPanel = document.getElementById('advPanel');
+
+  // CST lock inputs
+  const latDeg = document.getElementById('latDeg');
+  const lonDeg = document.getElementById('lonDeg');
+
+  // VGL/VGI toggles and controls
+  const vglToggle = document.getElementById('vglToggle');
+  const vgiToggle = document.getElementById('vgiToggle');
+  const holdStiff = document.getElementById('holdStiff');
+  const holdVal = document.getElementById('holdVal');
+  const envDrift = document.getElementById('envDrift');
+
+  const vgiSens = document.getElementById('vgiSens');
+  const vgiSensVal = document.getElementById('vgiSensVal');
+  const massThresh = document.getElementById('massThresh');
+  const clearKm = document.getElementById('clearKm');
+  const injectKg = document.getElementById('injectKg');
+  const injectBtn = document.getElementById('injectBtn');
+
+  // Integrity readouts
+  const phaseErr = document.getElementById('phaseErr');
+  const spatialDrift = document.getElementById('spatialDrift');
+  const rotOffset = document.getElementById('rotOffset');
+  const integrityBar = document.getElementById('integrityBar');
+  const integrityPct = document.getElementById('integrityPct');
+
+  // Power core
+  const radKW = document.getElementById('radKW');
+  const batKWh = document.getElementById('batKWh');
+  const baseKW = document.getElementById('baseKW');
+  const scanHz = document.getElementById('scanHz');
+  const battery = document.getElementById('battery');
+  const heat = document.getElementById('heat');
+  const contain = document.getElementById('contain');
+  const heatBar = document.getElementById('heatBar');
+  const heatPct = document.getElementById('heatPct');
+
+  // Log
+  const logEl = document.getElementById('log');
+
+  // Advanced layer DOM
+  const srVel = document.getElementById('srVel');
+  const srVelVal = document.getElementById('srVelVal');
+  const srGamma = document.getElementById('srGamma');
+  const srDt = document.getElementById('srDt');
+  const srDtPrime = document.getElementById('srDtPrime');
+
+  const grBody = document.getElementById('grBody');
+  const grFactor = document.getElementById('grFactor');
+  const grDtBase = document.getElementById('grDtBase');
+  const grDtPrime = document.getElementById('grDtPrime');
+
+  const sidDaily = document.getElementById('sidDaily');
+  const sidAccum = document.getElementById('sidAccum');
+
+  const raHours = document.getElementById('raHours');
+  const decDeg = document.getElementById('decDeg');
+  const starDistance = document.getElementById('starDistance');
+  const starCoords = document.getElementById('starCoords');
+  const lightDelay = document.getElementById('lightDelay');
+
+  const emMass = document.getElementById('emMass');
+  const emMassVal = document.getElementById('emMassVal');
+  const emEnergy = document.getElementById('emEnergy');
+  const emLoad = document.getElementById('emLoad');
+
+  // --------- State ----------
+  let destination = null;
+  let traveling = false;
+  let aborted = false;
+  let travelStart = 0, travelDuration = 8000; // ms
+  let initialDiff = 0;
+  let lastDiffMs = 0;
+
+  let advancedOn = false;
+  let vglOn = true;
+  let vgiOn = true;
+
+  // “stamp” bookkeeping (toy)
+  let cstStampUTCms = null;   // stamp created when Travel pressed
+  let stampPhaseErrorMs = 0;
+
+  // anomaly injection
+  let injectedMassKg = 0;
+
+  // power/thermal
+  let battKWhNow = 900;
+  let heatKWNow = 0;
+  let containNow = 100; // percent
+
+  // VGI cadence
+  let lastScanT = 0;
+
+  // constants
+  const G = 6.674e-11;
+  const C = 299792458;
+  const bodies = {
+    earth:{ M:5.972e24, r:6.371e6 },
+    leo:{ M:5.972e24, r:6.771e6 },
+    neutron:{ M:2e30, r:1e4 } // toy compact object
+  };
+
+  // --------- Helpers ----------
+  const pad = n => String(n).padStart(2,'0');
+  const fmtFullLocal = d => `${d.toLocaleDateString()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const fmtFullUTC = d => d.toUTCString().replace('GMT','UTC');
+
+  function fmtDiff(ms){
+    const sign = ms>=0?'+':'−';
+    const A = Math.abs(ms);
+    const d = Math.floor(A/86400000);
+    const h = Math.floor((A%86400000)/3600000);
+    const m = Math.floor((A%3600000)/60000);
+    const s = Math.floor((A%60000)/1000);
+    return `${sign}${d}d ${pad(h)}:${pad(m)}:${pad(s)}`;
+  }
+  function fmtHMSFromSeconds(sec){
+    const sign = sec>=0?'+':'−';
+    const A = Math.abs(sec);
+    const h = Math.floor(A/3600);
+    const m = Math.floor((A%3600)/60);
+    const s = Math.floor(A%60);
+    return `${sign}${pad(h)}:${pad(m)}:${pad(s)}`;
+  }
+  function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
+
+  function nowUTCms(){ return Date.now(); }
+
+  function log(msg, tone='info'){
+    const t = new Date();
+    const ts = `${pad(t.getHours())}:${pad(t.getMinutes())}:${pad(t.getSeconds())}`;
+    const color = tone==='bad' ? '#ff9090' : tone==='warn' ? '#ffd27a' : '#bfe7ff';
+    const line = `<span style="color:#9fb0d0">[${ts}]</span> <span style="color:${color}">${escapeHtml(msg)}</span>`;
+    logEl.innerHTML = line + '<br>' + logEl.innerHTML;
+  }
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  }
+
+  // Safer parse for datetime-local: treat as LOCAL time components
+  function parseDateTimeLocalToDate(val){
+    // Expected "YYYY-MM-DDTHH:MM" or with seconds
+    if(!val || typeof val!=='string') return null;
+    const [dpart, tpart] = val.split('T');
+    if(!dpart || !tpart) return null;
+    const [Y,M,D] = dpart.split('-').map(Number);
+    const [hh,mm,ss] = tpart.split(':').map(Number);
+    if(!isFinite(Y)||!isFinite(M)||!isFinite(D)||!isFinite(hh)||!isFinite(mm)) return null;
+    return new Date(Y, (M-1), D, hh, mm, isFinite(ss)?ss:0, 0);
+  }
+
+  // --------- Visual builders ----------
+  function buildPhotons(){
+    photonsLayer.innerHTML='';
+    const n=30;
+    for(let i=0;i<n;i++){
+      const p=document.createElement('div');
+      p.className='photon ' + (i%2===0?'up':'down');
+      p.style.left = (18 + (i%15)*4.8) + '%';
+      p.style.animationDelay = (-i*0.12)+'s';
+      photonsLayer.appendChild(p);
+    }
+  }
+  function buildParticles(){
+    orbitLayer.innerHTML='';
+    const N=26;
+    for(let i=0;i<N;i++){
+      const dot=document.createElement('div');
+      dot.className='particle';
+      dot.dataset.angle0 = (i/N)*Math.PI*2;
+      dot.dataset.radius = 44 + (i%13)*7;
+      orbitLayer.appendChild(dot);
+    }
+  }
+  buildPhotons();
+  buildParticles();
+
+  function animateParticles(sec){
+    const dots = orbitLayer.children;
+    const t = performance.now()/1000;
+    for(let i=0;i<dots.length;i++){
+      const el=dots[i];
+      const a0=Number(el.dataset.angle0);
+      const r =Number(el.dataset.radius);
+      const dir=i%2===0?1:-1;
+      const ang=a0 + dir*(t/sec)*Math.PI*2;
+      const x=Math.cos(ang)*(r+190);
+      const y=Math.sin(ang)*(r/2)*0.8;
+      el.style.transform=`translate(${x}px,${y}px)`;
+    }
+  }
+
+  // --------- Advanced panels ----------
+  function updateStarPanel(){
+    if(!advancedOn) return;
+    const raH = parseFloat(raHours.value)||0;
+    const decD = parseFloat(decDeg.value)||0;
+    const dLy = parseFloat(starDistance.value)||0;
+
+    const alpha = (raH/24)*Math.PI*2;
+    const delta = (decD*Math.PI)/180;
+
+    const x = Math.cos(delta)*Math.cos(alpha);
+    const y = Math.cos(delta)*Math.sin(alpha);
+    const z = Math.sin(delta);
+
+    if(isFinite(x) && isFinite(y) && isFinite(z)){
+      starCoords.textContent = `(${x.toFixed(3)}, ${y.toFixed(3)}, ${z.toFixed(3)})`;
+    }else{
+      starCoords.textContent = '—';
+    }
+    lightDelay.textContent = dLy>0 ? `${dLy.toFixed(2)} yr (light-time)` : '—';
+  }
+
+  function updateEnergyMassPanel(){
+    if(!advancedOn) return;
+    const mEff = parseFloat(emMass.value)||0;
+    emMassVal.textContent = `${mEff.toFixed(0)} kg`;
+    emEnergy.textContent = mEff>0 ? (mEff*C*C).toExponential(3) + ' J' : '—';
+
+    if(destination && mEff>0){
+      const days = Math.abs(lastDiffMs)/86400000;
+      const stiff = (parseFloat(holdStiff.value)||0)/100;
+      const sens  = (parseFloat(vgiSens.value)||0)/100;
+      const env   = envDrift.value==='severe' ? 1.6 : envDrift.value==='mild' ? 1.2 : 1.0;
+      const idx = (mEff/100) * (1 + days) * (1 + stiff*0.8) * (1 + sens*0.6) * env;
+      emLoad.textContent = idx.toFixed(2) + ' units';
+    }else{
+      emLoad.textContent = '—';
+    }
+  }
+
+  function updateAdvancedPanels(){
+    if(!advancedOn) return;
+
+    // SR
+    const v = parseFloat(srVel.value)||0;
+    const beta = clamp(v,0,0.9999);
+    const gamma = 1/Math.sqrt(1 - beta*beta);
+    srGamma.textContent = gamma.toFixed(4);
+
+    const hasDest = !!destination;
+    if(hasDest){
+      srDt.textContent = fmtDiff(lastDiffMs);
+      const properMs = lastDiffMs * Math.sqrt(Math.max(0,1 - beta*beta));
+      srDtPrime.textContent = fmtDiff(properMs);
+    } else {
+      srDt.textContent = '—';
+      srDtPrime.textContent = '—';
+    }
+
+    // GR
+    const body = bodies[grBody.value] || bodies.earth;
+    const factor = Math.sqrt(1 - (2*G*body.M)/(body.r*C*C));
+    grFactor.textContent = isNaN(factor)?'—':factor.toExponential(6);
+
+    if(hasDest){
+      grDtBase.textContent = fmtDiff(lastDiffMs);
+      grDtPrime.textContent = fmtDiff(lastDiffMs * factor);
+    } else {
+      grDtBase.textContent = '—';
+      grDtPrime.textContent = '—';
+    }
+
+    // Sidereal drift
+    const solar = 86400;
+    const sid = 86164.1;
+    const perDay = solar - sid; // ~235.9 s/day (approx)
+    sidDaily.textContent = '≈ ' + fmtHMSFromSeconds(perDay);
+    if(hasDest){
+      const days = Math.abs(lastDiffMs)/86400000;
+      const driftSec = days*perDay;
+      sidAccum.textContent = fmtHMSFromSeconds(driftSec * (lastDiffMs>=0?1:-1));
+    } else {
+      sidAccum.textContent = '—';
+    }
+
+    updateStarPanel();
+    updateEnergyMassPanel();
+  }
+
+  // --------- NEW: VGL / VGI / Integrity / Power ----------
+  function driftMultiplier(){
+    return envDrift.value==='severe' ? 1.8 : envDrift.value==='mild' ? 1.25 : 1.0;
+  }
+
+  function updateIntegrityAndPower(dtSec){
+    // dtSec: seconds since last frame (approx)
+    const stiff = (parseFloat(holdStiff.value)||0)/100; // 0..1
+    const sens  = (parseFloat(vgiSens.value)||0)/100;  // 0..1
+    const envM  = driftMultiplier();
+
+    // stamp phase error: if VGL is ON, keep near zero; if OFF, grows during travel
+    const phaseGrow = traveling ? (vglOn ? 0.00015 : 0.0025) * envM * (1 + sens) : 0;
+    stampPhaseErrorMs += phaseGrow * dtSec * 1000;
+
+    // “spatial drift” and “rotation offset” are toy errors kept small by VGL, increase if off or margins low
+    // derive a “control margin” from containment + heat
+    const heatCap = Math.max(1, parseFloat(radKW.value)||180);
+    const heatLoad = heatKWNow / heatCap; // >1 means overload
+    const margin = clamp((containNow/100) * (1 - Math.max(0,heatLoad-1)*0.8), 0, 1);
+
+    const baseDrift = traveling ? (envM * (1 - stiff*0.85) * (1.2 - margin)) : 0.02;
+    const baseRot   = traveling ? (envM * (1 - stiff*0.75) * (1.1 - margin)) : 0.02;
+
+    // keep small if locked
+    const driftM = vglOn ? baseDrift : baseDrift*6;
+    const rotM   = vglOn ? baseRot   : baseRot*6;
+
+    // accumulate toy values
+    // units: drift in meters, rot in degrees, phase in milliseconds
+    const driftNowM = clamp(driftM * 0.8 * (dtSec*60), 0, 2500); // scaled for visibility
+    const rotNowDeg = clamp(rotM * 0.25 * (dtSec*60), 0, 180);
+
+    // Combine into an integrity score: lower errors -> higher integrity
+    const phaseTerm = clamp(stampPhaseErrorMs / 4000, 0, 2.5); // 4s error -> 1.0
+    const driftTerm = clamp(driftNowM / 150, 0, 4);            // 150m -> 1.0
+    const rotTerm   = clamp(rotNowDeg / 8, 0, 4);              // 8deg -> 1.0
+    const err = phaseTerm + driftTerm + rotTerm;
+    const integrity = clamp(1 - err/6, 0, 1);
+
+    // update UI
+    phaseErr.textContent = (stampPhaseErrorMs<1) ? '≈ 0 ms' : `${stampPhaseErrorMs.toFixed(0)} ms`;
+    spatialDrift.textContent = vglOn ? `≈ ${Math.min(driftNowM,5).toFixed(1)} m` : `${driftNowM.toFixed(1)} m`;
+    rotOffset.textContent = vglOn ? `≈ ${Math.min(rotNowDeg,0.2).toFixed(2)}°` : `${rotNowDeg.toFixed(2)}°`;
+
+    const pct = Math.round(integrity*100);
+    integrityPct.textContent = pct + '%';
+    integrityBar.style.width = pct + '%';
+    // color by pct
+    integrityBar.style.background = pct>80 ? '#22c55e' : pct>55 ? '#f59e0b' : '#fb7185';
+
+    // Power draw model (toy):
+    // base + travel span + stiffness + sensing; when stable, draw lower and cool down.
+    const base = Math.max(1, parseFloat(baseKW.value)||120);
+    const scan = Math.max(0.1, parseFloat(scanHz.value)||2.0);
+    const spanDays = destination ? Math.abs(initialDiff)/86400000 : 0;
+
+    let powerKW = base * 0.35; // idle
+    if(traveling){
+      powerKW = base
+        * (1 + Math.min(6, spanDays/30))      // long jumps cost more
+        * (1 + stiff*0.8)
+        * (1 + (vgiOn? sens*0.6 : 0))
+        * envM;
+      // scanning overhead
+      powerKW += (vgiOn ? (scan * (10 + 40*sens)) : 0);
+    }
+
+    // Battery integration (kWh)
+    const batSize = Math.max(1, parseFloat(batKWh.value)||900);
+    if(!isFinite(battKWhNow) || battKWhNow<=0) battKWhNow = batSize;
+    // drain
+    const kWhUsed = (powerKW * dtSec) / 3600;
+    battKWhNow = clamp(battKWhNow - kWhUsed, 0, batSize);
+
+    // Heat model: if power > radiator capacity, accumulate; else bleed down
+    const rad = Math.max(1, parseFloat(radKW.value)||180);
+    // “waste heat” is modeled as a fraction of power + overload
+    const wasteKWTarget = powerKW * (0.35 + 0.25*(1 - stiff)) + Math.max(0, powerKW - rad)*0.8;
+    // relax toward target
+    heatKWNow += (wasteKWTarget - heatKWNow) * clamp(dtSec*0.7, 0, 1);
+
+    // Containment margin: drops if heat overload or integrity low
+    const overload = Math.max(0, (heatKWNow/rad) - 1);
+    const containDrop = (traveling ? (overload*6 + (1-integrity)*1.2) : overload*2) * dtSec;
+    const containRise = (!traveling ? 3.0 : 0.5) * dtSec;
+    containNow = clamp(containNow - containDrop + containRise, 0, 100);
+
+    // update UI
+    battery.textContent = `${battKWhNow.toFixed(1)} / ${batSize.toFixed(0)} kWh`;
+    heat.textContent = `${heatKWNow.toFixed(1)} kW`;
+    contain.textContent = `${containNow.toFixed(1)}%`;
+
+    const heatMargin = clamp(1 - heatKWNow / (rad*1.35), 0, 1);
+    const hPct = Math.round(heatMargin*100);
+    heatPct.textContent = hPct + '%';
+    heatBar.style.width = hPct + '%';
+    heatBar.style.background = hPct>70 ? '#22c55e' : hPct>45 ? '#f59e0b' : '#fb7185';
+
+    // Auto abort conditions
+    if(traveling){
+      if(battKWhNow <= 0.001){
+        trip('Battery depleted — VGL cannot hold stamp/lock', 'bad');
+      } else if(containNow <= 0.5){
+        trip('Containment margin collapsed — safe shutdown', 'bad');
+      } else if(integrity < 0.2){
+        trip('Worldline integrity lost — safe shutdown', 'bad');
+      }
+    }
+  }
+
+  function vgiScan(){
+    if(!traveling || !vgiOn) return;
+    const t = performance.now()/1000;
+    const hz = Math.max(0.1, parseFloat(scanHz.value)||2.0);
+    if(t - lastScanT < 1/hz) return;
+    lastScanT = t;
+
+    const sens = (parseFloat(vgiSens.value)||0)/100;
+    const thresh = Math.max(0, parseFloat(massThresh.value)||5000);
+    const clear = Math.max(0, parseFloat(clearKm.value)||5) * 1000;
+
+    // Determine detected “unexpected mass”:
+    // - injectedMassKg is explicit
+    // - plus a tiny probabilistic background, increases with strictness and drift
+    const bgChance = 0.02 * sens * driftMultiplier(); // toy
+    const bgMass = (Math.random() < bgChance) ? (thresh * (0.2 + 1.2*Math.random()) * sens) : 0;
+
+    const detected = Math.max(injectedMassKg, bgMass);
+    injectedMassKg = 0; // one-shot injection unless user repeats
+
+    // Clearance check: strictness + long jump reduces effective clearance
+    const longDays = destination ? Math.abs(initialDiff)/86400000 : 0;
+    const clearancePenalty = (sens * 0.25 + (longDays>365?0.2:0)) * driftMultiplier();
+    const effectiveClear = clear * (1 - clearancePenalty);
+
+    if(detected > 0){
+      log(`VGI scan: detected anomaly mass ≈ ${detected.toFixed(0)} kg`, detected>thresh?'warn':'info');
+    } else {
+      // small heartbeat log occasionally
+      if(Math.random() < 0.15) log('VGI scan OK', 'info');
+    }
+
+    if(detected >= thresh){
+      trip(`VGI TRIP — unexpected mass ≥ threshold (${thresh} kg)`, 'bad');
+      return;
+    }
+    if(effectiveClear < 500){ // < 0.5 km
+      trip('VGI TRIP — clearance radius collapsed', 'bad');
+      return;
+    }
+  }
+
+  function setTravelVisuals(on){
+    if(on){
+      document.documentElement.style.setProperty('--bob-amp','28px');
+      document.documentElement.style.setProperty('--bob-speed','1.2s');
+      document.documentElement.style.setProperty('--vibe','8');
+      document.documentElement.style.setProperty('--particle-speed','1.4s');
+      document.documentElement.style.setProperty('--photon-speed','0.7s');
+      document.documentElement.style.setProperty('--intensity','1');
+      document.documentElement.style.setProperty('--beam-color','rgba(255,82,82,.95)');
+    } else {
+      document.documentElement.style.setProperty('--bob-amp','10px');
+      document.documentElement.style.setProperty('--bob-speed','3.6s');
+      document.documentElement.style.setProperty('--vibe','1.4');
+      document.documentElement.style.setProperty('--particle-speed','6s');
+      document.documentElement.style.setProperty('--photon-speed','3s');
+      document.documentElement.style.setProperty('--intensity','.25');
+      document.documentElement.style.setProperty('--beam-color','rgba(190,245,255,.9)');
+    }
+  }
+
+  function trip(reason, tone='bad'){
+    if(!traveling) return;
+    traveling = false;
+    aborted = true;
+    status.innerHTML = 'Status: <span class="bad">VGL TRIP — SHUTDOWN</span>';
+    stampLine.textContent = 'stopped (trip)';
+    substatus.style.color = '#ffd27a';
+    log(reason, tone);
+    // ramp-down visuals
+    setTravelVisuals(false);
+    // freeze Δt at current lastDiffMs (do not snap to zero)
+  }
+
+  function safeAbort(reason='Manual abort requested'){
+    if(!traveling) return;
+    traveling = false;
+    aborted = true;
+    status.innerHTML = 'Status: <span class="warn">ABORTED — SAFE RAMP-DOWN</span>';
+    stampLine.textContent = 'stopped (abort)';
+    log(reason, 'warn');
+    setTravelVisuals(false);
+  }
+
+  // UI label updates
+  function syncUI(){
+    holdVal.textContent = (parseFloat(holdStiff.value)||0).toFixed(0) + '%';
+    vgiSensVal.textContent = (parseFloat(vgiSens.value)||0).toFixed(0) + '%';
+    vglToggle.classList.toggle('activeBtn', vglOn);
+    vgiToggle.classList.toggle('activeBtn', vgiOn);
+    vglToggle.textContent = vglOn ? 'VGL: ON' : 'VGL: OFF';
+    vgiToggle.textContent = vgiOn ? 'VGI: ON' : 'VGI: OFF';
+  }
+
+  // initial log
+  log('System boot: CST Earth-Lock ready (lat/long anchored)', 'info');
+  log('VGL ON, VGI ON (default fail-safe)', 'info');
+  syncUI();
+
+  // --------- Handlers ----------
+  advToggle.addEventListener('click',()=>{
+    advancedOn = !advancedOn;
+    advToggle.textContent = advancedOn ? 'Advanced: ON' : 'Advanced: OFF';
+    advPanel.classList.toggle('hidden', !advancedOn);
+    if(advancedOn) log('Advanced layer enabled (SR/GR/Sidereal/Star/E↔m)', 'info');
+    updateAdvancedPanels();
+  });
+
+  vglToggle.addEventListener('click',()=>{
+    vglOn = !vglOn;
+    syncUI();
+    log(`VGL ${vglOn?'enabled':'disabled'}`, vglOn?'info':'warn');
+  });
+
+  vgiToggle.addEventListener('click',()=>{
+    vgiOn = !vgiOn;
+    syncUI();
+    log(`VGI ${vgiOn?'enabled':'disabled'}`, vgiOn?'info':'warn');
+  });
+
+  holdStiff.addEventListener('input',()=>{ syncUI(); });
+  vgiSens.addEventListener('input',()=>{ syncUI(); });
+
+  injectBtn.addEventListener('click',()=>{
+    const m = Math.max(0, parseFloat(injectKg.value)||0);
+    injectedMassKg = m;
+    if(m>0){
+      log(`Injected anomaly queued: ${m.toFixed(0)} kg (next VGI scan)`, 'warn');
+    } else {
+      log('Injection cleared (0 kg)', 'info');
+    }
+  });
+
+  abortBtn.addEventListener('click',()=> safeAbort('Manual abort — operator initiated safe ramp-down'));
+
+  // SR slider label
+  srVel.addEventListener('input',()=>{
+    const v = parseFloat(srVel.value)||0;
+    srVelVal.textContent = (v*100).toFixed(1) + '% c';
+    updateAdvancedPanels();
+  });
+
+  grBody.addEventListener('change', updateAdvancedPanels);
+  raHours.addEventListener('input', updateAdvancedPanels);
+  decDeg.addEventListener('input', updateAdvancedPanels);
+  starDistance.addEventListener('input', updateAdvancedPanels);
+  emMass.addEventListener('input', updateAdvancedPanels);
+
+  // Travel button
+  travelBtn.addEventListener('click',()=>{
+    const d = parseDateTimeLocalToDate(destDT.value);
+    if(!d){ alert('Select a valid destination date & time.'); return; }
+    destination = d;
+
+    // stamp: capture UTC ms at start as control reference
+    cstStampUTCms = nowUTCms();
+    stampPhaseErrorMs = 0;
+    aborted = false;
+
+    const now = new Date();
+    initialDiff = destination - now;
+
+    // if destination ~ now, treat as no-op
+    if(Math.abs(initialDiff) < 1500){
+      log('Destination is ~now. No travel needed; system remains stable.', 'info');
+      status.innerHTML = 'Status: <span class="ok">STABLE</span>';
+      stampLine.textContent = 'no-op';
+      return;
+    }
+
+    traveling = true;
+    travelStart = performance.now();
+    lastScanT = 0;
+
+    status.innerHTML = 'Status: <span class="bad">TRAVELING…</span>';
+    stampLine.textContent = `stamp @ ${new Date(cstStampUTCms).toUTCString().replace('GMT','UTC')}`;
+    substatus.style.color = '#bcd';
+
+    log(`Travel start: Δt = ${fmtDiff(initialDiff)} (Earth anchor lat=${(+latDeg.value).toFixed(4)}, lon=${(+lonDeg.value).toFixed(4)})`, 'warn');
+    log(`Course hold: stiffness=${(holdStiff.value||0)}%, env=${envDrift.value}, VGI sens=${(vgiSens.value||0)}%`, 'info');
+
+    setTravelVisuals(true);
+  });
+
+  // Reset
+  resetBtn.addEventListener('click',()=>{
+    destination = null;
+    traveling = false;
+    aborted = false;
+
+    initialDiff = 0;
+    lastDiffMs = 0;
+    cstStampUTCms = null;
+    stampPhaseErrorMs = 0;
+    injectedMassKg = 0;
+
+    destDT.value = '';
+    destClock.textContent='—';
+    diffClock.textContent='—';
+
+    // resets for advanced
+    srVel.value = '0';
+    srVelVal.textContent = '0.0% c';
+    srGamma.textContent = '1.0000';
+    srDt.textContent = '—';
+    srDtPrime.textContent = '—';
+
+    grBody.value = 'earth';
+    grFactor.textContent = '—';
+    grDtBase.textContent = '—';
+    grDtPrime.textContent = '—';
+
+    sidAccum.textContent = '—';
+
+    raHours.value = '0';
+    decDeg.value = '0';
+    starDistance.value = '0';
+    starCoords.textContent = '—';
+    lightDelay.textContent = '—';
+
+    emMass.value = '100';
+    emMassVal.textContent = '100 kg';
+    emEnergy.textContent = '—';
+    emLoad.textContent = '—';
+
+    // restore power
+    battKWhNow = Math.max(1, parseFloat(batKWh.value)||900);
+    heatKWNow = 0;
+    containNow = 100;
+    lastScanT = 0;
+
+    status.innerHTML = 'Status: <span class="ok">STABLE</span>';
+    stampLine.textContent = 'ready';
+    substatus.style.color = '#bcd';
+
+    setTravelVisuals(false);
+
+    log('Reset: system returned to stable baseline', 'info');
+    updateAdvancedPanels();
+  });
+<!-- ======================= PART 4 / 4 ======================= -->
+  // --------- Main loop ----------
+  let lastFrameT = performance.now();
+
+  function tick(){
+    const now = new Date();
+    utcClock.textContent = fmtFullUTC(now);
+    localClock.textContent = fmtFullLocal(now);
+
+    // Destination & Δt
+    if(destination){
+      destClock.textContent = fmtFullLocal(destination);
+      let diff = destination - now;
+
+      if(traveling){
+        const e = (performance.now() - travelStart)/travelDuration;
+        const p = clamp(e,0,1);
+
+        // Ease-in-out toward zero difference
+        const ease = p<0.5 ? 2*p*p : -1 + (4-2*p)*p;
+        diff = initialDiff * (1 - ease);
+
+        // Beam interpolate red -> white
+        const r = Math.floor(255*(1 - ease) + 190*ease);
+        const g = Math.floor(82*(1 - ease) + 245*ease);
+        const b = Math.floor(82*(1 - ease) + 255*ease);
+        document.documentElement.style.setProperty('--beam-color',`rgba(${r},${g},${b},.95)`);
+        document.documentElement.style.setProperty('--intensity',(1 - 0.75*ease).toFixed(2));
+
+        // VGI scan (may trip)
+        vgiScan();
+
+        // Arrival: only if not tripped
+        if(p >= 1 && traveling){
+          traveling = false;
+          status.innerHTML = 'Status: <span class="ok">ARRIVED — STABLE</span>';
+          stampLine.textContent = 'arrived (stamp held)';
+          log('Arrival: Δt converged to 0; CST stamp satisfied; lock stable', 'info');
+          setTravelVisuals(false);
+          diff = 0;
+        }
+      }
+
+      diffClock.textContent = fmtDiff(diff);
+      lastDiffMs = diff;
+    } else {
+      destClock.textContent = '—';
+      diffClock.textContent = '—';
+      lastDiffMs = 0;
+    }
+
+    // update advanced panels if on
+    updateAdvancedPanels();
+
+    // integrity + power every frame
+    const tNow = performance.now();
+    const dtSec = clamp((tNow - lastFrameT)/1000, 0, 0.25);
+    lastFrameT = tNow;
+    updateIntegrityAndPower(dtSec);
+
+    // particles
+    const ps = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--particle-speed'));
+    animateParticles(isNaN(ps)?6:ps);
+
+    requestAnimationFrame(tick);
+  }
+
+  // init baseline UI
+  holdVal.textContent = (parseFloat(holdStiff.value)||0).toFixed(0) + '%';
+  vgiSensVal.textContent = (parseFloat(vgiSens.value)||0).toFixed(0) + '%';
+  phaseErr.textContent = '≈ 0 ms';
+  spatialDrift.textContent = '≈ 0 m';
+  rotOffset.textContent = '≈ 0°';
+  integrityPct.textContent = '100%';
+  integrityBar.style.width = '100%';
+  integrityBar.style.background = '#22c55e';
+  heatPct.textContent = '100%';
+  heatBar.style.width = '100%';
+  heatBar.style.background = '#22c55e';
+  battery.textContent = `${(parseFloat(batKWh.value)||900).toFixed(0)} / ${(parseFloat(batKWh.value)||900).toFixed(0)} kWh`;
+  heat.textContent = '0.0 kW';
+  contain.textContent = '100.0%';
+
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
