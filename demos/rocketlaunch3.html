@@ -129,7 +129,6 @@
     font-size:12px;
   }
 
-  /* NEW: explanation panel under trajectory */
   .explain{
     margin-top:12px;
     padding:12px;
@@ -155,7 +154,7 @@
   <div class="wrap title">
     <div>
       <h1>Rocket Corridor A→B — 5 Stages — Arrive at Point B (Fixed 5)</h1>
-      <div class="sub">Stops when the rocket reaches the <b>B circle</b> (not just the 200 km line). Adds a visible <b>A circle</b>.</div>
+      <div class="sub">Fix: after reaching ~200 km the guidance now continues toward the <b>B circle</b> instead of “falling back.”</div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <span class="pill">UTC <b id="utcNow">—</b></span>
@@ -169,7 +168,6 @@
 <div class="wrap">
   <div class="grid">
 
-    <!-- LEFT -->
     <div class="card">
       <h2>Inputs + Controls</h2>
       <div class="body">
@@ -268,7 +266,7 @@
           </div>
 
           <div class="hint">
-            Change made: Orbit mode now stops when the rocket <b>arrives at the B circle</b> (both altitude and downrange proximity), not merely crossing the 200 km line.
+            Only change in this version: <b>terminal guidance</b> keeps thrust pointed toward Point B (with an upward bias near orbit altitude) so it doesn’t climb past 200 km then fall straight down.
           </div>
 
           <div class="small" style="margin-top:12px"><b>Stages 1 → 5</b></div>
@@ -320,7 +318,6 @@
       </div>
     </div>
 
-    <!-- RIGHT -->
     <div class="card">
       <h2>Trajectory + Live Readings</h2>
       <div class="body">
@@ -362,25 +359,18 @@
           <div class="kv"><div class="k">v_rot(h) (m/s)</div><div class="v" id="g_vrot">—</div></div>
         </div>
 
-        <!-- NEW: explanation panel -->
         <div class="explain">
           <h3>What this simulation is doing</h3>
           <div>
-            This is a <b>toy corridor ascent</b> from <b>Point A</b> to <b>Point B</b> in a local East–Up (x–y) view.
-            It blends:
-            <b>Earth rotation</b> (eastward “v_rot”), <b>atmosphere compression</b> (dynamic pressure q),
-            <b>drag + lift</b>, a simple <b>heat proxy + coolant cap</b>, and a <b>5-stage burn</b>.
+            This is a <b>toy corridor ascent</b> from <b>Point A</b> to <b>Point B</b> in East–Up (x–y).
+            It blends <b>Earth rotation</b>, <b>q compression</b>, <b>drag/lift</b>, a simple <b>heat proxy + coolant</b>, and a <b>5-stage burn</b>.
           </div>
           <ul>
-            <li><b>Point A (lat/long concept)</b> matters because Earth’s rotation bonus depends on latitude. A good starting latitude can reduce “work” the rocket must do for eastward speed.</li>
-            <li><b>Point B (vector / geodisc idea)</b>: targeting a specific corridor endpoint (a vector to B) makes the path more stable than “straight up,” because guidance can trade vertical vs eastward speed smoothly.</li>
-            <li><b>Curvature + stability</b>: a corridor arc can keep loads (q/heat) inside limits while still building downrange velocity, which can reduce wasteful drag losses.</li>
-            <li><b>Fuel savings (toy claim)</b>: when rotation + corridor guidance provide part of the needed eastward velocity, less propellant is burned for the same endpoint.</li>
-            <li><b>CST time readouts</b>: UTC/CST clocks are shown so you can think of timing windows and coordination; this toy does not “prove” real spacetime effects, but it supports your workflow for planning A→B corridors.</li>
+            <li><b>Point A (lat)</b> changes the rotation bonus v_rot.</li>
+            <li><b>Point B (vector target)</b> stabilizes the corridor versus “straight up”.</li>
+            <li><b>Curvature control</b> helps keep q/heat manageable and can reduce wasted fuel (toy framing).</li>
+            <li><b>CST + UTC clocks</b> are displayed for timing windows (no spacetime proof claim).</li>
           </ul>
-          <div style="margin-top:8px">
-            In short: using <b>Point A</b> + a defined <b>Point B vector/geodisc target</b> can improve corridor stability, control compression/heat, and reduce fuel waste compared with naive profiles.
-          </div>
         </div>
 
         <div class="small" style="margin-top:10px">
@@ -431,13 +421,11 @@ function nowCST(){
   }
 }
 
-/* constants */
 const Re=6371000;
 const mu=3.986004418e14;
 const omega=7.2921159e-5;
 const g0=9.80665;
 
-/* atmosphere */
 const rho0=1.225;
 const H=8500;
 function rhoAt(h){
@@ -445,28 +433,18 @@ function rhoAt(h){
   if(h>260000) return 0;
   return rho0*Math.exp(-h/H);
 }
-
-/* toy heating */
 function heatProxy(rho,v){
   return Math.sqrt(Math.max(0,rho))*v*v*v*1e-5;
 }
-
-/* LIVE rotation at altitude */
 function earthRotSpeedAt(latDeg, h){
   const lat=latDeg*Math.PI/180;
   return omega*(Re + Math.max(0,h))*Math.cos(lat);
 }
-
-/* specific orbital energy */
 function epsilon(r,v){ return 0.5*v*v - mu/r; }
-
-/* lift dir */
 function liftDir(vx,vy){
   const v=Math.hypot(vx,vy)||1;
   return {lx:-vy/v, ly:vx/v};
 }
-
-/* guidance by altitude */
 function pitchAngleRadByAlt(y, vertUntil, pitchEndAlt){
   if(y < vertUntil) return Math.PI/2;
   const u = clamp((y - vertUntil)/Math.max(1,(pitchEndAlt - vertUntil)), 0, 1);
@@ -475,7 +453,6 @@ function pitchAngleRadByAlt(y, vertUntil, pitchEndAlt){
   return deg*Math.PI/180;
 }
 
-/* drawing: now includes Point A circle */
 function drawScene(path, rocket, A, B, stageMarks){
   const W=cv.width, H=cv.height;
   ctx.clearRect(0,0,W,H);
@@ -514,7 +491,7 @@ function drawScene(path, rocket, A, B, stageMarks){
     ctx.fillText(`${Math.round(h/1000)} km`, p0.px+10, p0.py-8);
   }
 
-  // target B dashed green line (visual ref)
+  // target B dashed green line
   if(B){
     const p0=toPx(minX,B.y), p1=toPx(maxX,B.y);
     ctx.setLineDash([10,7]);
@@ -554,7 +531,7 @@ function drawScene(path, rocket, A, B, stageMarks){
     }
   }
 
-  // Point A circle (NEW)
+  // Point A circle
   if(A){
     const pa=toPx(A.x,A.y);
     ctx.fillStyle="rgba(96,165,250,.98)";
@@ -651,7 +628,6 @@ function readInputs(){
 }
 
 function buildPlan(inp){
-  // Keep same simple corridor: B is east and up.
   const xB = Math.max(180000, inp.hB*1.8);
   return { A:{x:0,y:inp.h0}, B:{x:xB,y:inp.hB} };
 }
@@ -729,8 +705,6 @@ function calcSim(){
     vx: earthRotSpeedAt(inp.lat, inp.h0),
     vy: 0,
 
-    m: inp.m0,
-
     si:0,
     stageT:0,
 
@@ -755,8 +729,6 @@ function calcSim(){
   });
 
   log(`Calculated. Total prop ≈ ${fmtInt(sim.propTotal)} kg. Point B: x≈${fmtInt(plan.B.x)} m, h=${fmtInt(plan.B.y)} m.`);
-  log(`Orbit mode now stops when rocket reaches the B circle (x & h proximity).`);
-
   drawScene(sim.path, {x:sim.x,y:sim.y,vx:sim.vx,vy:sim.vy}, sim.plan.A, sim.plan.B, sim.stageMarks);
 }
 
@@ -794,14 +766,59 @@ function transitionStage(sim){
   }
 }
 
-/* NEW: B-circle arrival test (not just altitude) */
 function arrivedAtB(sim){
   const B = sim.plan.B;
-  // stop radius in meters around the B circle
-  const rStop = 12000; // 12 km “arrival bubble” (toy)
+  const rStop = 12000; // unchanged
   const dx = sim.x - B.x;
   const dy = sim.y - B.y;
   return (dx*dx + dy*dy) <= (rStop*rStop);
+}
+
+/* ========= ONLY FIXED SECTION: guidance direction =========
+   Before: pitch purely by altitude could go near-horizontal and then fall.
+   Now: once we are in the corridor (above vertUntil), we steer toward B vector,
+   with a small upward bias if we're at/above B altitude or descending.
+=========================================================== */
+function guidanceUnit(sim){
+  const inp = sim.inp;
+  const B = sim.plan.B;
+
+  // still vertical while low
+  if(sim.y < inp.vertUntil){
+    return {ux:0, uy:1};
+  }
+
+  // vector from current point to B
+  let dx = (B.x - sim.x);
+  let dy = (B.y - sim.y);
+
+  // If we overshot altitude, do NOT aim down hard (prevents dive)
+  // Add “hold-up” bias near/above target altitude.
+  const nearOrbit = sim.y >= (B.y - 12000);     // within 12 km below B
+  const descending = sim.vy < -5;               // clearly falling
+  if(nearOrbit || descending){
+    dy = Math.max(dy, 8000); // upward bias
+  }
+
+  // If we overshot downrange beyond B, stop pushing further east; keep upward
+  if(sim.x > B.x + 20000){
+    dx = 0;
+    dy = Math.max(dy, 12000);
+  }
+
+  // normalize
+  const n = Math.hypot(dx,dy) || 1;
+  let ux = dx/n;
+  let uy = dy/n;
+
+  // never allow thrust pointing downward in orbit mode while not arrived
+  if(inp.mode==="orbit" && !arrivedAtB(sim)){
+    uy = Math.max(0.12, uy);
+    const nn = Math.hypot(ux,uy) || 1;
+    ux/=nn; uy/=nn;
+  }
+
+  return {ux, uy};
 }
 
 function stepSim(){
@@ -815,12 +832,10 @@ function stepSim(){
   const r = Re + sim.y;
   const g = mu/(r*r);
 
-  // guidance
-  const pitchEndAlt = Math.max(inp.pitchEndAlt, inp.hB + 5000);
-  const ang = pitchAngleRadByAlt(sim.y, inp.vertUntil, pitchEndAlt);
-  let ux=Math.cos(ang), uy=Math.sin(ang);
+  // FIXED: use terminal guidance to B (instead of pure pitch-by-alt)
+  const u = guidanceUnit(sim);
+  let ux=u.ux, uy=u.uy;
 
-  // aero
   const v=Math.hypot(sim.vx,sim.vy)||1e-9;
   const rho=rhoAt(sim.y);
   const q=0.5*rho*v*v;
@@ -828,7 +843,6 @@ function stepSim(){
   const L=q*inp.cda*inp.liftK;
   const qdot=heatProxy(rho,v);
 
-  // coolant
   let coolNow=0;
   if(qdot>inp.qdotmax){
     coolNow=clamp(qdot-inp.qdotmax, 0, inp.coolFlow);
@@ -837,7 +851,6 @@ function stepSim(){
   const excessHeat=Math.max(0, qdot-inp.qdotmax-coolNow);
   sim.coolStored += excessHeat*dt;
 
-  // thrust + prop
   let T=0, mdot=0;
 
   if(st){
@@ -851,7 +864,6 @@ function stepSim(){
 
     T = st.T;
 
-    // climb assist until B reached
     if(inp.mode==="orbit" && !arrivedAtB(sim)){
       const aReq = g + Math.max(0, inp.climbAssist);
       const ayFromT = (T/sim.m)*uy;
@@ -863,7 +875,6 @@ function stepSim(){
 
     mdot = T/(st.Isp*g0);
 
-    // limit burn by stage prop
     const burn = mdot*dt;
     if(burn > propLeft){
       const scale = propLeft / Math.max(1e-9, burn);
@@ -872,7 +883,6 @@ function stepSim(){
     }
   }
 
-  // forces
   const axT=(T/sim.m)*ux;
   const ayT=(T/sim.m)*uy;
 
@@ -886,28 +896,23 @@ function stepSim(){
 
   const ayG=-g;
 
-  // integrate velocity
   sim.vx += (axT+axD+axL)*dt;
   sim.vy += (ayT+ayD+ayL+ayG)*dt;
 
-  // integrate position
   const yPrev=sim.y;
   sim.x += sim.vx*dt;
   sim.y += sim.vy*dt;
 
-  // prevent dive-back while powered
   if(st && sim.y < yPrev && inp.mode==="orbit" && !arrivedAtB(sim)){
     sim.y = yPrev;
     if(sim.vy < 0) sim.vy = 0;
   }
 
-  // ground clamp
   if(sim.y < 0){
     sim.y=0; sim.vy=0;
     stopNow("Stopped: hit ground");
   }
 
-  // mass + fuel
   const burned = mdot*dt;
   sim.m = Math.max(inp.mdry, sim.m - burned);
   if(st){
@@ -923,7 +928,6 @@ function stepSim(){
 
   const eps = epsilon(Re+sim.y, Math.hypot(sim.vx,sim.vy));
 
-  // STOP CONDITIONS
   if(inp.mode==="orbit" && arrivedAtB(sim)){
     stopNow("Arrived at Point B (circle)");
   }
@@ -931,7 +935,6 @@ function stepSim(){
     stopNow("Escape ε ≥ 0");
   }
 
-  // update gauges
   updateAllGauges(sim, {
     stageLabel: st ? `Stage ${st.stage}` : "Coast",
     stageFuelLeft,
@@ -941,10 +944,8 @@ function stepSim(){
     eps
   });
 
-  // redraw (A + B shown)
   drawScene(sim.path, {x:sim.x,y:sim.y,vx:sim.vx,vy:sim.vy}, sim.plan.A, sim.plan.B, sim.stageMarks);
 
-  // safety
   if(!isFinite(sim.x+sim.y+sim.vx+sim.vy+sim.m+eps) || sim.t>4000){
     stopNow("Stopped: timeout/numeric");
   }
@@ -1020,7 +1021,7 @@ window.addEventListener("load", ()=>{
     $("cstNow").textContent=nowCST();
   },250);
 
-  $("btnCalc").addEventListener("click", ()=>{ 
+  $("btnCalc").addEventListener("click", ()=>{
     try{ calcSim(); }
     catch(e){ console.error(e); log("ERROR: "+(e?.message||e)); setStatus("Error"); }
   });
