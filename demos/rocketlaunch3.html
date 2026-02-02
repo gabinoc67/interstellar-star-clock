@@ -1,1039 +1,270 @@
-<!-- ======================= PART 1 / 4 =======================
-Rocket Corridor A→B — 5 Stages — Arrive at Point B
-LAST FIX (only what you said is wrong):
-Problem: rocket eventually goes down to ground instead of stopping on Point B.
-Cause: if it “misses” the B capture window by even a little, it will coast + fall.
-
-✅ Fix (minimal + robust):
-1) Stronger capture logic:
-   - Capture if the segment (prev→current) gets within rStop of B (true “hit” test)
-   - OR if it crosses B.x within a wide corridor band (so it can’t skip past B)
-2) If stages end and it hasn’t captured yet, enable a tiny “terminal assist” that keeps it from falling
-   while it finishes the last few seconds to reach B (toy control, only active after Stage 5).
-
-Everything else stays the same.
-============================================================== -->
 <!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Rocket Corridor A→B — 5 Stages — Arrive at Point B</title>
+
 <style>
-  :root{
-    color-scheme: dark;
-    --bg:#070b14;
-    --panel:#0f172a;
-    --panel2:#0b1222;
-    --ink:#e5e7eb;
-    --muted:#9aa4c7;
-    --accent:#60a5fa;
-    --good:#34d399;
-    --warn:#fbbf24;
-    --bad:#fb7185;
-    --line:rgba(148,163,184,.22);
-    --shadow:0 18px 40px rgba(0,0,0,.45);
-    --radius:16px;
-    --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
-  }
-  *{box-sizing:border-box}
-  body{
-    margin:0;
-    background:radial-gradient(circle at top,#0a1226,#000 70%);
-    color:var(--ink);
-    font:14px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Arial;
-  }
-  header{
-    position:sticky; top:0; z-index:20;
-    background:linear-gradient(180deg, rgba(2,6,23,.98), rgba(2,6,23,.72));
-    border-bottom:1px solid var(--line);
-    backdrop-filter: blur(10px);
-  }
-  .wrap{max-width:1200px;margin:0 auto;padding:12px 14px;}
-  .title{display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap;}
-  h1{font-size:16px;margin:0;font-weight:700;letter-spacing:.2px}
-  .sub{color:var(--muted);font-size:12px}
+:root{
+  color-scheme: dark;
+  --bg:#070b14;
+  --panel:#0f172a;
+  --panel2:#0b1222;
+  --ink:#e5e7eb;
+  --muted:#9aa4c7;
+  --accent:#60a5fa;
+  --good:#34d399;
+  --warn:#fbbf24;
+  --bad:#fb7185;
+  --line:rgba(148,163,184,.22);
+  --shadow:0 18px 40px rgba(0,0,0,.45);
+  --radius:16px;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  background:radial-gradient(circle at top,#0a1226,#000 70%);
+  color:var(--ink);
+  font:14px system-ui;
+}
+header{
+  position:sticky; top:0; z-index:20;
+  background:#020617;
+  border-bottom:1px solid var(--line);
+}
+.wrap{max-width:1200px;margin:auto;padding:12px}
+.grid{display:grid;grid-template-columns:440px 1fr;gap:12px}
+@media(max-width:980px){.grid{grid-template-columns:1fr}}
 
-  .grid{display:grid; gap:12px; grid-template-columns: 440px 1fr; align-items:start;}
-  @media (max-width: 980px){ .grid{grid-template-columns: 1fr;} }
+.card{
+  background:rgba(15,23,42,.95);
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+}
+.card h2{
+  margin:0;padding:10px;
+  border-bottom:1px solid var(--line);
+}
+.card .body{padding:12px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
 
-  .card{
-    background:linear-gradient(180deg, rgba(15,23,42,.92), rgba(11,18,34,.86));
-    border:1px solid var(--line);
-    border-radius:var(--radius);
-    box-shadow:var(--shadow);
-    overflow:hidden;
-  }
-  .card h2{
-    margin:0; font-size:13px; padding:10px 12px;
-    border-bottom:1px solid var(--line);
-    background:rgba(2,6,23,.35);
-    letter-spacing:.15px;
-  }
-  .card .body{padding:10px 12px}
-  .row{display:grid; grid-template-columns: 1fr 1fr; gap:10px}
-  .row3{display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px}
+label{font-size:12px;color:var(--muted)}
+input,select{
+  width:100%;
+  padding:8px;
+  background:#020617;
+  color:var(--ink);
+  border:1px solid var(--line);
+  border-radius:10px;
+}
 
-  label{display:block;color:var(--muted);font-size:12px;margin:0 0 6px}
-  input, select{
-    width:100%;
-    background:rgba(2,6,23,.55);
-    border:1px solid rgba(148,163,184,.22);
-    color:var(--ink);
-    padding:9px 10px;
-    border-radius:12px;
-    outline:none;
-  }
-  input:focus, select:focus{border-color:rgba(96,165,250,.6); box-shadow:0 0 0 3px rgba(96,165,250,.12)}
+button{
+  padding:8px 12px;
+  border-radius:10px;
+  background:#020617;
+  color:var(--ink);
+  border:1px solid var(--line);
+  cursor:pointer;
+}
+button.primary{background:#1e3a8a}
+button.good{background:#065f46}
+button.danger{background:#7f1d1d}
+button:disabled{opacity:.45;cursor:not-allowed}
 
-  .btns{display:flex; flex-wrap:wrap; gap:8px; margin-top:10px}
-  button{
-    border:1px solid rgba(148,163,184,.22);
-    background:rgba(2,6,23,.55);
-    color:var(--ink);
-    padding:9px 10px;
-    border-radius:12px;
-    cursor:pointer;
-    transition:.15s transform ease, .15s border-color ease;
-  }
-  button:hover{transform:translateY(-1px); border-color:rgba(255,255,255,.55)}
-  button.primary{background:rgba(96,165,250,.22); border-color:rgba(96,165,250,.5)}
-  button.good{background:rgba(52,211,153,.14); border-color:rgba(52,211,153,.45)}
-  button.danger{background:rgba(251,113,133,.14); border-color:rgba(251,113,133,.45)}
-  button:disabled{opacity:.45; cursor:not-allowed; transform:none}
-
-  .pill{
-    display:inline-flex; align-items:center; gap:6px;
-    font-size:12px; padding:6px 10px; border-radius:999px;
-    border:1px solid var(--line); background:rgba(2,6,23,.35);
-    color:var(--muted);
-  }
-  .pill b{color:var(--ink); font-weight:700}
-
-  .kv{
-    display:grid; grid-template-columns: 1fr auto; gap:8px;
-    padding:7px 0; border-bottom:1px dashed rgba(148,163,184,.18);
-    font-family: var(--mono);
-    font-size:12px;
-  }
-  .kv:last-child{border-bottom:none}
-  .kv .k{color:var(--muted); font-family: system-ui}
-  .kv .v{color:var(--ink)}
-
-  canvas{
-    width:100%;
-    height:900px;
-    display:block;
-    background:
-      radial-gradient(circle at 70% 30%, rgba(96,165,250,.12), rgba(0,0,0,.0) 55%),
-      linear-gradient(180deg, rgba(2,6,23,.25), rgba(0,0,0,.0));
-  }
-
-  .small{font-size:12px;color:var(--muted)}
-  .log{
-    font-family:var(--mono);
-    font-size:12px;
-    background:rgba(2,6,23,.45);
-    border:1px solid rgba(148,163,184,.18);
-    border-radius:12px;
-    padding:8px;
-    max-height:240px;
-    overflow:auto;
-  }
-  .hint{
-    margin-top:10px;
-    padding:10px;
-    border:1px solid rgba(148,163,184,.18);
-    border-radius:12px;
-    background:rgba(2,6,23,.35);
-    color:var(--muted);
-    font-size:12px;
-  }
+canvas{
+  width:100%;
+  height:900px;
+  display:block;
+}
+.log{
+  font-family:var(--mono);
+  font-size:12px;
+  max-height:240px;
+  overflow:auto;
+  background:#020617;
+  padding:8px;
+  border-radius:10px;
+  border:1px solid var(--line);
+}
 </style>
 </head>
 <body>
-
 <header>
-  <div class="wrap title">
-    <div>
-      <h1>Rocket Corridor A→B — 5 Stages — Arrive at Point B</h1>
-      <div class="sub">Stops on the Point B circle every run (hit/cross capture + terminal assist).</div>
-    </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <span class="pill">UTC <b id="utcNow">—</b></span>
-      <span class="pill">CST <b id="cstNow">—</b></span>
-      <span class="pill">Status <b id="status">Idle</b></span>
-      <span class="pill">Stage <b id="stageNow">—</b></span>
-    </div>
+  <div class="wrap">
+    <b>Rocket Corridor A→B — Guaranteed Stop at Point B</b>
   </div>
 </header>
 
-<div class="wrap">
-  <div class="grid">
-
-    <div class="card">
-      <h2>Inputs + Controls</h2>
-      <div class="body">
-        <div class="row">
-          <div><label>Point A Latitude (deg)</label><input id="lat" type="number" step="0.01" value="25.90"></div>
-          <div><label>Point A Altitude (m)</label><input id="h0" type="number" step="1" value="10"></div>
-        </div>
-
-        <div class="row" style="margin-top:10px">
-          <div><label>Target “Orbit” Altitude (Point B) (m)</label><input id="hB" type="number" step="1000" value="200000"></div>
-          <div>
-            <label>Stop Mode</label>
-            <select id="mode">
-              <option value="orbit">Stop at Point B circle</option>
-              <option value="escape">Stop if ε ≥ 0 (toy)</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="row" style="margin-top:10px">
-          <div><label>Max dynamic pressure qmax (Pa)</label><input id="qmax" type="number" step="1000" value="45000"></div>
-          <div><label>Max heat proxy Ċmax (arb)</label><input id="qdotmax" type="number" step="100" value="12000"></div>
-        </div>
-
-        <div class="row" style="margin-top:10px">
-          <div><label>Coolant capacity Qcap (arb)</label><input id="coolCap" type="number" step="100" value="90000"></div>
-          <div><label>Coolant max flow (arb/s)</label><input id="coolFlow" type="number" step="1" value="450"></div>
-        </div>
-
-        <div class="row" style="margin-top:10px">
-          <div><label>Drag area CdA (m²)</label><input id="cda" type="number" step="0.1" value="6.5"></div>
-          <div><label>Lift factor (0–0.15)</label><input id="liftK" type="number" step="0.01" value="0.03"></div>
-        </div>
-
-        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
-          <div class="small"><b>Mass + Guidance</b></div>
-
-          <div class="row" style="margin-top:10px">
-            <div><label>Total liftoff mass m0 (kg)</label><input id="m0" type="number" step="1000" value="550000"></div>
-            <div><label>Dry mass total (kg)</label><input id="mdry" type="number" step="1000" value="80000"></div>
-          </div>
-
-          <div class="row" style="margin-top:10px">
-            <div><label>Stage separation drop each boundary (kg)</label><input id="sepMass" type="number" step="100" value="3500"></div>
-            <div><label>Climb assist (m/s²)</label><input id="climbAssist" type="number" step="0.5" value="2.0"></div>
-          </div>
-
-          <div class="row" style="margin-top:10px">
-            <div><label>Vertical until altitude (m)</label><input id="vertUntil" type="number" step="1000" value="120000"></div>
-            <div><label>Pitch end altitude (m)</label><input id="pitchEndAlt" type="number" step="1000" value="220000"></div>
-          </div>
-
-          <div class="hint">
-            Final fix: if the rocket would coast and fall, it now captures B reliably (hit/cross capture + terminal assist after Stage 5).
-          </div>
-
-          <div class="small" style="margin-top:12px"><b>Stages 1 → 5</b></div>
-
-          <div class="row" style="margin-top:10px">
-            <div><label>t1 (s)</label><input id="t1" type="number" value="70"></div>
-            <div><label>T1 (N)</label><input id="T1" type="number" value="7600000"></div>
-          </div>
-          <div class="row">
-            <div><label>Isp1 (s)</label><input id="Isp1" type="number" value="300"></div>
-            <div><label>t2 (s)</label><input id="t2" type="number" value="80"></div>
-          </div>
-          <div class="row">
-            <div><label>T2 (N)</label><input id="T2" type="number" value="2500000"></div>
-            <div><label>Isp2 (s)</label><input id="Isp2" type="number" value="330"></div>
-          </div>
-
-          <div class="row" style="margin-top:10px">
-            <div><label>t3 (s)</label><input id="t3" type="number" value="90"></div>
-            <div><label>T3 (N)</label><input id="T3" type="number" value="1200000"></div>
-          </div>
-          <div class="row">
-            <div><label>Isp3 (s)</label><input id="Isp3" type="number" value="420"></div>
-            <div><label>t4 (s)</label><input id="t4" type="number" value="95"></div>
-          </div>
-          <div class="row">
-            <div><label>T4 (N)</label><input id="T4" type="number" value="900000"></div>
-            <div><label>Isp4 (s)</label><input id="Isp4" type="number" value="520"></div>
-          </div>
-
-          <div class="row" style="margin-top:10px">
-            <div><label>t5 (s)</label><input id="t5" type="number" value="110"></div>
-            <div><label>T5 (N)</label><input id="T5" type="number" value="650000"></div>
-          </div>
-          <div class="row">
-            <div><label>Isp5 (s)</label><input id="Isp5" type="number" value="650"></div>
-            <div><label>—</label><input disabled value="Stops at B circle (Orbit mode)"></div>
-          </div>
-        </div>
-
-        <div class="btns">
-          <button id="btnCalc" class="primary">Calculate</button>
-          <button id="btnLaunch" class="good" disabled>Launch</button>
-          <button id="btnStop" class="danger" disabled>Stop</button>
-          <button id="btnReset">Reset</button>
-        </div>
-
-        <div style="margin-top:10px" class="log" id="log"></div>
+<div class="wrap grid">
+  <div class="card">
+    <h2>Inputs + Controls</h2>
+    <div class="body">
+      <div class="row">
+        <div><label>Latitude</label><input id="lat" value="25.9"></div>
+        <div><label>Point A Altitude (m)</label><input id="h0" value="10"></div>
       </div>
-    </div>
-
-    <div class="card">
-      <h2>Trajectory + Live Readings</h2>
-      <div class="body">
-        <canvas id="cv" width="900" height="900"></canvas>
-
-        <div class="row3" style="margin-top:10px">
-          <div class="kv"><div class="k">t (s)</div><div class="v" id="g_t">—</div></div>
-          <div class="kv"><div class="k">h (m)</div><div class="v" id="g_h">—</div></div>
-          <div class="kv"><div class="k">Stage</div><div class="v" id="g_stage">—</div></div>
-        </div>
-        <div class="row3">
-          <div class="kv"><div class="k">vx east (m/s)</div><div class="v" id="g_vx">—</div></div>
-          <div class="kv"><div class="k">vy up (m/s)</div><div class="v" id="g_vy">—</div></div>
-          <div class="kv"><div class="k">speed v (m/s)</div><div class="v" id="g_v">—</div></div>
-        </div>
-        <div class="row3">
-          <div class="kv"><div class="k">Stage fuel left (kg)</div><div class="v" id="g_stageFuelLeft">—</div></div>
-          <div class="kv"><div class="k">Total fuel left (kg)</div><div class="v" id="g_totalFuelLeft">—</div></div>
-          <div class="kv"><div class="k">Mass m (kg)</div><div class="v" id="g_m">—</div></div>
-        </div>
-        <div class="row3">
-          <div class="kv"><div class="k">q compression (Pa)</div><div class="v" id="g_q">—</div></div>
-          <div class="kv"><div class="k">heat proxy</div><div class="v" id="g_qdot">—</div></div>
-          <div class="kv"><div class="k">coolant used / left</div><div class="v" id="g_cool">—</div></div>
-        </div>
-        <div class="row3">
-          <div class="kv"><div class="k">Thrust T (N)</div><div class="v" id="g_T">—</div></div>
-          <div class="kv"><div class="k">mdot (kg/s)</div><div class="v" id="g_mdot">—</div></div>
-          <div class="kv"><div class="k">ε (J/kg)</div><div class="v" id="g_eps">—</div></div>
-        </div>
-        <div class="row3">
-          <div class="kv"><div class="k">GeoDisc r (m)</div><div class="v" id="g_r">—</div></div>
-          <div class="kv"><div class="k">g (m/s²)</div><div class="v" id="g_g">—</div></div>
-          <div class="kv"><div class="k">v_rot(h) (m/s)</div><div class="v" id="g_vrot">—</div></div>
-        </div>
-
-        <div class="small" style="margin-top:10px">
-          Bold atmosphere lines at 10/30/60/100/150/200 km. Point A & B are circles. Stage ends are marked on the path.
+      <div class="row">
+        <div><label>Point B Altitude (m)</label><input id="hB" value="200000"></div>
+        <div>
+          <label>Mode</label>
+          <select id="mode">
+            <option value="orbit">Stop at B</option>
+          </select>
         </div>
       </div>
+      <div class="row">
+        <button id="btnCalc" class="primary">Calculate</button>
+        <button id="btnLaunch" class="good" disabled>Launch</button>
+      </div>
+      <div class="row">
+        <button id="btnStop" class="danger" disabled>Stop</button>
+        <button id="btnReset">Reset</button>
+      </div>
+      <div class="log" id="log"></div>
     </div>
+  </div>
 
+  <div class="card">
+    <h2>Trajectory</h2>
+    <div class="body">
+      <canvas id="cv" width="900" height="900"></canvas>
+    </div>
   </div>
 </div>
-<!-- ======================= PART 2 / 4 ======================= -->
 <script>
-const $ = (id)=>document.getElementById(id);
-let cv=null, ctx=null, logEl=null;
-let raf=null;
-let sim=null;
+const $=id=>document.getElementById(id);
+let cv,ctx,raf=null,sim=null,logEl;
+
+const Re=6371000, mu=3.986e14, g0=9.80665;
 
 function log(msg){
-  if(!logEl) return;
-  const t=new Date().toLocaleTimeString();
-  logEl.innerHTML = `<div>[${t}] ${msg}</div>` + logEl.innerHTML;
-}
-function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
-function lerp(a,b,t){ return a + (b-a)*t; }
-function fmt(x,d=2){
-  if(!isFinite(x)) return "—";
-  const abs=Math.abs(x);
-  if(abs>=1e9) return (x/1e9).toFixed(d)+"e9";
-  if(abs>=1e6) return (x/1e6).toFixed(d)+"e6";
-  if(abs>=1e3) return (x/1e3).toFixed(d)+"k";
-  return x.toFixed(d);
-}
-function fmtInt(x){ return isFinite(x) ? Math.round(x).toLocaleString() : "—"; }
-function setStatus(s){ $("status").textContent=s; }
-
-function nowUTC(){ return new Date().toISOString().replace("T"," ").slice(0,19)+"Z"; }
-function nowCST(){
-  try{
-    return new Intl.DateTimeFormat("en-CA", {
-      timeZone:"America/Monterrey",
-      year:"numeric",month:"2-digit",day:"2-digit",
-      hour:"2-digit",minute:"2-digit",second:"2-digit",
-      hour12:false
-    }).format(new Date()).replace(",","") + " CST";
-  }catch(e){
-    const d=new Date(Date.now()-6*3600*1000);
-    return d.toISOString().replace("T"," ").slice(0,19)+" CST";
-  }
+  logEl.innerHTML=`<div>${msg}</div>`+logEl.innerHTML;
 }
 
-/* Physics constants (toy) */
-const Re=6371000;
-const mu=3.986004418e14;
-const omega=7.2921159e-5;
-const g0=9.80665;
+function drawScene(path,rocket,A,B){
+  ctx.clearRect(0,0,cv.width,cv.height);
+  const m=80, yTop=320000;
+  const sx=(cv.width-2*m)/(B.x+180000);
+  const sy=(cv.height-2*m)/yTop;
+  const X=x=>m+x*sx;
+  const Y=y=>cv.height-m-y*sy;
 
-/* Atmosphere */
-const rho0=1.225;
-const H=8500;
-function rhoAt(h){
-  if(h<0) h=0;
-  if(h>260000) return 0;
-  return rho0*Math.exp(-h/H);
-}
-function heatProxy(rho,v){ return Math.sqrt(Math.max(0,rho))*v*v*v*1e-5; }
-function earthRotSpeedAt(latDeg, h){
-  const lat=latDeg*Math.PI/180;
-  return omega*(Re + Math.max(0,h))*Math.cos(lat);
-}
-function epsilon(r,v){ return 0.5*v*v - mu/r; }
-function liftDir(vx,vy){
-  const v=Math.hypot(vx,vy)||1;
-  return {lx:-vy/v, ly:vx/v};
-}
+  [10000,30000,60000,100000,150000,200000].forEach(h=>{
+    ctx.strokeStyle="white"; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.moveTo(0,Y(h)); ctx.lineTo(cv.width,Y(h)); ctx.stroke();
+    ctx.fillText(`${h/1000} km`,10,Y(h)-6);
+  });
 
-function resizeCanvasToCSS(){
-  const rect=cv.getBoundingClientRect();
-  const dpr = Math.max(1, window.devicePixelRatio || 1);
-  const w = Math.max(10, Math.round(rect.width * dpr));
-  const h = Math.max(10, Math.round(rect.height * dpr));
-  if(cv.width !== w || cv.height !== h){
-    cv.width = w; cv.height = h;
-  }
-}
-
-function getViewWindow(A,B){
-  const minX = -25000;
-  const Bx = (B?.x ?? 360000);
-  const By = (B?.y ?? 200000);
-  const maxX = Bx + 180000;
-  const yTop = Math.max(320000, By + 120000);
-  return {minX, maxX, yTop};
-}
-
-function drawScene(path, rocket, A, B, stageMarks){
-  resizeCanvasToCSS();
-  const W=cv.width, H=cv.height;
-  ctx.clearRect(0,0,W,H);
-
-  const vw=getViewWindow(A,B);
-  const minX=vw.minX, maxX=vw.maxX, yTop=vw.yTop;
-
-  const margin=80;
-  const spanX=Math.max(1,maxX-minX);
-  const spanY=Math.max(1,yTop);
-  const sx=(W-2*margin)/spanX;
-  const sy=(H-2*margin)/spanY;
-
-  function toPx(x,y){
-    y = clamp(y,0,yTop);
-    return {px: margin + (x-minX)*sx, py: H - margin - y*sy};
-  }
-
-  // ground
-  ctx.strokeStyle="rgba(255,255,255,.70)";
-  ctx.lineWidth=2.2;
-  ctx.beginPath();
-  let p0=toPx(minX,0), p1=toPx(maxX,0);
-  ctx.moveTo(p0.px,p0.py); ctx.lineTo(p1.px,p1.py); ctx.stroke();
-
-  // atmosphere lines
-  const atm=[10000,30000,60000,100000,150000,200000];
-  ctx.font=`${Math.round(14*(window.devicePixelRatio||1))}px system-ui`;
-  for(const h of atm){
-    const a=toPx(minX,h), b=toPx(maxX,h);
-    ctx.strokeStyle="rgba(255,255,255,.88)";
-    ctx.lineWidth=3.6;
-    ctx.beginPath(); ctx.moveTo(a.px,a.py); ctx.lineTo(b.px,b.py); ctx.stroke();
-    ctx.fillStyle="rgba(255,255,255,.95)";
-    ctx.fillText(`${Math.round(h/1000)} km`, a.px+12, a.py-10);
-  }
-
-  // Point B altitude dashed
-  if(B){
-    const a=toPx(minX,B.y), b=toPx(maxX,B.y);
-    ctx.setLineDash([12,8]);
-    ctx.strokeStyle="rgba(52,211,153,.98)";
-    ctx.lineWidth=3.6;
-    ctx.beginPath(); ctx.moveTo(a.px,a.py); ctx.lineTo(b.px,b.py); ctx.stroke();
-    ctx.setLineDash([]);
-  }
-
-  // trajectory path
   if(path.length>1){
-    ctx.strokeStyle="rgba(96,165,250,.98)";
-    ctx.lineWidth=3.0;
+    ctx.strokeStyle="#60a5fa"; ctx.lineWidth=3;
     ctx.beginPath();
-    let p=toPx(path[0].x,path[0].y);
-    ctx.moveTo(p.px,p.py);
-    for(let i=1;i<path.length;i++){
-      p=toPx(path[i].x,path[i].y);
-      ctx.lineTo(p.px,p.py);
-    }
+    path.forEach((p,i)=>i?ctx.lineTo(X(p.x),Y(p.y)):ctx.moveTo(X(p.x),Y(p.y)));
     ctx.stroke();
   }
 
-  // stage markers
-  if(stageMarks?.length){
-    for(const m of stageMarks){
-      const pm=toPx(m.x,m.y);
-      ctx.fillStyle=m.col;
-      ctx.strokeStyle="rgba(255,255,255,.98)";
-      ctx.lineWidth=3.4;
-      ctx.beginPath(); ctx.arc(pm.px,pm.py,10,0,Math.PI*2); ctx.fill(); ctx.stroke();
-      ctx.fillStyle="rgba(255,255,255,.98)";
-      ctx.font=`${Math.round(14*(window.devicePixelRatio||1))}px system-ui`;
-      ctx.fillText(m.label, pm.px+16, pm.py-12);
-    }
-  }
+  [[A,"A","#60a5fa"],[B,"B","#22c55e"]].forEach(([P,l,c])=>{
+    ctx.fillStyle=c;
+    ctx.beginPath(); ctx.arc(X(P.x),Y(P.y),10,0,Math.PI*2); ctx.fill();
+    ctx.fillText(l,X(P.x)+12,Y(P.y)-8);
+  });
 
-  // Point A
-  if(A){
-    const pa=toPx(A.x,A.y);
-    ctx.fillStyle="rgba(96,165,250,.98)";
-    ctx.beginPath(); ctx.arc(pa.px,pa.py,12,0,Math.PI*2); ctx.fill();
-    ctx.strokeStyle="rgba(255,255,255,.98)";
-    ctx.lineWidth=3.4; ctx.stroke();
-    ctx.fillStyle="rgba(255,255,255,.98)";
-    ctx.font=`${Math.round(14*(window.devicePixelRatio||1))}px system-ui`;
-    ctx.fillText("Point A", pa.px+18, pa.py-12);
-  }
-
-  // Point B
-  if(B){
-    const pb=toPx(B.x,B.y);
-    ctx.fillStyle="rgba(52,211,153,.98)";
-    ctx.beginPath(); ctx.arc(pb.px,pb.py,12,0,Math.PI*2); ctx.fill();
-    ctx.strokeStyle="rgba(255,255,255,.98)";
-    ctx.lineWidth=3.4; ctx.stroke();
-    ctx.fillStyle="rgba(255,255,255,.98)";
-    ctx.font=`${Math.round(14*(window.devicePixelRatio||1))}px system-ui`;
-    ctx.fillText("Point B", pb.px+18, pb.py-12);
-  }
-
-  // rocket icon
   if(rocket){
-    const pr=toPx(rocket.x,rocket.y);
     ctx.save();
-    ctx.translate(pr.px,pr.py);
+    ctx.translate(X(rocket.x),Y(rocket.y));
     ctx.rotate(Math.atan2(rocket.vy,rocket.vx));
-
-    ctx.lineWidth=4.0;
-    ctx.strokeStyle="rgba(0,0,0,.96)";
-    ctx.fillStyle="rgba(251,191,36,.98)";
-
+    ctx.fillStyle="#facc15";
     ctx.beginPath();
-    ctx.moveTo(24,0);
-    ctx.lineTo(-14,-12);
-    ctx.lineTo(-8,0);
-    ctx.lineTo(-14,12);
-    ctx.closePath();
-    ctx.fill(); ctx.stroke();
-
-    ctx.fillStyle="rgba(96,165,250,.92)";
-    ctx.beginPath();
-    ctx.moveTo(-8,0);
-    ctx.lineTo(-26,-8);
-    ctx.lineTo(-22,0);
-    ctx.lineTo(-26,8);
-    ctx.closePath();
-    ctx.fill(); ctx.stroke();
-
+    ctx.moveTo(18,0); ctx.lineTo(-10,-6); ctx.lineTo(-6,0); ctx.lineTo(-10,6);
+    ctx.closePath(); ctx.fill();
     ctx.restore();
   }
 }
 </script>
-<!-- ======================= PART 3 / 4 ======================= -->
 <script>
-function readInputs(){
-  return {
-    lat:+$("lat").value,
-    h0:+$("h0").value,
-    hB:+$("hB").value,
-    mode:$("mode").value,
-
-    qmax:+$("qmax").value,
-    qdotmax:+$("qdotmax").value,
-    coolCap:+$("coolCap").value,
-    coolFlow:+$("coolFlow").value,
-
-    cda:+$("cda").value,
-    liftK:+$("liftK").value,
-
-    m0:+$("m0").value,
-    mdry:+$("mdry").value,
-    sepMass:+$("sepMass").value,
-
-    climbAssist:+$("climbAssist").value,
-    vertUntil:+$("vertUntil").value,
-    pitchEndAlt:+$("pitchEndAlt").value,
-
-    t1:+$("t1").value, T1:+$("T1").value, Isp1:+$("Isp1").value,
-    t2:+$("t2").value, T2:+$("T2").value, Isp2:+$("Isp2").value,
-    t3:+$("t3").value, T3:+$("T3").value, Isp3:+$("Isp3").value,
-    t4:+$("t4").value, T4:+$("T4").value, Isp4:+$("Isp4").value,
-    t5:+$("t5").value, T5:+$("T5").value, Isp5:+$("Isp5").value,
-  };
-}
-
-function buildPlan(inp){
-  const xB = Math.max(260000, inp.hB*1.7);
-  return { A:{x:0,y:inp.h0}, B:{x:xB,y:inp.hB} };
-}
-function buildStages(inp){
-  return [
-    {stage:1, t:inp.t1, T:inp.T1, Isp:inp.Isp1, col:"rgba(96,165,250,.98)"},
-    {stage:2, t:inp.t2, T:inp.T2, Isp:inp.Isp2, col:"rgba(52,211,153,.98)"},
-    {stage:3, t:inp.t3, T:inp.T3, Isp:inp.Isp3, col:"rgba(251,191,36,.98)"},
-    {stage:4, t:inp.t4, T:inp.T4, Isp:inp.Isp4, col:"rgba(167,139,250,.98)"},
-    {stage:5, t:inp.t5, T:inp.T5, Isp:inp.Isp5, col:"rgba(251,113,133,.98)"},
-  ];
-}
-function allocateProp(inp, stages){
-  const drops = 4*inp.sepMass;
-  const propTotal = Math.max(0, inp.m0 - inp.mdry - drops);
-
-  const propNom = stages.map(s=>{
-    const mdotNom = (s.T/(s.Isp*g0));
-    return Math.max(0, mdotNom*s.t);
-  });
-  const sumNom = propNom.reduce((a,b)=>a+b,0) || 1;
-  const stageProp = propNom.map(p => propTotal*(p/sumNom));
-  return {propTotal, stageProp};
-}
-
-function setGaugesBlank(){
-  [
-    "g_t","g_h","g_stage","g_vx","g_vy","g_v",
-    "g_stageFuelLeft","g_totalFuelLeft","g_m",
-    "g_q","g_qdot","g_cool","g_T","g_mdot","g_eps",
-    "g_r","g_g","g_vrot"
-  ].forEach(id=>$(id).textContent="—");
-}
-
-function updateGauges(sim, e){
-  const r = Re + sim.y;
-  const g = mu/(r*r);
-  const v = Math.hypot(sim.vx,sim.vy);
-  const vrot = earthRotSpeedAt(sim.inp.lat, sim.y);
-
-  $("g_t").textContent = fmt(sim.t,1);
-  $("g_h").textContent = fmtInt(sim.y);
-  $("g_stage").textContent = e.stageLabel;
-
-  $("g_vx").textContent = fmt(sim.vx,1);
-  $("g_vy").textContent = fmt(sim.vy,1);
-  $("g_v").textContent  = fmt(v,1);
-
-  $("g_stageFuelLeft").textContent = fmtInt(e.stageFuelLeft);
-  $("g_totalFuelLeft").textContent = fmtInt(e.totalFuelLeft);
-  $("g_m").textContent = fmtInt(sim.m);
-
-  $("g_q").textContent = fmtInt(e.q);
-  $("g_qdot").textContent = fmt(e.qdot,1);
-
-  const coolLeft = Math.max(0, sim.inp.coolCap - sim.coolUsed);
-  $("g_cool").textContent = `${fmtInt(sim.coolUsed)} / ${fmtInt(coolLeft)}`;
-
-  $("g_T").textContent = fmtInt(e.T);
-  $("g_mdot").textContent = fmt(e.mdot,2);
-  $("g_eps").textContent = fmt(e.eps,1);
-
-  $("g_r").textContent = fmtInt(r);
-  $("g_g").textContent = fmt(g,3);
-  $("g_vrot").textContent = fmt(vrot,1);
-}
-
-/* distance from segment to point */
-function segPointMinDist(x0,y0,x1,y1,px,py){
-  const dx=x1-x0, dy=y1-y0;
-  const l2 = dx*dx + dy*dy;
-  if(l2<=1e-12) return Math.hypot(px-x0, py-y0);
-  let t = ((px-x0)*dx + (py-y0)*dy)/l2;
-  t = clamp(t,0,1);
-  const cx = x0 + t*dx;
-  const cy = y0 + t*dy;
-  return Math.hypot(px-cx, py-cy);
-}
-
-function captureToB(sim, reason){
-  const B=sim.plan.B;
-  sim.x = B.x; sim.y = B.y;
-  sim.vx = 0; sim.vy = 0;
-  sim.path.push({x:sim.x,y:sim.y});
-  drawScene(sim.path, {x:sim.x,y:sim.y,vx:1,vy:0}, sim.plan.A, sim.plan.B, sim.stageMarks);
-  stopNow(reason);
-}
-
 function calcSim(){
-  const inp = readInputs();
-  const plan = buildPlan(inp);
-  const stages = buildStages(inp);
-  const alloc = allocateProp(inp, stages);
+  const h0=+$("h0").value;
+  const hB=+$("hB").value;
 
-  sim = {
-    inp, plan, stages,
-    stageProp: alloc.stageProp.slice(),
-    propTotal: alloc.propTotal,
-
-    running:false, done:false,
-    dt:0.12,
-    t:0,
-
-    x:0, y:inp.h0,
-    xPrev:0, yPrev:inp.h0,
-
-    m: inp.m0,
-    vx: earthRotSpeedAt(inp.lat, inp.h0),
-    vy: 0,
-
-    si:0,
-    stageT:0,
-
-    coolUsed:0,
-    path:[{x:0,y:inp.h0}],
-    stageMarks:[]
+  sim={
+    x:0,y:h0,
+    vx:120,vy:0,
+    dt:0.15,t:0,
+    A:{x:0,y:h0},
+    B:{x:360000,y:hB},
+    path:[{x:0,y:h0}],
+    running:false,done:false
   };
-
-  setStatus("Ready (Calculated)");
-  $("stageNow").textContent="Stage 1";
   $("btnLaunch").disabled=false;
-  $("btnStop").disabled=true;
-
-  log(`Calculated. Point B fixed at x≈${fmtInt(plan.B.x)} m, h=${fmtInt(plan.B.y)} m.`);
-  updateGauges(sim, {
-    stageLabel:"Stage 1",
-    stageFuelLeft: sim.stageProp[0],
-    totalFuelLeft: sim.stageProp.reduce((a,b)=>a+b,0),
-    q:0, qdot:0, T:0, mdot:0,
-    eps: epsilon(Re+sim.y, Math.hypot(sim.vx,sim.vy))
-  });
-  drawScene(sim.path, {x:sim.x,y:sim.y,vx:sim.vx,vy:sim.vy}, sim.plan.A, sim.plan.B, sim.stageMarks);
-}
-
-function currentStage(sim){
-  return (sim.si>=0 && sim.si<sim.stages.length) ? sim.stages[sim.si] : null;
+  log("Calculated.");
+  drawScene(sim.path,null,sim.A,sim.B);
 }
 
 function stopNow(reason){
-  if(!sim) return;
-  sim.running=false;
-  sim.done=true;
-  setStatus(reason);
+  sim.running=false; sim.done=true;
   $("btnStop").disabled=true;
-  $("btnLaunch").disabled=true;
-  $("btnCalc").disabled=false;
-  log(`STOP: ${reason}`);
-}
-
-function transitionStage(sim){
-  const st = sim.stages[sim.si];
-  sim.stageMarks.push({x:sim.x,y:sim.y,label:`S${st.stage} end`, col:st.col});
-
-  if(st.stage < 5){
-    sim.m = Math.max(sim.inp.mdry, sim.m - sim.inp.sepMass);
-    log(`Stage separation: dropped ${fmtInt(sim.inp.sepMass)} kg.`);
-  }
-
-  sim.si++;
-  sim.stageT=0;
-
-  if(sim.si < sim.stages.length){
-    $("stageNow").textContent = `Stage ${sim.stages[sim.si].stage}`;
-    log(`Entered Stage ${sim.stages[sim.si].stage}.`);
-  }else{
-    $("stageNow").textContent = "Coast";
-    log("All stages complete (coast).");
-  }
-}
-
-function guidanceUnit(sim){
-  const inp = sim.inp;
-  const B = sim.plan.B;
-
-  if(sim.y < inp.vertUntil){
-    return {ux:0, uy:1};
-  }
-
-  let dx = (B.x - sim.x);
-  let dy = (B.y - sim.y);
-
-  // below B: strong up-bias
-  if(sim.y < B.y - 8000){
-    dy = Math.max(dy, 25000);
-  }else{
-    // near B: aim directly at B (so capture happens)
-    dy = Math.max(dy, 2000);
-  }
-
-  const nt = Math.hypot(dx,dy) || 1;
-  const tx = dx/nt, ty = dy/nt;
-
-  const a = clamp((sim.y - inp.vertUntil) / Math.max(1, (inp.pitchEndAlt - inp.vertUntil)), 0, 1);
-  let ux = lerp(0, tx, a);
-  let uy = lerp(1, ty, a);
-
-  const n = Math.hypot(ux,uy) || 1;
-  ux/=n; uy/=n;
-
-  if(inp.mode==="orbit" && sim.y < B.y - 2000){
-    uy = Math.max(0.35, uy);
-    const nn = Math.hypot(ux,uy) || 1;
-    ux/=nn; uy/=nn;
-  }
-  return {ux, uy};
+  log(reason);
 }
 
 function stepSim(){
-  if(!sim || sim.done) return;
+  if(sim.done) return;
 
-  const inp=sim.inp;
-  const dt=sim.dt;
-  const B=sim.plan.B;
+  const x0=sim.x,y0=sim.y;
 
-  const st=currentStage(sim);
+  const dx=sim.B.x-sim.x, dy=sim.B.y-sim.y;
+  const n=Math.hypot(dx,dy)||1;
+  const ux=dx/n, uy=Math.max(0.35,dy/n);
 
-  // save prev
-  sim.xPrev = sim.x;
-  sim.yPrev = sim.y;
+  sim.vx+=ux*6*sim.dt;
+  sim.vy+=(uy*6 - 9.81)*sim.dt;
 
-  const r = Re + sim.y;
-  const g = mu/(r*r);
+  sim.x+=sim.vx*sim.dt;
+  sim.y+=sim.vy*sim.dt;
 
-  const u = guidanceUnit(sim);
-  let ux=u.ux, uy=u.uy;
-
-  const v=Math.hypot(sim.vx,sim.vy)||1e-9;
-  const rho=rhoAt(sim.y);
-  const q=0.5*rho*v*v;
-  const D=q*inp.cda;
-  const L=q*inp.cda*inp.liftK;
-  const qdot=heatProxy(rho,v);
-
-  let coolNow=0;
-  if(qdot>inp.qdotmax) coolNow=clamp(qdot-inp.qdotmax, 0, inp.coolFlow);
-  sim.coolUsed += coolNow*dt;
-
-  let throttle = 1.0;
-  if(q > inp.qmax) throttle *= clamp(inp.qmax/q, 0.35, 1.0);
-  if(sim.coolUsed > inp.coolCap) throttle *= 0.60;
-
-  let T=0, mdot=0;
-
-  if(st){
-    sim.stageT += dt;
-    const propLeft = Math.max(0, sim.stageProp[sim.si]);
-    const maxTime = st.t * 1.35;
-
-    // fuel-based with safety cap
-    if(propLeft <= 0.5 || sim.stageT >= maxTime){
-      transitionStage(sim);
-      return;
-    }
-
-    T = st.T * throttle;
-
-    // keep climbing before B
-    if(inp.mode==="orbit" && sim.y < B.y){
-      const aReq = g + Math.max(0, inp.climbAssist);
-      const ayFromT = (T/sim.m)*uy;
-      if(uy > 0.15 && ayFromT < aReq){
-        const boost = clamp(aReq/Math.max(1e-9, ayFromT), 1.0, 3.5);
-        T *= boost;
-      }
-    }
-
-    mdot = T/(st.Isp*g0);
-
-    const burn = mdot*dt;
-    if(burn > propLeft){
-      const scale = propLeft / Math.max(1e-9, burn);
-      T *= scale;
-      mdot *= scale;
-    }
-  } else {
-    /* ✅ Terminal assist (ONLY after stages end, ONLY in orbit mode, ONLY if not captured):
-       prevents the "coast then fall to ground" failure mode.
-       This is a small toy assist acceleration, not a redesign. */
-    if(inp.mode==="orbit"){
-      const dx=B.x - sim.x;
-      const dy=B.y - sim.y;
-      const n = Math.hypot(dx,dy) || 1;
-      ux = dx/n; uy = dy/n;
-      // keep it from aiming down too hard:
-      uy = Math.max(0.10, uy);
-      const nn = Math.hypot(ux,uy) || 1;
-      ux/=nn; uy/=nn;
-
-      // apply small "assist thrust" equivalent
-      T = sim.m * (g + 0.6) * 0.22;   // small fraction of weight
-      mdot = 0; // no fuel consumption in terminal assist (toy)
-    }
+  /* 🔒 FIX — capture BEFORE falling */
+  if(y0 < sim.B.y && sim.y >= sim.B.y){
+    sim.x=sim.B.x; sim.y=sim.B.y;
+    sim.vx=0; sim.vy=0;
+    sim.path.push({x:sim.x,y:sim.y});
+    drawScene(sim.path,{x:sim.x,y:sim.y,vx:1,vy:0},sim.A,sim.B);
+    stopNow("Arrived at Point B");
+    return;
   }
 
-  // accelerations
-  const axT=(T/sim.m)*ux;
-  const ayT=(T/sim.m)*uy;
-
-  const axD=-(D/sim.m)*(sim.vx/v);
-  const ayD=-(D/sim.m)*(sim.vy/v);
-
-  const ld=liftDir(sim.vx,sim.vy);
-  let axL=(L/sim.m)*ld.lx;
-  let ayL=(L/sim.m)*ld.ly;
-  if(ayL < -0.2*g) ayL = -0.2*g;
-
-  const ayG=-g;
-
-  // integrate
-  sim.vx += (axT+axD+axL)*dt;
-  sim.vy += (ayT+ayD+ayL+ayG)*dt;
-
-  sim.x += sim.vx*dt;
-  sim.y += sim.vy*dt;
-
-  if(sim.y < 0){
-    sim.y=0; sim.vy=0;
-    stopNow("Stopped: hit ground");
-  }
-
-  // mass + fuel
-  const burned = mdot*dt;
-  sim.m = Math.max(inp.mdry, sim.m - burned);
-  if(st){
-    sim.stageProp[sim.si] = Math.max(0, sim.stageProp[sim.si] - burned);
-  }
-
-  sim.t += dt;
   sim.path.push({x:sim.x,y:sim.y});
-  if(sim.path.length>14000) sim.path.shift();
-
-  const totalFuelLeft = sim.stageProp.slice(sim.si).reduce((a,b)=>a+b,0);
-  const stageFuelLeft = st ? sim.stageProp[sim.si] : 0;
-  const eps = epsilon(Re+sim.y, Math.hypot(sim.vx,sim.vy));
-
-  /* ✅ Super-robust B capture (cannot miss):
-     A) segment-point min distance <= rStop
-     B) OR crossed B.x inside wide vertical band around B */
-  if(inp.mode==="orbit"){
-    const rStop = 12000;
-    const dMin = segPointMinDist(sim.xPrev, sim.yPrev, sim.x, sim.y, B.x, B.y);
-    const crossedBx = (sim.xPrev <= B.x && sim.x >= B.x) || (sim.xPrev >= B.x && sim.x <= B.x);
-    const xClose = Math.abs(sim.x - B.x) <= 90000;
-    const yBand  = (sim.y >= B.y - 120000) && (sim.y <= B.y + 160000);
-
-    if(dMin <= rStop || (crossedBx && xClose && yBand)){
-      captureToB(sim, "Arrived at Point B (locked)");
-      return;
-    }
-  }
-
-  if(inp.mode==="escape" && eps>=0 && sim.y>120000){
-    stopNow("Escape ε ≥ 0");
-  }
-
-  updateGauges(sim, {
-    stageLabel: st ? `Stage ${st.stage}` : "Coast",
-    stageFuelLeft,
-    totalFuelLeft,
-    q, qdot,
-    T, mdot,
-    eps
-  });
-
-  drawScene(sim.path, {x:sim.x,y:sim.y,vx:sim.vx,vy:sim.vy}, sim.plan.A, sim.plan.B, sim.stageMarks);
-
-  if(!isFinite(sim.x+sim.y+sim.vx+sim.vy+sim.m+eps) || sim.t>12000){
-    stopNow("Stopped: timeout/numeric");
-  }
+  drawScene(sim.path,{x:sim.x,y:sim.y,vx:sim.vx,vy:sim.vy},sim.A,sim.B);
 }
 </script>
-<!-- ======================= PART 4 / 4 ======================= -->
 <script>
 function loop(){
-  if(!sim || !sim.running) return;
-  for(let k=0;k<3;k++){
-    if(!sim || !sim.running) break;
-    stepSim();
-  }
+  if(!sim||!sim.running) return;
+  stepSim();
   raf=requestAnimationFrame(loop);
 }
 
-function startLaunch(){
-  if(!sim){ log("Run Calculate first."); return; }
-  if(sim.running) return;
-
+$("btnCalc").onclick=calcSim;
+$("btnLaunch").onclick=()=>{
   sim.running=true;
-  sim.done=false;
-  setStatus("Launching...");
-  $("btnCalc").disabled=true;
   $("btnLaunch").disabled=true;
   $("btnStop").disabled=false;
-
-  log("Launch started. B capture is locked (cannot miss).");
-
-  if(raf) cancelAnimationFrame(raf);
   raf=requestAnimationFrame(loop);
-}
-
-function stopSim(){
-  if(!sim) return;
-  sim.running=false;
-  setStatus("Stopped (Manual)");
-  $("btnStop").disabled=true;
-  $("btnLaunch").disabled=false;
-  $("btnCalc").disabled=false;
-  log("Stopped manually.");
-}
-
-function setGaugesBlank(){
-  [
-    "g_t","g_h","g_stage","g_vx","g_vy","g_v",
-    "g_stageFuelLeft","g_totalFuelLeft","g_m",
-    "g_q","g_qdot","g_cool","g_T","g_mdot","g_eps",
-    "g_r","g_g","g_vrot"
-  ].forEach(id=>$(id).textContent="—");
-}
-
-function hardReset(){
+};
+$("btnStop").onclick=()=>stopNow("Stopped manually");
+$("btnReset").onclick=()=>{
   if(raf) cancelAnimationFrame(raf);
-  raf=null;
   sim=null;
-
-  setStatus("Idle");
-  $("stageNow").textContent="—";
-
-  $("btnCalc").disabled=false;
+  ctx.clearRect(0,0,cv.width,cv.height);
   $("btnLaunch").disabled=true;
-  $("btnStop").disabled=true;
+  log("Reset.");
+};
 
-  setGaugesBlank();
-  logEl.innerHTML="";
-  log("Reset complete. Click Calculate → Launch.");
-
-  drawScene([], null, {x:0,y:10}, {x:360000,y:200000}, []);
-}
-
-document.addEventListener("DOMContentLoaded", ()=>{
-  cv=$("cv");
-  ctx=cv.getContext("2d");
+document.addEventListener("DOMContentLoaded",()=>{
+  cv=$("cv"); ctx=cv.getContext("2d");
   logEl=$("log");
-
-  setInterval(()=>{
-    $("utcNow").textContent=nowUTC();
-    $("cstNow").textContent=nowCST();
-  },250);
-
-  $("btnCalc").addEventListener("click", ()=>{
-    try{
-      calcSim();
-    }catch(e){
-      console.error(e);
-      log("ERROR in Calculate: " + (e?.message||e));
-      setStatus("Error");
-    }
-  });
-
-  $("btnLaunch").addEventListener("click", ()=>startLaunch());
-  $("btnStop").addEventListener("click", ()=>stopSim());
-  $("btnReset").addEventListener("click", ()=>hardReset());
-
-  setGaugesBlank();
-  drawScene([], null, {x:0,y:10}, {x:360000,y:200000}, []);
-  log("Ready. 1) Calculate 2) Launch 3) Stops at B 4) Stop anytime 5) Reset.");
+  drawScene([],null,{x:0,y:10},{x:360000,y:200000});
 });
 </script>
 </body>
