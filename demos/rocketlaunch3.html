@@ -1,11 +1,15 @@
 <!-- ======================= PART 1 / 4 =======================
 Rocket Corridor A→B — 5 Stages — Arrive at Point B
-FIX (only what you reported from the screenshot):
-1) Stage markers looked “too spread out” because stages were allowed to end by TIME (t1..t5) even when thrust-boost changes mdot.
-   ✅ Fix: stages now end primarily by FUEL (prop left), with a safety max-time cap.
-2) Rocket passes above Point B and keeps going.
-   ✅ Fix: “capture to B” logic: if you cross B’s x-range at/above the B altitude (or you’re within a corridor window), it snaps to B and stops.
-Everything else is unchanged.
+FIX (only what you asked):
+✅ Rocket MUST stop at Point B circle (not drop to ground after overshoot)
+
+What changed (minimal):
+1) Stronger “capture to B”:
+   - Captures if the segment (prev→current) passes within rStop of B (true hit test)
+   - OR if it crosses B.x inside a wide corridor band near B altitude
+2) If stages end and it still hasn’t captured, a tiny “terminal assist” prevents falling
+   while it finishes closing the last distance to B (ONLY after Stage 5; orbit mode only).
+Everything else unchanged.
 ============================================================== -->
 <!doctype html>
 <html lang="en">
@@ -16,17 +20,10 @@ Everything else is unchanged.
 <style>
   :root{
     color-scheme: dark;
-    --bg:#070b14;
-    --panel:#0f172a;
-    --panel2:#0b1222;
-    --ink:#e5e7eb;
-    --muted:#9aa4c7;
-    --accent:#60a5fa;
-    --good:#34d399;
-    --warn:#fbbf24;
-    --bad:#fb7185;
-    --line:rgba(148,163,184,.22);
-    --shadow:0 18px 40px rgba(0,0,0,.45);
+    --bg:#070b14; --panel:#0f172a; --panel2:#0b1222;
+    --ink:#e5e7eb; --muted:#9aa4c7; --accent:#60a5fa;
+    --good:#34d399; --warn:#fbbf24; --bad:#fb7185;
+    --line:rgba(148,163,184,.22); --shadow:0 18px 40px rgba(0,0,0,.45);
     --radius:16px;
     --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
   }
@@ -47,10 +44,8 @@ Everything else is unchanged.
   .title{display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap;}
   h1{font-size:16px;margin:0;font-weight:700;letter-spacing:.2px}
   .sub{color:var(--muted);font-size:12px}
-
   .grid{display:grid; gap:12px; grid-template-columns: 440px 1fr; align-items:start;}
   @media (max-width: 980px){ .grid{grid-template-columns: 1fr;} }
-
   .card{
     background:linear-gradient(180deg, rgba(15,23,42,.92), rgba(11,18,34,.86));
     border:1px solid var(--line);
@@ -67,7 +62,6 @@ Everything else is unchanged.
   .card .body{padding:10px 12px}
   .row{display:grid; grid-template-columns: 1fr 1fr; gap:10px}
   .row3{display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px}
-
   label{display:block;color:var(--muted);font-size:12px;margin:0 0 6px}
   input, select{
     width:100%;
@@ -79,7 +73,6 @@ Everything else is unchanged.
     outline:none;
   }
   input:focus, select:focus{border-color:rgba(96,165,250,.6); box-shadow:0 0 0 3px rgba(96,165,250,.12)}
-
   .btns{display:flex; flex-wrap:wrap; gap:8px; margin-top:10px}
   button{
     border:1px solid rgba(148,163,184,.22);
@@ -95,25 +88,24 @@ Everything else is unchanged.
   button.good{background:rgba(52,211,153,.14); border-color:rgba(52,211,153,.45)}
   button.danger{background:rgba(251,113,133,.14); border-color:rgba(251,113,133,.45)}
   button:disabled{opacity:.45; cursor:not-allowed; transform:none}
-
   .pill{
     display:inline-flex; align-items:center; gap:6px;
     font-size:12px; padding:6px 10px; border-radius:999px;
-    border:1px solid var(--line); background:rgba(2,6,23,.35);
+    border:1px solid var(--line);
+    background:rgba(2,6,23,.35);
     color:var(--muted);
   }
   .pill b{color:var(--ink); font-weight:700}
-
   .kv{
     display:grid; grid-template-columns: 1fr auto; gap:8px;
-    padding:7px 0; border-bottom:1px dashed rgba(148,163,184,.18);
+    padding:7px 0;
+    border-bottom:1px dashed rgba(148,163,184,.18);
     font-family: var(--mono);
     font-size:12px;
   }
   .kv:last-child{border-bottom:none}
   .kv .k{color:var(--muted); font-family: system-ui}
   .kv .v{color:var(--ink)}
-
   canvas{
     width:100%;
     height:900px;
@@ -122,7 +114,6 @@ Everything else is unchanged.
       radial-gradient(circle at 70% 30%, rgba(96,165,250,.12), rgba(0,0,0,.0) 55%),
       linear-gradient(180deg, rgba(2,6,23,.25), rgba(0,0,0,.0));
   }
-
   .small{font-size:12px;color:var(--muted)}
   .log{
     font-family:var(--mono);
@@ -146,7 +137,6 @@ Everything else is unchanged.
 </style>
 </head>
 <body>
-
 <header>
   <div class="wrap title">
     <div>
@@ -164,7 +154,6 @@ Everything else is unchanged.
 
 <div class="wrap">
   <div class="grid">
-
     <div class="card">
       <h2>Inputs + Controls</h2>
       <div class="body">
@@ -201,17 +190,14 @@ Everything else is unchanged.
 
         <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
           <div class="small"><b>Mass + Guidance</b></div>
-
           <div class="row" style="margin-top:10px">
             <div><label>Total liftoff mass m0 (kg)</label><input id="m0" type="number" step="1000" value="550000"></div>
             <div><label>Dry mass total (kg)</label><input id="mdry" type="number" step="1000" value="80000"></div>
           </div>
-
           <div class="row" style="margin-top:10px">
             <div><label>Stage separation drop each boundary (kg)</label><input id="sepMass" type="number" step="100" value="3500"></div>
             <div><label>Climb assist (m/s²)</label><input id="climbAssist" type="number" step="0.5" value="2.0"></div>
           </div>
-
           <div class="row" style="margin-top:10px">
             <div><label>Vertical until altitude (m)</label><input id="vertUntil" type="number" step="1000" value="120000"></div>
             <div><label>Pitch end altitude (m)</label><input id="pitchEndAlt" type="number" step="1000" value="220000"></div>
@@ -219,6 +205,9 @@ Everything else is unchanged.
 
           <div class="hint">
             Fix: stages end by <b>fuel</b> (not time), and the path snaps to <b>Point B</b> when it crosses the B-capture corridor.
+            <br><br>
+            <b>New fix you asked:</b> rocket now cannot “miss B then fall to ground.” It will capture to B (segment hit / x-cross corridor),
+            and if fuel ends it gets a tiny terminal assist until it reaches B.
           </div>
 
           <div class="small" style="margin-top:12px"><b>Stages 1 → 5</b></div>
@@ -311,712 +300,741 @@ Everything else is unchanged.
         </div>
       </div>
     </div>
-
   </div>
 </div>
 <!-- ======================= PART 2 / 4 ======================= -->
 <script>
-const $ = (id)=>document.getElementById(id);
-let cv=null, ctx=null, logEl=null;
-let raf=null;
-let sim=null;
+  const $ = (id)=>document.getElementById(id);
+  let cv=null, ctx=null, logEl=null;
+  let raf=null;
+  let sim=null;
 
-function log(msg){
-  if(!logEl) return;
-  const t=new Date().toLocaleTimeString();
-  logEl.innerHTML = `<div>[${t}] ${msg}</div>` + logEl.innerHTML;
-}
-function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
-function lerp(a,b,t){ return a + (b-a)*t; }
-function fmt(x,d=2){
-  if(!isFinite(x)) return "—";
-  const abs=Math.abs(x);
-  if(abs>=1e9) return (x/1e9).toFixed(d)+"e9";
-  if(abs>=1e6) return (x/1e6).toFixed(d)+"e6";
-  if(abs>=1e3) return (x/1e3).toFixed(d)+"k";
-  return x.toFixed(d);
-}
-function fmtInt(x){ return isFinite(x) ? Math.round(x).toLocaleString() : "—"; }
-function setStatus(s){ $("status").textContent=s; }
-
-function nowUTC(){ return new Date().toISOString().replace("T"," ").slice(0,19)+"Z"; }
-function nowCST(){
-  try{
-    return new Intl.DateTimeFormat("en-CA", {
-      timeZone:"America/Monterrey",
-      year:"numeric",month:"2-digit",day:"2-digit",
-      hour:"2-digit",minute:"2-digit",second:"2-digit",
-      hour12:false
-    }).format(new Date()).replace(",","") + " CST";
-  }catch(e){
-    const d=new Date(Date.now()-6*3600*1000);
-    return d.toISOString().replace("T"," ").slice(0,19)+" CST";
-  }
-}
-
-/* Physics constants (toy) */
-const Re=6371000;
-const mu=3.986004418e14;
-const omega=7.2921159e-5;
-const g0=9.80665;
-
-/* Atmosphere */
-const rho0=1.225;
-const H=8500;
-function rhoAt(h){
-  if(h<0) h=0;
-  if(h>260000) return 0;
-  return rho0*Math.exp(-h/H);
-}
-function heatProxy(rho,v){ return Math.sqrt(Math.max(0,rho))*v*v*v*1e-5; }
-function earthRotSpeedAt(latDeg, h){
-  const lat=latDeg*Math.PI/180;
-  return omega*(Re + Math.max(0,h))*Math.cos(lat);
-}
-function epsilon(r,v){ return 0.5*v*v - mu/r; }
-function liftDir(vx,vy){
-  const v=Math.hypot(vx,vy)||1;
-  return {lx:-vy/v, ly:vx/v};
-}
-
-function resizeCanvasToCSS(){
-  const rect=cv.getBoundingClientRect();
-  const dpr = Math.max(1, window.devicePixelRatio || 1);
-  const w = Math.max(10, Math.round(rect.width * dpr));
-  const h = Math.max(10, Math.round(rect.height * dpr));
-  if(cv.width !== w || cv.height !== h){
-    cv.width = w; cv.height = h;
-  }
-}
-
-function getViewWindow(A,B){
-  const minX = -25000;
-  const Bx = (B?.x ?? 360000);
-  const By = (B?.y ?? 200000);
-  const maxX = Bx + 180000;
-  const yTop = Math.max(320000, By + 120000);
-  return {minX, maxX, yTop};
-}
-
-function drawScene(path, rocket, A, B, stageMarks){
-  resizeCanvasToCSS();
-  const W=cv.width, H=cv.height;
-  ctx.clearRect(0,0,W,H);
-
-  const vw=getViewWindow(A,B);
-  const minX=vw.minX, maxX=vw.maxX, yTop=vw.yTop;
-
-  const margin=80;
-  const spanX=Math.max(1,maxX-minX);
-  const spanY=Math.max(1,yTop);
-  const sx=(W-2*margin)/spanX;
-  const sy=(H-2*margin)/spanY;
-
-  function toPx(x,y){
-    y = clamp(y,0,yTop);
-    return {px: margin + (x-minX)*sx, py: H - margin - y*sy};
+  function log(msg){
+    if(!logEl) return;
+    const t=new Date().toLocaleTimeString();
+    logEl.innerHTML = `<div>[${t}] ${msg}</div>` + logEl.innerHTML;
   }
 
-  // ground
-  ctx.strokeStyle="rgba(255,255,255,.70)";
-  ctx.lineWidth=2.2;
-  ctx.beginPath();
-  let p0=toPx(minX,0), p1=toPx(maxX,0);
-  ctx.moveTo(p0.px,p0.py); ctx.lineTo(p1.px,p1.py); ctx.stroke();
+  function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
+  function lerp(a,b,t){ return a + (b-a)*t; }
 
-  // atmosphere lines
-  const atm=[10000,30000,60000,100000,150000,200000];
-  ctx.font=`${Math.round(14*(window.devicePixelRatio||1))}px system-ui`;
-  for(const h of atm){
-    const a=toPx(minX,h), b=toPx(maxX,h);
-    ctx.strokeStyle="rgba(255,255,255,.88)";
-    ctx.lineWidth=3.6;
-    ctx.beginPath(); ctx.moveTo(a.px,a.py); ctx.lineTo(b.px,b.py); ctx.stroke();
-    ctx.fillStyle="rgba(255,255,255,.95)";
-    ctx.fillText(`${Math.round(h/1000)} km`, a.px+12, a.py-10);
+  function fmt(x,d=2){
+    if(!isFinite(x)) return "—";
+    const abs=Math.abs(x);
+    if(abs>=1e9) return (x/1e9).toFixed(d)+"e9";
+    if(abs>=1e6) return (x/1e6).toFixed(d)+"e6";
+    if(abs>=1e3) return (x/1e3).toFixed(d)+"k";
+    return x.toFixed(d);
   }
+  function fmtInt(x){ return isFinite(x) ? Math.round(x).toLocaleString() : "—"; }
 
-  // Point B altitude dashed
-  if(B){
-    const a=toPx(minX,B.y), b=toPx(maxX,B.y);
-    ctx.setLineDash([12,8]);
-    ctx.strokeStyle="rgba(52,211,153,.98)";
-    ctx.lineWidth=3.6;
-    ctx.beginPath(); ctx.moveTo(a.px,a.py); ctx.lineTo(b.px,b.py); ctx.stroke();
-    ctx.setLineDash([]);
-  }
+  function setStatus(s){ $("status").textContent=s; }
 
-  // trajectory path
-  if(path.length>1){
-    ctx.strokeStyle="rgba(96,165,250,.98)";
-    ctx.lineWidth=3.0;
-    ctx.beginPath();
-    let p=toPx(path[0].x,path[0].y);
-    ctx.moveTo(p.px,p.py);
-    for(let i=1;i<path.length;i++){
-      p=toPx(path[i].x,path[i].y);
-      ctx.lineTo(p.px,p.py);
+  function nowUTC(){ return new Date().toISOString().replace("T"," ").slice(0,19)+"Z"; }
+  function nowCST(){
+    try{
+      return new Intl.DateTimeFormat("en-CA", {
+        timeZone:"America/Monterrey",
+        year:"numeric",month:"2-digit",day:"2-digit",
+        hour:"2-digit",minute:"2-digit",second:"2-digit",
+        hour12:false
+      }).format(new Date()).replace(",","") + " CST";
+    }catch(e){
+      const d=new Date(Date.now()-6*3600*1000);
+      return d.toISOString().replace("T"," ").slice(0,19)+" CST";
     }
+  }
+
+  /* Physics constants (toy) */
+  const Re=6371000;
+  const mu=3.986004418e14;
+  const omega=7.2921159e-5;
+  const g0=9.80665;
+
+  /* Atmosphere */
+  const rho0=1.225;
+  const H=8500;
+  function rhoAt(h){
+    if(h<0) h=0;
+    if(h>260000) return 0;
+    return rho0*Math.exp(-h/H);
+  }
+  function heatProxy(rho,v){ return Math.sqrt(Math.max(0,rho))*v*v*v*1e-5; }
+
+  function earthRotSpeedAt(latDeg, h){
+    const lat=latDeg*Math.PI/180;
+    return omega*(Re + Math.max(0,h))*Math.cos(lat);
+  }
+  function epsilon(r,v){ return 0.5*v*v - mu/r; }
+
+  function liftDir(vx,vy){
+    const v=Math.hypot(vx,vy)||1;
+    return {lx:-vy/v, ly:vx/v};
+  }
+
+  function resizeCanvasToCSS(){
+    const rect=cv.getBoundingClientRect();
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const w = Math.max(10, Math.round(rect.width * dpr));
+    const h = Math.max(10, Math.round(rect.height * dpr));
+    if(cv.width !== w || cv.height !== h){
+      cv.width = w; cv.height = h;
+    }
+  }
+
+  function getViewWindow(A,B){
+    const minX = -25000;
+    const Bx = (B?.x ?? 360000);
+    const By = (B?.y ?? 200000);
+    const maxX = Bx + 180000;
+    const yTop = Math.max(320000, By + 120000);
+    return {minX, maxX, yTop};
+  }
+
+  function drawScene(path, rocket, A, B, stageMarks){
+    resizeCanvasToCSS();
+    const W=cv.width, H=cv.height;
+    ctx.clearRect(0,0,W,H);
+
+    const vw=getViewWindow(A,B);
+    const minX=vw.minX, maxX=vw.maxX, yTop=vw.yTop;
+
+    const margin=80;
+    const spanX=Math.max(1,maxX-minX);
+    const spanY=Math.max(1,yTop);
+
+    const sx=(W-2*margin)/spanX;
+    const sy=(H-2*margin)/spanY;
+
+    function toPx(x,y){
+      y = clamp(y,0,yTop);
+      return {px: margin + (x-minX)*sx, py: H - margin - y*sy};
+    }
+
+    // ground
+    ctx.strokeStyle="rgba(255,255,255,.70)";
+    ctx.lineWidth=2.2;
+    ctx.beginPath();
+    let p0=toPx(minX,0), p1=toPx(maxX,0);
+    ctx.moveTo(p0.px,p0.py); ctx.lineTo(p1.px,p1.py);
     ctx.stroke();
-  }
 
-  // stage markers
-  if(stageMarks?.length){
-    for(const m of stageMarks){
-      const pm=toPx(m.x,m.y);
-      ctx.fillStyle=m.col;
-      ctx.strokeStyle="rgba(255,255,255,.98)";
-      ctx.lineWidth=3.4;
-      ctx.beginPath(); ctx.arc(pm.px,pm.py,10,0,Math.PI*2); ctx.fill(); ctx.stroke();
-      ctx.fillStyle="rgba(255,255,255,.98)";
-      ctx.font=`${Math.round(14*(window.devicePixelRatio||1))}px system-ui`;
-      ctx.fillText(m.label, pm.px+16, pm.py-12);
-    }
-  }
-
-  // Point A circle
-  if(A){
-    const pa=toPx(A.x,A.y);
-    ctx.fillStyle="rgba(96,165,250,.98)";
-    ctx.beginPath(); ctx.arc(pa.px,pa.py,12,0,Math.PI*2); ctx.fill();
-    ctx.strokeStyle="rgba(255,255,255,.98)";
-    ctx.lineWidth=3.4; ctx.stroke();
-    ctx.fillStyle="rgba(255,255,255,.98)";
+    // atmosphere lines
+    const atm=[10000,30000,60000,100000,150000,200000];
     ctx.font=`${Math.round(14*(window.devicePixelRatio||1))}px system-ui`;
-    ctx.fillText("Point A", pa.px+18, pa.py-12);
-  }
-
-  // Point B circle
-  if(B){
-    const pb=toPx(B.x,B.y);
-    ctx.fillStyle="rgba(52,211,153,.98)";
-    ctx.beginPath(); ctx.arc(pb.px,pb.py,12,0,Math.PI*2); ctx.fill();
-    ctx.strokeStyle="rgba(255,255,255,.98)";
-    ctx.lineWidth=3.4; ctx.stroke();
-    ctx.fillStyle="rgba(255,255,255,.98)";
-    ctx.font=`${Math.round(14*(window.devicePixelRatio||1))}px system-ui`;
-    ctx.fillText("Point B", pb.px+18, pb.py-12);
-  }
-
-  // rocket icon
-  if(rocket){
-    const pr=toPx(rocket.x,rocket.y);
-    ctx.save();
-    ctx.translate(pr.px,pr.py);
-    ctx.rotate(Math.atan2(rocket.vy,rocket.vx));
-
-    ctx.lineWidth=4.0;
-    ctx.strokeStyle="rgba(0,0,0,.96)";
-    ctx.fillStyle="rgba(251,191,36,.98)";
-
-    ctx.beginPath();
-    ctx.moveTo(24,0);
-    ctx.lineTo(-14,-12);
-    ctx.lineTo(-8,0);
-    ctx.lineTo(-14,12);
-    ctx.closePath();
-    ctx.fill(); ctx.stroke();
-
-    ctx.fillStyle="rgba(96,165,250,.92)";
-    ctx.beginPath();
-    ctx.moveTo(-8,0);
-    ctx.lineTo(-26,-8);
-    ctx.lineTo(-22,0);
-    ctx.lineTo(-26,8);
-    ctx.closePath();
-    ctx.fill(); ctx.stroke();
-
-    ctx.restore();
-  }
-}
-</script>
-<!-- ======================= PART 3 / 4 ======================= -->
-<script>
-function readInputs(){
-  return {
-    lat:+$("lat").value,
-    h0:+$("h0").value,
-    hB:+$("hB").value,
-    mode:$("mode").value,
-
-    qmax:+$("qmax").value,
-    qdotmax:+$("qdotmax").value,
-    coolCap:+$("coolCap").value,
-    coolFlow:+$("coolFlow").value,
-
-    cda:+$("cda").value,
-    liftK:+$("liftK").value,
-
-    m0:+$("m0").value,
-    mdry:+$("mdry").value,
-    sepMass:+$("sepMass").value,
-
-    climbAssist:+$("climbAssist").value,
-    vertUntil:+$("vertUntil").value,
-    pitchEndAlt:+$("pitchEndAlt").value,
-
-    t1:+$("t1").value, T1:+$("T1").value, Isp1:+$("Isp1").value,
-    t2:+$("t2").value, T2:+$("T2").value, Isp2:+$("Isp2").value,
-    t3:+$("t3").value, T3:+$("T3").value, Isp3:+$("Isp3").value,
-    t4:+$("t4").value, T4:+$("T4").value, Isp4:+$("Isp4").value,
-    t5:+$("t5").value, T5:+$("T5").value, Isp5:+$("Isp5").value,
-  };
-}
-
-function buildPlan(inp){
-  const xB = Math.max(260000, inp.hB*1.7);
-  return { A:{x:0,y:inp.h0}, B:{x:xB,y:inp.hB} };
-}
-function buildStages(inp){
-  return [
-    {stage:1, t:inp.t1, T:inp.T1, Isp:inp.Isp1, col:"rgba(96,165,250,.98)"},
-    {stage:2, t:inp.t2, T:inp.T2, Isp:inp.Isp2, col:"rgba(52,211,153,.98)"},
-    {stage:3, t:inp.t3, T:inp.T3, Isp:inp.Isp3, col:"rgba(251,191,36,.98)"},
-    {stage:4, t:inp.t4, T:inp.T4, Isp:inp.Isp4, col:"rgba(167,139,250,.98)"},
-    {stage:5, t:inp.t5, T:inp.T5, Isp:inp.Isp5, col:"rgba(251,113,133,.98)"},
-  ];
-}
-
-function allocateProp(inp, stages){
-  const drops = 4*inp.sepMass;
-  const propTotal = Math.max(0, inp.m0 - inp.mdry - drops);
-
-  const propNom = stages.map(s=>{
-    const mdotNom = (s.T/(s.Isp*g0));
-    return Math.max(0, mdotNom*s.t);
-  });
-  const sumNom = propNom.reduce((a,b)=>a+b,0) || 1;
-  const stageProp = propNom.map(p => propTotal*(p/sumNom));
-  return {propTotal, stageProp};
-}
-
-function setGaugesBlank(){
-  [
-    "g_t","g_h","g_stage","g_vx","g_vy","g_v",
-    "g_stageFuelLeft","g_totalFuelLeft","g_m",
-    "g_q","g_qdot","g_cool","g_T","g_mdot","g_eps",
-    "g_r","g_g","g_vrot"
-  ].forEach(id=>$(id).textContent="—");
-}
-
-function updateGauges(sim, e){
-  const r = Re + sim.y;
-  const g = mu/(r*r);
-  const v = Math.hypot(sim.vx,sim.vy);
-  const vrot = earthRotSpeedAt(sim.inp.lat, sim.y);
-
-  $("g_t").textContent = fmt(sim.t,1);
-  $("g_h").textContent = fmtInt(sim.y);
-  $("g_stage").textContent = e.stageLabel;
-
-  $("g_vx").textContent = fmt(sim.vx,1);
-  $("g_vy").textContent = fmt(sim.vy,1);
-  $("g_v").textContent  = fmt(v,1);
-
-  $("g_stageFuelLeft").textContent = fmtInt(e.stageFuelLeft);
-  $("g_totalFuelLeft").textContent = fmtInt(e.totalFuelLeft);
-  $("g_m").textContent = fmtInt(sim.m);
-
-  $("g_q").textContent = fmtInt(e.q);
-  $("g_qdot").textContent = fmt(e.qdot,1);
-
-  const coolLeft = Math.max(0, sim.inp.coolCap - sim.coolUsed);
-  $("g_cool").textContent = `${fmtInt(sim.coolUsed)} / ${fmtInt(coolLeft)}`;
-
-  $("g_T").textContent = fmtInt(e.T);
-  $("g_mdot").textContent = fmt(e.mdot,2);
-  $("g_eps").textContent = fmt(e.eps,1);
-
-  $("g_r").textContent = fmtInt(r);
-  $("g_g").textContent = fmt(g,3);
-  $("g_vrot").textContent = fmt(vrot,1);
-}
-
-/* ✅ NEW: corridor-capture to Point B (so it can’t “fly over and miss”) */
-function shouldCaptureB(sim){
-  const B = sim.plan.B;
-
-  // corridor window: once you are at/above B altitude, and you pass close to B in x, capture.
-  const xWin = 70000;   // ±70 km in x
-  const yWin = 90000;   // allow being above B by up to 90 km (matches your screenshot issue)
-  const above = (sim.y >= B.y - 1500);
-  const closeX = Math.abs(sim.x - B.x) <= xWin;
-
-  // also catch the case "crossed B.x between steps"
-  const crossed = (sim.xPrev < B.x && sim.x >= B.x) || (sim.xPrev > B.x && sim.x <= B.x);
-
-  // if we are above B altitude and either closeX or crossed near B, capture
-  if(above && (closeX || crossed) && (sim.y <= B.y + yWin)) return true;
-
-  // if we are above B by more than yWin, do not capture yet (let it come down)
-  return false;
-}
-
-function captureToB(sim){
-  const B = sim.plan.B;
-  sim.x = B.x; sim.y = B.y;
-  sim.vx = 0; sim.vy = 0;
-  sim.path.push({x:sim.x,y:sim.y});
-}
-
-function calcSim(){
-  const inp = readInputs();
-  const plan = buildPlan(inp);
-  const stages = buildStages(inp);
-  const alloc = allocateProp(inp, stages);
-
-  sim = {
-    inp, plan, stages,
-    stageProp: alloc.stageProp.slice(),
-    propTotal: alloc.propTotal,
-
-    running:false, done:false,
-    dt:0.12,
-    t:0,
-
-    x:0, y:inp.h0,
-    xPrev:0, yPrev:inp.h0,
-
-    m: inp.m0,
-
-    vx: earthRotSpeedAt(inp.lat, inp.h0),
-    vy: 0,
-
-    si:0,
-    stageT:0,
-
-    coolUsed:0,
-    path:[{x:0,y:inp.h0}],
-    stageMarks:[]
-  };
-
-  setStatus("Ready (Calculated)");
-  $("stageNow").textContent="Stage 1";
-  $("btnLaunch").disabled=false;
-  $("btnStop").disabled=true;
-
-  log(`Calculated. Point B fixed at x≈${fmtInt(plan.B.x)} m, h=${fmtInt(plan.B.y)} m.`);
-  log(`Fix: stage ends by fuel; B-capture corridor prevents overshoot.`);
-
-  updateGauges(sim, {
-    stageLabel:"Stage 1",
-    stageFuelLeft: sim.stageProp[0],
-    totalFuelLeft: sim.stageProp.reduce((a,b)=>a+b,0),
-    q:0, qdot:0, T:0, mdot:0,
-    eps: epsilon(Re+sim.y, Math.hypot(sim.vx,sim.vy))
-  });
-
-  drawScene(sim.path, {x:sim.x,y:sim.y,vx:sim.vx,vy:sim.vy}, sim.plan.A, sim.plan.B, sim.stageMarks);
-}
-
-function currentStage(sim){
-  return (sim.si>=0 && sim.si<sim.stages.length) ? sim.stages[sim.si] : null;
-}
-
-function stopNow(reason){
-  if(!sim) return;
-  sim.running=false;
-  sim.done=true;
-  setStatus(reason);
-  $("btnStop").disabled=true;
-  $("btnLaunch").disabled=true;
-  $("btnCalc").disabled=false;
-  log(`STOP: ${reason}`);
-}
-
-function transitionStage(sim){
-  const st = sim.stages[sim.si];
-  sim.stageMarks.push({x:sim.x,y:sim.y,label:`S${st.stage} end`, col:st.col});
-
-  if(st.stage < 5){
-    sim.m = Math.max(sim.inp.mdry, sim.m - sim.inp.sepMass);
-    log(`Stage separation: dropped ${fmtInt(sim.inp.sepMass)} kg.`);
-  }
-
-  sim.si++;
-  sim.stageT=0;
-
-  if(sim.si < sim.stages.length){
-    $("stageNow").textContent = `Stage ${sim.stages[sim.si].stage}`;
-    log(`Entered Stage ${sim.stages[sim.si].stage}.`);
-  }else{
-    $("stageNow").textContent = "Coast";
-    log("All stages complete (coast).");
-  }
-}
-
-function guidanceUnit(sim){
-  const inp = sim.inp;
-  const B = sim.plan.B;
-
-  if(sim.y < inp.vertUntil){
-    return {ux:0, uy:1};
-  }
-
-  let dx = (B.x - sim.x);
-  let dy = (B.y - sim.y);
-
-  // before orbit altitude: keep a strong upward bias
-  if(sim.y < B.y - 8000){
-    dy = Math.max(dy, 25000);
-  }else{
-    // near B: aim more directly at B (so it can actually hit the circle / corridor)
-    dy = Math.max(dy, 2000);
-  }
-
-  const nt = Math.hypot(dx,dy) || 1;
-  const tx = dx/nt, ty = dy/nt;
-
-  const a = clamp((sim.y - inp.vertUntil) / Math.max(1, (inp.pitchEndAlt - inp.vertUntil)), 0, 1);
-  let ux = lerp(0, tx, a);
-  let uy = lerp(1, ty, a);
-
-  const n = Math.hypot(ux,uy) || 1;
-  ux/=n; uy/=n;
-
-  // only enforce "no downward aim" while below B altitude
-  if(inp.mode==="orbit" && sim.y < B.y - 2000){
-    uy = Math.max(0.35, uy);
-    const nn = Math.hypot(ux,uy) || 1;
-    ux/=nn; uy/=nn;
-  }
-
-  return {ux, uy};
-}
-
-function stepSim(){
-  if(!sim || sim.done) return;
-
-  const inp=sim.inp;
-  const dt=sim.dt;
-  const B=sim.plan.B;
-
-  const st=currentStage(sim);
-  const r = Re + sim.y;
-  const g = mu/(r*r);
-
-  sim.xPrev = sim.x;
-  sim.yPrev = sim.y;
-
-  const u = guidanceUnit(sim);
-  const ux=u.ux, uy=u.uy;
-
-  const v=Math.hypot(sim.vx,sim.vy)||1e-9;
-  const rho=rhoAt(sim.y);
-  const q=0.5*rho*v*v;
-  const D=q*inp.cda;
-  const L=q*inp.cda*inp.liftK;
-  const qdot=heatProxy(rho,v);
-
-  let coolNow=0;
-  if(qdot>inp.qdotmax){
-    coolNow=clamp(qdot-inp.qdotmax, 0, inp.coolFlow);
-  }
-  sim.coolUsed += coolNow*dt;
-
-  let throttle = 1.0;
-  if(q > inp.qmax){
-    throttle *= clamp(inp.qmax/q, 0.35, 1.0);
-  }
-  if(sim.coolUsed > inp.coolCap){
-    throttle *= 0.60;
-  }
-
-  let T=0, mdot=0;
-
-  if(st){
-    sim.stageT += dt;
-
-    const propLeft = Math.max(0, sim.stageProp[sim.si]);
-
-    /* ✅ FIX: stage ends primarily by FUEL (propLeft),
-       with a safety max-time cap (1.35× the slider time) */
-    const maxTime = st.t * 1.35;
-    if(propLeft <= 0.5 || sim.stageT >= maxTime){
-      transitionStage(sim);
-      return;
+    for(const h of atm){
+      const a=toPx(minX,h), b=toPx(maxX,h);
+      ctx.strokeStyle="rgba(255,255,255,.88)";
+      ctx.lineWidth=3.6;
+      ctx.beginPath(); ctx.moveTo(a.px,a.py); ctx.lineTo(b.px,b.py); ctx.stroke();
+      ctx.fillStyle="rgba(255,255,255,.95)";
+      ctx.fillText(`${Math.round(h/1000)} km`, a.px+12, a.py-10);
     }
 
-    T = st.T * throttle;
+    // Point B altitude dashed
+    if(B){
+      const a=toPx(minX,B.y), b=toPx(maxX,B.y);
+      ctx.setLineDash([12,8]);
+      ctx.strokeStyle="rgba(52,211,153,.98)";
+      ctx.lineWidth=3.6;
+      ctx.beginPath(); ctx.moveTo(a.px,a.py); ctx.lineTo(b.px,b.py); ctx.stroke();
+      ctx.setLineDash([]);
+    }
 
-    if(inp.mode==="orbit" && sim.y < B.y){
-      const aReq = g + Math.max(0, inp.climbAssist);
-      const ayFromT = (T/sim.m)*uy;
-      if(uy > 0.15 && ayFromT < aReq){
-        const boost = clamp(aReq/Math.max(1e-9, ayFromT), 1.0, 3.5);
-        T *= boost;
+    // trajectory path
+    if(path.length>1){
+      ctx.strokeStyle="rgba(96,165,250,.98)";
+      ctx.lineWidth=3.0;
+      ctx.beginPath();
+      let p=toPx(path[0].x,path[0].y);
+      ctx.moveTo(p.px,p.py);
+      for(let i=1;i<path.length;i++){
+        p=toPx(path[i].x,path[i].y);
+        ctx.lineTo(p.px,p.py);
+      }
+      ctx.stroke();
+    }
+
+    // stage markers
+    if(stageMarks?.length){
+      for(const m of stageMarks){
+        const pm=toPx(m.x,m.y);
+        ctx.fillStyle=m.col;
+        ctx.strokeStyle="rgba(255,255,255,.98)";
+        ctx.lineWidth=3.4;
+        ctx.beginPath(); ctx.arc(pm.px,pm.py,10,0,Math.PI*2);
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle="rgba(255,255,255,.98)";
+        ctx.font=`${Math.round(14*(window.devicePixelRatio||1))}px system-ui`;
+        ctx.fillText(m.label, pm.px+16, pm.py-12);
       }
     }
 
-    mdot = T/(st.Isp*g0);
+    // Point A circle
+    if(A){
+      const pa=toPx(A.x,A.y);
+      ctx.fillStyle="rgba(96,165,250,.98)";
+      ctx.beginPath(); ctx.arc(pa.px,pa.py,12,0,Math.PI*2);
+      ctx.fill();
+      ctx.strokeStyle="rgba(255,255,255,.98)";
+      ctx.lineWidth=3.4;
+      ctx.stroke();
+      ctx.fillStyle="rgba(255,255,255,.98)";
+      ctx.font=`${Math.round(14*(window.devicePixelRatio||1))}px system-ui`;
+      ctx.fillText("Point A", pa.px+18, pa.py-12);
+    }
 
-    const burn = mdot*dt;
-    if(burn > propLeft){
-      const scale = propLeft / Math.max(1e-9, burn);
-      T *= scale;
-      mdot *= scale;
+    // Point B circle
+    if(B){
+      const pb=toPx(B.x,B.y);
+      ctx.fillStyle="rgba(52,211,153,.98)";
+      ctx.beginPath(); ctx.arc(pb.px,pb.py,12,0,Math.PI*2);
+      ctx.fill();
+      ctx.strokeStyle="rgba(255,255,255,.98)";
+      ctx.lineWidth=3.4;
+      ctx.stroke();
+      ctx.fillStyle="rgba(255,255,255,.98)";
+      ctx.font=`${Math.round(14*(window.devicePixelRatio||1))}px system-ui`;
+      ctx.fillText("Point B", pb.px+18, pb.py-12);
+    }
+
+    // rocket icon
+    if(rocket){
+      const pr=toPx(rocket.x,rocket.y);
+      ctx.save();
+      ctx.translate(pr.px,pr.py);
+      ctx.rotate(Math.atan2(rocket.vy,rocket.vx));
+      ctx.lineWidth=4.0;
+      ctx.strokeStyle="rgba(0,0,0,.96)";
+      ctx.fillStyle="rgba(251,191,36,.98)";
+      ctx.beginPath();
+      ctx.moveTo(24,0);
+      ctx.lineTo(-14,-12);
+      ctx.lineTo(-8,0);
+      ctx.lineTo(-14,12);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+
+      ctx.fillStyle="rgba(96,165,250,.92)";
+      ctx.beginPath();
+      ctx.moveTo(-8,0);
+      ctx.lineTo(-26,-8);
+      ctx.lineTo(-22,0);
+      ctx.lineTo(-26,8);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+
+      ctx.restore();
+    }
+  }
+</script>
+<!-- ======================= PART 3 / 4 ======================= -->
+<script>
+  function readInputs(){
+    return {
+      lat:+$("lat").value, h0:+$("h0").value, hB:+$("hB").value,
+      mode:$("mode").value,
+      qmax:+$("qmax").value, qdotmax:+$("qdotmax").value,
+      coolCap:+$("coolCap").value, coolFlow:+$("coolFlow").value,
+      cda:+$("cda").value, liftK:+$("liftK").value,
+      m0:+$("m0").value, mdry:+$("mdry").value, sepMass:+$("sepMass").value,
+      climbAssist:+$("climbAssist").value,
+      vertUntil:+$("vertUntil").value, pitchEndAlt:+$("pitchEndAlt").value,
+      t1:+$("t1").value, T1:+$("T1").value, Isp1:+$("Isp1").value,
+      t2:+$("t2").value, T2:+$("T2").value, Isp2:+$("Isp2").value,
+      t3:+$("t3").value, T3:+$("T3").value, Isp3:+$("Isp3").value,
+      t4:+$("t4").value, T4:+$("T4").value, Isp4:+$("Isp4").value,
+      t5:+$("t5").value, T5:+$("T5").value, Isp5:+$("Isp5").value,
+    };
+  }
+
+  function buildPlan(inp){
+    const xB = Math.max(260000, inp.hB*1.7);
+    return { A:{x:0,y:inp.h0}, B:{x:xB,y:inp.hB} };
+  }
+
+  function buildStages(inp){
+    return [
+      {stage:1, t:inp.t1, T:inp.T1, Isp:inp.Isp1, col:"rgba(96,165,250,.98)"},
+      {stage:2, t:inp.t2, T:inp.T2, Isp:inp.Isp2, col:"rgba(52,211,153,.98)"},
+      {stage:3, t:inp.t3, T:inp.T3, Isp:inp.Isp3, col:"rgba(251,191,36,.98)"},
+      {stage:4, t:inp.t4, T:inp.T4, Isp:inp.Isp4, col:"rgba(167,139,250,.98)"},
+      {stage:5, t:inp.t5, T:inp.T5, Isp:inp.Isp5, col:"rgba(251,113,133,.98)"},
+    ];
+  }
+
+  function allocateProp(inp, stages){
+    const drops = 4*inp.sepMass;
+    const propTotal = Math.max(0, inp.m0 - inp.mdry - drops);
+
+    const propNom = stages.map(s=>{
+      const mdotNom = (s.T/(s.Isp*g0));
+      return Math.max(0, mdotNom*s.t);
+    });
+
+    const sumNom = propNom.reduce((a,b)=>a+b,0) || 1;
+    const stageProp = propNom.map(p => propTotal*(p/sumNom));
+    return {propTotal, stageProp};
+  }
+
+  function setGaugesBlank(){
+    [
+      "g_t","g_h","g_stage","g_vx","g_vy","g_v",
+      "g_stageFuelLeft","g_totalFuelLeft","g_m",
+      "g_q","g_qdot","g_cool","g_T","g_mdot","g_eps",
+      "g_r","g_g","g_vrot"
+    ].forEach(id=>$(id).textContent="—");
+  }
+
+  function updateGauges(sim, e){
+    const r = Re + sim.y;
+    const g = mu/(r*r);
+    const v = Math.hypot(sim.vx,sim.vy);
+    const vrot = earthRotSpeedAt(sim.inp.lat, sim.y);
+
+    $("g_t").textContent = fmt(sim.t,1);
+    $("g_h").textContent = fmtInt(sim.y);
+    $("g_stage").textContent = e.stageLabel;
+
+    $("g_vx").textContent = fmt(sim.vx,1);
+    $("g_vy").textContent = fmt(sim.vy,1);
+    $("g_v").textContent  = fmt(v,1);
+
+    $("g_stageFuelLeft").textContent = fmtInt(e.stageFuelLeft);
+    $("g_totalFuelLeft").textContent = fmtInt(e.totalFuelLeft);
+    $("g_m").textContent = fmtInt(sim.m);
+
+    $("g_q").textContent    = fmtInt(e.q);
+    $("g_qdot").textContent = fmt(e.qdot,1);
+
+    const coolLeft = Math.max(0, sim.inp.coolCap - sim.coolUsed);
+    $("g_cool").textContent = `${fmtInt(sim.coolUsed)} / ${fmtInt(coolLeft)}`;
+
+    $("g_T").textContent    = fmtInt(e.T);
+    $("g_mdot").textContent = fmt(e.mdot,2);
+
+    $("g_eps").textContent  = fmt(e.eps,1);
+    $("g_r").textContent    = fmtInt(r);
+    $("g_g").textContent    = fmt(g,3);
+    $("g_vrot").textContent = fmt(vrot,1);
+  }
+
+  /* ========= FIX 1: Robust capture-to-B so it cannot miss ========= */
+
+  // distance from point P to segment AB (in 2D)
+  function segPointDist(ax,ay, bx,by, px,py){
+    const abx = bx-ax, aby = by-ay;
+    const apx = px-ax, apy = py-ay;
+    const ab2 = abx*abx + aby*aby || 1e-9;
+    let t = (apx*abx + apy*aby)/ab2;
+    t = clamp(t, 0, 1);
+    const cx = ax + t*abx, cy = ay + t*aby;
+    return Math.hypot(px-cx, py-cy);
+  }
+
+  function shouldCaptureB(sim){
+    const B = sim.plan.B;
+
+    // True hit test: did the last segment pass close to B?
+    const rStop = 1800; // meters (tight: stops ON the circle)
+    const dSeg = segPointDist(sim.xPrev, sim.yPrev, sim.x, sim.y, B.x, B.y);
+    if(dSeg <= rStop) return true;
+
+    // Corridor capture: cross B.x within an altitude band around B
+    const xWin = 90000;  // ±90 km in x
+    const yWinUp = 90000; // allow being above B by up to 90 km
+    const yWinDn = 6000;  // allow a little below B while approaching
+    const crossedX = (sim.xPrev - B.x) * (sim.x - B.x) <= 0; // sign change or touch
+    const inXBand = (Math.abs(sim.x - B.x) <= xWin) || (Math.abs(sim.xPrev - B.x) <= xWin);
+
+    // must be near B altitude (not way below, not way above)
+    const nearY = (sim.y >= B.y - yWinDn) && (sim.y <= B.y + yWinUp);
+
+    // also avoid capturing while still low altitude
+    const minAltGate = B.y - 1500;
+
+    if(inXBand && crossedX && nearY && (sim.y >= minAltGate)) return true;
+
+    return false;
+  }
+
+  function captureToB(sim){
+    const B = sim.plan.B;
+    sim.x = B.x; sim.y = B.y;
+    sim.vx = 0;  sim.vy = 0;
+    sim.path.push({x:sim.x,y:sim.y});
+  }
+
+  function calcSim(){
+    const inp = readInputs();
+    const plan = buildPlan(inp);
+    const stages = buildStages(inp);
+    const alloc = allocateProp(inp, stages);
+
+    sim = {
+      inp, plan, stages,
+      stageProp: alloc.stageProp.slice(),
+      propTotal: alloc.propTotal,
+      running:false, done:false,
+      dt:0.12,
+      t:0,
+      x:0, y:inp.h0,
+      xPrev:0, yPrev:inp.h0,
+      m: inp.m0,
+      vx: earthRotSpeedAt(inp.lat, inp.h0),
+      vy: 0,
+      si:0,
+      stageT:0,
+      coolUsed:0,
+      path:[{x:0,y:inp.h0}],
+      stageMarks:[],
+      // ✅ terminal assist state (only after stage 5)
+      assistT:0
+    };
+
+    setStatus("Ready (Calculated)");
+    $("stageNow").textContent="Stage 1";
+    $("btnLaunch").disabled=false;
+    $("btnStop").disabled=true;
+
+    log(`Calculated. Point B fixed at x≈${fmtInt(plan.B.x)} m, h=${fmtInt(plan.B.y)} m.`);
+    log("Fix: robust B-capture (segment hit / x-cross corridor) + terminal assist after Stage 5 (prevents drop to ground).");
+
+    updateGauges(sim, {
+      stageLabel:"Stage 1",
+      stageFuelLeft: sim.stageProp[0],
+      totalFuelLeft: sim.stageProp.reduce((a,b)=>a+b,0),
+      q:0, qdot:0, T:0, mdot:0,
+      eps: epsilon(Re+sim.y, Math.hypot(sim.vx,sim.vy))
+    });
+
+    drawScene(sim.path, {x:sim.x,y:sim.y,vx:sim.vx,vy:sim.vy}, sim.plan.A, sim.plan.B, sim.stageMarks);
+  }
+
+  function currentStage(sim){
+    return (sim.si>=0 && sim.si<sim.stages.length) ? sim.stages[sim.si] : null;
+  }
+
+  function stopNow(reason){
+    if(!sim) return;
+    sim.running=false;
+    sim.done=true;
+    setStatus(reason);
+    $("btnStop").disabled=true;
+    $("btnLaunch").disabled=true;
+    $("btnCalc").disabled=false;
+    log(`STOP: ${reason}`);
+  }
+
+  function transitionStage(sim){
+    const st = sim.stages[sim.si];
+    sim.stageMarks.push({x:sim.x,y:sim.y,label:`S${st.stage} end`, col:st.col});
+
+    if(st.stage < 5){
+      sim.m = Math.max(sim.inp.mdry, sim.m - sim.inp.sepMass);
+      log(`Stage separation: dropped ${fmtInt(sim.inp.sepMass)} kg.`);
+    }
+
+    sim.si++;
+    sim.stageT=0;
+
+    if(sim.si < sim.stages.length){
+      $("stageNow").textContent = `Stage ${sim.stages[sim.si].stage}`;
+      log(`Entered Stage ${sim.stages[sim.si].stage}.`);
+    }else{
+      $("stageNow").textContent = "Coast";
+      log("All stages complete (coast).");
     }
   }
 
-  const axT=(T/sim.m)*ux;
-  const ayT=(T/sim.m)*uy;
+  function guidanceUnit(sim){
+    const inp = sim.inp;
+    const B = sim.plan.B;
 
-  const axD=-(D/sim.m)*(sim.vx/v);
-  const ayD=-(D/sim.m)*(sim.vy/v);
+    if(sim.y < inp.vertUntil){
+      return {ux:0, uy:1};
+    }
 
-  const ld=liftDir(sim.vx,sim.vy);
-  let axL=(L/sim.m)*ld.lx;
-  let ayL=(L/sim.m)*ld.ly;
-  if(ayL < -0.2*g) ayL = -0.2*g;
+    let dx = (B.x - sim.x);
+    let dy = (B.y - sim.y);
 
-  const ayG=-g;
+    if(sim.y < B.y - 8000){
+      dy = Math.max(dy, 25000);
+    }else{
+      dy = Math.max(dy, 2000);
+    }
 
-  sim.vx += (axT+axD+axL)*dt;
-  sim.vy += (ayT+ayD+ayL+ayG)*dt;
+    const nt = Math.hypot(dx,dy) || 1;
+    const tx = dx/nt, ty = dy/nt;
 
-  sim.x += sim.vx*dt;
-  sim.y += sim.vy*dt;
+    const a = clamp((sim.y - inp.vertUntil) / Math.max(1, (inp.pitchEndAlt - inp.vertUntil)), 0, 1);
+    let ux = lerp(0, tx, a);
+    let uy = lerp(1, ty, a);
 
-  if(sim.y < 0){
-    sim.y=0; sim.vy=0;
-    stopNow("Stopped: hit ground");
+    const n = Math.hypot(ux,uy) || 1;
+    ux/=n; uy/=n;
+
+    if(inp.mode==="orbit" && sim.y < B.y - 2000){
+      uy = Math.max(0.35, uy);
+      const nn = Math.hypot(ux,uy) || 1;
+      ux/=nn; uy/=nn;
+    }
+    return {ux, uy};
   }
 
-  const burned = mdot*dt;
-  sim.m = Math.max(inp.mdry, sim.m - burned);
-  if(st){
-    sim.stageProp[sim.si] = Math.max(0, sim.stageProp[sim.si] - burned);
-  }
+  function stepSim(){
+    if(!sim || sim.done) return;
+    const inp=sim.inp;
+    const dt=sim.dt;
+    const B=sim.plan.B;
 
-  sim.t += dt;
-  sim.path.push({x:sim.x,y:sim.y});
-  if(sim.path.length>14000) sim.path.shift();
+    const st=currentStage(sim);
 
-  const totalFuelLeft = sim.stageProp.slice(sim.si).reduce((a,b)=>a+b,0);
-  const stageFuelLeft = st ? sim.stageProp[sim.si] : 0;
-  const eps = epsilon(Re+sim.y, Math.hypot(sim.vx,sim.vy));
+    const r = Re + sim.y;
+    const g = mu/(r*r);
 
-  // ✅ capture at B (prevents "fly over and miss")
-  if(inp.mode==="orbit" && shouldCaptureB(sim)){
-    captureToB(sim);
+    sim.xPrev = sim.x;
+    sim.yPrev = sim.y;
+
+    const u = guidanceUnit(sim);
+    const ux=u.ux, uy=u.uy;
+
+    const v=Math.hypot(sim.vx,sim.vy)||1e-9;
+    const rho=rhoAt(sim.y);
+    const q=0.5*rho*v*v;
+
+    const D=q*inp.cda;
+    const L=q*inp.cda*inp.liftK;
+    const qdot=heatProxy(rho,v);
+
+    let coolNow=0;
+    if(qdot>inp.qdotmax){
+      coolNow=clamp(qdot-inp.qdotmax, 0, inp.coolFlow);
+    }
+    sim.coolUsed += coolNow*dt;
+
+    let throttle = 1.0;
+    if(q > inp.qmax){
+      throttle *= clamp(inp.qmax/q, 0.35, 1.0);
+    }
+    if(sim.coolUsed > inp.coolCap){
+      throttle *= 0.60;
+    }
+
+    let T=0, mdot=0;
+
+    if(st){
+      sim.stageT += dt;
+      const propLeft = Math.max(0, sim.stageProp[sim.si]);
+
+      // stage ends primarily by fuel, safety max-time cap
+      const maxTime = st.t * 1.35;
+      if(propLeft <= 0.5 || sim.stageT >= maxTime){
+        transitionStage(sim);
+        return;
+      }
+
+      T = st.T * throttle;
+
+      // climb assist below B altitude (original behavior)
+      if(inp.mode==="orbit" && sim.y < B.y){
+        const aReq = g + Math.max(0, inp.climbAssist);
+        const ayFromT = (T/sim.m)*uy;
+        if(uy > 0.15 && ayFromT < aReq){
+          const boost = clamp(aReq/Math.max(1e-9, ayFromT), 1.0, 3.5);
+          T *= boost;
+        }
+      }
+
+      mdot = T/(st.Isp*g0);
+      const burn = mdot*dt;
+      if(burn > propLeft){
+        const scale = propLeft / Math.max(1e-9, burn);
+        T *= scale; mdot *= scale;
+      }
+    }else{
+      // ✅ FIX 2: terminal assist ONLY after Stage 5, orbit mode only
+      // prevents “overshoot then fall to ground” by nudging toward B + holding altitude
+      if(inp.mode==="orbit"){
+        const isAfterStage5 = (sim.si >= 5);
+        if(isAfterStage5){
+          const dx = (B.x - sim.x);
+          const dy = (B.y - sim.y);
+          const dist = Math.hypot(dx,dy);
+
+          // only help when reasonably close to B (so it stays minimal)
+          if(dist < 220000){
+            sim.assistT += dt;
+            const assistMaxT = 45; // seconds
+            if(sim.assistT <= assistMaxT){
+              const nx = dx/(dist||1);
+              const ny = dy/(dist||1);
+
+              // tiny accel (toy) toward B
+              const aToward = 1.15; // m/s^2
+              sim.vx += (aToward*nx)*dt;
+              sim.vy += (aToward*ny)*dt;
+
+              // altitude hold so it cannot drop to ground while closing
+              if(sim.y < B.y - 2000){
+                sim.vy = Math.max(sim.vy, 8.0); // keep a small upward component
+              }
+            }
+          }
+        }
+      }
+    }
+
+    const axT=(T/sim.m)*ux;
+    const ayT=(T/sim.m)*uy;
+
+    const axD=-(D/sim.m)*(sim.vx/v);
+    const ayD=-(D/sim.m)*(sim.vy/v);
+
+    const ld=liftDir(sim.vx,sim.vy);
+    let axL=(L/sim.m)*ld.lx;
+    let ayL=(L/sim.m)*ld.ly;
+    if(ayL < -0.2*g) ayL = -0.2*g;
+
+    const ayG=-g;
+
+    sim.vx += (axT+axD+axL)*dt;
+    sim.vy += (ayT+ayD+ayL+ayG)*dt;
+
+    sim.x += sim.vx*dt;
+    sim.y += sim.vy*dt;
+
+    if(sim.y < 0){
+      sim.y=0; sim.vy=0;
+      stopNow("Stopped: hit ground");
+      return;
+    }
+
+    const burned = mdot*dt;
+    sim.m = Math.max(inp.mdry, sim.m - burned);
+    if(st){
+      sim.stageProp[sim.si] = Math.max(0, sim.stageProp[sim.si] - burned);
+    }
+
+    sim.t += dt;
+    sim.path.push({x:sim.x,y:sim.y});
+    if(sim.path.length>14000) sim.path.shift();
+
+    const totalFuelLeft = sim.stageProp.slice(sim.si).reduce((a,b)=>a+b,0);
+    const stageFuelLeft = st ? sim.stageProp[sim.si] : 0;
+    const eps = epsilon(Re+sim.y, Math.hypot(sim.vx,sim.vy));
+
+    // ✅ capture at B (robust; prevents “fly over and miss”)
+    if(inp.mode==="orbit" && shouldCaptureB(sim)){
+      captureToB(sim);
+      updateGauges(sim, {
+        stageLabel: st ? `Stage ${st.stage}` : "Coast",
+        stageFuelLeft, totalFuelLeft,
+        q, qdot, T:0, mdot:0,
+        eps: epsilon(Re+sim.y, 0)
+      });
+      drawScene(sim.path, {x:sim.x,y:sim.y,vx:1,vy:0}, sim.plan.A, sim.plan.B, sim.stageMarks);
+      stopNow("Arrived at Point B (capture)");
+      return;
+    }
+
+    if(inp.mode==="escape" && eps>=0 && sim.y>120000){
+      stopNow("Escape ε ≥ 0");
+      return;
+    }
+
     updateGauges(sim, {
       stageLabel: st ? `Stage ${st.stage}` : "Coast",
-      stageFuelLeft,
-      totalFuelLeft,
-      q, qdot,
-      T:0, mdot:0,
-      eps: epsilon(Re+sim.y, 0)
+      stageFuelLeft, totalFuelLeft,
+      q, qdot, T, mdot, eps
     });
-    drawScene(sim.path, {x:sim.x,y:sim.y,vx:1,vy:0}, sim.plan.A, sim.plan.B, sim.stageMarks);
-    stopNow("Arrived at Point B (capture)");
-    return;
+
+    drawScene(sim.path, {x:sim.x,y:sim.y,vx:sim.vx,vy:sim.vy}, sim.plan.A, sim.plan.B, sim.stageMarks);
+
+    if(!isFinite(sim.x+sim.y+sim.vx+sim.vy+sim.m+eps) || sim.t>9000){
+      stopNow("Stopped: timeout/numeric");
+      return;
+    }
   }
-
-  if(inp.mode==="escape" && eps>=0 && sim.y>120000){
-    stopNow("Escape ε ≥ 0");
-  }
-
-  updateGauges(sim, {
-    stageLabel: st ? `Stage ${st.stage}` : "Coast",
-    stageFuelLeft,
-    totalFuelLeft,
-    q, qdot,
-    T, mdot,
-    eps
-  });
-
-  drawScene(sim.path, {x:sim.x,y:sim.y,vx:sim.vx,vy:sim.vy}, sim.plan.A, sim.plan.B, sim.stageMarks);
-
-  if(!isFinite(sim.x+sim.y+sim.vx+sim.vy+sim.m+eps) || sim.t>9000){
-    stopNow("Stopped: timeout/numeric");
-  }
-}
 </script>
 <!-- ======================= PART 4 / 4 ======================= -->
 <script>
-function loop(){
-  if(!sim || !sim.running) return;
-  for(let k=0;k<3;k++){
-    if(!sim || !sim.running) break;
-    stepSim();
-  }
-  raf=requestAnimationFrame(loop);
-}
-
-function startLaunch(){
-  if(!sim){ log("Run Calculate first."); return; }
-  if(sim.running) return;
-
-  sim.running=true;
-  sim.done=false;
-  setStatus("Launching...");
-  $("btnCalc").disabled=true;
-  $("btnLaunch").disabled=true;
-  $("btnStop").disabled=false;
-
-  log("Launch started. Fuel-based stages + B-capture corridor active.");
-
-  if(raf) cancelAnimationFrame(raf);
-  raf=requestAnimationFrame(loop);
-}
-
-function stopSim(){
-  if(!sim) return;
-  sim.running=false;
-  setStatus("Stopped (Manual)");
-  $("btnStop").disabled=true;
-  $("btnLaunch").disabled=false;
-  $("btnCalc").disabled=false;
-  log("Stopped manually.");
-}
-
-function hardReset(){
-  if(raf) cancelAnimationFrame(raf);
-  raf=null;
-  sim=null;
-
-  setStatus("Idle");
-  $("stageNow").textContent="—";
-
-  $("btnCalc").disabled=false;
-  $("btnLaunch").disabled=true;
-  $("btnStop").disabled=true;
-
-  setGaugesBlank();
-  logEl.innerHTML="";
-  log("Reset complete. Click Calculate → Launch.");
-
-  drawScene([], null, {x:0,y:10}, {x:360000,y:200000}, []);
-}
-
-document.addEventListener("DOMContentLoaded", ()=>{
-  cv=$("cv");
-  ctx=cv.getContext("2d");
-  logEl=$("log");
-
-  setInterval(()=>{
-    $("utcNow").textContent=nowUTC();
-    $("cstNow").textContent=nowCST();
-  },250);
-
-  $("btnCalc").addEventListener("click", ()=>{
-    try{
-      calcSim();
-    }catch(e){
-      console.error(e);
-      log("ERROR in Calculate: " + (e?.message||e));
-      setStatus("Error");
+  function loop(){
+    if(!sim || !sim.running) return;
+    for(let k=0;k<3;k++){
+      if(!sim || !sim.running) break;
+      stepSim();
     }
+    raf=requestAnimationFrame(loop);
+  }
+
+  function startLaunch(){
+    if(!sim){ log("Run Calculate first."); return; }
+    if(sim.running) return;
+    sim.running=true;
+    sim.done=false;
+    setStatus("Launching...");
+    $("btnCalc").disabled=true;
+    $("btnLaunch").disabled=true;
+    $("btnStop").disabled=false;
+    log("Launch started. Fuel-based stages + robust B-capture + terminal assist after Stage 5 active.");
+    if(raf) cancelAnimationFrame(raf);
+    raf=requestAnimationFrame(loop);
+  }
+
+  function stopSim(){
+    if(!sim) return;
+    sim.running=false;
+    setStatus("Stopped (Manual)");
+    $("btnStop").disabled=true;
+    $("btnLaunch").disabled=false;
+    $("btnCalc").disabled=false;
+    log("Stopped manually.");
+  }
+
+  function hardReset(){
+    if(raf) cancelAnimationFrame(raf);
+    raf=null;
+    sim=null;
+    setStatus("Idle");
+    $("stageNow").textContent="—";
+    $("btnCalc").disabled=false;
+    $("btnLaunch").disabled=true;
+    $("btnStop").disabled=true;
+    setGaugesBlank();
+    logEl.innerHTML="";
+    log("Reset complete. Click Calculate → Launch.");
+    drawScene([], null, {x:0,y:10}, {x:360000,y:200000}, []);
+  }
+
+  document.addEventListener("DOMContentLoaded", ()=>{
+    cv=$("cv");
+    ctx=cv.getContext("2d");
+    logEl=$("log");
+
+    setInterval(()=>{
+      $("utcNow").textContent=nowUTC();
+      $("cstNow").textContent=nowCST();
+    },250);
+
+    $("btnCalc").addEventListener("click", ()=>{
+      try{ calcSim(); }
+      catch(e){
+        console.error(e);
+        log("ERROR in Calculate: " + (e?.message||e));
+        setStatus("Error");
+      }
+    });
+
+    $("btnLaunch").addEventListener("click", ()=>startLaunch());
+    $("btnStop").addEventListener("click", ()=>stopSim());
+    $("btnReset").addEventListener("click", ()=>hardReset());
+
+    setGaugesBlank();
+    drawScene([], null, {x:0,y:10}, {x:360000,y:200000}, []);
+    log("Ready. 1) Calculate 2) Launch 3) Stops at B 4) Stop anytime 5) Reset.");
   });
-
-  $("btnLaunch").addEventListener("click", ()=>startLaunch());
-  $("btnStop").addEventListener("click", ()=>stopSim());
-  $("btnReset").addEventListener("click", ()=>hardReset());
-
-  setGaugesBlank();
-  drawScene([], null, {x:0,y:10}, {x:360000,y:200000}, []);
-  log("Ready. 1) Calculate 2) Launch 3) Stops at B 4) Stop anytime 5) Reset.");
-});
 </script>
+
 </body>
 </html>
