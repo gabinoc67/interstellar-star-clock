@@ -1,14 +1,10 @@
 <!-- ======================= PART 1 / 4 =======================
 Rocket Corridor A→B — 5 Stages — Arrive at Point B
-FIX (only what you asked):
-✅ Rocket MUST stop at Point B circle (not drop to ground after overshoot)
+FIX (only what you asked now):
+✅ Move Point B circle closer to the trajectory so capture happens
 
-What changed (minimal):
-1) Stronger “capture to B”:
-   - Captures if the segment (prev→current) passes within rStop of B (true hit test)
-   - OR if it crosses B.x inside a wide corridor band near B altitude
-2) If stages end and it still hasn’t captured, a tiny “terminal assist” prevents falling
-   while it finishes closing the last distance to B (ONLY after Stage 5; orbit mode only).
+Minimal change:
+- buildPlan(): xB uses inp.hB*1.05 instead of inp.hB*1.7
 Everything else unchanged.
 ============================================================== -->
 <!doctype html>
@@ -206,8 +202,7 @@ Everything else unchanged.
           <div class="hint">
             Fix: stages end by <b>fuel</b> (not time), and the path snaps to <b>Point B</b> when it crosses the B-capture corridor.
             <br><br>
-            <b>New fix you asked:</b> rocket now cannot “miss B then fall to ground.” It will capture to B (segment hit / x-cross corridor),
-            and if fuel ends it gets a tiny terminal assist until it reaches B.
+            <b>New fix you asked:</b> Point B circle moved closer to the path so the rocket can capture and stop ON B.
           </div>
 
           <div class="small" style="margin-top:12px"><b>Stages 1 → 5</b></div>
@@ -549,7 +544,8 @@ Everything else unchanged.
   }
 
   function buildPlan(inp){
-    const xB = Math.max(260000, inp.hB*1.7);
+    /* ✅ ONLY CHANGE: move Point B closer in X so the trajectory reaches it */
+    const xB = Math.max(180000, inp.hB*1.05);
     return { A:{x:0,y:inp.h0}, B:{x:xB,y:inp.hB} };
   }
 
@@ -621,7 +617,6 @@ Everything else unchanged.
 
   /* ========= FIX 1: Robust capture-to-B so it cannot miss ========= */
 
-  // distance from point P to segment AB (in 2D)
   function segPointDist(ax,ay, bx,by, px,py){
     const abx = bx-ax, aby = by-ay;
     const apx = px-ax, apy = py-ay;
@@ -635,26 +630,20 @@ Everything else unchanged.
   function shouldCaptureB(sim){
     const B = sim.plan.B;
 
-    // True hit test: did the last segment pass close to B?
-    const rStop = 1800; // meters (tight: stops ON the circle)
+    const rStop = 1800;
     const dSeg = segPointDist(sim.xPrev, sim.yPrev, sim.x, sim.y, B.x, B.y);
     if(dSeg <= rStop) return true;
 
-    // Corridor capture: cross B.x within an altitude band around B
-    const xWin = 90000;  // ±90 km in x
-    const yWinUp = 90000; // allow being above B by up to 90 km
-    const yWinDn = 6000;  // allow a little below B while approaching
-    const crossedX = (sim.xPrev - B.x) * (sim.x - B.x) <= 0; // sign change or touch
+    const xWin = 90000;
+    const yWinUp = 90000;
+    const yWinDn = 6000;
+    const crossedX = (sim.xPrev - B.x) * (sim.x - B.x) <= 0;
     const inXBand = (Math.abs(sim.x - B.x) <= xWin) || (Math.abs(sim.xPrev - B.x) <= xWin);
 
-    // must be near B altitude (not way below, not way above)
     const nearY = (sim.y >= B.y - yWinDn) && (sim.y <= B.y + yWinUp);
-
-    // also avoid capturing while still low altitude
     const minAltGate = B.y - 1500;
 
     if(inXBand && crossedX && nearY && (sim.y >= minAltGate)) return true;
-
     return false;
   }
 
@@ -688,7 +677,6 @@ Everything else unchanged.
       coolUsed:0,
       path:[{x:0,y:inp.h0}],
       stageMarks:[],
-      // ✅ terminal assist state (only after stage 5)
       assistT:0
     };
 
@@ -827,7 +815,6 @@ Everything else unchanged.
       sim.stageT += dt;
       const propLeft = Math.max(0, sim.stageProp[sim.si]);
 
-      // stage ends primarily by fuel, safety max-time cap
       const maxTime = st.t * 1.35;
       if(propLeft <= 0.5 || sim.stageT >= maxTime){
         transitionStage(sim);
@@ -836,7 +823,6 @@ Everything else unchanged.
 
       T = st.T * throttle;
 
-      // climb assist below B altitude (original behavior)
       if(inp.mode==="orbit" && sim.y < B.y){
         const aReq = g + Math.max(0, inp.climbAssist);
         const ayFromT = (T/sim.m)*uy;
@@ -853,8 +839,6 @@ Everything else unchanged.
         T *= scale; mdot *= scale;
       }
     }else{
-      // ✅ FIX 2: terminal assist ONLY after Stage 5, orbit mode only
-      // prevents “overshoot then fall to ground” by nudging toward B + holding altitude
       if(inp.mode==="orbit"){
         const isAfterStage5 = (sim.si >= 5);
         if(isAfterStage5){
@@ -862,22 +846,19 @@ Everything else unchanged.
           const dy = (B.y - sim.y);
           const dist = Math.hypot(dx,dy);
 
-          // only help when reasonably close to B (so it stays minimal)
           if(dist < 220000){
             sim.assistT += dt;
-            const assistMaxT = 45; // seconds
+            const assistMaxT = 45;
             if(sim.assistT <= assistMaxT){
               const nx = dx/(dist||1);
               const ny = dy/(dist||1);
 
-              // tiny accel (toy) toward B
-              const aToward = 1.15; // m/s^2
+              const aToward = 1.15;
               sim.vx += (aToward*nx)*dt;
               sim.vy += (aToward*ny)*dt;
 
-              // altitude hold so it cannot drop to ground while closing
               if(sim.y < B.y - 2000){
-                sim.vy = Math.max(sim.vy, 8.0); // keep a small upward component
+                sim.vy = Math.max(sim.vy, 8.0);
               }
             }
           }
@@ -924,7 +905,6 @@ Everything else unchanged.
     const stageFuelLeft = st ? sim.stageProp[sim.si] : 0;
     const eps = epsilon(Re+sim.y, Math.hypot(sim.vx,sim.vy));
 
-    // ✅ capture at B (robust; prevents “fly over and miss”)
     if(inp.mode==="orbit" && shouldCaptureB(sim)){
       captureToB(sim);
       updateGauges(sim, {
