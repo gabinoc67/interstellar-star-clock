@@ -1,0 +1,901 @@
+<!-- ======================= PART 1 / 4 =======================
+Mach-10 “Field-Managed Vehicle” + CST Time Sync (Toy Simulator)
+- Purpose: show a coherent engineering story where air becomes a controllable medium
+  (ionization + EM/MHD boundary control + cooling + phase-sync control loop)
+- Not real flight dynamics; it’s a dashboard-style “physics + control narrative” sim
+============================================================== -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Mach-10 Field-Managed Vehicle (Tesla-Style Air-as-Medium) + CST Sync</title>
+<style>
+  :root{
+    color-scheme: dark;
+    --bg:#060912;
+    --panel:#0f172a;
+    --panel2:#0b1222;
+    --ink:#e5e7eb;
+    --muted:#9aa4c7;
+    --line:rgba(148,163,184,.20);
+    --accent:#60a5fa;
+    --good:#34d399;
+    --warn:#fbbf24;
+    --bad:#fb7185;
+    --shadow:0 18px 55px rgba(0,0,0,.45);
+  }
+  html,body{height:100%; margin:0; background:var(--bg); color:var(--ink); font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif; overflow:hidden;}
+  canvas{position:fixed; inset:0;}
+  .wrap{
+    position:fixed; inset:0; display:grid;
+    grid-template-columns: 360px 1fr 380px;
+    grid-template-rows: auto 1fr auto;
+    gap:10px; padding:10px;
+    pointer-events:none;
+  }
+  .panel{
+    pointer-events:auto;
+    background:linear-gradient(180deg, rgba(15,23,42,.92), rgba(11,18,34,.86));
+    border:1px solid rgba(120,170,255,.35);
+    border-radius:16px;
+    box-shadow:var(--shadow);
+    backdrop-filter: blur(10px);
+    overflow:hidden;
+  }
+  .ph{padding:10px 12px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; gap:10px;}
+  .ph h3{margin:0; font-size:13px; letter-spacing:.3px; font-weight:700; color:#eaf2ff;}
+  .tag{font-size:11px; color:var(--muted); border:1px solid var(--line); padding:3px 8px; border-radius:999px;}
+  .pc{padding:10px 12px;}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:8px;}
+  .grid1{display:grid; grid-template-columns:1fr; gap:8px;}
+  .row{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 10px; border:1px solid var(--line); border-radius:12px; background:rgba(2,6,23,.35);}
+  .row .k{font-size:11px; color:var(--muted);}
+  .row .v{font-variant-numeric: tabular-nums; font-size:12px; font-weight:700;}
+  .btns{display:flex; gap:8px; flex-wrap:wrap;}
+  button{
+    cursor:pointer;
+    border:1px solid rgba(120,170,255,.35);
+    background:rgba(10,18,40,.7);
+    color:var(--ink);
+    border-radius:12px;
+    padding:8px 10px;
+    font-weight:700;
+    font-size:12px;
+  }
+  button:hover{border-color:rgba(160,210,255,.55);}
+  button:active{transform:translateY(1px);}
+  .btnStart{border-color:rgba(52,211,153,.45);}
+  .btnStop{border-color:rgba(251,191,36,.45);}
+  .btnReset{border-color:rgba(251,113,133,.45);}
+  .hint{font-size:11px; color:var(--muted); line-height:1.35;}
+  .sliderRow{display:grid; grid-template-columns: 1fr 92px; gap:10px; align-items:center;}
+  input[type="range"]{width:100%;}
+  input[type="number"]{
+    width:92px; box-sizing:border-box;
+    background:rgba(2,6,23,.55); border:1px solid var(--line);
+    color:var(--ink); border-radius:10px; padding:7px 8px; font-weight:700;
+  }
+  .bar{
+    height:9px; border-radius:999px; background:rgba(148,163,184,.18);
+    overflow:hidden; border:1px solid rgba(148,163,184,.15);
+  }
+  .bar > i{display:block; height:100%; width:50%; background:rgba(96,165,250,.75);}
+  .bar.good > i{background:rgba(52,211,153,.75);}
+  .bar.warn > i{background:rgba(251,191,36,.78);}
+  .bar.bad > i{background:rgba(251,113,133,.78);}
+  .mini{font-size:10px; color:var(--muted);}
+  .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;}
+  /* layout slots */
+  #pControls{grid-column:1; grid-row:1 / span 2;}
+  #pExplain{grid-column:1; grid-row:3;}
+  #pFlight{grid-column:2; grid-row:1 / span 3;}
+  #pStages{grid-column:3; grid-row:1;}
+  #pData{grid-column:3; grid-row:2;}
+  #pEnergy{grid-column:3; grid-row:3;}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+
+<div class="wrap">
+  <!-- LEFT: Controls -->
+  <section class="panel" id="pControls">
+    <div class="ph">
+      <h3>Controls & Inputs</h3>
+      <span class="tag">Start → Edge of Space → Continue</span>
+    </div>
+    <div class="pc grid1">
+      <div class="btns">
+        <button class="btnStart" id="btnStart">START</button>
+        <button class="btnStop" id="btnStop">STOP</button>
+        <button class="btnReset" id="btnReset">RESET</button>
+      </div>
+
+      <div class="row">
+        <div>
+          <div class="k">Mode</div>
+          <div class="v" id="uiMode">Ready</div>
+        </div>
+        <div style="text-align:right">
+          <div class="k">Sim Time</div>
+          <div class="v mono" id="uiT">0.0 s</div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <div class="k">Target</div>
+          <div class="v">Mach 10 → 100 km → Cruise</div>
+        </div>
+        <div style="text-align:right">
+          <div class="k">CST Sync</div>
+          <div class="v mono" id="uiCST">0.00</div>
+        </div>
+      </div>
+
+      <div class="row" style="display:block;">
+        <div class="k" style="margin-bottom:6px;">Vehicle / Mission</div>
+        <div class="grid2">
+          <div>
+            <div class="mini">Takeoff Mass (kg)</div>
+            <div class="sliderRow">
+              <input id="m0" type="range" min="80000" max="400000" step="1000" value="180000">
+              <input id="m0n" type="number" value="180000">
+            </div>
+          </div>
+          <div>
+            <div class="mini">Fuel (kg)</div>
+            <div class="sliderRow">
+              <input id="fuel0" type="range" min="15000" max="220000" step="1000" value="90000">
+              <input id="fuel0n" type="number" value="90000">
+            </div>
+          </div>
+          <div>
+            <div class="mini">Thrust Max (kN)</div>
+            <div class="sliderRow">
+              <input id="thkN" type="range" min="200" max="3200" step="10" value="1400">
+              <input id="thkNn" type="number" value="1400">
+            </div>
+          </div>
+          <div>
+            <div class="mini">Cd Base</div>
+            <div class="sliderRow">
+              <input id="cd0" type="range" min="0.06" max="0.35" step="0.01" value="0.16">
+              <input id="cd0n" type="number" step="0.01" value="0.16">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row" style="display:block;">
+        <div class="k" style="margin-bottom:6px;">Tesla-style “Air as Medium” knobs (live control loop)</div>
+        <div class="grid2">
+          <div>
+            <div class="mini">Ionization χ (0–1)</div>
+            <div class="sliderRow">
+              <input id="chi" type="range" min="0" max="1" step="0.01" value="0.25">
+              <input id="chin" type="number" step="0.01" value="0.25">
+            </div>
+          </div>
+          <div>
+            <div class="mini">MHD Coupling K (0–1)</div>
+            <div class="sliderRow">
+              <input id="kmhd" type="range" min="0" max="1" step="0.01" value="0.35">
+              <input id="kmhdn" type="number" step="0.01" value="0.35">
+            </div>
+          </div>
+          <div>
+            <div class="mini">CST Phase Coherence C (0–1)</div>
+            <div class="sliderRow">
+              <input id="csync" type="range" min="0" max="1" step="0.01" value="0.55">
+              <input id="csyncn" type="number" step="0.01" value="0.55">
+            </div>
+          </div>
+          <div>
+            <div class="mini">HV Pulse Duty (0–1)</div>
+            <div class="sliderRow">
+              <input id="duty" type="range" min="0" max="1" step="0.01" value="0.28">
+              <input id="dutyn" type="number" step="0.01" value="0.28">
+            </div>
+          </div>
+        </div>
+        <div class="hint" style="margin-top:8px;">
+          <b>Interpretation:</b> HV pulses create a controllable ion layer. With coupling (K), EM fields push the
+          ionized flow (J×B) to reshape shocks / boundary layer, easing drag spikes + inlet stability.
+          CST coherence (C) is your “timing health” for phased actuation so it stays stable as the air changes with altitude.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CENTER: Flight view -->
+  <section class="panel" id="pFlight">
+    <div class="ph">
+      <h3>Flight View (Earth Curvature + Atmospheric Bands)</h3>
+      <span class="tag mono" id="uiMachTag">Mach 0.00</span>
+    </div>
+    <div class="pc">
+      <div class="hint">
+        Aircraft moves left→right continuously. It climbs through atmospheric stages (sea level → stratosphere → mesosphere → thermosphere → edge of space),
+        then continues stable cruise beyond 100 km while panels keep updating.
+      </div>
+    </div>
+  </section>
+
+  <!-- RIGHT TOP: Stages -->
+  <section class="panel" id="pStages">
+    <div class="ph">
+      <h3>Atmospheric Stages</h3>
+      <span class="tag">Auto</span>
+    </div>
+    <div class="pc grid1">
+      <div class="row">
+        <div>
+          <div class="k">Current Band</div>
+          <div class="v" id="uiBand">—</div>
+        </div>
+        <div style="text-align:right">
+          <div class="k">Altitude</div>
+          <div class="v mono" id="uiAlt">0 m</div>
+        </div>
+      </div>
+
+      <div class="row" style="display:block;">
+        <div class="k" style="margin-bottom:6px;">Band Progress</div>
+        <div class="bar good"><i id="barBand"></i></div>
+        <div class="mini" id="uiBandNote" style="margin-top:6px;">—</div>
+      </div>
+
+      <div class="row" style="display:block;">
+        <div class="k" style="margin-bottom:6px;">Inlet / Shock Stability (toy margin)</div>
+        <div class="bar"><i id="barStab"></i></div>
+        <div class="mini" id="uiStab">—</div>
+      </div>
+
+      <div class="row" style="display:block;">
+        <div class="k" style="margin-bottom:6px;">“Air as Medium” Effectiveness</div>
+        <div class="bar"><i id="barEff"></i></div>
+        <div class="mini" id="uiEff">—</div>
+      </div>
+    </div>
+  </section>
+<!-- ======================= PART 2 / 4 ======================= -->
+  <!-- RIGHT MID: Data -->
+  <section class="panel" id="pData">
+    <div class="ph">
+      <h3>Live Flight Data</h3>
+      <span class="tag">All Live</span>
+    </div>
+    <div class="pc grid1">
+      <div class="grid2">
+        <div class="row"><div class="k">Speed</div><div class="v mono" id="uiV">0 m/s</div></div>
+        <div class="row"><div class="k">Mach</div><div class="v mono" id="uiMach">0.00</div></div>
+
+        <div class="row"><div class="k">ρ (air density)</div><div class="v mono" id="uiRho">—</div></div>
+        <div class="row"><div class="k">q̄ (dyn pressure)</div><div class="v mono" id="uiQ">—</div></div>
+
+        <div class="row"><div class="k">Drag (kN)</div><div class="v mono" id="uiD">—</div></div>
+        <div class="row"><div class="k">Cd′ (field-modified)</div><div class="v mono" id="uiCd">—</div></div>
+
+        <div class="row"><div class="k">Heat Flux (toy)</div><div class="v mono" id="uiHeat">—</div></div>
+        <div class="row"><div class="k">Heat q̇′ (reduced)</div><div class="v mono" id="uiHeat2">—</div></div>
+
+        <div class="row"><div class="k">Skin Temp</div><div class="v mono" id="uiTemp">—</div></div>
+        <div class="row"><div class="k">Coolant</div><div class="v mono" id="uiCool">—</div></div>
+      </div>
+
+      <div class="row" style="display:block;">
+        <div class="k" style="margin-bottom:6px;">Thermal Margin</div>
+        <div class="bar"><i id="barTherm"></i></div>
+        <div class="mini" id="uiTherm">—</div>
+      </div>
+
+      <div class="row" style="display:block;">
+        <div class="k" style="margin-bottom:6px;">Plasma Layer (conductivity proxy)</div>
+        <div class="bar"><i id="barPlasma"></i></div>
+        <div class="mini" id="uiPlasma">—</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- RIGHT BOT: Energy / Fuel / Electric -->
+  <section class="panel" id="pEnergy">
+    <div class="ph">
+      <h3>Fuel • Electricity • Control</h3>
+      <span class="tag">HV + Phasing</span>
+    </div>
+    <div class="pc grid1">
+      <div class="grid2">
+        <div class="row"><div class="k">Mass</div><div class="v mono" id="uiM">—</div></div>
+        <div class="row"><div class="k">Fuel Left</div><div class="v mono" id="uiFuel">—</div></div>
+
+        <div class="row"><div class="k">Throttle</div><div class="v mono" id="uiThr">—</div></div>
+        <div class="row"><div class="k">T/W (toy)</div><div class="v mono" id="uiTW">—</div></div>
+
+        <div class="row"><div class="k">HV Power</div><div class="v mono" id="uiHV">—</div></div>
+        <div class="row"><div class="k">Battery</div><div class="v mono" id="uiBatt">—</div></div>
+      </div>
+
+      <div class="row" style="display:block;">
+        <div class="k" style="margin-bottom:6px;">Battery State</div>
+        <div class="bar good"><i id="barBatt"></i></div>
+        <div class="mini" id="uiBattNote">—</div>
+      </div>
+
+      <div class="row" style="display:block;">
+        <div class="k" style="margin-bottom:6px;">CST Sync Health</div>
+        <div class="bar"><i id="barCST"></i></div>
+        <div class="mini" id="uiCSTNote">—</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LEFT BOTTOM: Explanation -->
+  <section class="panel" id="pExplain">
+    <div class="ph">
+      <h3>What This Proves (in the simulator)</h3>
+      <span class="tag">Narrative</span>
+    </div>
+    <div class="pc">
+      <div class="hint">
+        <b>1) Air becomes a controllable medium:</b> HV pulses create ionization (χ). With coupling (K),
+        EM forces act on the charged flow (J×B) to reshape shocks/boundary layer (lower Cd′, reduce peak heating q̇′, improve stability).
+        <br><br>
+        <b>2) Tesla-style engineering:</b> high-voltage, low-current, pulsed actuation + power electronics → controlled plasma without constant arcing.
+        <br><br>
+        <b>3) CST time synchronization:</b> phased pulses must stay coherent as density/temperature changes with altitude.
+        Higher CST coherence (C) means the “traveling wave” actuation stays aligned, keeping inlet/shock control stable.
+        <br><br>
+        <b>4) Earth curvature is part of the guidance story:</b> the flight view shows a curved horizon while the craft keeps a steady left→right course;
+        altitude bands affect density, heating, and plasma behavior continuously.
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+/* ========= Utility ========= */
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+const lerp=(a,b,t)=>a+(b-a)*t;
+const fmt=(x,d=2)=>Number.isFinite(x)?x.toFixed(d):"—";
+
+/* ========= Canvas ========= */
+const cv=document.getElementById('cv');
+const ctx=cv.getContext('2d');
+function resize(){ cv.width=innerWidth*devicePixelRatio; cv.height=innerHeight*devicePixelRatio; }
+addEventListener('resize',resize); resize();
+
+/* ========= UI Refs ========= */
+const UI = {
+  mode:uiMode, t:uiT, machTag:uiMachTag, mach:uiMach, v:uiV, alt:uiAlt, band:uiBand,
+  rho:uiRho, q:uiQ, drag:uiD, cd:uiCd, heat:uiHeat, heat2:uiHeat2, temp:uiTemp, cool:uiCool,
+  m:uiM, fuel:uiFuel, thr:uiThr, tw:uiTW, hv:uiHV, batt:uiBatt, cst:uiCST,
+  bandNote:uiBandNote, stab:uiStab, eff:uiEff, battNote:uiBattNote, cstNote:uiCSTNote,
+  barBand:barBand, barStab:barStab, barEff:barEff, barTherm:barTherm, barPlasma:barPlasma, barBatt:barBatt, barCST:barCST
+};
+
+/* ========= Inputs ========= */
+function bindPair(r,n,cb){
+  r.addEventListener('input',()=>{ n.value=r.value; cb(); });
+  n.addEventListener('input',()=>{ r.value=n.value; cb(); });
+}
+const inp = {
+  m0: document.getElementById('m0'),
+  m0n: document.getElementById('m0n'),
+  fuel0: document.getElementById('fuel0'),
+  fuel0n: document.getElementById('fuel0n'),
+  thkN: document.getElementById('thkN'),
+  thkNn: document.getElementById('thkNn'),
+  cd0: document.getElementById('cd0'),
+  cd0n: document.getElementById('cd0n'),
+  chi: document.getElementById('chi'),
+  chin: document.getElementById('chin'),
+  kmhd: document.getElementById('kmhd'),
+  kmhdn: document.getElementById('kmhdn'),
+  csync: document.getElementById('csync'),
+  csyncn: document.getElementById('csyncn'),
+  duty: document.getElementById('duty'),
+  dutyn: document.getElementById('dutyn'),
+};
+
+bindPair(inp.m0, inp.m0n, resetToInputs);
+bindPair(inp.fuel0, inp.fuel0n, resetToInputs);
+bindPair(inp.thkN, inp.thkNn, resetToInputs);
+bindPair(inp.cd0, inp.cd0n, resetToInputs);
+bindPair(inp.chi, inp.chin, ()=>{});
+bindPair(inp.kmhd, inp.kmhdn, ()=>{});
+bindPair(inp.csync, inp.csyncn, ()=>{});
+bindPair(inp.duty, inp.dutyn, ()=>{});
+
+/* ========= Simulation State =========
+Toy physics:
+- 1D forward motion with simple thrust - drag; altitude follows a climb schedule to 100 km
+- After 100 km: drag ~0; craft continues stable cruise left→right with small trim thrust
+- “Tesla air-as-medium” reduces effective Cd and heat based on χ*K*C
+- CST coherence also affects stability margin and safe duty cycle
+*/
+let running=false;
+let t=0;
+let x=0;           // horizontal position (m) in world space
+let alt=0;         // altitude (m)
+let v=120;         // m/s initial roll
+let heading=0;     // radians, kept near 0 for left->right
+let fuel=0;
+let m=0;
+let batt=0;        // 0..1
+let skinT=300;     // K
+let coolant=0.85;  // 0..1
+let hvJ=0;         // power proxy
+let lastMs=performance.now();
+
+const world = {
+  // For view mapping (not real Earth scale)
+  pxPerMeter: 0.02, // will auto-adjust
+  edgeSpace: 100000, // 100 km
+  R: 6371000
+};
+
+function resetToInputs(){
+  t=0; x=0;
+  alt=0; v=120; heading=0;
+  m = +inp.m0.value;
+  fuel = clamp(+inp.fuel0.value, 0, m*0.8);
+  batt = 0.92;
+  skinT = 300;
+  coolant = 0.85;
+  hvJ = 0;
+  running=false;
+  UI.mode.textContent="Ready";
+  UI.t.textContent="0.0 s";
+}
+resetToInputs();
+
+/* ========= Atmosphere Model (simple) ========= */
+function atmos(altM){
+  // density: exponential with scale height
+  const rho0=1.225;
+  const H=7200;
+  const rho = rho0*Math.exp(-altM/H);
+  // speed of sound: very rough piecewise
+  // (decreases in lower stratosphere, then increases)
+  let a=340;
+  if(altM<11000) a=340 - 0.003*altM;                 // to ~307
+  else if(altM<20000) a=295;                         // plateau
+  else if(altM<50000) a=295 + 0.0015*(altM-20000);   // up to ~340
+  else a=340 + 0.0005*(altM-50000);                  // slow rise
+  a = clamp(a, 250, 380);
+  // temperature proxy
+  let T=288.15 - 0.0065*Math.min(altM,11000);
+  if(altM>11000 && altM<20000) T=216.65;
+  if(altM>=20000 && altM<50000) T=216.65+0.001*(altM-20000);
+  if(altM>=50000) T=246.65+0.0007*(altM-50000);
+  return {rho,a,T};
+}
+
+/* ========= Bands ========= */
+const bands = [
+  {name:"Troposphere", a0:0, a1:12000, note:"Dense air: drag/heat spikes. Field control most valuable for shock/boundary stability."},
+  {name:"Stratosphere", a0:12000, a1:50000, note:"Thinner air: Mach climbs faster, heating still significant."},
+  {name:"Mesosphere", a0:50000, a1:85000, note:"Very thin air: ionization easier to sustain with HV pulsing."},
+  {name:"Thermosphere", a0:85000, a1:120000, note:"Near-space: aerodynamic drag fades; plasma/EM becomes more like sheath control + attitude trim."},
+  {name:"Exo/Edge of Space", a0:120000, a1:220000, note:"Continuing stable cruise: panels stay live; drag minimal."},
+];
+
+function currentBand(a){
+  for(const b of bands) if(a>=b.a0 && a<b.a1) return b;
+  return bands[bands.length-1];
+}
+<!-- ======================= PART 3 / 4 ======================= -->
+/* ========= “Air as Medium” Effects ========= */
+function fieldEffect(chi, kmhd, csync){
+  // effectiveness: 0..1
+  const eff = clamp(chi*kmhd*csync, 0, 1);
+  // reduce Cd and heat (toy)
+  const cdMul = clamp(1 - 0.55*eff, 0.35, 1.0);
+  const heatMul = clamp(1 - 0.65*eff, 0.25, 1.0);
+  // stability margin improved
+  const stab = clamp(0.35 + 0.65*eff, 0, 1);
+  return {eff, cdMul, heatMul, stab};
+}
+
+/* ========= Guidance / Profile ========= */
+function climbProfile(t){
+  // Smooth climb to 100 km over ~420s, then slow drift upward to 120 km
+  const edge=world.edgeSpace;
+  const tEdge=420;
+  if(t<=tEdge){
+    const u=clamp(t/tEdge,0,1);
+    // ease-in-out
+    const s=u*u*(3-2*u);
+    return edge*s;
+  }
+  // after edge: small additional rise then hold
+  const u=clamp((t-tEdge)/220,0,1);
+  return edge + 20000*u; // to 120 km
+}
+
+/* ========= Buttons ========= */
+document.getElementById('btnStart').addEventListener('click',()=>{ running=true; UI.mode.textContent="Running"; lastMs=performance.now(); });
+document.getElementById('btnStop').addEventListener('click',()=>{ running=false; UI.mode.textContent="Stopped"; });
+document.getElementById('btnReset').addEventListener('click',()=>{ resetToInputs(); });
+
+/* ========= Rendering Helpers ========= */
+function drawRoundedRect(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+function drawAircraft(cx, cy, scale, glow){
+  // simple generic outline (top-ish silhouette) pointing right
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(scale, scale);
+
+  // glow
+  if(glow>0){
+    ctx.shadowColor = `rgba(96,165,250,${0.55*glow})`;
+    ctx.shadowBlur = 24*glow;
+  }
+
+  ctx.lineWidth = 2/scale;
+  ctx.strokeStyle = 'rgba(226,232,240,.9)';
+  ctx.fillStyle = 'rgba(15,23,42,.65)';
+
+  // fuselage
+  ctx.beginPath();
+  ctx.moveTo(-42, 0);
+  ctx.quadraticCurveTo(-10, -8, 22, -6);
+  ctx.quadraticCurveTo(48, -4, 60, 0);
+  ctx.quadraticCurveTo(48, 4, 22, 6);
+  ctx.quadraticCurveTo(-10, 8, -42, 0);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+
+  // wings
+  ctx.beginPath();
+  ctx.moveTo(-6, -2);
+  ctx.lineTo(14, -22);
+  ctx.lineTo(24, -22);
+  ctx.lineTo(8, -2);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(-6, 2);
+  ctx.lineTo(14, 22);
+  ctx.lineTo(24, 22);
+  ctx.lineTo(8, 2);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+
+  // tail
+  ctx.beginPath();
+  ctx.moveTo(-24, -1);
+  ctx.lineTo(-36, -14);
+  ctx.lineTo(-28, -14);
+  ctx.lineTo(-14, -2);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+
+  // nose tip
+  ctx.beginPath();
+  ctx.moveTo(60, 0);
+  ctx.lineTo(70, 0);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawBands(vp){
+  // vp: viewport rect in pixels
+  const {x,y,w,h}=vp;
+
+  // background gradient sky -> space
+  const g=ctx.createLinearGradient(0,y+h,0,y);
+  g.addColorStop(0,'rgba(2,6,23,1)');
+  g.addColorStop(0.35,'rgba(2,12,30,1)');
+  g.addColorStop(0.68,'rgba(5,15,45,1)');
+  g.addColorStop(1,'rgba(0,0,0,1)');
+  ctx.fillStyle=g; ctx.fillRect(x,y,w,h);
+
+  // stars
+  ctx.globalAlpha=0.35;
+  for(let i=0;i<140;i++){
+    const sx = (Math.sin(i*999.1 + t*0.03)*0.5+0.5)*w + x;
+    const sy = (Math.sin(i*333.7 + i*0.17)*0.5+0.5)*h + y;
+    const r = (i%7===0)?2:1;
+    ctx.fillStyle='rgba(226,232,240,.9)';
+    ctx.fillRect(sx,sy,r,r);
+  }
+  ctx.globalAlpha=1;
+
+  // horizon curve (Earth curvature cue)
+  const horizonY = y + h*0.78;
+  ctx.strokeStyle='rgba(96,165,250,.35)';
+  ctx.lineWidth=2;
+  ctx.beginPath();
+  for(let i=0;i<=60;i++){
+    const px = x + (i/60)*w;
+    const dx = (i/60 - 0.5);
+    const py = horizonY + dx*dx*(h*0.22); // parabola to mimic curvature
+    if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+  }
+  ctx.stroke();
+
+  // atmosphere “bands” overlays relative to altitude
+  // map altitude 0..120km to 0..1 where 0 is horizon region
+  function bandLine(altM){
+    const u = clamp(altM/120000, 0, 1);
+    return horizonY - u*(h*0.62);
+  }
+  const lines = [
+    {a:12000,  label:'Tropo',  alpha:.22},
+    {a:50000,  label:'Strato', alpha:.18},
+    {a:85000,  label:'Meso',   alpha:.14},
+    {a:100000, label:'Edge',   alpha:.22},
+    {a:120000, label:'Thermo', alpha:.10},
+  ];
+  ctx.font='12px ui-monospace, Menlo, Consolas, monospace';
+  for(const L of lines){
+    const py = bandLine(L.a);
+    ctx.strokeStyle=`rgba(148,163,184,${L.alpha})`;
+    ctx.beginPath(); ctx.moveTo(x+10,py); ctx.lineTo(x+w-10,py); ctx.stroke();
+    ctx.fillStyle=`rgba(226,232,240,${Math.min(0.75, L.alpha+0.25)})`;
+    ctx.fillText(`${L.label} ${Math.round(L.a/1000)} km`, x+14, py-6);
+  }
+}
+
+/* ========= Main Loop ========= */
+function step(){
+  const now=performance.now();
+  const dt = clamp((now-lastMs)/1000, 0, 0.05);
+  lastMs=now;
+
+  if(running){
+    t += dt;
+
+    // Inputs (live knobs)
+    const chi=clamp(+inp.chi.value,0,1);
+    const kmhd=clamp(+inp.kmhd.value,0,1);
+    const csync=clamp(+inp.csync.value,0,1);
+    const duty=clamp(+inp.duty.value,0,1);
+
+    // altitude schedule (so it always reaches edge of space, then continues)
+    const altTarget = climbProfile(t);
+    // follow target smoothly
+    alt = lerp(alt, altTarget, 0.75*dt*2.2);
+
+    const {rho,a,T:airT} = atmos(alt);
+    const mach = v / a;
+
+    // Field effect
+    const fx = fieldEffect(chi, kmhd, csync);
+
+    // Effective Cd and area
+    const Cd0 = +inp.cd0.value;
+    const Cd = Cd0 * fx.cdMul;
+
+    const Aref = 7.5; // m^2 (toy)
+    const q = 0.5 * rho * v*v;
+    const D = q * Cd * Aref; // N
+
+    // Thrust & throttle schedule:
+    const thrustMax = (+inp.thkN.value)*1000; // N
+    let throttle = 0.0;
+
+    if(alt < world.edgeSpace){
+      // accelerate toward Mach 10 while climbing (avoid insane q at low altitude)
+      const qTarget = 42000; // Pa (toy “keep q in check”)
+      const qErr = (qTarget - q)/qTarget;
+      throttle = clamp(0.55 + 0.45*qErr, 0.25, 1.0);
+
+      // also bias to reach Mach 10
+      const mErr = (10 - mach)/10;
+      throttle = clamp(throttle + 0.22*mErr, 0.25, 1.0);
+    }else{
+      // beyond edge: cruise trim (small thrust, stable)
+      throttle = 0.18;
+    }
+
+    // Fuel flow (toy): mdot proportional to thrust
+    const Isp = (alt<30000)?320 : (alt<world.edgeSpace?540:820); // toy
+    const g0=9.80665;
+    const mdot = (throttle*thrustMax) / (Isp*g0); // kg/s
+
+    // consume fuel if available
+    const fuelUse = Math.min(fuel, mdot*dt);
+    fuel -= fuelUse;
+    if(fuel<=0){
+      // if out of fuel, keep minimum cruise (toy “glide/trim”)
+      throttle = (alt>=world.edgeSpace)?0.08:0.0;
+    }
+
+    // mass update
+    m = clamp(m - fuelUse, 5000, 1e9);
+
+    // HV power draw (Tesla-style HV low current, duty + instability penalties)
+    // If CST coherence is low, you lose efficiency and waste more into heat/arcing risk.
+    const hvBase = 0.8e6; // 0.8 MW baseline electronics pack
+    const hvPower = hvBase * duty * (0.55 + 0.8*chi) * (0.8 + 0.6*kmhd) * (1.0 + (1-csync)*0.9);
+    hvJ = hvPower;
+
+    // Battery (toy)
+    const battDrain = (hvPower/4.5e6)*dt; // 4.5 MW pack scale
+    batt = clamp(batt - battDrain, 0, 1);
+    if(batt<=0){
+      // lose control effectiveness if battery empty
+      // (we keep sim running, but reduce knobs automatically)
+      inp.duty.value = 0; inp.dutyn.value = 0;
+    }
+
+    // Heating model (toy)
+    const heatRaw = (rho*Math.pow(v,3)) * 2.2e-7;  // arbitrary scaling
+    const heatReduced = heatRaw * fx.heatMul;
+
+    // coolant coupling
+    const coolEff = clamp(coolant*(0.55 + 0.55*csync), 0, 1);
+    const dT = (heatReduced*1.5 - coolEff*18) * dt; // toy
+    skinT = clamp(skinT + dT, 220, 2400);
+
+    // coolant depletion / recovery
+    coolant = clamp(coolant - (heatReduced*0.003)*dt + 0.006*dt, 0, 1);
+
+    // Dynamics (1D forward)
+    let thrust = throttle*thrustMax;
+    // after edge of space, drag nearly vanishes
+    let Duse = D;
+    if(alt>=world.edgeSpace) Duse *= 0.02;
+
+    const aLong = (thrust - Duse) / Math.max(m,1);
+    v = clamp(v + aLong*dt, 80, 3800); // cap near hypersonic
+
+    // keep moving right
+    x += v*dt;
+
+    // CST health metric (0..1): depends on user csync, battery, and “plasma stability”
+    const plasmaStab = clamp(0.6 + 0.4*chi - 0.25*(skinT-900)/900, 0, 1);
+    const cstHealth = clamp(csync * (0.4 + 0.6*batt) * plasmaStab, 0, 1);
+
+    // Update bars + text
+    UI.mode.textContent = (alt<world.edgeSpace) ? "Ascent + Field Management" : "Edge of Space → Stable Cruise";
+    UI.t.textContent = `${fmt(t,1)} s`;
+
+    UI.v.textContent = `${fmt(v,0)} m/s`;
+    UI.mach.textContent = fmt(mach,2);
+    UI.machTag.textContent = `Mach ${fmt(mach,2)}`;
+    UI.alt.textContent = `${fmt(alt,0)} m`;
+
+    const band=currentBand(alt);
+    UI.band.textContent = band.name;
+    UI.bandNote.textContent = band.note;
+
+    UI.rho.textContent = `${fmt(rho,4)} kg/m³`;
+    UI.q.textContent = `${fmt(q/1000,1)} kPa`;
+    UI.drag.textContent = `${fmt(Duse/1000,1)} kN`;
+    UI.cd.textContent = fmt(Cd,3);
+
+    UI.heat.textContent = `${fmt(heatRaw,3)} (toy)`;
+    UI.heat2.textContent = `${fmt(heatReduced,3)} (toy)`;
+    UI.temp.textContent = `${fmt(skinT,0)} K`;
+    UI.cool.textContent = `${fmt(coolant*100,0)}%`;
+
+    UI.m.textContent = `${fmt(m,0)} kg`;
+    UI.fuel.textContent = `${fmt(fuel,0)} kg`;
+    UI.thr.textContent = `${fmt(throttle*100,0)}%`;
+    UI.tw.textContent = fmt((thrust/(m*9.80665)),2);
+
+    UI.hv.textContent = `${fmt(hvPower/1e6,2)} MW`;
+    UI.batt.textContent = `${fmt(batt*100,0)}%`;
+
+    UI.cst.textContent = fmt(cstHealth,2);
+    UI.cstNote.textContent = `CST health = csync × battery × plasma stability (toy)`;
+
+    // Bars (0..1 to % width)
+    const bandProg = clamp((alt - band.a0)/(band.a1-band.a0), 0, 1);
+    UI.barBand.style.width = `${bandProg*100}%`;
+
+    UI.barStab.style.width = `${fx.stab*100}%`;
+    UI.stab.textContent = `Margin ${fmt(fx.stab*100,0)}% (higher = steadier inlet/shock control)`;
+
+    UI.barEff.style.width = `${fx.eff*100}%`;
+    UI.eff.textContent = `Effect = χ×K×C = ${fmt(fx.eff,2)} → Cd and heat reduced`;
+
+    const thermMargin = clamp(1 - (skinT-900)/900, 0, 1);
+    UI.barTherm.style.width = `${thermMargin*100}%`;
+    UI.uiTherm = UI.uiTherm; // no-op to keep structure
+    UI.uiTherm = null;
+    document.getElementById('uiTherm').textContent = `Thermal margin ${fmt(thermMargin*100,0)}% (target keep > 25%)`;
+
+    const plasmaProxy = clamp(0.25 + 0.75*chi*(0.6+0.4*duty), 0, 1);
+    UI.barPlasma.style.width = `${plasmaProxy*100}%`;
+    UI.plasma.textContent = `Plasma proxy ${fmt(plasmaProxy*100,0)}% (ion layer controllability)`;
+
+    UI.barBatt.style.width = `${batt*100}%`;
+    UI.battNote.textContent = (batt>0.2) ? "Battery supports HV pulsing + phased control." : "Low battery: field control weakens.";
+
+    UI.barCST.style.width = `${cstHealth*100}%`;
+
+    // Store for render
+    simCache = {chi,kmhd,csync,duty,fx,mach,q,rho,band,bandProg,heatReduced,heatRaw,cstHealth,plasmaProxy,airT};
+  }
+
+  render();
+  requestAnimationFrame(step);
+}
+
+let simCache = {chi:0.25,kmhd:0.35,csync:0.55,duty:0.28,fx:{eff:0,cdMul:1,heatMul:1,stab:0.35},mach:0,q:0,rho:1.2,band:bands[0],bandProg:0,heatReduced:0,heatRaw:0,cstHealth:0.5,plasmaProxy:0.2,airT:288};
+
+function render(){
+  const W=cv.width, H=cv.height;
+  ctx.clearRect(0,0,W,H);
+
+  // Flight viewport (center panel area): approximate it by using the center column region
+  const pad=10*devicePixelRatio;
+  const colL=360*devicePixelRatio + pad*2;
+  const colR=380*devicePixelRatio + pad*2;
+  const vp = {
+    x: colL,
+    y: pad,
+    w: W - colL - colR,
+    h: H - pad*2
+  };
+
+  drawBands(vp);
+
+  // altitude to screen Y
+  const horizonY = vp.y + vp.h*0.78;
+  const uAlt = clamp(alt/120000, 0, 1);
+  const yCraft = horizonY - uAlt*(vp.h*0.62);
+
+  // x movement: keep craft roughly 35% from left and scroll background “world x”
+  const xScreen = vp.x + vp.w*0.35;
+  // parallax trail lines
+  ctx.save();
+  ctx.globalAlpha=0.55;
+  ctx.strokeStyle='rgba(96,165,250,.35)';
+  ctx.lineWidth=2;
+  ctx.beginPath();
+  ctx.moveTo(vp.x+18, yCraft);
+  ctx.lineTo(xScreen-40, yCraft);
+  ctx.stroke();
+  ctx.restore();
+
+  // draw “plasma sheath” ring glow intensity based on plasmaProxy and CST
+  const glow = clamp(simCache.plasmaProxy*(0.55+0.45*simCache.cstHealth), 0, 1);
+  ctx.save();
+  ctx.globalAlpha=0.85;
+  ctx.strokeStyle=`rgba(96,165,250,${0.20 + 0.55*glow})`;
+  ctx.lineWidth=3;
+  ctx.beginPath();
+  ctx.ellipse(xScreen, yCraft, 44*devicePixelRatio, 18*devicePixelRatio, 0, 0, Math.PI*2);
+  ctx.stroke();
+  ctx.restore();
+
+  // aircraft
+  drawAircraft(xScreen, yCraft, devicePixelRatio*1.2, glow);
+
+  // info overlay in viewport (small)
+  ctx.save();
+  ctx.fillStyle='rgba(2,6,23,.55)';
+  drawRoundedRect(vp.x+14, vp.y+14, 360*devicePixelRatio, 108*devicePixelRatio, 14*devicePixelRatio);
+  ctx.fill();
+  ctx.strokeStyle='rgba(120,170,255,.25)'; ctx.lineWidth=1;
+  ctx.stroke();
+  ctx.fillStyle='rgba(226,232,240,.92)';
+  ctx.font = `${12*devicePixelRatio}px ui-monospace, Menlo, Consolas, monospace`;
+  ctx.fillText(`ALT ${Math.round(alt/1000)} km   V ${Math.round(v)} m/s   Mach ${fmt(simCache.mach,2)}`, vp.x+26*devicePixelRatio, vp.y+40*devicePixelRatio);
+  ctx.fillText(`χ ${fmt(simCache.chi,2)}  K ${fmt(simCache.kmhd,2)}  C ${fmt(simCache.csync,2)}  duty ${fmt(simCache.duty,2)}  CST ${fmt(simCache.cstHealth,2)}`, vp.x+26*devicePixelRatio, vp.y+62*devicePixelRatio);
+  ctx.fillText(`Cd′ x${fmt(simCache.fx.cdMul,2)}   Heat x${fmt(simCache.fx.heatMul,2)}   Stability ${fmt(simCache.fx.stab,2)}`, vp.x+26*devicePixelRatio, vp.y+84*devicePixelRatio);
+  ctx.restore();
+}
+
+requestAnimationFrame(step);
+</script>
+<!-- ======================= PART 4 / 4 ======================= -->
+</body>
+</html>
