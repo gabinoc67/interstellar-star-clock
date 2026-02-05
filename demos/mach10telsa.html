@@ -1,11 +1,10 @@
 <!-- ======================= PART 1 / 4 =======================
-FIXED VERSION (panels truly live + aircraft moves + altitude climbs to edge of space)
-What was wrong before: a JavaScript error stopped the animation loop (undefined UI fields).
-This version:
-- All UI ids are wired correctly
-- No undefined references
-- Aircraft always animates left→right
-- Altitude climbs through bands to 100 km+, then continues stable cruise
+Mach-10 Field-Managed Vehicle + CST Sync (LIVE)
+FIXES you asked for:
+✅ Starts on an airfield runway (takeoff roll), then rotates and climbs gradually
+✅ Clear “dark/white” altitude band lines + labels (much higher contrast)
+✅ Middle panel includes a LIVE “Stage-by-stage / What’s happening now” block
+✅ All labels stay LIVE from takeoff → climb → edge-of-space cruise (Mach 10 goal)
 ============================================================== -->
 <!doctype html>
 <html lang="en">
@@ -30,6 +29,7 @@ This version:
   }
   html,body{height:100%; margin:0; background:var(--bg); color:var(--ink); font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif; overflow:hidden;}
   canvas{position:fixed; inset:0;}
+
   .wrap{
     position:fixed; inset:0; display:grid;
     grid-template-columns: 360px 1fr 380px;
@@ -72,6 +72,7 @@ This version:
   .btnStop{border-color:rgba(251,191,36,.45);}
   .btnReset{border-color:rgba(251,113,133,.45);}
   .hint{font-size:11px; color:var(--muted); line-height:1.35;}
+
   .sliderRow{display:grid; grid-template-columns: 1fr 92px; gap:10px; align-items:center;}
   input[type="range"]{width:100%;}
   input[type="number"]{
@@ -79,6 +80,7 @@ This version:
     background:rgba(2,6,23,.55); border:1px solid var(--line);
     color:var(--ink); border-radius:10px; padding:7px 8px; font-weight:700;
   }
+
   .bar{
     height:9px; border-radius:999px; background:rgba(148,163,184,.18);
     overflow:hidden; border:1px solid rgba(148,163,184,.15);
@@ -89,6 +91,35 @@ This version:
   .bar.bad > i{background:rgba(251,113,133,.78);}
   .mini{font-size:10px; color:var(--muted);}
   .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;}
+
+  /* center “stage-by-stage” block */
+  .stageBox{
+    margin-top:10px;
+    border:1px solid rgba(148,163,184,.22);
+    border-radius:14px;
+    background:rgba(2,6,23,.35);
+    padding:10px;
+  }
+  .stageTitle{font-weight:800; font-size:12px; letter-spacing:.2px;}
+  .stageDesc{margin-top:6px; font-size:11px; color:var(--muted); line-height:1.35;}
+  .stageList{margin-top:10px; display:grid; gap:6px;}
+  .step{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:7px 9px; border-radius:12px;
+    border:1px solid rgba(148,163,184,.18);
+    background:rgba(2,6,23,.22);
+  }
+  .step b{font-size:11px;}
+  .pill{
+    font-size:10px; color:rgba(226,232,240,.9);
+    border:1px solid rgba(148,163,184,.22);
+    padding:2px 7px; border-radius:999px;
+  }
+  .step.active{
+    border-color:rgba(96,165,250,.55);
+    background:rgba(96,165,250,.12);
+  }
+
   /* layout slots */
   #pControls{grid-column:1; grid-row:1 / span 2;}
   #pExplain{grid-column:1; grid-row:3;}
@@ -106,7 +137,7 @@ This version:
   <section class="panel" id="pControls">
     <div class="ph">
       <h3>Controls & Inputs</h3>
-      <span class="tag">Start → Edge of Space → Continue</span>
+      <span class="tag">Airfield → Takeoff → Edge of Space → Cruise</span>
     </div>
     <div class="pc grid1">
       <div class="btns">
@@ -129,7 +160,7 @@ This version:
       <div class="row">
         <div>
           <div class="k">Target</div>
-          <div class="v">Mach 10 → 100 km → Cruise</div>
+          <div class="v">Mach 10 → ~100 km → Stable Cruise</div>
         </div>
         <div style="text-align:right">
           <div class="k">CST Sync</div>
@@ -214,13 +245,27 @@ This version:
   <!-- CENTER: Flight view -->
   <section class="panel" id="pFlight">
     <div class="ph">
-      <h3>Flight View (Earth Curvature + Atmospheric Bands)</h3>
+      <h3>Flight View + Stage-by-Stage (LIVE)</h3>
       <span class="tag mono" id="uiMachTag">Mach 0.00</span>
     </div>
     <div class="pc">
       <div class="hint">
-        Aircraft moves left→right continuously. It climbs through atmospheric stages (sea level → stratosphere → mesosphere → thermosphere → edge of space),
-        then continues stable cruise beyond 100 km while panels keep updating.
+        Starts on an <b>airfield runway</b> (takeoff roll), then <b>rotates</b> and climbs through bands
+        (troposphere → stratosphere → mesosphere → thermosphere → edge of space), then continues stable cruise.
+      </div>
+
+      <div class="stageBox">
+        <div class="stageTitle" id="uiStepTitle">Stage: —</div>
+        <div class="stageDesc" id="uiStepDesc">—</div>
+
+        <div class="stageList" id="uiStepList">
+          <div class="step" id="s0"><b>0) Airfield Takeoff Roll</b><span class="pill" id="p0">—</span></div>
+          <div class="step" id="s1"><b>1) Rotation + Initial Climb</b><span class="pill" id="p1">—</span></div>
+          <div class="step" id="s2"><b>2) Dense-Air Accel (drag/heat control)</b><span class="pill" id="p2">—</span></div>
+          <div class="step" id="s3"><b>3) Max-Q Management + Climb</b><span class="pill" id="p3">—</span></div>
+          <div class="step" id="s4"><b>4) High-Altitude Mach Push</b><span class="pill" id="p4">—</span></div>
+          <div class="step" id="s5"><b>5) Edge-of-Space Stable Cruise</b><span class="pill" id="p5">—</span></div>
+        </div>
       </div>
     </div>
   </section>
@@ -228,7 +273,7 @@ This version:
   <!-- RIGHT TOP: Stages -->
   <section class="panel" id="pStages">
     <div class="ph">
-      <h3>Atmospheric Stages</h3>
+      <h3>Atmospheric Bands</h3>
       <span class="tag">Auto</span>
     </div>
     <div class="pc grid1">
@@ -346,7 +391,7 @@ This version:
         <b>Tesla-style engineering:</b> high-voltage, low-current, pulsed actuation + power electronics → controlled plasma without constant arcing.<br><br>
         <b>CST time synchronization:</b> phased pulses must stay coherent as density/temperature changes with altitude.
         Higher coherence (C) keeps the “traveling wave” actuation aligned, preventing instability.<br><br>
-        <b>Earth curvature cue:</b> curved horizon while the craft keeps a steady left→right course; altitude bands modulate density/heat/plasma.
+        <b>Flight realism cue:</b> runway takeoff, then gradual climb; altitude bands and max-Q show why control timing matters.
       </div>
     </div>
   </section>
@@ -407,7 +452,22 @@ const UI = {
   barTherm: document.getElementById('barTherm'),
   barPlasma: document.getElementById('barPlasma'),
   barBatt: document.getElementById('barBatt'),
-  barCST: document.getElementById('barCST')
+  barCST: document.getElementById('barCST'),
+
+  stepTitle: document.getElementById('uiStepTitle'),
+  stepDesc: document.getElementById('uiStepDesc'),
+  s0: document.getElementById('s0'),
+  s1: document.getElementById('s1'),
+  s2: document.getElementById('s2'),
+  s3: document.getElementById('s3'),
+  s4: document.getElementById('s4'),
+  s5: document.getElementById('s5'),
+  p0: document.getElementById('p0'),
+  p1: document.getElementById('p1'),
+  p2: document.getElementById('p2'),
+  p3: document.getElementById('p3'),
+  p4: document.getElementById('p4'),
+  p5: document.getElementById('p5')
 };
 
 /* ========= Inputs ========= */
@@ -441,7 +501,9 @@ bindPair(inp.chi, inp.chin, ()=>{});
 bindPair(inp.kmhd, inp.kmhdn, ()=>{});
 bindPair(inp.csync, inp.csyncn, ()=>{});
 bindPair(inp.duty, inp.dutyn, ()=>{});
-
+</script>
+<!-- ======================= PART 3 / 4 ======================= -->
+<script>
 /* ========= Bands ========= */
 const bands = [
   {name:"Troposphere", a0:0, a1:12000, note:"Dense air: drag/heat spikes. Field control most valuable for shock/boundary stability."},
@@ -474,7 +536,7 @@ function atmos(altM){
 
   return {rho,a,T};
 }
-<!-- ======================= PART 3 / 4 ======================= -->
+
 /* ========= “Air as Medium” Effects ========= */
 function fieldEffect(chi, kmhd, csync){
   const eff = clamp(chi*kmhd*csync, 0, 1);
@@ -484,55 +546,95 @@ function fieldEffect(chi, kmhd, csync){
   return {eff, cdMul, heatMul, stab};
 }
 
-/* ========= Profile ========= */
-const EDGE = 100000; // 100 km
+/* ========= Takeoff → Climb Profile (slow + realistic cues) ========= */
+const EDGE = 100000; // ~100 km
 function climbProfile(t){
-  const tEdge=420;
-  if(t<=tEdge){
-    const u=clamp(t/tEdge,0,1);
-    const s=u*u*(3-2*u);
-    return EDGE*s;
+  // Stage 0: runway roll (alt ~ 0) then rotate
+  const tRoll=28;     // seconds rolling
+  const tRotate=40;   // seconds to reach ~150m
+  const tClimb=520;   // climb to edge-of-space gradually
+
+  if(t<=tRoll) return 0;
+
+  if(t<=tRotate){
+    const u=clamp((t-tRoll)/(tRotate-tRoll),0,1);
+    // gentle lift-off to 150m
+    return 150 * (u*u*(3-2*u));
   }
-  const u=clamp((t-tEdge)/220,0,1);
-  return EDGE + 20000*u; // to 120 km
+
+  // climb smoothly to 100km over many minutes
+  const u=clamp((t-tRotate)/tClimb, 0, 1);
+  const s=u*u*(3-2*u);
+  const aEdge = EDGE*s;
+
+  // after edge, ease up to 120km (stable cruise region)
+  if(u>=1){
+    const u2=clamp((t-(tRotate+tClimb))/260,0,1);
+    return EDGE + 20000*u2;
+  }
+  return aEdge;
 }
 
 /* ========= State ========= */
 let running=false;
 let t=0;
-let x=0;
 let alt=0;
-let v=120;
+let v=0;
 let fuel=0;
 let m=0;
 let batt=0;
 let skinT=300;
 let coolant=0.85;
+
+// horizontal travel (for visible left→right)
+let xMeters=0;
+
+// takeoff “on runway” cue
+let onGround=true;
+
 let lastMs=performance.now();
-let simCache = {mach:0, chi:0.25, kmhd:0.35, csync:0.55, duty:0.28, fx:{eff:0, cdMul:1, heatMul:1, stab:0.35}, cstHealth:0.5, plasmaProxy:0.2};
+let simCache = {
+  mach:0, chi:0.25, kmhd:0.35, csync:0.55, duty:0.28,
+  fx:{eff:0, cdMul:1, heatMul:1, stab:0.35},
+  cstHealth:0.5, plasmaProxy:0.2,
+  rho:1.225, q:0, Cd:0.16, Duse:0, throttle:0, hvPower:0, heatRaw:0, heatReduced:0
+};
 
 function resetToInputs(){
-  t=0; x=0; alt=0; v=120;
+  t=0; alt=0; xMeters=0;
+  v=0;
+  onGround=true;
+
   m = +inp.m0.value;
   fuel = clamp(+inp.fuel0.value, 0, m*0.9);
   batt = 0.92;
   skinT = 300;
   coolant = 0.85;
+
   running=false;
-  UI.mode.textContent="Ready";
+  UI.mode.textContent="Ready (on runway)";
   UI.t.textContent="0.0 s";
   UI.machTag.textContent="Mach 0.00";
-  // render one frame immediately
+
+  // render immediately
+  syncUI();
   render();
 }
 resetToInputs();
 
 /* ========= Buttons ========= */
-document.getElementById('btnStart').addEventListener('click',()=>{ running=true; UI.mode.textContent="Running"; lastMs=performance.now(); });
-document.getElementById('btnStop').addEventListener('click',()=>{ running=false; UI.mode.textContent="Stopped"; });
+document.getElementById('btnStart').addEventListener('click',()=>{
+  running=true;
+  UI.mode.textContent="Running";
+  lastMs=performance.now();
+});
+document.getElementById('btnStop').addEventListener('click',()=>{
+  running=false;
+  UI.mode.textContent="Stopped";
+});
 document.getElementById('btnReset').addEventListener('click',()=>{ resetToInputs(); });
 
-/* ========= Drawing ========= */
+/* ========= Drawing helpers ========= */
 function drawRoundedRect(x,y,w,h,r){
   ctx.beginPath();
   ctx.moveTo(x+r,y);
@@ -542,9 +644,10 @@ function drawRoundedRect(x,y,w,h,r){
   ctx.arcTo(x,y,x+w,y,r);
   ctx.closePath();
 }
-function drawAircraft(cx, cy, scale, glow){
+function drawAircraft(cx, cy, scale, glow, pitch=0){
   ctx.save();
   ctx.translate(cx, cy);
+  ctx.rotate(pitch);
   ctx.scale(scale, scale);
 
   if(glow>0){
@@ -553,8 +656,8 @@ function drawAircraft(cx, cy, scale, glow){
   }
 
   ctx.lineWidth = 2/scale;
-  ctx.strokeStyle = 'rgba(226,232,240,.9)';
-  ctx.fillStyle = 'rgba(15,23,42,.65)';
+  ctx.strokeStyle = 'rgba(226,232,240,.92)';
+  ctx.fillStyle = 'rgba(15,23,42,.70)';
 
   // fuselage
   ctx.beginPath();
@@ -600,65 +703,140 @@ function drawAircraft(cx, cy, scale, glow){
 
   ctx.restore();
 }
-
+</script>
+<!-- ======================= PART 4 / 4 ======================= -->
+<script>
 function drawBands(vp){
   const {x,y,w,h}=vp;
 
+  // sky gradient
   const g=ctx.createLinearGradient(0,y+h,0,y);
   g.addColorStop(0,'rgba(2,6,23,1)');
-  g.addColorStop(0.35,'rgba(2,12,30,1)');
-  g.addColorStop(0.68,'rgba(5,15,45,1)');
+  g.addColorStop(0.28,'rgba(3,10,26,1)');
+  g.addColorStop(0.62,'rgba(6,16,44,1)');
   g.addColorStop(1,'rgba(0,0,0,1)');
   ctx.fillStyle=g; ctx.fillRect(x,y,w,h);
 
   // stars
-  ctx.globalAlpha=0.35;
-  for(let i=0;i<140;i++){
+  ctx.globalAlpha=0.45;
+  for(let i=0;i<170;i++){
     const sx = (Math.sin(i*999.1 + t*0.03)*0.5+0.5)*w + x;
     const sy = (Math.sin(i*333.7 + i*0.17)*0.5+0.5)*h + y;
     const r = (i%7===0)?2:1;
-    ctx.fillStyle='rgba(226,232,240,.9)';
+    ctx.fillStyle='rgba(226,232,240,.95)';
     ctx.fillRect(sx,sy,r,r);
   }
   ctx.globalAlpha=1;
 
-  // horizon curve
-  const horizonY = y + h*0.78;
-  ctx.strokeStyle='rgba(96,165,250,.35)';
+  // ground + runway (bottom)
+  const groundY = y + h*0.90;
+  ctx.fillStyle='rgba(2,6,23,.95)';
+  ctx.fillRect(x, groundY, w, y+h-groundY);
+
+  // runway
+  ctx.fillStyle='rgba(10,18,40,.85)';
+  ctx.fillRect(x+20*devicePixelRatio, groundY-16*devicePixelRatio, w-40*devicePixelRatio, 22*devicePixelRatio);
+
+  // runway centerline dashes
+  ctx.strokeStyle='rgba(226,232,240,.55)';
   ctx.lineWidth=2;
+  ctx.setLineDash([18*devicePixelRatio, 14*devicePixelRatio]);
   ctx.beginPath();
-  for(let i=0;i<=60;i++){
-    const px = x + (i/60)*w;
-    const dx = (i/60 - 0.5);
-    const py = horizonY + dx*dx*(h*0.22);
+  ctx.moveTo(x+40*devicePixelRatio, groundY-5*devicePixelRatio);
+  ctx.lineTo(x+w-40*devicePixelRatio, groundY-5*devicePixelRatio);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // horizon curve
+  const horizonY = y + h*0.74;
+  ctx.strokeStyle='rgba(96,165,250,.55)';
+  ctx.lineWidth=2.5;
+  ctx.beginPath();
+  for(let i=0;i<=70;i++){
+    const px = x + (i/70)*w;
+    const dx = (i/70 - 0.5);
+    const py = horizonY + dx*dx*(h*0.20);
     if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
   }
   ctx.stroke();
 
+  // altitude lines (HIGH CONTRAST like you asked)
   function bandLine(altM){
     const u = clamp(altM/120000, 0, 1);
-    return horizonY - u*(h*0.62);
+    return horizonY - u*(h*0.58);
   }
   const lines = [
-    {a:12000,  label:'Tropo',  alpha:.22},
-    {a:50000,  label:'Strato', alpha:.18},
-    {a:85000,  label:'Meso',   alpha:.14},
-    {a:100000, label:'Edge',   alpha:.22},
-    {a:120000, label:'Thermo', alpha:.10},
+    {a:0,     label:'Runway', alpha:.45},
+    {a:12000, label:'Troposphere',  alpha:.55},
+    {a:50000, label:'Stratosphere', alpha:.50},
+    {a:85000, label:'Mesosphere',   alpha:.45},
+    {a:100000,label:'Edge ~100 km', alpha:.60},
+    {a:120000,label:'Thermosphere', alpha:.38},
   ];
-  ctx.font=`${12*devicePixelRatio}px ui-monospace, Menlo, Consolas, monospace`;
+
+  ctx.font=`${13*devicePixelRatio}px ui-monospace, Menlo, Consolas, monospace`;
   for(const L of lines){
-    const py = bandLine(L.a);
-    ctx.strokeStyle=`rgba(148,163,184,${L.alpha})`;
-    ctx.beginPath(); ctx.moveTo(x+10,py); ctx.lineTo(x+w-10,py); ctx.stroke();
-    ctx.fillStyle=`rgba(226,232,240,${Math.min(0.75, L.alpha+0.25)})`;
-    ctx.fillText(`${L.label} ${Math.round(L.a/1000)} km`, x+14, py-6);
+    const py = (L.a===0) ? (groundY-18*devicePixelRatio) : bandLine(L.a);
+    ctx.strokeStyle=`rgba(226,232,240,${L.alpha})`;   // white-ish lines
+    ctx.lineWidth = (L.a===100000)?2.8:2.1;
+    ctx.beginPath();
+    ctx.moveTo(x+14*devicePixelRatio,py);
+    ctx.lineTo(x+w-14*devicePixelRatio,py);
+    ctx.stroke();
+
+    ctx.fillStyle=`rgba(226,232,240,${Math.min(0.92, L.alpha+0.30)})`;
+    const km = (L.a/1000).toFixed(0);
+    const label = (L.a===0) ? ` ${L.label}` : ` ${L.label}  (${km} km)`;
+    ctx.fillText(label, x+18*devicePixelRatio, py-7*devicePixelRatio);
   }
 }
-<!-- ======================= PART 4 / 4 ======================= -->
+
+/* ========= Stage-by-stage logic (middle panel) ========= */
+function stageLogic(){
+  const q = simCache.q || 0;
+  const mach = simCache.mach || 0;
+
+  // define “Max-Q zone” for the narrative
+  const qMaxQ = 55000; // Pa (toy)
+  const nearMaxQ = (q > 0.75*qMaxQ && alt < 45000);
+
+  let idx=0, title="0) Airfield Takeoff Roll", desc="Accelerate down runway. Keep stable inlet and avoid over-heating. Rotate when speed builds.";
+
+  if(t < 28){
+    idx=0;
+    title="0) Airfield Takeoff Roll";
+    desc="Runway acceleration. Field control is light but stabilizes boundary layer and inlet start-up. Rotation is coming.";
+  } else if(alt < 2500){
+    idx=1;
+    title="1) Rotation + Initial Climb";
+    desc="Lift-off and climb-out. Drag and heating begin rising quickly; early CST phase timing keeps control pulses coherent.";
+  } else if(alt < 18000 && !nearMaxQ){
+    idx=2;
+    title="2) Dense-Air Accel (drag/heat control)";
+    desc="Thick air means high drag and heating. Increase χ and K to reduce Cd′/heat peaks; keep C high for stable phasing.";
+  } else if(nearMaxQ){
+    idx=3;
+    title="3) Max-Q Management + Climb";
+    desc="Dynamic pressure peaks here. The controller limits q̄ while maintaining Mach growth. Field control reduces shock losses and hotspots.";
+  } else if(alt < EDGE){
+    idx=4;
+    title="4) High-Altitude Mach Push";
+    desc="Air thins; drag drops. Mach builds toward the Mach-10 target while heat reduces. Plasma sheath control becomes cleaner and more efficient.";
+  } else {
+    idx=5;
+    title="5) Edge-of-Space Stable Cruise";
+    desc="Near 100 km+, aerodynamic drag is tiny. Panels stay live. CST health shows how battery + phase coherence keep the pulsing stable.";
+  }
+
+  return {idx,title,desc,qMaxQ,mach};
+}
+function highlightStage(idx){
+  const steps=[UI.s0,UI.s1,UI.s2,UI.s3,UI.s4,UI.s5];
+  steps.forEach((el,i)=>el.classList.toggle('active', i===idx));
+}
+
 /* ========= Main Update ========= */
 function update(dt){
-  // Always keep aircraft moving even if STOP (we freeze state when stopped)
   if(!running) return;
 
   t += dt;
@@ -668,52 +846,62 @@ function update(dt){
   const csync=clamp(+inp.csync.value,0,1);
   const duty=clamp(+inp.duty.value,0,1);
 
-  // altitude schedule to edge of space, then continue stable cruise
+  // altitude schedule (runway → rotate → climb)
   const altTarget = climbProfile(t);
-  alt = lerp(alt, altTarget, 0.75*dt*2.2);
+  alt = lerp(alt, altTarget, clamp(0.35*dt*2.2, 0, 1));
+
+  // determine “on ground” cue
+  onGround = (alt < 1 && t < 30);
 
   const {rho,a} = atmos(alt);
-  const mach = v / a;
-
   const fx = fieldEffect(chi, kmhd, csync);
 
+  // Cd and drag
   const Cd0 = +inp.cd0.value;
   const Cd = Cd0 * fx.cdMul;
-
   const Aref = 7.5;
   const q = 0.5 * rho * v*v;
   const D = q * Cd * Aref;
 
+  // thrust / throttle logic
   const thrustMax = (+inp.thkN.value)*1000;
-  let throttle;
 
-  if(alt < EDGE){
-    const qTarget = 42000;
+  // runway: ramp throttle for takeoff, then climb control
+  let throttle=0.0;
+
+  if(t < 28){
+    throttle = clamp(0.40 + 0.02*t, 0.40, 0.92);
+  } else if(alt < EDGE){
+    // manage q̄ while pushing Mach
+    const qTarget = 48000; // Pa
     const qErr = (qTarget - q)/qTarget;
-    throttle = clamp(0.55 + 0.45*qErr, 0.25, 1.0);
-    const mErr = (10 - mach)/10;
-    throttle = clamp(throttle + 0.22*mErr, 0.25, 1.0);
-  }else{
-    throttle = 0.18;
+    throttle = clamp(0.52 + 0.48*qErr, 0.25, 1.0);
+
+    const mErr = (10 - (v/a))/10;
+    throttle = clamp(throttle + 0.20*mErr, 0.25, 1.0);
+  } else {
+    throttle = 0.18; // cruise
   }
 
+  // Isp (toy)
   const Isp = (alt<30000)?320 : (alt<EDGE?540:820);
   const g0=9.80665;
   const mdot = (throttle*thrustMax) / (Isp*g0);
 
+  // fuel and mass
   const fuelUse = Math.min(fuel, mdot*dt);
   fuel -= fuelUse;
   if(fuel<=0) throttle = (alt>=EDGE)?0.08:0.0;
   m = clamp(m - fuelUse, 5000, 1e9);
 
-  // HV power draw + battery
+  // HV power + battery
   const hvBase = 0.8e6;
   const hvPower = hvBase * duty * (0.55 + 0.8*chi) * (0.8 + 0.6*kmhd) * (1.0 + (1-csync)*0.9);
   const battDrain = (hvPower/4.5e6)*dt;
   batt = clamp(batt - battDrain, 0, 1);
 
   // heating + coolant
-  const heatRaw = (rho*Math.pow(v,3)) * 2.2e-7;
+  const heatRaw = (rho*Math.pow(Math.max(v,1),3)) * 2.2e-7;
   const heatReduced = heatRaw * fx.heatMul;
 
   const coolEff = clamp(coolant*(0.55 + 0.55*csync), 0, 1);
@@ -721,28 +909,39 @@ function update(dt){
   skinT = clamp(skinT + dT, 220, 2400);
   coolant = clamp(coolant - (heatReduced*0.003)*dt + 0.006*dt, 0, 1);
 
-  // forward motion (stable left->right)
+  // forward motion: reduce drag near space
   let Duse = D;
   if(alt>=EDGE) Duse *= 0.02;
+
   const thrust = throttle*thrustMax;
   const aLong = (thrust - Duse) / Math.max(m,1);
-  v = clamp(v + aLong*dt, 80, 3800);
-  x += v*dt;
+
+  // runway: keep speed from dropping too low
+  const vMin = (t<28)?0:80;
+  v = clamp(v + aLong*dt, vMin, 3800);
+
+  xMeters += v*dt;
 
   // CST health metric
   const plasmaStab = clamp(0.6 + 0.4*chi - 0.25*(skinT-900)/900, 0, 1);
   const cstHealth = clamp(csync * (0.4 + 0.6*batt) * plasmaStab, 0, 1);
-
   const plasmaProxy = clamp(0.25 + 0.75*chi*(0.6+0.4*duty), 0, 1);
 
-  simCache = {mach, chi, kmhd, csync, duty, fx, cstHealth, plasmaProxy, rho, q, Cd, Duse, throttle, hvPower, heatRaw, heatReduced};
+  simCache = {mach:(v/a), chi, kmhd, csync, duty, fx, cstHealth, plasmaProxy, rho, q, Cd, Duse, throttle, hvPower, heatRaw, heatReduced};
 }
 
 /* ========= UI Sync ========= */
 function syncUI(){
   const band=currentBand(alt);
+  const stage = stageLogic();
 
-  UI.mode.textContent = running ? ((alt<EDGE) ? "Ascent + Field Management" : "Edge of Space → Stable Cruise") : (UI.mode.textContent || "Ready");
+  UI.mode.textContent = running
+    ? (stage.idx===0 ? "Takeoff Roll (airfield)" :
+       stage.idx===1 ? "Rotation + Initial Climb" :
+       stage.idx===5 ? "Edge of Space → Stable Cruise" :
+       "Ascent + Field Management")
+    : (UI.mode.textContent || "Ready");
+
   UI.t.textContent = `${fmt(t,1)} s`;
   UI.machTag.textContent = `Mach ${fmt(simCache.mach,2)}`;
 
@@ -774,6 +973,19 @@ function syncUI(){
   UI.cst.textContent = fmt(simCache.cstHealth,2);
   UI.cstNote.textContent = "CST health = csync × battery × plasma stability (toy)";
 
+  // Stage-by-stage panel
+  UI.stepTitle.textContent = `Stage: ${stage.title}`;
+  UI.stepDesc.textContent = stage.desc;
+  highlightStage(stage.idx);
+
+  // mini pills
+  UI.p0.textContent = (t<28) ? "ACTIVE" : "DONE";
+  UI.p1.textContent = (t>=28 && alt<2500) ? "ACTIVE" : (alt>=2500 ? "DONE":"—");
+  UI.p2.textContent = (alt>=2500 && alt<18000) ? "ACTIVE" : (alt>=18000 ? "DONE":"—");
+  UI.p3.textContent = ((simCache.q||0) > 0.75*stage.qMaxQ && alt<45000) ? "ACTIVE" : (alt>=45000 ? "DONE":"—");
+  UI.p4.textContent = (alt>=18000 && alt<EDGE) ? "ACTIVE" : (alt>=EDGE ? "DONE":"—");
+  UI.p5.textContent = (alt>=EDGE) ? "ACTIVE" : "—";
+
   // Bars
   const bandProg = clamp((alt - band.a0)/(band.a1-band.a0), 0, 1);
   UI.barBand.style.width = `${bandProg*100}%`;
@@ -802,7 +1014,6 @@ function render(){
   const W=cv.width, H=cv.height;
   ctx.clearRect(0,0,W,H);
 
-  // approximate center column viewport
   const pad=10*devicePixelRatio;
   const colL=360*devicePixelRatio + pad*2;
   const colR=380*devicePixelRatio + pad*2;
@@ -810,50 +1021,50 @@ function render(){
 
   drawBands(vp);
 
-  const horizonY = vp.y + vp.h*0.78;
+  const groundY = vp.y + vp.h*0.90;
+  const horizonY = vp.y + vp.h*0.74;
+
+  // altitude mapping: runway->horizon->space
   const uAlt = clamp(alt/120000, 0, 1);
-  const yCraft = horizonY - uAlt*(vp.h*0.62);
+  let yCraft = lerp(groundY-22*devicePixelRatio, horizonY, clamp(alt/1200,0,1));
+  yCraft = lerp(yCraft, horizonY - uAlt*(vp.h*0.58), clamp(uAlt,0,1));
 
-  // craft x: keep it moving left->right by drawing a scrolling “track”
-  const xBase = vp.x + vp.w*0.35;
-  const trailLen = 140*devicePixelRatio;
+  // x position wraps (true left->right movement)
+  const pxPerMeter = 0.020 * devicePixelRatio; // visual scale
+  const xScroll = (xMeters*pxPerMeter) % (vp.w*0.86);
+  const xCraft = vp.x + vp.w*0.07 + xScroll;
 
-  ctx.save();
-  ctx.globalAlpha=0.55;
-  ctx.strokeStyle='rgba(96,165,250,.35)';
-  ctx.lineWidth=2;
-  ctx.beginPath();
-  ctx.moveTo(xBase - trailLen, yCraft);
-  ctx.lineTo(xBase-40*devicePixelRatio, yCraft);
-  ctx.stroke();
-  ctx.restore();
-
+  // glow from plasma proxy + CST health
   const glow = clamp((simCache.plasmaProxy||0)*(0.55+0.45*(simCache.cstHealth||0)), 0, 1);
+
+  // pitch: slight rotate after takeoff
+  const pitch = (t<28) ? 0 : clamp((alt/4000), 0, 1)*(-0.10);
 
   // plasma ring
   ctx.save();
-  ctx.globalAlpha=0.85;
-  ctx.strokeStyle=`rgba(96,165,250,${0.20 + 0.55*glow})`;
+  ctx.globalAlpha=0.88;
+  ctx.strokeStyle=`rgba(96,165,250,${0.22 + 0.60*glow})`;
   ctx.lineWidth=3;
   ctx.beginPath();
-  ctx.ellipse(xBase, yCraft, 44*devicePixelRatio, 18*devicePixelRatio, 0, 0, Math.PI*2);
+  ctx.ellipse(xCraft, yCraft, 44*devicePixelRatio, 18*devicePixelRatio, pitch, 0, Math.PI*2);
   ctx.stroke();
   ctx.restore();
 
-  drawAircraft(xBase, yCraft, devicePixelRatio*1.2, glow);
+  drawAircraft(xCraft, yCraft, devicePixelRatio*1.18, glow, pitch);
 
-  // small overlay box
+  // overlay box
   ctx.save();
-  ctx.fillStyle='rgba(2,6,23,.55)';
-  drawRoundedRect(vp.x+14, vp.y+14, 380*devicePixelRatio, 108*devicePixelRatio, 14*devicePixelRatio);
+  ctx.fillStyle='rgba(2,6,23,.60)';
+  drawRoundedRect(vp.x+14, vp.y+14, 420*devicePixelRatio, 114*devicePixelRatio, 14*devicePixelRatio);
   ctx.fill();
-  ctx.strokeStyle='rgba(120,170,255,.25)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.strokeStyle='rgba(120,170,255,.28)'; ctx.lineWidth=1; ctx.stroke();
 
-  ctx.fillStyle='rgba(226,232,240,.92)';
+  ctx.fillStyle='rgba(226,232,240,.94)';
   ctx.font = `${12*devicePixelRatio}px ui-monospace, Menlo, Consolas, monospace`;
   ctx.fillText(`ALT ${Math.round(alt/1000)} km   V ${Math.round(v)} m/s   Mach ${fmt(simCache.mach,2)}`, vp.x+26*devicePixelRatio, vp.y+40*devicePixelRatio);
-  ctx.fillText(`χ ${fmt(simCache.chi,2)}  K ${fmt(simCache.kmhd,2)}  C ${fmt(simCache.csync,2)}  duty ${fmt(simCache.duty,2)}  CST ${fmt(simCache.cstHealth,2)}`, vp.x+26*devicePixelRatio, vp.y+62*devicePixelRatio);
-  ctx.fillText(`Cd′ x${fmt(simCache.fx?.cdMul||1,2)}   Heat x${fmt(simCache.fx?.heatMul||1,2)}   Stability ${fmt(simCache.fx?.stab||0,2)}`, vp.x+26*devicePixelRatio, vp.y+84*devicePixelRatio);
+  ctx.fillText(`q̄ ${(simCache.q/1000).toFixed(1)} kPa   ρ ${fmt(simCache.rho,4)}   Cd′ ${fmt(simCache.Cd,3)}`, vp.x+26*devicePixelRatio, vp.y+62*devicePixelRatio);
+  ctx.fillText(`χ ${fmt(simCache.chi,2)}  K ${fmt(simCache.kmhd,2)}  C ${fmt(simCache.csync,2)}  duty ${fmt(simCache.duty,2)}  CST ${fmt(simCache.cstHealth,2)}`, vp.x+26*devicePixelRatio, vp.y+84*devicePixelRatio);
+  ctx.fillText(`Heat×${fmt(simCache.fx?.heatMul||1,2)}  Stab ${fmt(simCache.fx?.stab||0,2)}  Batt ${Math.round(batt*100)}%`, vp.x+26*devicePixelRatio, vp.y+106*devicePixelRatio);
   ctx.restore();
 }
 
@@ -863,15 +1074,15 @@ function loop(){
   const dt = clamp((now-lastMs)/1000, 0, 0.05);
   lastMs=now;
 
-  update(dt);     // updates physics only when running
-  syncUI();       // UI stays consistent
-  render();       // aircraft view always renders
+  update(dt);
+  syncUI();
+  render();
 
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
 
-// initialize numbers to match sliders
+// initialize
 syncUI();
 render();
 </script>
