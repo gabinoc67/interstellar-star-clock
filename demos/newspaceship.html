@@ -1,0 +1,703 @@
+<!-- ======================= PART 1 / 4 =======================
+CST A→B Timing Compression Simulator (Metric Corridor)
+- Baseline: Δt = D/c
+- Metric corridor: ds^2 = -c^2 dt^2 + a(x,t)^2 dx^2
+- Effective distance: D_eff = ∫ a(x,t) dx
+- Light time: t_light = D_eff / c
+- Vehicle motion (no v>c locally): dx/dt = v_local / a(x)
+- Energy panel: E = P·t, m_eq = E/c^2 (inverse view)
+============================================================== -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>CST A→B Timing Compression — Metric Corridor Simulator</title>
+<style>
+  :root{
+    color-scheme:dark;
+    --bg:#060912;
+    --panel:#0f172a;
+    --panel2:#0b1222;
+    --ink:#e5e7eb;
+    --muted:#9aa4c7;
+    --accent:#60a5fa;
+    --good:#34d399;
+    --warn:#fbbf24;
+    --bad:#fb7185;
+    --line:rgba(148,163,184,.22);
+    --shadow:0 18px 44px rgba(0,0,0,.45);
+    --r:14px;
+  }
+  html,body{margin:0;height:100%;background:var(--bg);font-family:Segoe UI,Roboto,Arial,sans-serif;color:var(--ink);overflow:hidden;}
+  canvas{position:fixed;inset:0;}
+  .wrap{position:fixed;inset:10px;display:grid;grid-template-columns:360px 1fr 360px;gap:10px;pointer-events:none;}
+  .panel{
+    pointer-events:auto;
+    background:linear-gradient(180deg, rgba(15,23,42,.92), rgba(11,18,34,.84));
+    border:1px solid var(--line);
+    border-radius:var(--r);
+    box-shadow:var(--shadow);
+    backdrop-filter:blur(10px);
+    padding:12px 12px 10px;
+  }
+  .panel h2{margin:0 0 8px;font-size:14px;font-weight:700;letter-spacing:.2px}
+  .sub{color:var(--muted);font-size:12px;line-height:1.35;margin-top:2px}
+  .grid{display:grid;grid-template-columns:1fr auto;gap:8px 10px;align-items:center}
+  .rowline{border-top:1px dashed rgba(148,163,184,.18);margin:10px 0}
+  label{font-size:12px;color:var(--muted)}
+  input[type="range"]{width:100%}
+  input[type="number"]{
+    width:120px;
+    background:rgba(2,6,23,.55);
+    border:1px solid rgba(148,163,184,.25);
+    color:var(--ink);
+    border-radius:10px;
+    padding:6px 8px;
+    outline:none;
+  }
+  .btns{display:flex;gap:8px;margin-top:8px}
+  button{
+    flex:1;
+    background:rgba(96,165,250,.16);
+    border:1px solid rgba(96,165,250,.35);
+    color:var(--ink);
+    border-radius:12px;
+    padding:10px 10px;
+    font-weight:700;
+    cursor:pointer;
+  }
+  button:hover{background:rgba(96,165,250,.22)}
+  button:active{transform:translateY(1px)}
+  .pill{
+    display:inline-flex;gap:8px;align-items:center;
+    padding:6px 10px;border-radius:999px;
+    border:1px solid rgba(148,163,184,.22);
+    background:rgba(2,6,23,.35);
+    font-size:12px;color:var(--muted)
+  }
+  .k{color:var(--muted);font-size:12px}
+  .v{font-variant-numeric:tabular-nums;font-size:13px}
+  .good{color:var(--good)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+  .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
+  .mini{font-size:11px;color:var(--muted);line-height:1.35}
+  .bigstat{font-size:16px;font-weight:800;letter-spacing:.2px}
+  .note{
+    background:rgba(2,6,23,.35);
+    border:1px solid rgba(148,163,184,.18);
+    border-radius:12px;
+    padding:10px;
+    margin-top:10px;
+  }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+
+<div class="wrap">
+  <!-- LEFT PANEL -->
+  <div class="panel" id="left">
+    <h2>Controls & Inputs</h2>
+    <div class="sub">A→B timing is computed from the **effective distance**: <span class="mono">D_eff = ∫ a(x,t) dx</span>, then <span class="mono">Δt = D_eff / c</span>.</div>
+
+    <div class="btns">
+      <button id="btnStart">START</button>
+      <button id="btnStop">STOP</button>
+      <button id="btnReset">RESET</button>
+    </div>
+
+    <div class="rowline"></div>
+
+    <div class="grid">
+      <label>Mode</label>
+      <div class="pill"><span id="modeTxt" class="v">Paused</span></div>
+
+      <label>Sim Time</label>
+      <div class="v mono"><span id="tSim">0.00</span> s</div>
+
+      <label>Point A (x = 0)</label>
+      <div class="v mono">A</div>
+
+      <label>Point B (coordinate length L)</label>
+      <input id="L" type="number" min="1000" step="1000" value="300000"/>
+
+      <label>Light speed c (m/s)</label>
+      <input id="c" type="number" min="100000000" step="1000000" value="299792458"/>
+
+      <div class="rowline" style="grid-column:1/-1"></div>
+
+      <label>Corridor depth (0→0.95)</label>
+      <input id="depth" type="range" min="0" max="0.95" step="0.01" value="0.35"/>
+
+      <label>Depth value</label>
+      <div class="v mono"><span id="depthV">0.35</span></div>
+
+      <label>Corridor center (0→L)</label>
+      <input id="center" type="range" min="0" max="1" step="0.001" value="0.55"/>
+
+      <label>Center frac</label>
+      <div class="v mono"><span id="centerV">0.55</span>·L</div>
+
+      <label>Corridor width (σ as frac of L)</label>
+      <input id="sigma" type="range" min="0.02" max="0.45" step="0.005" value="0.12"/>
+
+      <label>Width frac</label>
+      <div class="v mono"><span id="sigmaV">0.12</span>·L</div>
+
+      <label>a(x) floor (min scale)</label>
+      <input id="aFloor" type="range" min="0.05" max="1" step="0.01" value="0.12"/>
+
+      <label>a_min</label>
+      <div class="v mono"><span id="aFloorV">0.12</span></div>
+
+      <div class="rowline" style="grid-column:1/-1"></div>
+
+      <label>Vehicle local speed v (m/s)</label>
+      <input id="vLocal" type="number" min="1" step="100" value="5000"/>
+
+      <label>Local accel a_v (m/s²)</label>
+      <input id="aLocal" type="number" min="0" step="1" value="0"/>
+    </div>
+
+    <div class="note">
+      <div class="mini">
+        <b>Key idea:</b> local physics stays normal: the ship never needs <span class="mono">v &gt; c</span> locally.
+        In the corridor, coordinate motion speeds up because <span class="mono">dx/dt = v_local / a(x)</span>.
+      </div>
+    </div>
+  </div>
+
+  <!-- CENTER (visual only) -->
+  <div class="panel" id="centerPanel" style="pointer-events:none;">
+    <h2>Flight View (A→B Line + Metric Corridor + Ship)</h2>
+    <div class="sub">
+      Blue band = corridor where <span class="mono">a(x)</span> is reduced.
+      Ship moves along the line with <span class="mono">dx/dt = v_local / a(x)</span>.
+    </div>
+    <div class="note">
+      <div class="mini">
+        <b>Spacetime statement you gave:</b><br/>
+        <span class="mono">ds² = -c²dt² + a(x,t)² dx²</span><br/>
+        <span class="mono">D_eff = ∫ a(x,t) dx</span> → <span class="mono">Δt = D_eff / c</span> (light baseline)
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="panel" id="right">
+    <h2>Live Readings</h2>
+    <div class="grid">
+      <label>Coordinate distance D_AB</label>
+      <div class="v mono"><span id="Dcoord">300000</span> m</div>
+
+      <label>Effective distance D_eff = ∫ a dx</label>
+      <div class="v mono"><span id="Deff">0</span> m</div>
+
+      <label>Compression ratio (D_eff / D_AB)</label>
+      <div class="v mono"><span id="comp">0</span></div>
+
+      <label>Light time (flat) D_AB / c</label>
+      <div class="v mono"><span id="tLightFlat">0</span> s</div>
+
+      <label>Light time (corridor) D_eff / c</label>
+      <div class="v mono"><span id="tLightEff">0</span> s</div>
+
+      <div class="rowline" style="grid-column:1/-1"></div>
+
+      <label>Ship coordinate x</label>
+      <div class="v mono"><span id="xShip">0</span> m</div>
+
+      <label>Ship local speed v_local</label>
+      <div class="v mono"><span id="vNow">0</span> m/s</div>
+
+      <label>Ship coordinate speed dx/dt</label>
+      <div class="v mono"><span id="dxdt">0</span> m/s</div>
+
+      <label>Estimated arrival time (ship)</label>
+      <div class="v mono"><span id="tArrEst">0</span> s</div>
+
+      <label>Status</label>
+      <div class="bigstat" id="status">READY</div>
+    </div>
+
+    <div class="rowline"></div>
+
+    <h2>E ↔ m Panel (your “inverse view”)</h2>
+    <div class="sub">Energy you “pump” into the corridor is tracked as <span class="mono">E = P·t</span>, and the mass-equivalent is <span class="mono">m_eq = E/c²</span>.</div>
+    <div class="grid" style="margin-top:8px">
+      <label>Power P (W)</label>
+      <input id="P" type="number" min="0" step="1000000" value="5000000000"/>
+
+      <label>Accumulated energy E</label>
+      <div class="v mono"><span id="Eacc">0</span> J</div>
+
+      <label>Mass equivalent m_eq = E/c²</label>
+      <div class="v mono"><span id="meq">0</span> kg</div>
+
+      <label>Interpretation</label>
+      <div class="mini">
+        This is a bookkeeping view: it does <b>not</b> claim free energy or real warp.
+        It just shows how your corridor “field budget” could be expressed in <span class="mono">m = E/c²</span>.
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(() => {
+  "use strict";
+
+  // ---------- helpers ----------
+  const $ = (id)=>document.getElementById(id);
+  const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+  const fmt = (n, d=2)=>Number(n).toFixed(d);
+  const fmt0 = (n)=>Math.round(n).toString();
+  const fmtSci = (n)=>{
+    if (!isFinite(n)) return "0";
+    const a = Math.abs(n);
+    if (a === 0) return "0";
+    if (a < 1e-3 || a > 1e6) return n.toExponential(3);
+    return n.toFixed(3);
+  };
+
+  // ---------- sim state ----------
+  const S = {
+    running:false,
+    t:0,
+    x:0,          // coordinate position along A->B in meters
+    v:0,          // local speed m/s
+    E:0,          // accumulated energy J
+    arrived:false
+  };
+
+  // ---------- inputs ----------
+  const inp = {
+    L: $("L"),
+    c: $("c"),
+    depth: $("depth"),
+    center: $("center"),
+    sigma: $("sigma"),
+    aFloor: $("aFloor"),
+    vLocal: $("vLocal"),
+    aLocal: $("aLocal"),
+    P: $("P"),
+    btnStart: $("btnStart"),
+    btnStop: $("btnStop"),
+    btnReset: $("btnReset")
+  };
+
+  // ---------- labels ----------
+  const out = {
+    modeTxt: $("modeTxt"),
+    tSim: $("tSim"),
+    depthV: $("depthV"),
+    centerV: $("centerV"),
+    sigmaV: $("sigmaV"),
+    aFloorV: $("aFloorV"),
+
+    Dcoord: $("Dcoord"),
+    Deff: $("Deff"),
+    comp: $("comp"),
+    tLightFlat: $("tLightFlat"),
+    tLightEff: $("tLightEff"),
+
+    xShip: $("xShip"),
+    vNow: $("vNow"),
+    dxdt: $("dxdt"),
+    tArrEst: $("tArrEst"),
+    status: $("status"),
+
+    Eacc: $("Eacc"),
+    meq: $("meq")
+  };
+
+  // live slider readouts
+  function syncSliderReadouts(){
+    out.depthV.textContent = fmt(parseFloat(inp.depth.value),2);
+    out.centerV.textContent = fmt(parseFloat(inp.center.value),3);
+    out.sigmaV.textContent  = fmt(parseFloat(inp.sigma.value),3);
+    out.aFloorV.textContent = fmt(parseFloat(inp.aFloor.value),2);
+  }
+
+  // ---------- corridor metric a(x,t) ----------
+  // a(x) = 1 - depth * exp( - (x-x0)^2 / (2σ^2) ), clipped to [aFloor, 1]
+  function aOfX(x, L, depth, centerFrac, sigmaFrac, aFloor){
+    const x0 = centerFrac * L;
+    const sig = Math.max(1, sigmaFrac * L);
+    const z = (x - x0) / sig;
+    const gauss = Math.exp(-0.5 * z*z);
+    const a = 1 - depth * gauss;
+    return clamp(a, aFloor, 1);
+  }
+
+  // numeric integral D_eff = ∫_0^L a(x) dx
+  function computeDeff(L, depth, centerFrac, sigmaFrac, aFloor){
+    const N = 900; // resolution
+    const dx = L / N;
+    let sum = 0;
+    for(let i=0;i<N;i++){
+      const x = (i+0.5)*dx;
+      sum += aOfX(x, L, depth, centerFrac, sigmaFrac, aFloor) * dx;
+    }
+    return sum;
+  }
+
+  // estimated ship arrival time using dt = a(x) dx / v_local (v_local treated constant here for estimate)
+  function estimateShipTime(L, vLocal, depth, centerFrac, sigmaFrac, aFloor){
+    vLocal = Math.max(1, vLocal);
+    const N = 900;
+    const dx = L / N;
+    let t = 0;
+    for(let i=0;i<N;i++){
+      const x = (i+0.5)*dx;
+      const a = aOfX(x, L, depth, centerFrac, sigmaFrac, aFloor);
+      t += (a * dx) / vLocal;
+    }
+    return t;
+  }
+
+  // update UI computed metrics
+  function updateMetrics(){
+    const L = Math.max(1, parseFloat(inp.L.value));
+    const c = Math.max(1, parseFloat(inp.c.value));
+    const depth = clamp(parseFloat(inp.depth.value), 0, 0.95);
+    const centerFrac = clamp(parseFloat(inp.center.value), 0, 1);
+    const sigmaFrac = clamp(parseFloat(inp.sigma.value), 0.02, 0.45);
+    const aFloor = clamp(parseFloat(inp.aFloor.value), 0.05, 1);
+
+    const Deff = computeDeff(L, depth, centerFrac, sigmaFrac, aFloor);
+    const comp = Deff / L;
+
+    out.Dcoord.textContent = fmt0(L);
+    out.Deff.textContent = fmt0(Deff);
+    out.comp.textContent = fmt(comp, 4);
+
+    out.tLightFlat.textContent = fmt(L / c, 6);
+    out.tLightEff.textContent  = fmt(Deff / c, 6);
+
+    const vLocal = Math.max(1, parseFloat(inp.vLocal.value));
+    const tEst = estimateShipTime(L, vLocal, depth, centerFrac, sigmaFrac, aFloor);
+    out.tArrEst.textContent = fmt(tEst, 3);
+
+    // ship live
+    out.tSim.textContent = fmt(S.t, 2);
+    out.xShip.textContent = fmt0(S.x);
+    out.vNow.textContent = fmt0(S.v);
+
+    // dx/dt = v_local / a(x)
+    const aHere = aOfX(S.x, L, depth, centerFrac, sigmaFrac, aFloor);
+    const dxdt = S.v / Math.max(1e-6, aHere);
+    out.dxdt.textContent = fmt0(dxdt);
+
+    // energy bookkeeping
+    out.Eacc.textContent = fmtSci(S.E);
+    const meq = S.E / (c*c);
+    out.meq.textContent = fmtSci(meq);
+
+    // mode/status
+    out.modeTxt.textContent = S.running ? "Running" : "Paused";
+  }
+
+  // ---------- UI events ----------
+  inp.depth.addEventListener("input", ()=>{ syncSliderReadouts(); });
+  inp.center.addEventListener("input", ()=>{ syncSliderReadouts(); });
+  inp.sigma.addEventListener("input", ()=>{ syncSliderReadouts(); });
+  inp.aFloor.addEventListener("input", ()=>{ syncSliderReadouts(); });
+
+  // Keep L changes reflected in slider mapping (center is frac so OK)
+  inp.L.addEventListener("input", ()=>{});
+
+  inp.btnStart.addEventListener("click", ()=>{
+    S.running = true;
+    S.arrived = false;
+    out.status.textContent = "RUNNING";
+    out.status.className = "bigstat good";
+  });
+  inp.btnStop.addEventListener("click", ()=>{
+    S.running = false;
+    out.status.textContent = "PAUSED";
+    out.status.className = "bigstat warn";
+  });
+  inp.btnReset.addEventListener("click", ()=>{
+    S.running = false;
+    S.t = 0;
+    S.x = 0;
+    S.v = Math.max(1, parseFloat(inp.vLocal.value));
+    S.E = 0;
+    S.arrived = false;
+    out.status.textContent = "READY";
+    out.status.className = "bigstat";
+  });
+
+  // initialize
+  syncSliderReadouts();
+  S.v = Math.max(1, parseFloat(inp.vLocal.value));
+  updateMetrics();
+
+  // expose a few for part 3/4
+  window.__CSTsim = { S, inp, out, aOfX, updateMetrics, clamp, fmt, fmt0, fmtSci };
+})();
+</script>
+<script>
+(() => {
+  "use strict";
+  const { S, inp, out, aOfX, updateMetrics, clamp } = window.__CSTsim;
+
+  let last = performance.now();
+
+  function step(now){
+    const dt = Math.min(0.05, Math.max(0.0, (now - last) / 1000));
+    last = now;
+
+    const L = Math.max(1, parseFloat(inp.L.value));
+    const c = Math.max(1, parseFloat(inp.c.value));
+    const depth = clamp(parseFloat(inp.depth.value), 0, 0.95);
+    const centerFrac = clamp(parseFloat(inp.center.value), 0, 1);
+    const sigmaFrac = clamp(parseFloat(inp.sigma.value), 0.02, 0.45);
+    const aFloor = clamp(parseFloat(inp.aFloor.value), 0.05, 1);
+
+    const v0 = Math.max(1, parseFloat(inp.vLocal.value));
+    const aLocal = Math.max(0, parseFloat(inp.aLocal.value));
+    const P = Math.max(0, parseFloat(inp.P.value));
+
+    if (S.running && !S.arrived){
+      S.t += dt;
+
+      // local speed model (simple): v_local(t) = v0 + aLocal * t
+      S.v = v0 + aLocal * S.t;
+
+      // energy bookkeeping: E += P*dt when running
+      S.E += P * dt;
+
+      // coordinate speed derived from metric:
+      // physical distance element = a(x) dx
+      // local physical speed = v_local = d(physical)/dt = a(x) * dx/dt  => dx/dt = v_local / a(x)
+      const aHere = aOfX(S.x, L, depth, centerFrac, sigmaFrac, aFloor);
+      const dxdt = S.v / Math.max(1e-6, aHere);
+
+      S.x += dxdt * dt;
+
+      if (S.x >= L){
+        S.x = L;
+        S.arrived = true;
+        S.running = false;
+        out.status.textContent = "ARRIVED @ B";
+        out.status.className = "bigstat good";
+      }
+    } else {
+      // keep v synced even when paused (so labels are never stale)
+      S.v = Math.max(1, parseFloat(inp.vLocal.value));
+    }
+
+    updateMetrics();
+    requestAnimationFrame(step);
+  }
+
+  requestAnimationFrame(step);
+})();
+</script>
+<script>
+(() => {
+  "use strict";
+  const cv = document.getElementById("cv");
+  const g = cv.getContext("2d");
+
+  const { S, inp, aOfX, clamp } = window.__CSTsim;
+
+  function resize(){
+    const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    cv.width  = Math.floor(window.innerWidth * dpr);
+    cv.height = Math.floor(window.innerHeight * dpr);
+    cv.style.width = window.innerWidth+"px";
+    cv.style.height = window.innerHeight+"px";
+    g.setTransform(dpr,0,0,dpr,0,0);
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  function draw(){
+    const W = window.innerWidth, H = window.innerHeight;
+
+    // background
+    g.clearRect(0,0,W,H);
+    g.fillStyle = "#060912";
+    g.fillRect(0,0,W,H);
+
+    // geometry region for the A->B line
+    const leftPad = 390;   // approx panel width + gap
+    const rightPad = 390;
+    const topPad = 90;
+    const midY = Math.round(H*0.55);
+
+    const x0 = leftPad;
+    const x1 = W - rightPad;
+    const lineW = Math.max(240, x1 - x0);
+
+    const L = Math.max(1, parseFloat(inp.L.value));
+    const depth = clamp(parseFloat(inp.depth.value), 0, 0.95);
+    const centerFrac = clamp(parseFloat(inp.center.value), 0, 1);
+    const sigmaFrac = clamp(parseFloat(inp.sigma.value), 0.02, 0.45);
+    const aFloor = clamp(parseFloat(inp.aFloor.value), 0.05, 1);
+
+    // draw corridor band by sampling a(x)
+    const N = 220;
+    g.save();
+    g.translate(x0, midY);
+
+    // base axis
+    g.strokeStyle = "rgba(148,163,184,.25)";
+    g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(0,0);
+    g.lineTo(lineW,0);
+    g.stroke();
+
+    // corridor thickness based on (1-a)
+    for(let i=0;i<N;i++){
+      const u = (i+0.5)/N;
+      const x = u * L;
+      const a = aOfX(x, L, depth, centerFrac, sigmaFrac, aFloor);
+      const strength = (1 - a); // 0..(1-aFloor)
+      const thick = 10 + 70 * strength; // pixels
+      const px = u * lineW;
+
+      g.strokeStyle = "rgba(96,165,250,.12)";
+      g.lineWidth = thick;
+      g.beginPath();
+      g.moveTo(px,0);
+      g.lineTo(px+0.001,0);
+      g.stroke();
+    }
+
+    // A marker
+    g.fillStyle = "rgba(52,211,153,.95)";
+    g.beginPath();
+    g.arc(0,0,8,0,Math.PI*2);
+    g.fill();
+    g.fillStyle = "rgba(229,231,235,.9)";
+    g.font = "12px Segoe UI, Arial";
+    g.fillText("A", -4, -14);
+
+    // B marker
+    g.fillStyle = "rgba(96,165,250,.95)";
+    g.beginPath();
+    g.arc(lineW,0,10,0,Math.PI*2);
+    g.fill();
+    g.fillStyle = "rgba(229,231,235,.9)";
+    g.fillText("B", lineW-4, -14);
+
+    // ship position
+    const shipU = clamp(S.x / L, 0, 1);
+    const shipX = shipU * lineW;
+    const aHere = aOfX(S.x, L, depth, centerFrac, sigmaFrac, aFloor);
+
+    // ship glow
+    g.fillStyle = "rgba(251,191,36,.12)";
+    g.beginPath();
+    g.arc(shipX,0,26,0,Math.PI*2);
+    g.fill();
+
+    // ship body (generic)
+    g.save();
+    g.translate(shipX, 0);
+    g.rotate(0);
+    g.fillStyle = "rgba(251,191,36,.92)";
+    g.beginPath();
+    g.moveTo(-14, -6);
+    g.lineTo(16, 0);
+    g.lineTo(-14, 6);
+    g.closePath();
+    g.fill();
+
+    // ship “field ring”
+    const ring = 14 + 22*(1-aHere);
+    g.strokeStyle = "rgba(96,165,250,.65)";
+    g.lineWidth = 2;
+    g.beginPath();
+    g.arc(0,0,ring,0,Math.PI*2);
+    g.stroke();
+
+    g.restore();
+
+    // label under line
+    g.fillStyle = "rgba(154,164,199,.9)";
+    g.font = "12px ui-monospace, Menlo, Consolas, monospace";
+    g.fillText(`a(x) here = ${aHere.toFixed(3)}   (smaller a ⇒ shorter physical distance per coordinate step)`, 0, 34);
+
+    g.restore();
+
+    // inset: simple “ct vs x” diagram (conceptual worldlines)
+    const boxW = 330, boxH = 190;
+    const bx = x0 + 10, by = topPad;
+    g.fillStyle = "rgba(2,6,23,.38)";
+    g.strokeStyle = "rgba(148,163,184,.22)";
+    g.lineWidth = 1;
+    g.beginPath();
+    g.roundRect(bx,by,boxW,boxH,14);
+    g.fill(); g.stroke();
+
+    // axes
+    g.save();
+    g.translate(bx+28, by+boxH-24);
+    const axW = boxW-56, axH = boxH-52;
+
+    g.strokeStyle = "rgba(148,163,184,.35)";
+    g.beginPath();
+    g.moveTo(0,0); g.lineTo(axW,0);
+    g.moveTo(0,0); g.lineTo(0,-axH);
+    g.stroke();
+
+    g.fillStyle = "rgba(229,231,235,.85)";
+    g.font = "12px Segoe UI, Arial";
+    g.fillText("x", axW-8, 14);
+    g.fillText("ct", -18, -axH+12);
+
+    // "flat" light worldline (45°)
+    g.strokeStyle = "rgba(229,231,235,.55)";
+    g.lineWidth = 2;
+    g.beginPath();
+    g.moveTo(0,0);
+    g.lineTo(axW*0.9, -axW*0.9);
+    g.stroke();
+    g.fillStyle = "rgba(229,231,235,.75)";
+    g.fillText("flat light (null)", 8, -10);
+
+    // "compressed mapping" line (drawn slightly “steeper” to suggest shorter physical x)
+    g.strokeStyle = "rgba(96,165,250,.75)";
+    g.beginPath();
+    g.moveTo(0,0);
+    g.lineTo(axW*0.9, -axW*1.1);
+    g.stroke();
+    g.fillStyle = "rgba(96,165,250,.9)";
+    g.fillText("corridor mapping (a↓)", 8, -26);
+
+    g.restore();
+
+    // title on top
+    g.fillStyle = "rgba(229,231,235,.95)";
+    g.font = "700 16px Segoe UI, Arial";
+    g.fillText("CST Timing Compression — Metric Corridor (Toy Visualization)", x0, 34);
+
+    requestAnimationFrame(draw);
+  }
+
+  // roundRect polyfill for older browsers
+  if (!CanvasRenderingContext2D.prototype.roundRect){
+    CanvasRenderingContext2D.prototype.roundRect = function(x,y,w,h,r){
+      r = Math.min(r, w/2, h/2);
+      this.beginPath();
+      this.moveTo(x+r,y);
+      this.arcTo(x+w,y,x+w,y+h,r);
+      this.arcTo(x+w,y+h,x,y+h,r);
+      this.arcTo(x,y+h,x,y,r);
+      this.arcTo(x,y,x+w,y,r);
+      this.closePath();
+      return this;
+    };
+  }
+
+  requestAnimationFrame(draw);
+})();
+</script>
+
+</body>
+</html>
