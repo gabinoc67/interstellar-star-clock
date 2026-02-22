@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>6/54 Sum-Up Simulator (Target 160–170, Balanced 2/2/2)</title>
+  <style>
+    :root{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+    body{margin:18px;background:#0b0f14;color:#e8eef7}
+    h1{font-size:18px;margin:0 0 8px}
+    .row{display:flex;gap:12px;flex-wrap:wrap;margin:10px 0}
+    .card{background:#121a24;border:1px solid #223044;border-radius:14px;padding:12px;min-width:320px;flex:1}
+    label{display:block;font-size:12px;opacity:.85;margin:8px 0 4px}
+    input,select{width:100%;padding:10px;border-radius:10px;border:1px solid #2a3b56;background:#0b0f14;color:#e8eef7}
+    button{padding:10px 12px;border-radius:12px;border:1px solid #2a3b56;background:#1b2a3f;color:#e8eef7;cursor:pointer}
+    button:hover{filter:brightness(1.08)}
+    pre{white-space:pre-wrap;word-break:break-word;background:#0b0f14;border:1px solid #223044;border-radius:12px;padding:10px;margin:0}
+    .muted{opacity:.75;font-size:12px;line-height:1.35}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;background:#0b0f14;border:1px solid #223044;font-size:12px;margin-right:6px;margin-bottom:6px}
+    .good{color:#6ee7b7}
+    .warn{color:#fbbf24}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    @media (max-width: 900px){ .grid2{grid-template-columns:1fr} }
+  </style>
+</head>
+<body>
+  <h1>6/54 Sum-Up Simulator (Target Sum 160–170 • Balanced: 2 low, 2 mid, 2 high)</h1>
+
+  <div class="muted">
+    <span class="pill">Low: <b>1–18</b> (pick 2)</span>
+    <span class="pill">Mid: <b>19–36</b> (pick 2)</span>
+    <span class="pill">High: <b>37–54</b> (pick 2)</span>
+    <span class="pill">Target Sum: <b>160–170</b></span>
+    <div style="margin-top:8px">
+      This uses <b>historical weighting</b> learned from your Excel draw history, but it does <b>not</b> change true lottery odds.
+      It generates the “most typical” sets under your constraints (sum + balanced buckets).
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="card">
+      <div class="grid2">
+        <div>
+          <label>Iterations (more = stronger search)</label>
+          <input id="iters" type="number" value="300000" min="1000" step="1000" />
+        </div>
+        <div>
+          <label>Pair synergy strength (0 = off)</label>
+          <input id="pairStrength" type="number" value="0.35" min="0" max="2" step="0.05" />
+        </div>
+        <div>
+          <label>Target Sum Min</label>
+          <input id="sumMin" type="number" value="160" min="21" max="315" step="1" />
+        </div>
+        <div>
+          <label>Target Sum Max</label>
+          <input id="sumMax" type="number" value="170" min="21" max="315" step="1" />
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:10px">
+        <button id="runBtn">Run Simulation (Top 5)</button>
+        <button id="showBestBtn">Show Current Best Top 5</button>
+      </div>
+
+      <div class="muted">
+        Tip: Run it a few times to get alternate “best” sets within your rules.
+        If you widen target to <b>155–175</b>, you’ll get more variety.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="muted" style="margin-bottom:8px">
+        <b class="good">Output:</b> Top 5 balanced sets within your target sum,
+        scored by number weights + optional pair co-occurrence bonus.
+      </div>
+      <pre id="out"></pre>
+    </div>
+  </div>
+
+<script>
+/* ============================================================
+   Learned weights from your draw-history subset where:
+   - sum is in 160..170
+   - balanced: 2 low (1–18), 2 mid (19–36), 2 high (37–54)
+
+   WEIGHTS[n] is Laplace-smoothed probability for number n (1..54)
+   inside that subset.
+   ============================================================ */
+const WEIGHTS = {
+  "1":0.00980392156862745,"2":0.00980392156862745,"3":0.0196078431372549,"4":0.00980392156862745,
+  "5":0.014705882352941176,"6":0.09313725490196079,"7":0.029411764705882353,"8":0.10294117647058823,
+  "9":0.014705882352941176,"10":0.024509803921568627,"11":0.029411764705882353,"12":0.024509803921568627,
+  "13":0.0196078431372549,"14":0.0196078431372549,"15":0.0196078431372549,"16":0.0196078431372549,
+  "17":0.0196078431372549,"18":0.00980392156862745,"19":0.014705882352941176,"20":0.024509803921568627,
+  "21":0.08823529411764706,"22":0.024509803921568627,"23":0.0196078431372549,"24":0.0196078431372549,
+  "25":0.0196078431372549,"26":0.08333333333333333,"27":0.014705882352941176,"28":0.07352941176470588,
+  "29":0.0784313725490196,"30":0.058823529411764705,"31":0.0196078431372549,"32":0.07352941176470588,
+  "33":0.024509803921568627,"34":0.0196078431372549,"35":0.014705882352941176,"36":0.014705882352941176,
+  "37":0.014705882352941176,"38":0.0392156862745098,"39":0.014705882352941176,"40":0.07352941176470588,
+  "41":0.0196078431372549,"42":0.0196078431372549,"43":0.08333333333333333,"44":0.03431372549019608,
+  "45":0.0196078431372549,"46":0.05392156862745098,"47":0.058823529411764705,"48":0.0196078431372549,
+  "49":0.024509803921568627,"50":0.014705882352941176,"51":0.0392156862745098,"52":0.08823529411764706,
+  "53":0.03431372549019608,"54":0.03431372549019608
+};
+
+/* Top repeating pairs inside that same subset (for optional synergy bonus). */
+const PAIR_BONUS = {
+  "8-26":7,"26-43":6,"6-30":6,"8-52":6,"11-38":5,"12-47":5,"10-21":5,"8-29":5,"8-51":5,"16-41":5,
+  "25-41":5,"8-47":5,"11-26":4,"29-52":4,"6-8":4,"6-52":4,"26-52":4,"6-43":4,"8-43":4,"6-29":4,
+  "21-47":4,"12-52":4,"29-47":4,"30-52":4,"30-43":4,"21-52":4,"8-32":4,"29-43":4,"28-43":4,"26-47":4,
+  "32-43":4,"6-26":4,"28-52":4,"21-29":4,"6-47":3,"6-32":3,"32-52":3,"12-29":3,"12-21":3,"8-21":3,
+  "11-47":3,"11-52":3,"15-38":3,"11-29":3,"29-32":3,"21-43":3,"10-47":3,"10-52":3,"21-30":3,"6-21":3,
+  "8-30":3,"10-29":3,"10-43":3,"11-30":3,"26-30":3,"15-50":3,"14-49":3,"5-38":3,"5-48":3
+};
+
+const LOW = range(1,18);
+const MID = range(19,36);
+const HIGH = range(37,54);
+
+function range(a,b){
+  const out=[];
+  for(let i=a;i<=b;i++) out.push(i);
+  return out;
+}
+
+function sum(arr){ return arr.reduce((a,b)=>a+b,0); }
+
+function normalizeWeights(values){
+  const w = values.map(n => WEIGHTS[String(n)] ?? 1e-12);
+  const s = w.reduce((a,b)=>a+b,0);
+  return w.map(x=>x/s);
+}
+
+/* Weighted sampling without replacement (k is small = 2) */
+function pickKNoReplace(values, probs, k){
+  const vals = values.slice();
+  const ps = probs.slice();
+  const picked=[];
+  for(let t=0;t<k;t++){
+    // roulette wheel
+    let r=Math.random();
+    let cum=0, idx=0;
+    for(; idx<ps.length; idx++){
+      cum += ps[idx];
+      if(r <= cum) break;
+    }
+    if(idx >= vals.length) idx = vals.length-1;
+    picked.push(vals[idx]);
+    vals.splice(idx,1);
+    ps.splice(idx,1);
+    // renormalize
+    const s = ps.reduce((a,b)=>a+b,0) || 1;
+    for(let i=0;i<ps.length;i++) ps[i]/=s;
+  }
+  return picked;
+}
+
+function scoreCombo(combo, pairStrength){
+  // score = sum(log(p(n))) + pairStrength * (small scaled pair co-occur bonus)
+  let s=0;
+  for(const n of combo){
+    const p = WEIGHTS[String(n)] ?? 1e-12;
+    s += Math.log(p);
+  }
+  if(pairStrength>0){
+    for(let i=0;i<combo.length;i++){
+      for(let j=i+1;j<combo.length;j++){
+        const a=Math.min(combo[i],combo[j]);
+        const b=Math.max(combo[i],combo[j]);
+        const key=`${a}-${b}`;
+        const bonus = PAIR_BONUS[key] ?? 0;
+        s += pairStrength * bonus * 0.02; // small scaling
+      }
+    }
+  }
+  return s;
+}
+
+function makeBalancedCombo(){
+  const lp = normalizeWeights(LOW);
+  const mp = normalizeWeights(MID);
+  const hp = normalizeWeights(HIGH);
+  const a = pickKNoReplace(LOW, lp, 2);
+  const b = pickKNoReplace(MID, mp, 2);
+  const c = pickKNoReplace(HIGH, hp, 2);
+  return [...a,...b,...c].sort((x,y)=>x-y);
+}
+
+function simulateTopK(iters, pairStrength, sumMin, sumMax, topK=5){
+  const best = new Map(); // key -> bestScore
+  for(let i=0;i<iters;i++){
+    const combo = makeBalancedCombo();
+    const total = sum(combo);
+    if(total < sumMin || total > sumMax) continue;
+
+    const key = combo.join(",");
+    const sc = scoreCombo(combo, pairStrength);
+    const prev = best.get(key);
+    if(prev === undefined || sc > prev) best.set(key, sc);
+  }
+
+  const ranked = Array.from(best.entries())
+    .map(([k,v]) => ({combo: k.split(",").map(Number), score:v}))
+    .sort((a,b)=>b.score - a.score)
+    .slice(0, topK);
+
+  return ranked;
+}
+
+function formatResults(results){
+  if(!results.length) return "No matches found. Increase iterations or widen sum range.";
+  let out="";
+  results.forEach((r,idx)=>{
+    out += `${idx+1}) ${r.combo.join("  ")}   | sum=${sum(r.combo)}\n`;
+  });
+  return out.trim();
+}
+
+/* Current “best known” Top 5 from a 300k iteration run with pairStrength=0.35 and sum 160–170 */
+let CURRENT_BEST = [
+  [6, 8, 26, 32, 43, 52], // 167
+  [6, 8, 21, 32, 43, 52], // 162
+  [6, 8, 26, 28, 43, 52], // 163
+  [6, 8, 21, 29, 47, 52], // 163
+  [6, 8, 21, 30, 43, 52]  // 160
+];
+
+function showCurrentBest(){
+  const out = CURRENT_BEST
+    .map((c,i)=>`${i+1}) ${c.join("  ")}   | sum=${sum(c)}`)
+    .join("\n");
+  document.getElementById("out").textContent = out;
+}
+
+document.getElementById("runBtn").addEventListener("click", ()=>{
+  const iters = Math.max(1000, Number(document.getElementById("iters").value || 300000));
+  const pairStrength = Math.max(0, Number(document.getElementById("pairStrength").value || 0));
+  const sumMin = Number(document.getElementById("sumMin").value || 160);
+  const sumMax = Number(document.getElementById("sumMax").value || 170);
+
+  const results = simulateTopK(iters, pairStrength, sumMin, sumMax, 5);
+  document.getElementById("out").textContent = formatResults(results);
+
+  // save best so you can re-show without rerunning
+  if(results.length){
+    CURRENT_BEST = results.map(r => r.combo);
+  }
+});
+
+document.getElementById("showBestBtn").addEventListener("click", showCurrentBest);
+
+// initial display
+showCurrentBest();
+</script>
+</body>
+</html>
