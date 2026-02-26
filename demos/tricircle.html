@@ -1,9 +1,9 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Earth ⇄ Mars 3-Point Curvature Sync Demo</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Earth ⇄ Mars 3-Point Geodesic Curvature Demo</title>
 <style>
   :root{
     --bg:#0b0f16; --panel:#111827; --ink:#e5e7eb; --muted:#9ca3af;
@@ -14,7 +14,7 @@
   .wrap{ display:grid; grid-template-columns: 1.35fr 0.65fr; gap:14px; padding:14px; }
   canvas{ width:100%; height: calc(100vh - 28px); background:#070a10; border-radius:14px; box-shadow:0 10px 30px rgba(0,0,0,.35); }
   .panel{ height: calc(100vh - 28px); background:var(--panel); border-radius:14px; padding:14px; box-shadow:0 10px 30px rgba(0,0,0,.35); overflow:auto; }
-  h1{ font-size:16px; margin:0 0 10px; }
+  h1{ font-size:16px; margin:0 0 8px; }
   .tiny{ font-size:12px; color:var(--muted); line-height:1.35; }
   .row{ display:flex; gap:10px; flex-wrap:wrap; margin:10px 0; }
   button{
@@ -44,35 +44,37 @@
   <canvas id="cv"></canvas>
 
   <div class="panel">
-    <h1>Earth ⇄ Mars 3-Point Curvature Sync Demo (Sun in the middle)</h1>
+    <h1>Earth ⇄ Mars 3-Point Geodesic Curvature Demo (Sun static)</h1>
     <div class="tiny">
-      Earth completes 360° first and marks 3 points (Perihelion, Quadrature, Aphelion).
-      Then Earth stops and Mars completes 360° and marks its 3 points.
-      Finally we check “touch” = closest angular match (same Sun-direction) between any Earth/Mars marked points.
+      This matches your “circle creates 3 points” idea: a rotating line locks <b>3 anchor points</b> and draws
+      the <b>3 locked vectors</b> + <b>triangle chords</b> (geodesic-style paths) for Earth, then Mars.
+      After both run 360°, we compare closest angular alignment.
+    </div>
+
+    <div class="row" style="justify-content:space-between; align-items:center;">
+      <span class="tag good" id="jsTag">JS RUNNING ✅</span>
+      <span class="tag" id="phaseTag">Phase: idle</span>
+      <span class="tag" id="alignTag">Alignment: waiting</span>
     </div>
 
     <div class="row">
       <button class="primary" id="startBtn">Start</button>
       <button id="pauseBtn">Pause</button>
       <button class="danger" id="resetBtn">Reset</button>
-      <button id="printBtn">Print Report</button>
+      <button id="printBtn">Print</button>
     </div>
 
     <div class="box">
       <div class="k">Simulation speed</div>
-      <input id="speed" type="range" min="0.2" max="4" step="0.1" value="1" />
-      <div class="tiny">Higher = faster sweep.</div>
+      <input id="speed" type="range" min="0.2" max="6" step="0.1" value="1.5"/>
+      <div class="tiny">Higher = faster sweep. Earth completes 360° then Mars.</div>
     </div>
 
     <div class="box">
-      <div class="row" style="justify-content:space-between; align-items:center;">
-        <div class="tag" id="phaseTag">Phase: idle</div>
-        <div class="tag" id="alignTag">Alignment: waiting</div>
-      </div>
-
+      <div class="k">Live readouts</div>
       <div class="kv">
-        <div class="k">Earth angle (deg)</div><div class="v" id="earthDeg">—</div>
-        <div class="k">Mars angle (deg)</div><div class="v" id="marsDeg">—</div>
+        <div class="k">Earth θ (deg)</div><div class="v" id="earthDeg">—</div>
+        <div class="k">Mars θ (deg)</div><div class="v" id="marsDeg">—</div>
 
         <div class="k">Earth r (AU)</div><div class="v" id="earthR">—</div>
         <div class="k">Mars r (AU)</div><div class="v" id="marsR">—</div>
@@ -80,13 +82,22 @@
         <div class="k">Earth v (km/s)</div><div class="v" id="earthV">—</div>
         <div class="k">Mars v (km/s)</div><div class="v" id="marsV">—</div>
 
+        <div class="k">Earth closest/farthest (AU)</div><div class="v" id="earthCF">—</div>
+        <div class="k">Mars closest/farthest (AU)</div><div class="v" id="marsCF">—</div>
+
         <div class="k">Best match Δθ (deg)</div><div class="v" id="matchDeg">—</div>
+        <div class="k">Hohmann time / Δv (ideal)</div><div class="v" id="hohmann">—</div>
       </div>
     </div>
 
     <div class="box">
-      <div class="k">Report log</div>
+      <div class="k">Log</div>
       <textarea id="log" readonly></textarea>
+    </div>
+
+    <div class="tiny">
+      If buttons still don’t work, you’re likely running this inside a builder that blocks scripts.
+      Save as a local <b>.html</b> file and open in Chrome/Edge.
     </div>
   </div>
 </div>
@@ -94,105 +105,133 @@
 <script>
 (function(){
   // ---------- DOM ----------
-  var canvas = document.getElementById("cv");
-  var ctx = canvas.getContext("2d");
+  const canvas = document.getElementById("cv");
+  const ctx = canvas.getContext("2d");
+  const $ = id => document.getElementById(id);
 
-  function $(id){ return document.getElementById(id); }
+  const startBtn = $("startBtn"), pauseBtn = $("pauseBtn"), resetBtn = $("resetBtn"), printBtn = $("printBtn");
+  const speedEl = $("speed");
+  const phaseTag = $("phaseTag"), alignTag = $("alignTag");
 
-  var startBtn = $("startBtn");
-  var pauseBtn = $("pauseBtn");
-  var resetBtn = $("resetBtn");
-  var printBtn = $("printBtn");
-  var speedEl  = $("speed");
-
-  var phaseTag = $("phaseTag");
-  var alignTag = $("alignTag");
-  var earthDegEl = $("earthDeg");
-  var marsDegEl  = $("marsDeg");
-  var earthREl   = $("earthR");
-  var marsREl    = $("marsR");
-  var earthVEl   = $("earthV");
-  var marsVEl    = $("marsV");
-  var matchDegEl = $("matchDeg");
-  var logEl      = $("log");
+  const earthDegEl=$("earthDeg"), marsDegEl=$("marsDeg");
+  const earthREl=$("earthR"), marsREl=$("marsR");
+  const earthVEl=$("earthV"), marsVEl=$("marsV");
+  const earthCF=$("earthCF"), marsCF=$("marsCF");
+  const matchDegEl=$("matchDeg"), hohmannEl=$("hohmann");
+  const logEl=$("log");
 
   // ---------- Constants ----------
-  var AU = 1.495978707e11;          // m
-  var MU_SUN = 1.32712440018e20;    // m^3/s^2
+  const AU = 1.495978707e11;          // m
+  const MU_SUN = 1.32712440018e20;    // m^3/s^2
 
-  var Earth = { name:"Earth", a_AU:1.00000011, e:0.01671022, color:"#3b82f6", period_days:365.256 };
-  var Mars  = { name:"Mars",  a_AU:1.523679,   e:0.0934,     color:"#fb7185", period_days:686.980 };
+  const Earth = { name:"Earth", a_AU:1.00000011, e:0.01671022, color:"#3b82f6", period_days:365.256 };
+  const Mars  = { name:"Mars",  a_AU:1.523679,   e:0.0934,     color:"#fb7185", period_days:686.980 };
 
-  var TP = [
-    {label:"Perihelion", theta:0},
-    {label:"Quadrature", theta:Math.PI/2},
-    {label:"Aphelion", theta:Math.PI}
+  // Your “3 points” anchors (geodesic vectors to these)
+  const TP = [
+    {label:"Perihelion (closest)", theta:0},
+    {label:"Quadrature (90°)",     theta:Math.PI/2},
+    {label:"Aphelion (farthest)",  theta:Math.PI}
   ];
 
-  // ---------- Resize canvas properly ----------
+  // ---------- Resize ----------
   function resize(){
-    var dpr = window.devicePixelRatio || 1;
-    var rect = canvas.getBoundingClientRect();
-    canvas.width  = Math.max(600, Math.floor(rect.width  * dpr));
-    canvas.height = Math.max(400, Math.floor(rect.height * dpr));
-    ctx.setTransform(dpr,0,0,dpr,0,0); // draw in CSS pixels
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width  = Math.max(700, Math.floor(rect.width  * dpr));
+    canvas.height = Math.max(500, Math.floor(rect.height * dpr));
+    ctx.setTransform(dpr,0,0,dpr,0,0);
   }
   window.addEventListener("resize", resize);
 
-  // ---------- Math helpers ----------
-  function wrap2pi(t){
-    t = t % (2*Math.PI);
-    return t < 0 ? t + 2*Math.PI : t;
-  }
-  function deg(r){ return r * 180 / Math.PI; }
-  function fmt(n, d){
-    if (!isFinite(n)) return "—";
-    return n.toFixed(d);
-  }
+  // ---------- Math ----------
+  const TWO_PI = 2*Math.PI;
+  const deg = r => r*180/Math.PI;
+  const wrap2pi = t => (t%TWO_PI + TWO_PI) % TWO_PI;
+
+  function fmt(n,d=3){ return Number.isFinite(n) ? n.toFixed(d) : "—"; }
 
   function rAU(planet, theta){
-    var a = planet.a_AU, e = planet.e;
-    var p = a*(1 - e*e);
-    return p / (1 + e*Math.cos(theta));
+    const a = planet.a_AU, e = planet.e;
+    const p = a*(1 - e*e);
+    return p / (1 + e*Math.cos(theta)); // Sun at focus
   }
+
   function visViva_kms(planet, r_AU){
-    var r = r_AU * AU;
-    var a = planet.a_AU * AU;
-    var v = Math.sqrt(MU_SUN * (2/r - 1/a)); // m/s
-    return v / 1000; // km/s
+    const r = r_AU * AU;
+    const a = planet.a_AU * AU;
+    const v = Math.sqrt(MU_SUN * (2/r - 1/a)); // m/s
+    return v / 1000;
   }
+
   function nearAngle(a,b,eps){
-    var d = (a-b) % (2*Math.PI);
-    if (d > Math.PI) d -= 2*Math.PI;
-    if (d < -Math.PI) d += 2*Math.PI;
+    let d = (a-b) % TWO_PI;
+    if (d>Math.PI) d-=TWO_PI;
+    if (d<-Math.PI) d+=TWO_PI;
     return Math.abs(d) <= eps;
   }
 
-  // ---------- Drawing helpers ----------
-  function clear(){
-    ctx.clearRect(0,0,canvas.width,canvas.height);
+  // chord length between two orbital points in AU (straight-line in this 2D plane)
+  function chordAU(p1, p2){
+    const dx = p1.r_AU*Math.cos(p1.theta) - p2.r_AU*Math.cos(p2.theta);
+    const dy = p1.r_AU*Math.sin(p1.theta) - p2.r_AU*Math.sin(p2.theta);
+    return Math.sqrt(dx*dx + dy*dy);
+  }
+
+  // ---------- Hohmann (idealized) ----------
+  function hohmann(){
+    const r1 = Earth.a_AU * AU;
+    const r2 = Mars.a_AU  * AU;
+    const aT = (r1 + r2)/2;
+
+    const v1  = Math.sqrt(MU_SUN / r1);
+    const v2  = Math.sqrt(MU_SUN / r2);
+    const vT1 = Math.sqrt(MU_SUN * (2/r1 - 1/aT));
+    const vT2 = Math.sqrt(MU_SUN * (2/r2 - 1/aT));
+
+    const dv1 = Math.abs(vT1 - v1);
+    const dv2 = Math.abs(v2 - vT2);
+    const dvT = dv1 + dv2;
+
+    const t = Math.PI * Math.sqrt((aT*aT*aT)/MU_SUN); // seconds
+    return { days: t/86400, dv_kms: dvT/1000 };
+  }
+  const H = hohmann();
+  hohmannEl.textContent = `${H.days.toFixed(1)} d / ${H.dv_kms.toFixed(3)} km/s`;
+
+  // ---------- Drawing ----------
+  function clear(){ ctx.clearRect(0,0,canvas.width,canvas.height); }
+
+  function drawStars(w,h){
+    ctx.save();
+    ctx.fillStyle="rgba(255,255,255,0.07)";
+    for (let i=0;i<120;i++){
+      const x=(i*173)%w, y=(i*97)%h;
+      ctx.fillRect(x,y,1,1);
+    }
+    ctx.restore();
   }
 
   function drawSun(cx,cy){
     ctx.save();
-    // glow
-    var grd = ctx.createRadialGradient(cx,cy,2,cx,cy,60);
+    const grd = ctx.createRadialGradient(cx,cy,2,cx,cy,70);
     grd.addColorStop(0,"rgba(255,215,0,0.95)");
     grd.addColorStop(1,"rgba(255,215,0,0.0)");
-    ctx.fillStyle = grd;
-    ctx.beginPath(); ctx.arc(cx,cy,60,0,2*Math.PI); ctx.fill();
-    // core
+    ctx.fillStyle=grd;
+    ctx.beginPath(); ctx.arc(cx,cy,70,0,TWO_PI); ctx.fill();
+
     ctx.fillStyle="#facc15";
-    ctx.beginPath(); ctx.arc(cx,cy,12,0,2*Math.PI); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx,cy,12,0,TWO_PI); ctx.fill();
+
     ctx.fillStyle="rgba(255,255,255,0.85)";
     ctx.font="14px system-ui";
-    ctx.fillText("SUN", cx+16, cy+5);
+    ctx.fillText("SUN (static)", cx+16, cy+5);
     ctx.restore();
   }
 
   function orbitPoint(cx,cy,pxPerAU, planet, theta){
-    var r = rAU(planet, theta);
-    return { x: cx + Math.cos(theta)*r*pxPerAU, y: cy + Math.sin(theta)*r*pxPerAU, r_AU:r };
+    const r = rAU(planet, theta);
+    return { x: cx + Math.cos(theta)*r*pxPerAU, y: cy + Math.sin(theta)*r*pxPerAU, r_AU:r, theta };
   }
 
   function drawOrbit(cx,cy,pxPerAU, planet){
@@ -200,131 +239,196 @@
     ctx.strokeStyle="rgba(255,255,255,0.92)";
     ctx.lineWidth=4;
     ctx.beginPath();
-    var steps = 720;
-    for (var i=0;i<=steps;i++){
-      var th = (i/steps)*2*Math.PI;
-      var P = orbitPoint(cx,cy,pxPerAU, planet, th);
+    const steps=900;
+    for (let i=0;i<=steps;i++){
+      const th=(i/steps)*TWO_PI;
+      const P=orbitPoint(cx,cy,pxPerAU,planet,th);
       if (i===0) ctx.moveTo(P.x,P.y); else ctx.lineTo(P.x,P.y);
     }
     ctx.stroke();
     ctx.restore();
   }
 
-  function drawPlanet(cx,cy,pxPerAU, planet, theta){
-    var P = orbitPoint(cx,cy,pxPerAU, planet, theta);
+  function drawPlanetDot(P, planet){
     ctx.save();
     ctx.fillStyle=planet.color;
-    ctx.beginPath(); ctx.arc(P.x,P.y,8,0,2*Math.PI); ctx.fill();
+    ctx.beginPath(); ctx.arc(P.x,P.y,8,0,TWO_PI); ctx.fill();
     ctx.fillStyle="rgba(255,255,255,0.85)";
     ctx.font="13px system-ui";
     ctx.fillText(planet.name, P.x+12, P.y+4);
     ctx.restore();
-    return P;
   }
 
-  function drawRadial(cx,cy,x,y){
+  function drawRadial(cx,cy,P, alpha=0.65, width=2){
     ctx.save();
-    ctx.strokeStyle="rgba(255,255,255,0.55)";
-    ctx.lineWidth=2;
+    ctx.strokeStyle=`rgba(255,255,255,${alpha})`;
+    ctx.lineWidth=width;
     ctx.beginPath();
-    ctx.moveTo(cx,cy); ctx.lineTo(x,y);
+    ctx.moveTo(cx,cy);
+    ctx.lineTo(P.x,P.y);
     ctx.stroke();
     ctx.restore();
   }
 
-  function drawMarks(marks){
+  // locked geodesic vectors (Sun->anchor points)
+  function drawLockedVectors(cx,cy, locked){
+    for (const m of locked){
+      drawRadial(cx,cy,m,0.75,3);
+    }
+  }
+
+  function drawAnchorMarks(locked){
     ctx.save();
-    for (var i=0;i<marks.length;i++){
-      var m = marks[i];
+    for (const m of locked){
       ctx.fillStyle="rgba(255,255,255,0.95)";
-      ctx.beginPath(); ctx.arc(m.x,m.y,6,0,2*Math.PI); ctx.fill();
-      ctx.fillStyle="rgba(255,255,255,0.8)";
+      ctx.beginPath(); ctx.arc(m.x,m.y,6,0,TWO_PI); ctx.fill();
+      ctx.fillStyle="rgba(255,255,255,0.85)";
       ctx.font="12px system-ui";
-      ctx.fillText(m.label, m.x+10, m.y-10);
+      ctx.fillText(m.labelShort, m.x+10, m.y-10);
     }
     ctx.restore();
   }
 
+  // triangle chords between the 3 anchor points (geodesic-style straight chords)
+  function drawTriangleChords(locked){
+    if (locked.length !== 3) return;
+    ctx.save();
+    ctx.strokeStyle="rgba(255,255,255,0.35)";
+    ctx.lineWidth=2.5;
+    ctx.beginPath();
+    ctx.moveTo(locked[0].x, locked[0].y);
+    ctx.lineTo(locked[1].x, locked[1].y);
+    ctx.lineTo(locked[2].x, locked[2].y);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
+  }
+
   // ---------- State ----------
-  var running=false, paused=false;
-  var phase="idle"; // idle -> earth -> mars -> done
-  var thetaE=0, thetaM=0;
-  var markedE = {};
-  var markedM = {};
-  var marksEarth=[], marksMars=[];
-  var baseSweepSeconds = 16; // each 360 sweep duration at speed=1
-  var lastT = performance.now();
+  let running=false, paused=false;
+  let phase="idle"; // idle -> earth -> mars -> done
+  let thetaE=0, thetaM=0;
+  let lastT=performance.now();
+
+  const lockedEarth=[]; // locked points objects
+  const lockedMars=[];
+  const markedE = new Set();
+  const markedM = new Set();
+
+  const baseSweepSeconds = 18; // each 360 sweep at speed=1
 
   function logLine(s){
     logEl.value += s + "\n";
     logEl.scrollTop = logEl.scrollHeight;
   }
 
-  function reset(){
-    running=false; paused=false; phase="idle";
-    thetaE=0; thetaM=0;
-    markedE = {}; markedM = {};
-    marksEarth=[]; marksMars=[];
-    logEl.value="";
-    logLine("Reset complete. Click Start.");
-    setTags();
-    setUI();
-  }
-
   function setTags(){
-    phaseTag.textContent = "Phase: " + phase + (paused ? " (paused)" : "");
+    phaseTag.textContent = `Phase: ${phase}${paused ? " (paused)" : ""}`;
     phaseTag.className = "tag" + (phase==="done" ? " good" : (phase==="idle" ? "" : " warn"));
   }
 
   function alignmentReport(){
-    if (marksEarth.length<3 || marksMars.length<3) return null;
-    var bestD = 1e9, bestE=null, bestM=null;
-    for (var i=0;i<marksEarth.length;i++){
-      for (var j=0;j<marksMars.length;j++){
-        var d = (marksEarth[i].theta - marksMars[j].theta) % (2*Math.PI);
-        if (d>Math.PI) d-=2*Math.PI;
-        if (d<-Math.PI) d+=2*Math.PI;
+    if (lockedEarth.length<3 || lockedMars.length<3) return null;
+    let best = {d:1e9, e:null, m:null};
+    for (const e of lockedEarth){
+      for (const m of lockedMars){
+        let d = (e.theta - m.theta) % TWO_PI;
+        if (d>Math.PI) d-=TWO_PI;
+        if (d<-Math.PI) d+=TWO_PI;
         d = Math.abs(d);
-        if (d<bestD){ bestD=d; bestE=marksEarth[i]; bestM=marksMars[j]; }
+        if (d < best.d) best = {d,e,m};
       }
     }
-    return { matchDeg: deg(bestD), e:bestE, m:bestM };
+    return { matchDeg: deg(best.d), e:best.e, m:best.m };
   }
 
-  function setUI(){
+  function tryLock(planetName){
+    const eps = 0.04; // ~2.3°
+    const isE = planetName==="Earth";
+    const planet = isE ? Earth : Mars;
+    const theta  = isE ? thetaE : thetaM;
+    const marked = isE ? markedE : markedM;
+    const locked = isE ? lockedEarth : lockedMars;
+
+    // compute geometry frame
+    const rect = canvas.getBoundingClientRect();
+    const cx = rect.width/2, cy = rect.height/2;
+    const pxPerAU = Math.min(rect.width, rect.height)*0.26;
+
+    for (const tp of TP){
+      if (marked.has(tp.label)) continue;
+      if (nearAngle(theta, tp.theta, eps)){
+        const P = orbitPoint(cx,cy,pxPerAU, planet, tp.theta);
+        const v = visViva_kms(planet, P.r_AU);
+        marked.add(tp.label);
+        locked.push({
+          label: tp.label,
+          labelShort: tp.label.includes("Peri") ? "Peri" : (tp.label.includes("Aph") ? "Aph" : "Quad"),
+          theta: tp.theta,
+          x:P.x, y:P.y, r_AU:P.r_AU,
+          v_kms:v
+        });
+        logLine(`[${planetName}] LOCKED ${tp.labelShort} at θ=${deg(tp.theta).toFixed(1)}° | r=${P.r_AU.toFixed(6)} AU | v=${v.toFixed(3)} km/s`);
+      }
+    }
+  }
+
+  function reset(){
+    running=false; paused=false; phase="idle";
+    thetaE=0; thetaM=0;
+    lockedEarth.length=0; lockedMars.length=0;
+    markedE.clear(); markedM.clear();
+    logEl.value="";
+    logLine("Reset complete. Click Start.");
+    setTags();
+    updateUI();
+  }
+
+  // ---------- UI ----------
+  function updateUI(){
+    const rect = canvas.getBoundingClientRect();
+    const cx = rect.width/2, cy = rect.height/2;
+    const pxPerAU = Math.min(rect.width, rect.height)*0.26;
+
     if (phase==="idle"){
       earthDegEl.textContent="—"; marsDegEl.textContent="—";
-      earthREl.textContent="—"; marsREl.textContent="—";
-      earthVEl.textContent="—"; marsVEl.textContent="—";
+      earthREl.textContent="—";  marsREl.textContent="—";
+      earthVEl.textContent="—";  marsVEl.textContent="—";
+      earthCF.textContent="—";   marsCF.textContent="—";
       matchDegEl.textContent="—";
       alignTag.textContent="Alignment: waiting";
       alignTag.className="tag";
       return;
     }
 
-    // Earth current (always known after start)
-    var rect = canvas.getBoundingClientRect();
-    var cx = rect.width/2, cy = rect.height/2;
-    var pxPerAU = Math.min(rect.width, rect.height)*0.26;
-
-    var PE = orbitPoint(cx,cy,pxPerAU, Earth, thetaE);
+    const PE = orbitPoint(cx,cy,pxPerAU, Earth, thetaE);
     earthDegEl.textContent = fmt(deg(thetaE),1);
-    earthREl.textContent = fmt(PE.r_AU,6);
-    earthVEl.textContent = fmt(visViva_kms(Earth, PE.r_AU),3);
+    earthREl.textContent   = fmt(PE.r_AU,6);
+    earthVEl.textContent   = fmt(visViva_kms(Earth, PE.r_AU),3);
 
-    // Mars current only after mars phase
-    if (phase==="mars" || phase==="done"){
-      var PM = orbitPoint(cx,cy,pxPerAU, Mars, thetaM);
-      marsDegEl.textContent = fmt(deg(thetaM),1);
-      marsREl.textContent = fmt(PM.r_AU,6);
-      marsVEl.textContent = fmt(visViva_kms(Mars, PM.r_AU),3);
-    } else {
-      marsDegEl.textContent="—";
-      marsREl.textContent="—";
-      marsVEl.textContent="—";
+    // closest/farthest from locked points (if available)
+    if (lockedEarth.length){
+      const rPeri = lockedEarth.find(p=>p.labelShort==="Peri")?.r_AU;
+      const rAph  = lockedEarth.find(p=>p.labelShort==="Aph")?.r_AU;
+      earthCF.textContent = (rPeri && rAph) ? `${rPeri.toFixed(6)} / ${rAph.toFixed(6)}` : "—";
     }
 
-    var R = alignmentReport();
+    if (phase==="mars" || phase==="done"){
+      const PM = orbitPoint(cx,cy,pxPerAU, Mars, thetaM);
+      marsDegEl.textContent = fmt(deg(thetaM),1);
+      marsREl.textContent   = fmt(PM.r_AU,6);
+      marsVEl.textContent   = fmt(visViva_kms(Mars, PM.r_AU),3);
+
+      if (lockedMars.length){
+        const rPeri = lockedMars.find(p=>p.labelShort==="Peri")?.r_AU;
+        const rAph  = lockedMars.find(p=>p.labelShort==="Aph")?.r_AU;
+        marsCF.textContent = (rPeri && rAph) ? `${rPeri.toFixed(6)} / ${rAph.toFixed(6)}` : "—";
+      }
+    } else {
+      marsDegEl.textContent="—"; marsREl.textContent="—"; marsVEl.textContent="—"; marsCF.textContent="—";
+    }
+
+    const R = alignmentReport();
     if (!R){
       matchDegEl.textContent="—";
       alignTag.textContent="Alignment: waiting";
@@ -344,156 +448,155 @@
     }
   }
 
-  function tryMark(planetName){
-    var eps = 0.04; // ~2.3°
-    var planet = (planetName==="Earth") ? Earth : Mars;
-    var theta  = (planetName==="Earth") ? thetaE : thetaM;
-    var marked = (planetName==="Earth") ? markedE : markedM;
-    var marks  = (planetName==="Earth") ? marksEarth : marksMars;
-
-    for (var i=0;i<TP.length;i++){
-      var tp = TP[i];
-      if (marked[tp.label]) continue;
-      if (nearAngle(theta, tp.theta, eps)){
-        // compute in CSS pixels
-        var rect = canvas.getBoundingClientRect();
-        var cx = rect.width/2, cy = rect.height/2;
-        var pxPerAU = Math.min(rect.width, rect.height)*0.26;
-
-        var P = orbitPoint(cx,cy,pxPerAU, planet, tp.theta);
-        var v = visViva_kms(planet, P.r_AU);
-        marked[tp.label] = true;
-        marks.push({ label:tp.label, theta:tp.theta, x:P.x, y:P.y, r_AU:P.r_AU, v_kms:v });
-        logLine("[" + planetName + "] Marked " + tp.label + " at θ=" + deg(tp.theta).toFixed(1) + "° | r=" + P.r_AU.toFixed(6) + " AU | v=" + v.toFixed(3) + " km/s");
-      }
-    }
-  }
-
-  // ---------- Main animation ----------
+  // ---------- Loop ----------
   function tick(now){
-    var dt = Math.min(0.05, (now - lastT)/1000);
+    const dt = Math.min(0.05, (now - lastT)/1000);
     lastT = now;
 
-    var rect = canvas.getBoundingClientRect();
-    var cx = rect.width/2, cy = rect.height/2;
-    var pxPerAU = Math.min(rect.width, rect.height)*0.26;
+    const rect = canvas.getBoundingClientRect();
+    const cx = rect.width/2, cy = rect.height/2;
+    const pxPerAU = Math.min(rect.width, rect.height)*0.26;
 
     if (running && !paused){
-      var speed = parseFloat(speedEl.value);
-      var omega = (2*Math.PI) / (baseSweepSeconds / speed);
+      const speed = parseFloat(speedEl.value);
+      const omega = TWO_PI / (baseSweepSeconds / speed);
 
       if (phase==="earth"){
         thetaE = wrap2pi(thetaE + omega*dt);
-        tryMark("Earth");
+        tryLock("Earth");
 
-        if (markedE["Perihelion"] && markedE["Quadrature"] && markedE["Aphelion"] && nearAngle(thetaE, 0, 0.02)){
-          // finish Earth sweep
+        // stop Earth after full lock and passing near 0 again
+        if (markedE.size===3 && nearAngle(thetaE, 0, 0.02)){
           thetaE = 0;
           phase = "mars";
-          logLine("— Earth 360° complete. Starting Mars sweep. —");
+          logLine("— Earth 360° complete. Earth stopped. Starting Mars sweep. —");
           setTags();
         }
       } else if (phase==="mars"){
         thetaM = wrap2pi(thetaM + omega*dt);
-        tryMark("Mars");
+        tryLock("Mars");
 
-        if (markedM["Perihelion"] && markedM["Quadrature"] && markedM["Aphelion"] && nearAngle(thetaM, 0, 0.02)){
+        if (markedM.size===3 && nearAngle(thetaM, 0, 0.02)){
           thetaM = 0;
           phase = "done";
-          var R = alignmentReport();
-          logLine("— Mars 360° complete. —");
+          logLine("— Mars 360° complete. Mars stopped. —");
+
+          // chord lengths (triangle geodesic-style)
+          if (lockedEarth.length===3){
+            const c01 = chordAU(lockedEarth[0], lockedEarth[1]);
+            const c12 = chordAU(lockedEarth[1], lockedEarth[2]);
+            const c20 = chordAU(lockedEarth[2], lockedEarth[0]);
+            logLine(`[Earth chords] (AU) ${c01.toFixed(4)}, ${c12.toFixed(4)}, ${c20.toFixed(4)}`);
+          }
+          if (lockedMars.length===3){
+            const c01 = chordAU(lockedMars[0], lockedMars[1]);
+            const c12 = chordAU(lockedMars[1], lockedMars[2]);
+            const c20 = chordAU(lockedMars[2], lockedMars[0]);
+            logLine(`[Mars chords] (AU) ${c01.toFixed(4)}, ${c12.toFixed(4)}, ${c20.toFixed(4)}`);
+          }
+
+          const R = alignmentReport();
           if (R){
-            logLine("BEST MATCH Δθ=" + R.matchDeg.toFixed(3) + "° | Earth:" + R.e.label + " vs Mars:" + R.m.label);
+            logLine(`BEST ANGLE TOUCH: Δθ=${R.matchDeg.toFixed(3)}° | Earth:${R.e.labelShort} vs Mars:${R.m.labelShort}`);
+            logLine(`Hohmann (ideal): ${H.days.toFixed(1)} days, total Δv ~ ${H.dv_kms.toFixed(3)} km/s`);
           }
           setTags();
         }
       }
     }
 
-    // draw frame
-    clear();
-
-    // simple stars
+    // ----- draw -----
     ctx.save();
-    ctx.fillStyle="rgba(255,255,255,0.07)";
-    for (var i=0;i<80;i++){
-      var x = (i*173)%rect.width;
-      var y = (i*97)%rect.height;
-      ctx.fillRect(x,y,1,1);
-    }
-    ctx.restore();
-
+    clear();
+    drawStars(rect.width, rect.height);
     drawSun(cx,cy);
+
+    // bold orbit lines
     drawOrbit(cx,cy,pxPerAU, Earth);
     drawOrbit(cx,cy,pxPerAU, Mars);
-    drawMarks(marksEarth);
-    drawMarks(marksMars);
 
+    // locked vectors + triangle chords to create your “3-point petal geometry”
+    drawLockedVectors(cx,cy, lockedEarth);
+    drawTriangleChords(lockedEarth);
+    drawAnchorMarks(lockedEarth);
+
+    drawLockedVectors(cx,cy, lockedMars);
+    drawTriangleChords(lockedMars);
+    drawAnchorMarks(lockedMars);
+
+    // moving line + planet dots
     if (phase==="idle"){
-      var P0 = drawPlanet(cx,cy,pxPerAU, Earth, 0);
-      drawRadial(cx,cy,P0.x,P0.y);
+      const P0 = orbitPoint(cx,cy,pxPerAU, Earth, 0);
+      drawRadial(cx,cy,P0,0.55,2);
+      drawPlanetDot(P0, Earth);
     } else if (phase==="earth"){
-      var PE = drawPlanet(cx,cy,pxPerAU, Earth, thetaE);
-      drawRadial(cx,cy,PE.x,PE.y);
+      const PE = orbitPoint(cx,cy,pxPerAU, Earth, thetaE);
+      drawRadial(cx,cy,PE,0.70,2.5); // moving line that will “touch” anchors
+      drawPlanetDot(PE, Earth);
     } else if (phase==="mars"){
-      drawPlanet(cx,cy,pxPerAU, Earth, 0);
-      var PM = drawPlanet(cx,cy,pxPerAU, Mars, thetaM);
-      drawRadial(cx,cy,PM.x,PM.y);
+      const PE0 = orbitPoint(cx,cy,pxPerAU, Earth, 0);
+      drawPlanetDot(PE0, Earth);
+      const PM = orbitPoint(cx,cy,pxPerAU, Mars, thetaM);
+      drawRadial(cx,cy,PM,0.70,2.5);
+      drawPlanetDot(PM, Mars);
     } else {
-      drawPlanet(cx,cy,pxPerAU, Earth, 0);
-      drawPlanet(cx,cy,pxPerAU, Mars, 0);
-      var R2 = alignmentReport();
-      if (R2){
-        var ang = R2.e.theta;
-        var x2 = cx + Math.cos(ang) * (Mars.a_AU * pxPerAU * 1.02);
-        var y2 = cy + Math.sin(ang) * (Mars.a_AU * pxPerAU * 1.02);
-        drawRadial(cx,cy,x2,y2);
+      const PE0 = orbitPoint(cx,cy,pxPerAU, Earth, 0);
+      const PM0 = orbitPoint(cx,cy,pxPerAU, Mars, 0);
+      drawPlanetDot(PE0, Earth);
+      drawPlanetDot(PM0, Mars);
+
+      // show the best alignment line
+      const R = alignmentReport();
+      if (R){
+        const ang = R.e.theta;
+        const P = { x: cx + Math.cos(ang)*(Mars.a_AU*pxPerAU*1.02), y: cy + Math.sin(ang)*(Mars.a_AU*pxPerAU*1.02) };
+        ctx.save();
+        ctx.strokeStyle="rgba(255,255,255,0.6)";
+        ctx.lineWidth=2.5;
+        ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(P.x,P.y); ctx.stroke();
+        ctx.restore();
       }
     }
 
-    setUI();
+    ctx.restore();
+
+    updateUI();
     requestAnimationFrame(tick);
   }
 
-  // ---------- Buttons ----------
-  startBtn.addEventListener("click", function(){
+  // ---------- Controls ----------
+  startBtn.addEventListener("click", () => {
     if (!running){
-      // hard start
-      running = true; paused = false;
-      phase = "earth";
-      thetaE = 0; thetaM = 0;
-      markedE = {}; markedM = {};
-      marksEarth = []; marksMars = [];
-      logEl.value = "";
-      logLine("Starting Earth 360° sweep…");
+      running=true; paused=false;
+      phase="earth";
+      thetaE=0; thetaM=0;
+      lockedEarth.length=0; lockedMars.length=0;
+      markedE.clear(); markedM.clear();
+      logEl.value="";
+      logLine("Starting Earth sweep: moving line will lock Peri / Quad / Aph.");
+      setTags();
     } else {
-      paused = false;
+      paused=false;
       logLine("Resumed.");
+      setTags();
     }
-    setTags();
   });
 
-  pauseBtn.addEventListener("click", function(){
+  pauseBtn.addEventListener("click", () => {
     if (!running) return;
     paused = !paused;
     logLine(paused ? "Paused." : "Resumed.");
     setTags();
   });
 
-  resetBtn.addEventListener("click", function(){
-    reset();
-  });
+  resetBtn.addEventListener("click", reset);
 
-  printBtn.addEventListener("click", function(){
-    // Print the page (no popup windows)
-    window.print();
-  });
+  printBtn.addEventListener("click", () => window.print());
 
   // ---------- Init ----------
   resize();
   reset();
   requestAnimationFrame(tick);
-
 })();
 </script>
 </body>
