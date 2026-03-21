@@ -240,6 +240,13 @@
   .statusWarn{color:var(--yellow); font-weight:700}
   .statusBad{color:var(--red); font-weight:700}
   .printOnly{display:none}
+  .customerBox{
+    background:#0b1424;
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:12px;
+    margin-bottom:12px;
+  }
 
   @media (max-width:1180px){
     .grid{grid-template-columns:1fr}
@@ -274,7 +281,7 @@
       see your estimated federal tax pressure, and get plain-language W-4 extra withholding guidance.
     </p>
     <div class="pillbar">
-      <div class="pill">One-Time Report: $9.99</div>
+      <div class="pill">One-Time Report: $4.99</div>
       <div class="pill">Annual Income + Annual Expenses</div>
       <div class="pill">W-4 Step 4(c) Guidance</div>
       <div class="pill">Automatic PDF After Payment</div>
@@ -288,6 +295,20 @@
       <p class="sub">
         Keep the form simple so customers are not overwhelmed. Use total annual numbers instead of many separate lines.
       </p>
+
+      <div class="customerBox">
+        <h3 style="margin-top:0">Customer Information</h3>
+        <div class="row">
+          <div>
+            <label>Customer Name</label>
+            <input type="text" id="customerName" placeholder="Enter customer full name">
+          </div>
+          <div>
+            <label>Customer Email</label>
+            <input type="email" id="customerEmail" placeholder="Enter customer email">
+          </div>
+        </div>
+      </div>
 
       <div class="row3">
         <div>
@@ -409,6 +430,11 @@
         This becomes the customer’s full report after payment. Before payment, they only see the sample preview on the right.
       </p>
 
+      <div class="notes" id="customerSummaryBox" style="margin-bottom:12px">
+        <strong>Customer Name:</strong> <span id="showCustomerName">Not entered</span><br>
+        <strong>Customer Email:</strong> <span id="showCustomerEmail">Not entered</span>
+      </div>
+
       <div class="kpiGrid">
         <div class="kpi">
           <div class="label">Total Annual Income</div>
@@ -451,6 +477,19 @@
         <div class="kpi">
           <div class="label">Taxable Social Security</div>
           <div class="value" id="kpiSS">0%</div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="kpiGrid">
+        <div class="kpi">
+          <div class="label">Price Paid</div>
+          <div class="value">$4.99</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Report Access</div>
+          <div class="value" id="reportAccessStatus">Preview Mode</div>
         </div>
       </div>
 
@@ -505,6 +544,14 @@
         <h3 style="margin-top:0">Sample Report Preview</h3>
         <div class="kpiGrid">
           <div class="kpi">
+            <div class="label">Customer Name</div>
+            <div class="value lockedText">XXXX</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Customer Email</div>
+            <div class="value lockedText">XXXX</div>
+          </div>
+          <div class="kpi">
             <div class="label">Total Annual Income</div>
             <div class="value lockedText">XXXX</div>
           </div>
@@ -524,6 +571,8 @@
 
         <div class="notes">
           <strong>Sample only:</strong><br>
+          • Customer Name: XXXX<br>
+          • Customer Email: XXXX<br>
           • Risk Level: XXXX<br>
           • Extra tax per paycheck: XXXX<br>
           • W-4 line to use: XXXX<br>
@@ -537,13 +586,19 @@
           Live Stripe payment link is connected below.
         </p>
 
+        <div class="notes" style="margin-bottom:10px">
+          <strong>Customer entered:</strong><br>
+          Name: <span id="purchaseCustomerName">Not entered</span><br>
+          Email: <span id="purchaseCustomerEmail">Not entered</span>
+        </div>
+
         <div class="btnRow">
           <a id="stripeLink"
              class="fakeBtn warning"
              href="https://buy.stripe.com/00w28rd5R7Nu2gm6bZ3F600"
              target="_blank"
              rel="noopener">
-             Pay $9.99 with Stripe
+             Pay $4.99 with Stripe
           </a>
 
           <button class="secondary" onclick="simulatePaid()">Simulate Paid View</button>
@@ -578,6 +633,32 @@
   function money(n){
     const sign = n < 0 ? "-" : "";
     return sign + "$" + Math.abs(n).toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2});
+  }
+
+  function sanitizeFileName(str){
+    return (str || "Customer")
+      .replace(/[^\w\s-]/g, "")
+      .trim()
+      .replace(/\s+/g, "_")
+      .slice(0, 40) || "Customer";
+  }
+
+  function getCustomerName(){
+    return document.getElementById("customerName").value.trim();
+  }
+
+  function getCustomerEmail(){
+    return document.getElementById("customerEmail").value.trim();
+  }
+
+  function updateCustomerDisplays(){
+    const name = getCustomerName();
+    const email = getCustomerEmail();
+
+    document.getElementById("showCustomerName").textContent = name || "Not entered";
+    document.getElementById("showCustomerEmail").textContent = email || "Not entered";
+    document.getElementById("purchaseCustomerName").textContent = name || "Not entered";
+    document.getElementById("purchaseCustomerEmail").textContent = email || "Not entered";
   }
 
   function getStandardDeduction(status, taxpayerAge, spouseAge){
@@ -672,6 +753,11 @@
   }
 
   function calculateReport(){
+    updateCustomerDisplays();
+
+    const customerName = getCustomerName();
+    const customerEmail = getCustomerEmail();
+
     const filingStatus = document.getElementById("filingStatus").value;
     const taxpayerAge = +document.getElementById("taxpayerAge").value || 0;
     const spouseAge = +document.getElementById("spouseAge").value || 0;
@@ -812,6 +898,8 @@
     document.getElementById("sumNetAnnual").textContent = money(annualNet);
 
     return {
+      customerName,
+      customerEmail,
       filingStatus,
       taxpayerAge,
       spouseAge,
@@ -857,7 +945,12 @@
     doc.setFontSize(10);
     doc.text(`Report Date: ${fileDate}`, left, y);
 
+    y += 8;
+    doc.text(`Customer Name: ${data.customerName || "Not entered"}`, left, y);
+    y += 6;
+    doc.text(`Customer Email: ${data.customerEmail || "Not entered"}`, left, y);
     y += 10;
+
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
     doc.text("Customer Summary", left, y);
@@ -884,7 +977,8 @@
       `Poverty Guideline %: ${data.povertyPct.toFixed(0)}%`,
       `Inflation Stress: ${money(data.inflationCost)}`,
       `Taxable Social Security: ${data.ssTaxPct.toFixed(0)}%`,
-      `Risk Level: ${data.risk}`
+      `Risk Level: ${data.risk}`,
+      `Price Paid: $4.99`
     ];
 
     lines.forEach(t => {
@@ -937,7 +1031,8 @@
       y += wrapped.length * 6;
     });
 
-    doc.save(`AI_W4_Tax_Budget_Report_${fileDate}.pdf`);
+    const safeName = sanitizeFileName(data.customerName || "Customer");
+    doc.save(`AI_W4_Tax_Budget_Report_${safeName}_${fileDate}.pdf`);
   }
 
   function unlockPaidUser(){
@@ -946,6 +1041,7 @@
     document.getElementById("samplePanel").classList.add("hidden");
     document.getElementById("purchasePanel").classList.add("hidden");
     document.getElementById("afterPayPanel").classList.remove("hidden");
+    document.getElementById("reportAccessStatus").textContent = "Paid / Unlocked";
 
     document.querySelectorAll(".paidOnly").forEach(el => {
       el.classList.remove("hidden");
@@ -969,10 +1065,20 @@
   }
 
   function simulatePaid(){
+    const name = getCustomerName();
+    const email = getCustomerEmail();
+
+    if(!name || !email){
+      alert("Please enter customer name and customer email first.");
+      return;
+    }
+
     unlockPaidUser();
   }
 
   function resetForm(){
+    document.getElementById("customerName").value = "";
+    document.getElementById("customerEmail").value = "";
     document.getElementById("filingStatus").value = "single";
     document.getElementById("taxpayerAge").value = 58;
     document.getElementById("spouseAge").value = 0;
@@ -988,10 +1094,14 @@
     document.getElementById("payFrequency").value = 26;
     document.getElementById("scenarioMode").value = "simple";
     document.getElementById("reportType").value = "annual";
+    document.getElementById("reportAccessStatus").textContent = "Preview Mode";
+    updateCustomerDisplays();
     calculateReport();
   }
 
   function loadExample(){
+    document.getElementById("customerName").value = "John Smith";
+    document.getElementById("customerEmail").value = "johnsmith@email.com";
     document.getElementById("filingStatus").value = "single";
     document.getElementById("taxpayerAge").value = 58;
     document.getElementById("spouseAge").value = 0;
@@ -1006,9 +1116,14 @@
     document.getElementById("inflationPressure").value = 9;
     document.getElementById("payFrequency").value = 26;
     document.getElementById("scenarioMode").value = "simple";
+    updateCustomerDisplays();
     calculateReport();
   }
 
+  document.getElementById("customerName").addEventListener("input", updateCustomerDisplays);
+  document.getElementById("customerEmail").addEventListener("input", updateCustomerDisplays);
+
+  updateCustomerDisplays();
   calculateReport();
   checkPaymentStatus();
 </script>
