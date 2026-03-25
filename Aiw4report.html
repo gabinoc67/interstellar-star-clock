@@ -151,7 +151,7 @@
     <div class="section">
       <div class="badge">🧾 Customer Information and Inputs</div>
       <h2>Customer Information</h2>
-      <p class="sub">Enter the customer information, dependent counts, income, withholding, investment income for the EIC test, Social Security amounts, and budget. Calculation fields are locked.</p>
+      <p class="sub">Enter the customer information, dependent counts, income, 1099 income for taxpayer and spouse, withholding, investment income for the EIC test, Social Security amounts, and budget. Calculation fields are locked.</p>
 
       <div class="row">
         <div>
@@ -226,7 +226,7 @@
           <input id="taxesWithdrawn" type="text" inputmode="decimal" maxlength="12" placeholder="0.00">
         </div>
         <div>
-          <label for="grossAnnualOtherIncome">Taxpayers (1099's) + Other Annual Taxable Income</label>
+          <label for="grossAnnualOtherIncome">Taxpayer (1099's) + Other Annual Taxable Income</label>
           <input id="grossAnnualOtherIncome" type="text" inputmode="decimal" maxlength="12" placeholder="0.00">
         </div>
       </div>
@@ -245,12 +245,16 @@
           <input id="spouseTaxesWithdrawn" type="text" inputmode="decimal" maxlength="12" placeholder="0.00">
         </div>
         <div>
-          <label for="monthlyAverageBudget">Monthly Average Budget Spending</label>
-          <input id="monthlyAverageBudget" type="text" inputmode="decimal" maxlength="12" placeholder="0.00">
+          <label for="spouseOtherIncome">Spouse (1099's) + Other Annual Taxable Income</label>
+          <input id="spouseOtherIncome" type="text" inputmode="decimal" maxlength="12" placeholder="0.00">
         </div>
       </div>
 
       <div class="row4">
+        <div>
+          <label for="monthlyAverageBudget">Monthly Average Budget Spending</label>
+          <input id="monthlyAverageBudget" type="text" inputmode="decimal" maxlength="12" placeholder="0.00">
+        </div>
         <div>
           <label for="taxpayerSSAnnual">Taxpayer Annual Social Security Retirement</label>
           <input id="taxpayerSSAnnual" type="text" inputmode="decimal" maxlength="12" placeholder="0.00">
@@ -259,6 +263,10 @@
           <label for="spouseSSAnnual">Spouse Annual Social Security Retirement</label>
           <input id="spouseSSAnnual" type="text" inputmode="decimal" maxlength="12" placeholder="0.00">
         </div>
+        <div></div>
+      </div>
+
+      <div class="row4">
         <div>
           <label for="taxpayerSSAffected">Taxpayer Social Security Amount affected</label>
           <input id="taxpayerSSAffected" type="text" readonly>
@@ -267,6 +275,8 @@
           <label for="spouseSSAffected">Spouse Social Security Amount affected</label>
           <input id="spouseSSAffected" type="text" readonly>
         </div>
+        <div></div>
+        <div></div>
       </div>
 
       <div class="row">
@@ -462,7 +472,11 @@ const TAX_RULES_2026 = {
 
 const countFields = ["childrenUnder17","disabledDependents18plus","collegeChildren1823","otherDependents"];
 const ageFields = ["taxpayerAge","spouseAge"];
-const currencyFields = ["investmentIncome","grossIncome","payrollDeductions","taxesWithdrawn","grossAnnualOtherIncome","spouseGrossIncome","spousePayrollDeductions","spouseTaxesWithdrawn","monthlyAverageBudget","taxpayerSSAnnual","spouseSSAnnual"];
+const currencyFields = [
+  "investmentIncome","grossIncome","payrollDeductions","taxesWithdrawn","grossAnnualOtherIncome",
+  "spouseGrossIncome","spousePayrollDeductions","spouseTaxesWithdrawn","spouseOtherIncome",
+  "monthlyAverageBudget","taxpayerSSAnnual","spouseSSAnnual"
+];
 
 function parseNum(v){
   if(v===null || v===undefined) return 0;
@@ -499,7 +513,13 @@ function setKPI(id,value,good=false,bad=false){
   if(bad) el.classList.add("redText");
 }
 function setText(id,value){ document.getElementById(id).textContent=value; }
-function setSummary(id,value,good=false,bad=false){ const el=document.getElementById(id); el.textContent=value; el.className=""; if(good) el.classList.add("greenText"); if(bad) el.classList.add("redText"); }
+function setSummary(id,value,good=false,bad=false){
+  const el=document.getElementById(id);
+  el.textContent=value;
+  el.className="";
+  if(good) el.classList.add("greenText");
+  if(bad) el.classList.add("redText");
+}
 
 function taxFromBrackets(income, filingStatus){
   if(income<=0) return 0;
@@ -516,7 +536,9 @@ function taxFromBrackets(income, filingStatus){
 
 function bracketPercent(income, filingStatus){
   const brackets = TAX_RULES_2026.brackets[filingStatus];
-  for(const b of brackets){ if(income <= b.upTo) return Math.round(b.rate*100); }
+  for(const b of brackets){
+    if(income <= b.upTo) return Math.round(b.rate*100);
+  }
   return 0;
 }
 
@@ -543,11 +565,12 @@ function computeCTCAndODCPotential(totalIncome, filingStatus, childCountUnder17,
   const rawCTC = childCountUnder17 * TAX_RULES_2026.childTaxCreditPerChild;
   const rawODC = odcCount * TAX_RULES_2026.otherDependentCredit;
   const threshold = TAX_RULES_2026.ctcPhaseoutThreshold[filingStatus];
-  const totalRaw = rawCTC + rawODC;
   const phaseout = Math.max(0, Math.ceil((totalIncome - threshold) / 1000) * 50);
+
   let phasedCTC = rawCTC;
   let phasedODC = rawODC;
   let remainingReduction = Math.max(0, phaseout);
+
   if(remainingReduction > 0){
     const ctcCut = Math.min(phasedCTC, remainingReduction);
     phasedCTC -= ctcCut;
@@ -573,21 +596,25 @@ function computeSSAEffect(annualBenefit, earnedIncome, age){
   annualBenefit = Math.max(0, annualBenefit);
   earnedIncome = Math.max(0, earnedIncome);
   age = Number(age)||0;
+
   if(annualBenefit <= 0){
     return {affected:0, explanation:"No annual Social Security retirement amount was entered, so no earnings-test reduction estimate is shown."};
   }
   let affected=0;
   let explanation="";
+
   if(age >= 67){
     explanation = `Estimated annual Social Security retirement entered: ${money(annualBenefit)}. Because age ${age} is treated here as full retirement age or older, no annual earnings-test reduction is applied in this estimate.`;
     return {affected:0, explanation};
   }
+
   if(age === 66){
     const excess = Math.max(0, earnedIncome - TAX_RULES_2026.ssaTurningFRA);
     affected = Math.min(annualBenefit, excess / 3);
     explanation = `Estimated annual Social Security retirement entered: ${money(annualBenefit)}. Because age ${age} may represent the year full retirement age is reached, this estimate uses the higher earnings-test threshold of ${money(TAX_RULES_2026.ssaTurningFRA)} and reduces benefits by about $1 for every $3 above that amount before the FRA month. Estimated amount affected: ${money(affected)}.`;
     return {affected, explanation};
   }
+
   const excess = Math.max(0, earnedIncome - TAX_RULES_2026.ssaUnderFRA);
   affected = Math.min(annualBenefit, excess / 2);
   explanation = `Estimated annual Social Security retirement entered: ${money(annualBenefit)}. Because age ${age||0} is below full retirement age in this estimate, the annual earnings test uses ${money(TAX_RULES_2026.ssaUnderFRA)} and reduces benefits by about $1 for every $2 earned above that amount. Estimated amount affected: ${money(affected)}.`;
@@ -624,6 +651,7 @@ function generateReport(){
   const otherDependents = clampInt(document.getElementById("otherDependents").value,0,99);
 
   const investmentIncome = parseNum(document.getElementById("investmentIncome").value);
+
   const grossIncome = parseNum(document.getElementById("grossIncome").value);
   const payrollDeductions = parseNum(document.getElementById("payrollDeductions").value);
   const taxesWithdrawn = parseNum(document.getElementById("taxesWithdrawn").value);
@@ -632,31 +660,46 @@ function generateReport(){
   const spouseGrossIncome = parseNum(document.getElementById("spouseGrossIncome").value);
   const spousePayrollDeductions = parseNum(document.getElementById("spousePayrollDeductions").value);
   const spouseTaxesWithdrawn = parseNum(document.getElementById("spouseTaxesWithdrawn").value);
+  const spouseOtherIncome = parseNum(document.getElementById("spouseOtherIncome").value);
+
   const monthlyAverageBudgetSpending = parseNum(document.getElementById("monthlyAverageBudget").value);
 
   const taxpayerSSAnnual = parseNum(document.getElementById("taxpayerSSAnnual").value);
   const spouseSSAnnual = parseNum(document.getElementById("spouseSSAnnual").value);
 
   const totalGrossPay = grossIncome + spouseGrossIncome;
-  const totalOtherIncome = grossAnnualOtherIncome;
+  const totalOtherIncome = grossAnnualOtherIncome + spouseOtherIncome;
   const totalPayrollDeductions = payrollDeductions + spousePayrollDeductions;
   const totalNetPay = Math.max(0, totalGrossPay - totalPayrollDeductions);
+
   const earnedIncomeForTax = totalGrossPay;
   const agiLikeIncome = totalGrossPay + totalOtherIncome;
+
   const standardDeduction = TAX_RULES_2026.standardDeduction[filingStatus];
   const taxableIncome = Math.max(0, agiLikeIncome - standardDeduction);
   const estimatedTaxBeforeCredits = taxFromBrackets(taxableIncome, filingStatus);
   const taxBracketPercent = taxableIncome > 0 ? bracketPercent(taxableIncome, filingStatus) : 0;
 
   const eicChildCount = childrenUnder17 + disabledDependents18plus + collegeChildren1823;
-  const estimatedEIC = computeEIC(earnedIncomeForTax, agiLikeIncome, filingStatus, eicChildCount, investmentIncome, taxpayerAge, spouseAge);
+  const estimatedEIC = computeEIC(
+    earnedIncomeForTax,
+    agiLikeIncome,
+    filingStatus,
+    eicChildCount,
+    investmentIncome,
+    taxpayerAge,
+    spouseAge
+  );
 
   const odcHeadCount = disabledDependents18plus + collegeChildren1823 + otherDependents;
   const creditPotential = computeCTCAndODCPotential(agiLikeIncome, filingStatus, childrenUnder17, odcHeadCount);
+
   const ctcUsedAgainstTax = Math.min(creditPotential.phasedCTC, estimatedTaxBeforeCredits);
   const taxAfterCTC = Math.max(0, estimatedTaxBeforeCredits - ctcUsedAgainstTax);
+
   const odcUsedAgainstTax = Math.min(creditPotential.phasedODC, taxAfterCTC);
   const taxAfterNonrefundableCredits = Math.max(0, taxAfterCTC - odcUsedAgainstTax);
+
   const estimatedACTC = computeACTC(earnedIncomeForTax, creditPotential.phasedCTC, childrenUnder17, ctcUsedAgainstTax);
   const estimateCTCACTCCredits = ctcUsedAgainstTax + estimatedACTC;
   const totalIRSCreditsAllowed = estimatedEIC + ctcUsedAgainstTax + odcUsedAgainstTax + estimatedACTC;
@@ -697,9 +740,13 @@ function generateReport(){
   setKPI("kpiSpouseSSAWithheld", money(spouseSS.affected), spouseSS.affected===0, spouseSS.affected>0);
   document.getElementById("kpiEICChildrenUsed").textContent = String(eicChildCount);
 
-  if(refundAmount > 0){ setKPI("kpiRefund", `REFUND ${money(refundAmount)}`, true, false); }
-  else if(taxesOwedAmount > 0){ setKPI("kpiRefund", `TAXES OWED ${money(taxesOwedAmount)}`, false, true); }
-  else { setKPI("kpiRefund", "REFUND $0.00", true, false); }
+  if(refundAmount > 0){
+    setKPI("kpiRefund", `REFUND ${money(refundAmount)}`, true, false);
+  } else if(taxesOwedAmount > 0){
+    setKPI("kpiRefund", `TAXES OWED ${money(taxesOwedAmount)}`, false, true);
+  } else {
+    setKPI("kpiRefund", "REFUND $0.00", true, false);
+  }
 
   setText("sumGross", money(totalGrossPay));
   setText("sumOtherIncome", money(totalOtherIncome));
@@ -724,74 +771,116 @@ function generateReport(){
   setText("sumTaxpayerSSAWithheld", money(taxpayerSS.affected));
   setText("sumSpouseSSAWithheld", money(spouseSS.affected));
 
-  if(refundAmount > 0){ setSummary("sumRefund", `REFUND ${money(refundAmount)}`, true, false); }
-  else if(taxesOwedAmount > 0){ setSummary("sumRefund", `TAXES OWED ${money(taxesOwedAmount)}`, false, true); }
-  else { setSummary("sumRefund", "REFUND $0.00", true, false); }
-
-  const taxStatusBox=document.getElementById("taxStatusBox");
   if(refundAmount > 0){
-    taxStatusBox.className="statusBox statusGood";
-    taxStatusBox.innerHTML = `Projected result: <strong>REFUND ${money(refundAmount)}</strong>. In this estimate, withholding and refundable credits are enough to cover the remaining tax. When withholding is low or zero, part of the child-related tax benefit is first used to cancel tax before the refund is calculated, so the refund can look smaller even though the child credits still helped.`;
+    setSummary("sumRefund", `REFUND ${money(refundAmount)}`, true, false);
   } else if(taxesOwedAmount > 0){
-    taxStatusBox.className="statusBox statusBad";
-    taxStatusBox.innerHTML = `Projected result: <strong>TAXES OWED ${money(taxesOwedAmount)}</strong>. In this estimate, part of the child-related credit value was absorbed by the tax bill because withholding was too low. If paystub withholding equals or exceeds the remaining tax, more of the refundable credits can show up as refund instead of first being used to cancel tax. Suggested W-4 Line 4(c) monthly add-on: <strong>${money(recommendedLine4c)}</strong>.`;
+    setSummary("sumRefund", `TAXES OWED ${money(taxesOwedAmount)}`, false, true);
   } else {
-    taxStatusBox.className="statusBox statusGood";
-    taxStatusBox.innerHTML = `Projected taxes and credits are balanced in this estimate. Low withholding can still reduce how much cash shows up as refund because credits must first offset tax due.`;
+    setSummary("sumRefund", "REFUND $0.00", true, false);
   }
 
-  const budgetStatusBox=document.getElementById("budgetStatusBox");
-  if(netMonthlyMinusBudget >= 0 && extraMonthlyTaxSetAside > 0){
-    if(netMonthlyAfterTaxSetAside >= 0){
-      budgetStatusBox.className="statusBox statusGood";
-      budgetStatusBox.innerHTML = `Combined monthly net income appears above monthly budget spending by <strong>${money(netMonthlyMinusBudget)}</strong>. After setting aside <strong>${money(extraMonthlyTaxSetAside)}</strong> for taxes owed, the estimated amount left is <strong>${money(netMonthlyAfterTaxSetAside)}</strong>.`;
-    } else {
-      budgetStatusBox.className="statusBox statusBad";
-      budgetStatusBox.innerHTML = `Combined monthly net income appears above monthly budget spending by <strong>${money(netMonthlyMinusBudget)}</strong>, but after setting aside <strong>${money(extraMonthlyTaxSetAside)}</strong> for taxes owed, the budget falls short by <strong>${money(Math.abs(netMonthlyAfterTaxSetAside))}</strong>.`;
-    }
-  } else if(netMonthlyMinusBudget >= 0){
-    budgetStatusBox.className="statusBox statusGood";
-    budgetStatusBox.innerHTML = `Combined monthly net income appears above monthly budget spending by <strong>${money(netMonthlyMinusBudget)}</strong>. No extra monthly tax set-aside is needed in this estimate.`;
-  } else if(extraMonthlyTaxSetAside > 0){
-    budgetStatusBox.className="statusBox statusBad";
-    budgetStatusBox.innerHTML = `Combined monthly net income appears below monthly budget spending by <strong>${money(Math.abs(netMonthlyMinusBudget))}</strong>. With the extra monthly tax set-aside of <strong>${money(extraMonthlyTaxSetAside)}</strong>, the total monthly shortfall becomes <strong>${money(Math.abs(netMonthlyAfterTaxSetAside))}</strong>.`;
+  const taxStatusBox = document.getElementById("taxStatusBox");
+  if(refundAmount > 0){
+    taxStatusBox.className = "statusBox statusGood";
+    taxStatusBox.innerHTML = `Projected result: <strong>REFUND ${money(refundAmount)}</strong>. In this estimate, withholding and refundable credits are enough to cover the remaining tax.`;
+  } else if(taxesOwedAmount > 0){
+    taxStatusBox.className = "statusBox statusBad";
+    taxStatusBox.innerHTML = `Projected result: <strong>TAXES OWED ${money(taxesOwedAmount)}</strong>. Suggested W-4 Line 4(c) monthly add-on: <strong>${money(recommendedLine4c)}</strong>.`;
   } else {
-    budgetStatusBox.className="statusBox statusBad";
-    budgetStatusBox.innerHTML = `Combined monthly net income appears below monthly budget spending by <strong>${money(Math.abs(netMonthlyMinusBudget))}</strong>.`;
+    taxStatusBox.className = "statusBox statusGood";
+    taxStatusBox.innerHTML = `Projected taxes and credits are balanced in this estimate.`;
   }
 
-  const ssaStatusBox=document.getElementById("ssaStatusBox");
-  ssaStatusBox.className=(taxpayerSS.affected>0 || spouseSS.affected>0) ? "statusBox statusBad" : "statusBox statusGood";
+  const budgetStatusBox = document.getElementById("budgetStatusBox");
+
+  if(netMonthlyMinusBudget < 0){
+    budgetStatusBox.className = "statusBox statusBad";
+    budgetStatusBox.innerHTML = `Combined monthly net income appears to be under your monthly budget spending by <strong>${money(Math.abs(netMonthlyMinusBudget))}</strong>, so you must reduce your spending.`;
+  } else {
+    budgetStatusBox.className = "statusBox statusGood";
+    budgetStatusBox.innerHTML = `Combined monthly net income appears to be over your monthly budget spending by <strong>${money(netMonthlyMinusBudget)}</strong>, so you have extra money.`;
+  }
+
+  if(extraMonthlyTaxSetAside > 0){
+    budgetStatusBox.innerHTML += `<br><br>After including the extra monthly tax set aside needed of <strong>${money(extraMonthlyTaxSetAside)}</strong>, the adjusted monthly difference becomes <strong>${money(netMonthlyAfterTaxSetAside)}</strong>.`;
+  }
+
+  const ssaStatusBox = document.getElementById("ssaStatusBox");
+  ssaStatusBox.className = (taxpayerSS.affected>0 || spouseSS.affected>0) ? "statusBox statusBad" : "statusBox statusGood";
   ssaStatusBox.innerHTML = `Taxpayer affected amount: <strong>${money(taxpayerSS.affected)}</strong>. Spouse affected amount: <strong>${money(spouseSS.affected)}</strong>. Reporting higher expected earnings to Social Security early is usually important because adjustments can affect the following year until full retirement age is reached.`;
 
   document.getElementById("ssExplanation").innerHTML = `<strong>Social Security explanation:</strong><br>${taxpayerSS.explanation}<br><br>${spouseSS.explanation}`;
 }
-
-function resetForm(){
+  function resetForm(){
   document.querySelectorAll("input:not([readonly]), textarea:not([readonly])").forEach(el => el.value="");
   document.getElementById("filingStatus").value="single";
-  ["taxpayerSSAffected","spouseSSAffected","taxpayerSSResult","spouseSSResult"].forEach(id => { const el=document.getElementById(id); el.value=""; el.classList.remove("greenText","redText"); });
-  updateCustomerDisplays();
-  ["kpiNetPay","kpiTax","kpiEIC","kpiCTCACTC","kpiODCUsed","kpiTotalCreditsAllowed","kpiEstimateOwedTax","kpiWithdrawn","kpiBracket","kpiExtra","kpiRefund","kpiAvgMonthlyBudget","kpiNetVsBudget","kpiLine4c","kpiTaxpayerSSAWithheld","kpiSpouseSSAWithheld"].forEach(id => {
-    const el=document.getElementById(id); el.textContent = id === "kpiBracket" ? "0%" : "$0.00"; el.className="value mono"; if(id==="kpiBracket") el.classList.add("blueText");
+
+  ["taxpayerSSAffected","spouseSSAffected","taxpayerSSResult","spouseSSResult"].forEach(id => {
+    const el=document.getElementById(id);
+    el.value="";
+    el.classList.remove("greenText","redText");
   });
+
+  updateCustomerDisplays();
+
+  [
+    "kpiNetPay","kpiTax","kpiEIC","kpiCTCACTC","kpiODCUsed","kpiTotalCreditsAllowed",
+    "kpiEstimateOwedTax","kpiWithdrawn","kpiBracket","kpiExtra","kpiRefund","kpiAvgMonthlyBudget",
+    "kpiNetVsBudget","kpiLine4c","kpiTaxpayerSSAWithheld","kpiSpouseSSAWithheld"
+  ].forEach(id => {
+    const el=document.getElementById(id);
+    el.textContent = id === "kpiBracket" ? "0%" : "$0.00";
+    el.className="value mono";
+    if(id==="kpiBracket") el.classList.add("blueText");
+  });
+
   document.getElementById("kpiEICChildrenUsed").textContent="0";
-  ["sumGross","sumOtherIncome","sumPayroll","sumNetPay","sumStandardDeduction","sumTaxableIncome","sumTaxBeforeCredits","sumEIC","sumCTCUsed","sumODCUsed","sumACTC","sumCTCACTC","sumTotalCreditsAllowed","sumEstimateOwedTax","sumWithdrawn","sumRefund","sumMonthlyTaxSetAside","sumLine4c","sumAvgMonthlyBudget","sumNetVsBudget","sumTaxpayerSSAWithheld","sumSpouseSSAWithheld"].forEach(id => document.getElementById(id).textContent="$0.00");
+
+  [
+    "sumGross","sumOtherIncome","sumPayroll","sumNetPay","sumStandardDeduction","sumTaxableIncome",
+    "sumTaxBeforeCredits","sumEIC","sumCTCUsed","sumODCUsed","sumACTC","sumCTCACTC",
+    "sumTotalCreditsAllowed","sumEstimateOwedTax","sumWithdrawn","sumRefund","sumMonthlyTaxSetAside",
+    "sumLine4c","sumAvgMonthlyBudget","sumNetVsBudget","sumTaxpayerSSAWithheld","sumSpouseSSAWithheld"
+  ].forEach(id => document.getElementById(id).textContent="$0.00");
+
   document.getElementById("sumBracket").textContent="0%";
+
   document.getElementById("taxStatusBox").className="statusBox statusGood";
   document.getElementById("taxStatusBox").innerHTML="Generate the report to see whether the taxpayers are projected for a refund or projected to owe taxes.";
+
   document.getElementById("budgetStatusBox").className="statusBox statusGood";
   document.getElementById("budgetStatusBox").innerHTML="Generate the report to see whether combined monthly net income covers monthly budget spending.";
+
   document.getElementById("ssaStatusBox").className="statusBox statusGood";
   document.getElementById("ssaStatusBox").innerHTML="Generate the report to see the Social Security earnings-test explanation for the taxpayer and spouse.";
+
   document.getElementById("ssExplanation").innerHTML="If a person is under full retirement age and works while receiving Social Security retirement, benefits can be reduced under the annual earnings test. In 2026, benefits are generally reduced by $1 for every $2 earned above $24,480 if the person is under full retirement age all year, and $1 for every $3 earned above $65,160 in the year the person reaches full retirement age, before the month full retirement age is reached.";
 }
 
-document.getElementById("customerName").addEventListener("input", e => { sanitizeUppercaseName(e); updateCustomerDisplays(); });
+document.getElementById("customerName").addEventListener("input", e => {
+  sanitizeUppercaseName(e);
+  updateCustomerDisplays();
+});
 document.getElementById("customerEmail").addEventListener("input", updateCustomerDisplays);
-ageFields.forEach(id => { const el=document.getElementById(id); el.addEventListener("input",sanitizeAgeField); el.addEventListener("blur",sanitizeAgeField); });
-countFields.forEach(id => { const el=document.getElementById(id); el.addEventListener("input",sanitizeCountField); el.addEventListener("blur",sanitizeCountField); });
-currencyFields.forEach(id => { const el=document.getElementById(id); el.addEventListener("input",sanitizeCurrencyLive); el.addEventListener("blur",normalizeCurrencyBlur); });
+
+ageFields.forEach(id => {
+  const el=document.getElementById(id);
+  el.addEventListener("input",sanitizeAgeField);
+  el.addEventListener("blur",sanitizeAgeField);
+});
+
+countFields.forEach(id => {
+  const el=document.getElementById(id);
+  el.addEventListener("input",sanitizeCountField);
+  el.addEventListener("blur",sanitizeCountField);
+});
+
+currencyFields.forEach(id => {
+  const el=document.getElementById(id);
+  el.addEventListener("input",sanitizeCurrencyLive);
+  el.addEventListener("blur",normalizeCurrencyBlur);
+});
+
 updateCustomerDisplays();
 </script>
 </body>
