@@ -657,7 +657,7 @@
         Audit note: very high assets, spending, or deposits that do not reasonably match reported income can increase the chance of tax questions, document requests, or an audit review. Keep records for wages, 1099 income, expenses, bank deposits, and large purchases.
       </div>
     </div>
-        <div class="card">
+    <div class="card">
       <div class="section-title">
         <h2>W-4 PDF Download and Extra Withholding Explanation</h2>
         <div class="mini">Moved to the bottom as requested</div>
@@ -792,6 +792,28 @@
     return Math.min(ssBenefit, excess / 2);
   }
 
+  function getAutoTariffRate(){
+    const foodPressure = 3.10;
+    const electricityPressure = 4.80;
+    const gasPressure = 33.40;
+
+    const weightedExtra =
+      (foodPressure * 0.13) +
+      (electricityPressure * 0.04) +
+      (gasPressure * 0.05);
+
+    return Number(weightedExtra.toFixed(2));
+  }
+
+  function getEffectiveTariffRate(){
+    const enteredTariff = num('tariffRate');
+    if (enteredTariff > 0) return enteredTariff;
+
+    const autoTariff = getAutoTariffRate();
+    $('tariffRate').value = autoTariff.toFixed(2);
+    return autoTariff;
+  }
+
   function setAllOutputsToZero(){
     ['tp1099Net','tpNetPay','sp1099Net','spNetPay'].forEach(id => { $(id).value = '$0.00'; });
     $('totalPressurePct').value = '0.00%';
@@ -846,7 +868,7 @@ Yearly Inflation / Price Impact = $0.00
 Monthly Inflation / Price Impact = $0.00`;
 
     $('ssInfoBox').innerHTML =
-      `<strong>Inflation / price note:</strong> The current inflation field defaults to 2.4%. Add any extra tariff or high-price percent if you want the dashboard to show how much that budget pressure may affect the customer monthly and yearly.`;
+      `<strong>Inflation / price note:</strong> The current inflation field defaults to 2.4%. If the Extra Tariff / High-Price % field is left at 0, the dashboard will auto-estimate extra price pressure from gas, electricity, and food so the monthly and yearly budget impact fields do not stay at zero.`;
 
     $('auditBody').innerHTML = `
       <tr><td>Waiting for input</td><td>$0.00</td><td>Enter customer data and click Generate Calculations</td></tr>
@@ -882,8 +904,8 @@ Monthly Inflation / Price Impact = $0.00`;
     const spouseAge = Math.floor(num('spouseAge'));
 
     const inflationRate = num('inflationRate');
-    const tariffRate = num('tariffRate');
-    const totalPressurePct = inflationRate + tariffRate;
+    const effectiveTariffRate = getEffectiveTariffRate();
+    const totalPressurePct = inflationRate + effectiveTariffRate;
     const yearlyPriceImpact = annualBudgetSpending * (totalPressurePct / 100);
     const monthlyPriceImpact = yearlyPriceImpact / 12;
 
@@ -938,7 +960,7 @@ Monthly Inflation / Price Impact = $0.00`;
     const fiveYearCost = owedTaxes * interestRate * 5;
 
     setMetric('heroInflationRate', pct(inflationRate));
-    setMetric('heroTariffRate', pct(tariffRate));
+    setMetric('heroTariffRate', pct(effectiveTariffRate));
     setMetric('heroMonthlyInflationImpact', money(monthlyPriceImpact), monthlyPriceImpact > 0 ? 'warn' : 'good');
     setMetric('heroYearlyInflationImpact', money(yearlyPriceImpact), yearlyPriceImpact > 0 ? 'warn' : 'good');
 
@@ -966,8 +988,7 @@ Monthly Inflation / Price Impact = $0.00`;
     setMetric('out1YearCost', money(oneYearCost), oneYearCost > 0 ? 'warn' : 'good');
     setMetric('out5YearCost', money(fiveYearCost), fiveYearCost > 0 ? 'warn' : 'good');
     setMetric('outInterestRate', pct(interestRate * 100));
-
-    $('cashFormula').textContent =
+        $('cashFormula').textContent =
 `Taxpayer 1099 Net
 = max(0, ${money(tp1099Income)} - ${money(tp1099Expenses)})
 = ${money(tp1099Net)}
@@ -1024,19 +1045,21 @@ Monthly Set-Aside for Owed Taxes
 = ${money(monthlySetAside)}
 
 Inflation / Tariff / High-Price Impact
+Inflation % = ${pct(inflationRate)}
+Extra Tariff / High-Price % = ${pct(effectiveTariffRate)}
 Total Pressure % = ${pct(totalPressurePct)}
 Yearly Impact = ${money(annualBudgetSpending)} × ${pct(totalPressurePct)} = ${money(yearlyPriceImpact)}
 Monthly Impact = ${money(yearlyPriceImpact)} ÷ 12 = ${money(monthlyPriceImpact)}
 
-Example:
-If total pressure is 10% and budget is $1,000.00,
-monthly impact = $100.00
-yearly impact = $1,200.00`;
+If the Extra Tariff / High-Price field is left at 0,
+the dashboard auto-builds an estimate from:
+food pressure + electricity pressure + gas pressure.`;
 
     $('ssInfoBox').innerHTML =
       `<strong>Social Security retirement earnings-test explanation:</strong> This area is only a warning tool for taxpayers or spouses who are receiving Social Security retirement benefits and are in the early-retirement years. If a person is under full retirement age for the entire year, the estimate uses about <strong>$1 in benefits withheld for every $2</strong> of earnings above <strong>${money(TAX_CONFIG.ssEarningsLimitUnderFRA2026)}</strong>.<br><br>
       <strong>Current estimate for taxpayer:</strong> age ${taxpayerAge || 0}, earned income ${money(tpGross + tp1099Net)}, amount above limit = ${money(tpExcessOverLimit)}, estimated SSA benefit withholding = ${money(tpSSAffected)}.<br>
-      <strong>Current estimate for spouse:</strong> age ${spouseAge || 0}, earned income ${money(spGross + sp1099Net)}, amount above limit = ${money(spExcessOverLimit)}, estimated SSA benefit withholding = ${money(spSSAffected)}.`;
+      <strong>Current estimate for spouse:</strong> age ${spouseAge || 0}, earned income ${money(spGross + sp1099Net)}, amount above limit = ${money(spExcessOverLimit)}, estimated SSA benefit withholding = ${money(spSSAffected)}.<br><br>
+      <strong>Budget pressure note:</strong> If the Extra Tariff / High-Price % field is left at 0, the dashboard estimates extra daily price pressure from gas, electricity, and food and uses that to calculate the monthly and yearly budget impact fields.`;
 
     const rows = [
       ['Taxpayer 1099 Net', money(tp1099Net), 'max(0, Taxpayer 1099 Income - Taxpayer 1099 Expenses)'],
@@ -1048,9 +1071,9 @@ yearly impact = $1,200.00`;
       ['Annual Budget Spending', money(annualBudgetSpending), 'Customer annual budget entry'],
       ['Monthly Average Budget Spending', money(monthlyBudgetSpending), 'Annual Budget Spending ÷ 12'],
       ['Net Monthly Average minus Monthly Average Budget Spending', money(monthlyRemaining), 'Household Net Cash Monthly - Monthly Average Budget Spending'],
-      ['Current Inflation %', pct(inflationRate), 'Default current inflation rate'],
-      ['Extra Tariff / High-Price %', pct(tariffRate), 'User-entered extra price pressure'],
-      ['Total Budget Pressure %', pct(totalPressurePct), 'Inflation % + Tariff / High-Price %'],
+      ['Current Inflation %', pct(inflationRate), 'User current inflation rate'],
+      ['Extra Tariff / High-Price %', pct(effectiveTariffRate), 'User-entered rate or auto-estimated gas + electricity + food pressure when 0'],
+      ['Total Budget Pressure %', pct(totalPressurePct), 'Inflation % + Extra Tariff / High-Price %'],
       ['Yearly Inflation / Price Impact', money(yearlyPriceImpact), 'Annual Budget Spending × Total Pressure %'],
       ['Monthly Inflation / Price Impact', money(monthlyPriceImpact), 'Yearly Impact ÷ 12'],
       ['IRS Adjusted Gross Income Estimate', money(agi), '(Taxpayer W-2 Gross + Taxpayer 1099 Net) + (Spouse W-2 Gross + Spouse 1099 Net)'],
