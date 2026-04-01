@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Warp Engine + FTL Jump Planner (CST / SR / GR / RA–Dec)</title>
+<title>Warp Engine + CST Jump Planner (SR / GR / RA–Dec)</title>
 <style>
   *{box-sizing:border-box}
   html,body{
@@ -119,7 +119,7 @@
 </head>
 <body>
   <div class="wrap">
-    <h1>Warp Engine + CST FTL Jump Planner (SR/GR/RA–Dec)</h1>
+    <h1>Warp Engine + CST Jump Planner (SR/GR/RA–Dec)</h1>
     <p class="note">
       Engine structure is unchanged: same coils, reactors, nozzle, and telemetry. New SR/GR / sidereal / RA–Dec / light-time
       equations only drive the <strong>timing, jump planner and CST clock math</strong>, not the core geometry.
@@ -132,7 +132,7 @@
         <label for="warp">Warp Factor (1 to 10)</label>
         <input id="warp" type="range" min="1" max="10" step="1" value="3"/>
         <div class="row" style="margin-top:4px">
-          <button id="play">Play</button>
+          <button id="play">Start</button>
           <button id="pause">Pause</button>
           <button id="reset">Reset</button>
           <label style="margin-left:auto;display:flex;align-items:center;gap:6px">
@@ -154,7 +154,7 @@
           <div><span class="dot" style="background:#ffdca8"></span> Plasma light cone</div>
           <div><span class="dot" style="background:#8aff9b"></span> Detection lasers</div>
         </div>
-        <div id="tests" class="tests">Self-tests running…</div>
+        <div id="tests" class="tests">Basic self-checks running…</div>
 
         <!-- Real-time Telemetry (now SR/GR/CST aware) -->
         <div class="telemetry">
@@ -179,7 +179,7 @@
 
           <div class="subgrid">
             <div class="clockbox"><div><strong>Outside Time (UTC)</strong></div><div id="clk_utc">--:--:--</div></div>
-            <div class="clockbox"><div><strong>Engine Sync (CST)</strong></div><div id="clk_cst">--:--:--</div></div>
+            <div class="clockbox"><div><strong>Engine Sync (CST model)</strong></div><div id="clk_cst">--:--:--</div></div>
             <div class="clockbox" style="grid-column:1 / span 2">
               <div><strong>Warp-Adjusted Proper Time</strong> (SR·GR·warp)</div>
               <div id="clk_warp">--:--:--</div>
@@ -340,7 +340,7 @@
           </div>
           <p class="note" style="margin-top:4px">
             When you press <strong>Start Trip / Compute Jump</strong>, the engine uses the same SR/GR/CST / RA–Dec
-            math to plan the jump, then the dot travels from Earth to the selected planet on this map.
+            math to plan the jump, then the dot travels from Earth to the chosen planet on this map.
           </p>
         </div>
       </div>
@@ -443,7 +443,7 @@ layout.nozzle.x1 = xx + layout.nozzle.len;
 // ===== State =====
 const canvas = document.getElementById('view');
 const ctx = canvas.getContext('2d');
-let running = true;
+let running = false;
 let t0 = performance.now();
 let fanAngle = 0;
 let fps = 60;
@@ -487,23 +487,54 @@ function updateHUD(){
   speedEl.textContent = 'x'+speedMult().toFixed(1);
   fieldEl.textContent = fieldRadius().toFixed(1)+' x D';
   tempEl.textContent  = heatLevel()>0.7? 'Hot' : (heatLevel()>0.5? 'Warm' : 'Cool');
-  const reg = 'sun'; // default SR/GR reference for HUD
+  const reg = currentGravityRegime ? currentGravityRegime() : 'sun';
   const rate = combinedClockRate(warpFactor(), reg);
   timeEl.textContent = rate.toFixed(2)+' x';
 }
 updateHUD();
-warpEl.addEventListener('input', updateHUD);
+warpEl.addEventListener('input', function(){
+  updateHUD();
+  if(!running){ updateTelemetry(0, false); }
+});
 
-document.getElementById('pause').onclick=function(){running=false;};
+const DEFAULTS = {
+  warp: 3,
+  labels: true,
+  jp_dist: 4.20,
+  jp_ra: 14.6590,
+  jp_dec: -60.8353,
+  jp_grav: 'sun',
+  jp_drift: 9200,
+  pl_target: 'mars'
+};
+
+function resetEngineState(){
+  particles.length = 0;
+  heat.length = 0;
+  cool.length = 0;
+  entangle.length = 0;
+  pipes.length = 0;
+  fanAngle = 0;
+  fps = 60;
+  warpClock = Date.now();
+  initPipes();
+}
+
+document.getElementById('pause').onclick=function(){
+  running=false;
+};
 document.getElementById('play').onclick=function(){
-  if(!running){
-    running=true;
-    t0=performance.now();
-    loop();
-  }
+  running=true;
+  t0=performance.now();
 };
 document.getElementById('reset').onclick=function(){
-  particles.length=0; heat.length=0; cool.length=0; entangle.length=0; pipes.length=0; fanAngle=0;
+  running=false;
+  warpEl.value = DEFAULTS.warp;
+  labelsEl.checked = DEFAULTS.labels;
+  resetEngineState();
+  updateHUD();
+  updateTelemetry(0, false);
+  if(typeof window.fullJumpReset === 'function'){ window.fullJumpReset(); }
 };
 
 // ===== Streams & Pipes =====
@@ -526,7 +557,7 @@ function spawnCool(){
 function spawnEntangle(){
   var baseX = layout.stages[5].x0 + Math.random()*40;
   var phase = Math.random()*TAU;
-  entangle.push({x:baseX, y:layout.centerY, phase:phase, life:0});
+   entangle.push({x:baseX, y:layout.centerY, phase:phase, life:0});
 }
 function initPipes(){
   pipes = [];
@@ -788,7 +819,28 @@ function drawLasers(){
 
 // ===== Telemetry Update =====
 function setGauge(span, frac){ span.style.width = (clamp(frac,0,1)*100).toFixed(0)+'%'; }
-function updateTelemetry(dt){
+function currentGravityRegime(){
+  var grav = document.getElementById('jp_grav');
+  return grav ? grav.value : 'sun';
+}
+function currentSiderealPhaseSeconds(){
+  var driftEl = document.getElementById('jp_drift');
+  var driftDays = driftEl ? (parseFloat(driftEl.value)||0) : 0;
+  var sec = siderealDriftSeconds(driftDays);
+  sec = ((sec % 86400) + 86400) % 86400;
+  return sec;
+}
+function formatClockFromMs(ms){
+  return new Date(ms).toLocaleTimeString('en-US',{hour12:false,timeZone:'UTC'});
+}
+function computeCSTMillis(nowMs, warp, reg){
+  var effClockRate = combinedClockRate(warp, reg);
+  var siderealPhaseSec = currentSiderealPhaseSeconds();
+  var gravBiasSec = reg === 'sun' ? 2.0 : (reg === 'earth' ? 0.4 : 0.1);
+  var syncBiasSec = (1 - effClockRate) * 3600;
+  return nowMs + (siderealPhaseSec + gravBiasSec + syncBiasSec) * 1000;
+}
+function updateTelemetry(dt, engineActive){
   var w = warpFactor();
   var sm = speedMult();
   var fr = fieldRadius();
@@ -800,8 +852,9 @@ function updateTelemetry(dt){
 
   var vLocal = localSpeedFrac(w);
   var gSR = gammaSR(w);
-  var gGR = gammaGR_regime('sun'); // reference Sun-orbit regime
-  var effClockRate = combinedClockRate(w,'sun');
+  var reg = currentGravityRegime();
+  var gGR = gammaGR_regime(reg);
+  var effClockRate = combinedClockRate(w, reg);
 
   var p_phot = 0.7*sm;
   var p_ent  = 0.25*computeEntangleRate(w);
@@ -844,12 +897,15 @@ function updateTelemetry(dt){
   v_pwave.textContent = pWave.toFixed(2); setGauge(g_pwave, Math.min(pWave/1.2,1));
 
   var now = Date.now();
-  clkUTC.textContent  = new Date(now).toLocaleTimeString('en-US',{hour12:false,timeZone:'UTC'});
-  clkCST.textContent  = new Date(now).toLocaleTimeString('en-US',{hour12:false,timeZone:'America/Chicago'});
+  var cstNow = computeCSTMillis(now, w, reg);
+  clkUTC.textContent  = formatClockFromMs(now);
+  clkCST.textContent  = formatClockFromMs(cstNow);
 
-  // Warp-adjusted proper time clock: integrate CST time scaled by effClockRate
-  warpClock += dt * effClockRate;
-  clkWarp.textContent = new Date(warpClock).toLocaleTimeString('en-US',{hour12:false});
+  // Warp-adjusted proper time clock only advances while engine is running.
+  if(engineActive){
+    warpClock += dt * effClockRate;
+  }
+  clkWarp.textContent = formatClockFromMs(warpClock);
 }
 
 // ===== Render Loop =====
@@ -862,27 +918,29 @@ function render(dt){
   }
   drawNozzle(layout.nozzle);
   drawCoreGlow();
-  for(var j=0;j<layout.coils.length;j++){ drawCoil(layout.coils[j].xOff); }
+  drawCoil(layout.coils[0].xOff);
+  drawCoil(layout.coils[1].xOff);
   drawFan(fanAngle);
 
   var pmult = speedMult();
-  if(Math.random()<0.7*pmult) spawnParticle();
-  for(var p=0;p<particles.length;p++){
-    var pt = particles[p];
-    pt.x += (1.9*pmult + pt.v)*1.2;
-    pt.y += Math.sin((pt.x+pt.y)*0.01)*0.22*pmult;
-    pt.life += dt;
+
+  if(running){
+    if(Math.random()<0.7*pmult) spawnParticle();
   }
-  particles = particles.filter(function(pt){ return pt.x < layout.nozzle.x1+560; });
-  ctx.fillStyle='#9bb4ff';
-  for(var q=0;q<particles.length;q++){
-    ctx.globalAlpha=0.7;
-    ctx.fillRect(particles[q].x, particles[q].y, 3, 2);
+  for(var p=0;p<particles.length;p++){ particles[p].x += particles[p].v*pmult; particles[p].life += dt; }
+  particles = particles.filter(function(pt){ return pt.x < layout.nozzle.x1 + computePlasmaLength(warpFactor()); });
+  for(var p2=0;p2<particles.length;p2++){
+    var pt = particles[p2];
+    ctx.fillStyle='#9bb4ff';
+    ctx.globalAlpha=0.55 + 0.45*Math.sin(pt.life*0.02);
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, 2, 0, TAU);
+    ctx.fill();
     ctx.globalAlpha=1;
   }
 
-  if(Math.random()<0.25*pmult*heatLevel()) spawnHeat();
-  if(Math.random()<0.25*pmult*coolLevel()) spawnCool();
+  if(running && Math.random()<0.25*pmult*heatLevel()) spawnHeat();
+  if(running && Math.random()<0.25*pmult*coolLevel()) spawnCool();
   for(var h=0;h<heat.length;h++){ heat[h].life+=dt; heat[h].x+= 1.0*pmult; }
   for(var c0=0;c0<cool.length;c0++){ cool[c0].life+=dt; cool[c0].x+= 0.7*pmult; }
   heat = heat.filter(function(it){ return it.x<layout.nozzle.x1; });
@@ -900,7 +958,7 @@ function render(dt){
     ctx.fill();
   }
 
-  if(Math.random()<computeEntangleRate(warpFactor())*0.25) spawnEntangle();
+  if(running && Math.random()<computeEntangleRate(warpFactor())*0.25) spawnEntangle();
   for(var e=0;e<entangle.length;e++){
     var en = entangle[e];
     en.life+=dt;
@@ -927,29 +985,41 @@ function render(dt){
 }
 
 function loop(){
-  if(!running) return;
   var now = performance.now();
   var dt = now - t0;
   t0 = now;
-  fanAngle += 0.005 * dt * speedMult();
+
+  if(running){
+    fanAngle += 0.005 * dt * speedMult();
+  }else{
+    dt = 0;
+  }
+
   render(dt);
-  updateTelemetry(dt);
+  updateTelemetry(dt, running);
   requestAnimationFrame(loop);
 }
+t0 = performance.now();
+resetEngineState();
+updateHUD();
+updateTelemetry(0, false);
 loop();
 
 // ===== Self-Tests =====
 (function runTests(){
   var results = [];
   function ok(name,cond){ results.push((cond?'PASS ':'FAIL ')+name); }
+  ok('engine starts stopped', running === false);
   ok('speed increases', computeSpeedMult(10) > computeSpeedMult(1));
   ok('field grows', computeFieldRadius(10) > computeFieldRadius(1));
   ok('plasma length grows', computePlasmaLength(10) > computePlasmaLength(1));
   ok('plasma radius grows', computePlasmaRadius(10) > computePlasmaRadius(1));
   ok('entangle rate grows', computeEntangleRate(10) > computeEntangleRate(1));
   ok('field stretches wider', computeFieldAspectX(10) > computeFieldAspectX(1));
+  ok('reset rebuilds pipes', pipes.length === (layout.stages.length - 1));
+  ok('custom CST clock finite', Number.isFinite(computeCSTMillis(Date.now(), warpFactor(), currentGravityRegime())));
   var el = document.getElementById('tests');
-  if(el){ el.textContent = 'Self-tests: ' + results.join(' | '); }
+  if(el){ el.textContent = 'Basic self-checks: ' + results.join(' | '); }
 })();
 </script>
 <script>
@@ -976,12 +1046,11 @@ loop();
   const btnRun  = document.getElementById('jp_run');
   const btnReset= document.getElementById('jp_reset');
 
+  const plSel   = document.getElementById('pl_target');
+  const progEl  = document.getElementById('pl_progress');
   const orbitCanvas = document.getElementById('orbitMap');
   const octx = orbitCanvas.getContext('2d');
-  const plSel = document.getElementById('pl_target');
-  const progEl= document.getElementById('pl_progress');
 
-  // planet table with AU for info only; visual radius compressed so all fit
   const PLANETS = {
     mercury:{name:'Mercury', au:0.39},
     venus  :{name:'Venus',   au:0.72},
@@ -1005,13 +1074,15 @@ loop();
     return days*deltaPerDay;
   }
 
-  function formatDate(d){
-    return d.toLocaleString('en-US',{
-      timeZone:'America/Chicago',
+  function formatCSTDate(d){
+    const ms = d instanceof Date ? d.getTime() : d;
+    const shifted = computeCSTMillis(ms, warpFactor(), gravEl.value);
+    return new Date(shifted).toLocaleString('en-US',{
+      timeZone:'UTC',
       year:'numeric',month:'2-digit',day:'2-digit',
       hour:'2-digit',minute:'2-digit',second:'2-digit',
       hour12:false
-    });
+    }) + ' CST';
   }
 
   function computeJump(){
@@ -1046,44 +1117,38 @@ loop();
     const driftSec = siderealDriftSeconds(driftDays);
 
     // sky direction from RA/Dec (3D unit vector)
-    const alpha = raH * (Math.PI/12); // hours→radians
-    const delta = decDeg * (Math.PI/180);
-    const nx = Math.cos(delta)*Math.cos(alpha);
-    const ny = Math.cos(delta)*Math.sin(alpha);
-    const nz = Math.sin(delta);
+    const raRad = raH * 15 * Math.PI/180;
+    const decRad= decDeg * Math.PI/180;
+    const vx = Math.cos(decRad)*Math.cos(raRad);
+    const vy = Math.cos(decRad)*Math.sin(raRad);
+    const vz = Math.sin(decRad);
 
-    // CST alignment rating: base on warp and sidereal age
-    let align = 50 + 5*(warp-1) - 0.001*driftDays - 5*Math.abs(nz);
-    align = clamp(align,0,100);
+    // simple vector alignment score from target direction and drift phase
+    const driftPhase = (driftDays % 365.25)/365.25 * TAU;
+    const dx = Math.cos(driftPhase), dy = Math.sin(driftPhase), dz = 0;
+    const dot = clamp(vx*dx + vy*dy + vz*dz, -1, 1);
+    const vecAlign = ((dot+1)/2)*100; // 0..100
 
-    // re-entry error in AU (smaller if alignment high)
-    const errAU = (110-align)/20;
-    const vecAlign = align;
+    // alignment score blends vector alignment with warp stability
+    const align = 0.65*vecAlign + 35*computeStability(warp);
 
-    const now = new Date();
-    const depCST = now;
-    const arrCST = new Date(now.getTime()+coordMs);
+    // simple re-entry positional error estimate in AU
+    const planetAU = PLANETS[plSel.value].au;
+    const errAU = Math.abs((100-align)/100) * (0.08 + planetAU*0.012) + (driftSec/86400)*0.002;
 
-    // ===== NEW: animation duration derived from coordYears =====
-    // Shorter coordYears → faster dot; longer → slower, but capped so it stays watchable.
-    let baseYears = coordYears;
-    if(baseYears < 0.1) baseYears = 0.1;
-    if(baseYears > 30)  baseYears = 30;
+    // trip duration on map: faster if coordinate jump is shorter
+    tripDurationMs = clamp(coordYears * 2200, 2500, 20000);
 
-    // Map [0.1, 30] years to roughly [6s, 22s] animation
-    const minDur = 6000;
-    const maxDur = 22000;
-    const norm   = (baseYears - 0.1) / (30 - 0.1);
-    tripDurationMs = minDur + norm * (maxDur - minDur);
+    // departure/arrival timestamps in CST coordinates
+    const depCST = new Date(Date.now());
+    const arrCST = new Date(depCST.getTime() + coordMs);
 
     return {
-      distLy, coordYears, shipYears,
-      vAppClamped, vLocal,
-      gSR,gGR,
-      driftDays, driftSec,
-      align, errAU, vecAlign,
-      depCST, arrCST,
-      dir:{x:nx,y:ny,z:nz}
+      distLy, raH, decDeg, gravReg, driftDays, driftSec,
+      warp, vLocal, gSR, gGR,
+      coordYears, shipYears, vAppFrac, vAppClamped,
+      vx,vy,vz, vecAlign, align, errAU,
+      depCST, arrCST
     };
   }
 
@@ -1096,8 +1161,8 @@ loop();
     }
 
     alignEl.textContent = res.align.toFixed(1)+' / 100';
-    depEl.textContent   = formatDate(res.depCST);
-    arrEl.textContent   = formatDate(res.arrCST);
+    depEl.textContent   = formatCSTDate(res.depCST);
+    arrEl.textContent   = formatCSTDate(res.arrCST);
     shipEl.textContent  = res.shipYears.toFixed(3)+' yr (ship frame)';
     dlineEl.textContent = res.distLy.toFixed(3)+' ly';
     vappEl.textContent  = res.vAppClamped.toFixed(2)+' c (apparent), local '+res.vLocal.toFixed(2)+' c';
@@ -1142,56 +1207,45 @@ loop();
     octx.fill();
 
     // Earth orbit & target orbit
-    octx.strokeStyle='#2f3d6f';
+    octx.strokeStyle='#33518a';
     octx.lineWidth=1;
     octx.beginPath();
     octx.arc(cx,cy,earthR,0,TAU);
     octx.stroke();
 
-    octx.strokeStyle='#45548a';
+    octx.strokeStyle='#4f78d8';
     octx.beginPath();
     octx.arc(cx,cy,targR,0,TAU);
     octx.stroke();
 
-    // Earth fixed at +x
+    // Fixed Earth
     const eX = cx + earthR;
     const eY = cy;
-    octx.fillStyle='#6bd1ff';
+    octx.fillStyle='#7dd3ff';
     octx.beginPath();
-    octx.arc(eX,eY,4,0,TAU);
+    octx.arc(eX,eY,5,0,TAU);
     octx.fill();
 
-    // Target planet at fixed phase angle
-    const angle = -Math.PI/4;
-    const pX = cx + targR*Math.cos(angle);
-    const pY = cy + targR*Math.sin(angle);
-    octx.fillStyle='#9bb4ff';
+    // Target planet location on its orbit
+    const angle = -Math.PI/3;
+    const tX = cx + targR*Math.cos(angle);
+    const tY = cy + targR*Math.sin(angle);
+    octx.fillStyle='#ffb56b';
     octx.beginPath();
-    octx.arc(pX,pY,4,0,TAU);
+    octx.arc(tX,tY,5,0,TAU);
     octx.fill();
 
-    // line Earth→target
-    octx.strokeStyle='#556bff88';
-    octx.lineWidth=1.2;
+    // Jump dot from Earth → selected planet
+    const jX = lerp(eX,tX,progress);
+    const jY = lerp(eY,tY,progress);
+    octx.fillStyle='#ffffff';
     octx.beginPath();
-    octx.moveTo(eX,eY);
-    octx.lineTo(pX,pY);
-    octx.stroke();
-
-    // ship dot along that line
-    const t = clamp(progress,0,1);
-    const sX = eX + (pX-eX)*t;
-    const sY = eY + (pY-eY)*t;
-    octx.fillStyle = '#33e1b5';
-    octx.beginPath();
-    octx.arc(sX,sY,3.2,0,TAU);
+    octx.arc(jX,jY,4,0,TAU);
     octx.fill();
 
-    // labels (smaller font as requested)
-    octx.fillStyle='#eaf0ff';
-    octx.font='9px system-ui';
-    octx.textAlign='left';
-    octx.fillText('Sun', cx+10, cy-6);
+    octx.fillStyle='#cfe2ff';
+    octx.font='12px system-ui,Segoe UI,Roboto,Arial';
+    octx.fillText('Sun', cx+12, cy-10);
     octx.fillText('Earth (static)', eX-40, eY-9);
     octx.fillText(target.name+' orbit', cx+targR*Math.cos(angle)-26, cy+targR*Math.sin(angle)-8);
   }
@@ -1231,18 +1285,24 @@ loop();
     lastTripNow = performance.now();
   });
 
-  btnReset.addEventListener('click', ()=>{
-    distEl.value  = 4.20;
-    raEl.value    = 14.6590;
-    decEl.value   = -60.8353;
-    gravEl.value  = 'sun';
-    driftEl.value = 9200;
+  function fullJumpReset(){
+    distEl.value  = DEFAULTS.jp_dist;
+    raEl.value    = DEFAULTS.jp_ra;
+    decEl.value   = DEFAULTS.jp_dec;
+    gravEl.value  = DEFAULTS.jp_grav;
+    driftEl.value = DEFAULTS.jp_drift;
+    plSel.value   = DEFAULTS.pl_target;
     tripT = 0;
     tripRunning = false;
     tripDurationMs = 10000;
     drawMapBackground(plSel.value,0);
     progEl.textContent='0%';
     resetReport();
+  }
+  window.fullJumpReset = fullJumpReset;
+
+  btnReset.addEventListener('click', ()=>{
+    fullJumpReset();
   });
 
   plSel.addEventListener('change', ()=>{
