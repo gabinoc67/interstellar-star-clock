@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Casanova Warp Drive — Single File (v4)</title>
+  <title>Casanova Warp Drive — Single File (v5 Fixed)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root{
@@ -65,10 +65,10 @@
             <input id="dateISO" type="date">
           </label>
           <label class="sel" style="display:flex;align-items:center;gap:8px;margin-top:20px">
-            <input id="useEphem" type="checkbox" checked> <span class="muted">Use ephemerides (circular)</span>
+            <input id="useEphem" type="checkbox" checked> <span class="muted">Use circular orbit demo model</span>
           </label>
         </div>
-        <div class="callout">Distances use a simple circular-orbit demo model. Can be swapped for high-precision later.</div>
+        <div class="callout">Distances use a simple circular-orbit demo model, not real ephemerides. Swap in high-precision data later if needed.</div>
       </div>
 
       <div class="panel">
@@ -82,6 +82,8 @@
             <select id="destination"></select>
           </label>
         </div>
+
+        <div class="callout" id="navLockMsg">Route controls are available while idle. Once ENGAGE starts a trip, date/origin/destination/model controls are locked until Reset Route.</div>
 
         <div class="kpis" style="margin-top:6px">
           <div class="kpi"><div class="lab">Distance (AU)</div><div class="val" id="k_total">—</div></div>
@@ -118,7 +120,7 @@
 
         <div class="panel" id="autoPanel" style="margin-top:8px">
           <div class="row" style="justify-content:space-between">
-            <div class="small" style="font-weight:600">Auto‑Descent (near arrival)</div>
+            <div class="small" style="font-weight:600">Auto-Descent (near arrival)</div>
             <label class="small"><input id="autoOn" type="checkbox" checked> Enabled</label>
           </div>
           <div class="row">
@@ -163,6 +165,7 @@
           <div class="kpi"><div class="lab">Absorption</div><div class="val" id="k_abs">—</div></div>
         </div>
         <div class="callout">ENGAGE resets & arms shields. Disarm to save power when safe.</div>
+        <div class="callout" style="margin-top:6px">This dashboard is a fictional visualization with internal demo rules, not a validated engineering physics engine.</div>
       </div>
 
       <div class="panel">
@@ -232,13 +235,13 @@
         <div style="font-weight:600;margin-bottom:6px">Step-by-Step Instructions</div>
         <ol class="small" style="margin-top:0;padding-left:18px">
           <li>Pick <b>Date</b>, select <b>Origin</b> & <b>Destination</b>.</li>
-          <li>Set <b>Warp (Set)</b> W1..W10. <b>Active Warp</b> may auto‑drop for approach if Auto‑Descent is enabled.</li>
+          <li>Set <b>Warp (Set)</b> W1..W10. <b>Active Warp</b> may auto-drop for approach if Auto-Descent is enabled.</li>
           <li>Adjust <b>Shield Power</b> & <b>Mode</b>; arm shield when ready.</li>
           <li>Press <b>ENGAGE</b> — resets the trip, arms the shield, syncs the ship clock, starts travel.</li>
           <li>Use <b>HOLD</b> to pause. <b>Reset Route</b> returns to idle and clears data.</li>
           <li>Export <b>Timeline CSV</b> and <b>Hazards CSV</b> anytime.</li>
         </ol>
-        <div class="callout">Fictional visualization. Not real navigation or defense guidance.</div>
+        <div class="callout">Fictional visualization with demo-only equations. Not real navigation, propulsion, or defense guidance.</div>
       </div>
     </section>
   </div>
@@ -290,13 +293,16 @@
       lastFrame: null,
       events: [],
       timeline: [], // per-second samples
-      tAcc: 0
+      tAcc: 0,
+      pauseClocks: false,
+      earthDisplayMs: Date.now(),
+      status: 'Idle'
     };
 
     // ---------- Helpers ----------
     function isoDateToday(){ const d = new Date(); const y=d.getUTCFullYear(), m=(d.getUTCMonth()+1+"").padStart(2,"0"), dd=(d.getUTCDate()+"").padStart(2,"0"); return `${y}-${m}-${dd}`; }
     function fmtCST(msOrDate){ try{ const d = (msOrDate instanceof Date) ? msOrDate : new Date(msOrDate); return new Intl.DateTimeFormat("en-US",{ timeZone:"America/Chicago", year:"numeric", month:"short", day:"2-digit", hour:"2-digit", minute:"2-digit", second:"2-digit" }).format(d);}catch(e){ return (new Date(msOrDate)).toLocaleString(); } }
-    function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
+        function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
     function lerp(a,b,t){ return a+(b-a)*t; }
     function round1(x){ return Math.round(x*10)/10; }
     function yearsSinceJ2000(dateISO){ const d=dateISO? new Date(dateISO+"T00:00:00Z"): new Date(); const j2000=Date.UTC(2000,0,1,12,0,0); return (d.getTime()-j2000)/(365.25*24*3600*1000); }
@@ -319,7 +325,8 @@
       engineSvg: qs("#engineSvg"), solarSvg: qs("#solarSvg"), routeLabel: qs("#routeLabel"), progBar: qs("#progBar"), progText: qs("#progText"),
       events: qs("#events"), legend: qs("#legend"), enginePanel: qs("#enginePanel"),
       btnExportHazards: qs("#btnExportHazards"), btnExportTimeline: qs("#btnExportTimeline"),
-      autoOn: qs("#autoOn"), autoStartAU: qs("#autoStartAU"), autoTargetWarp: qs("#autoTargetWarp")
+      autoOn: qs("#autoOn"), autoStartAU: qs("#autoStartAU"), autoTargetWarp: qs("#autoTargetWarp"),
+      navLockMsg: qs("#navLockMsg")
     };
     function qs(s){return document.querySelector(s)}; function qsa(s){return Array.from(document.querySelectorAll(s))}
 
@@ -422,10 +429,27 @@
     function computeNav(){ const O=PLANETS.find(p=>p.key===state.origin)||PLANETS[2]; const D=PLANETS.find(p=>p.key===state.destination)||PLANETS[3]; const tYears=yearsSinceJ2000(state.dateISO); const Opos=state.useEphem? heliocentricPolar(O.a_au,0.0,tYears):{x:O.a_au,y:0}; const Dpos=state.useEphem? heliocentricPolar(D.a_au,D.phase0,tYears):{x:D.a_au,y:0}; const totalAU=distance2D(Opos,Dpos); state.nav={ totalAU, travelledAU:0, arrived: totalAU===0, Opos, Dpos }; dom.routeLabel.textContent=`${state.origin} → ${state.destination}`; drawSolarBackground(); }
 
     // ---------- UI bindings ----------
-    dom.origin.addEventListener('change', e=>{ state.origin=e.target.value; computeNav(); refreshUI(); });
-    dom.destination.addEventListener('change', e=>{ state.destination=e.target.value; computeNav(); refreshUI(); });
-    dom.useEphem.addEventListener('change', e=>{ state.useEphem=e.target.checked; computeNav(); refreshUI(); });
-    dom.dateISO.addEventListener('change', e=>{ state.dateISO=e.target.value; computeNav(); refreshUI(); });
+    function routeLocked(){ return state.running || state.status === 'Held'; }
+    function showRouteLockMessage(){
+      dom.navLockMsg.textContent = 'Route controls are locked during an active or held trip. Press Reset Route before changing date, origin, destination, or model.';
+      dom.navLockMsg.classList.add('danger');
+      setTimeout(()=>{
+        dom.navLockMsg.textContent = 'Route controls are available while idle. Once ENGAGE starts a trip, date/origin/destination/model controls are locked until Reset Route.';
+        dom.navLockMsg.classList.remove('danger');
+      }, 1800);
+    }
+    function rejectIfLocked(control, restoreValue, isChecked=false){
+      if(!routeLocked()) return false;
+      if(isChecked) control.checked = restoreValue;
+      else control.value = restoreValue;
+      showRouteLockMessage();
+      refreshUI();
+      return true;
+    }
+    dom.origin.addEventListener('change', e=>{ if(rejectIfLocked(e.target, state.origin)) return; state.origin=e.target.value; computeNav(); refreshUI(); });
+    dom.destination.addEventListener('change', e=>{ if(rejectIfLocked(e.target, state.destination)) return; state.destination=e.target.value; computeNav(); refreshUI(); });
+    dom.useEphem.addEventListener('change', e=>{ if(rejectIfLocked(e.target, state.useEphem, true)) return; state.useEphem=e.target.checked; computeNav(); refreshUI(); });
+    dom.dateISO.addEventListener('change', e=>{ if(rejectIfLocked(e.target, state.dateISO)) return; state.dateISO=e.target.value; computeNav(); refreshUI(); });
 
     dom.warp.addEventListener('input', e=>{ state.warpSet=parseInt(e.target.value,10); dom.warpLabel.textContent=`W${state.warpSet}`; refreshUI(); });
     dom.wDown.addEventListener('click', ()=>{ state.warpSet=clamp(state.warpSet-1,1,10); dom.warp.value=state.warpSet; dom.warpLabel.textContent=`W${state.warpSet}`; refreshUI(); });
@@ -452,15 +476,54 @@
     dom.btnExportTimeline.addEventListener('click', ()=> exportTimelineCSV());
 
     // ---------- Actions ----------
-    function engage(){ resetRoute(); state.shield.armed=true; dom.shieldArmed.checked=true; syncShipClock(); state.running=true; state.departTs=Date.now(); dom.statusPill.textContent='Engaged'; state.warpActive = state.warpSet; refreshUI(); }
-    function hold(){ state.running=false; dom.statusPill.textContent='Idle'; }
-    function resetRoute(){ state.running=false; computeNav(); state.nav.travelledAU=0; state.nav.arrived=state.nav.totalAU===0; state.ang={ bussard:0, pre:0, cond:0, dump:0, coilA:0, coilB:0 }; state.shield.charge=1.0; state.shield.health=1.0; state.events=[]; dom.events.innerHTML=''; state.departTs=null; state.timeline=[]; state.tAcc=0; dom.statusPill.textContent='Idle'; state.warpActive = state.warpSet; refreshUI(); drawSolarShip(); }
+    function setStatus(label){ state.status = label; dom.statusPill.textContent = label; }
+    function engage(){
+      resetRoute();
+      state.shield.armed=true;
+      dom.shieldArmed.checked=true;
+      syncShipClock();
+      state.running=true;
+      state.pauseClocks=false;
+      state.departTs=Date.now();
+      state.earthDisplayMs = Date.now();
+      setStatus('Engaged');
+      state.warpActive = state.warpSet;
+      refreshUI();
+    }
+    function hold(){
+      if(!state.running) return;
+      state.running=false;
+      state.pauseClocks=true;
+      setStatus('Held');
+      refreshUI();
+    }
+    function resetRoute(){
+      state.running=false;
+      state.pauseClocks=false;
+      computeNav();
+      state.nav.travelledAU=0;
+      state.nav.arrived=state.nav.totalAU===0;
+      state.ang={ bussard:0, pre:0, cond:0, dump:0, coilA:0, coilB:0 };
+      state.shield.charge=1.0;
+      state.shield.health=1.0;
+      state.events=[];
+      dom.events.innerHTML='';
+      state.departTs=null;
+      state.timeline=[];
+      state.tAcc=0;
+      state.shipTimeMs=Date.now();
+      state.earthDisplayMs=Date.now();
+      setStatus('Idle');
+      state.warpActive = state.warpSet;
+      refreshUI();
+      drawSolarShip();
+    }
 
-    function simulateImpact(kind){ const eMJ=(IMPACT_MJ[kind]??5); const abs= state.shield.armed ? absorptionFraction(state.shield.power, state.shield.mode, state.bubble, state.shield.charge, state.shield.health) : 0; const absorbed=eMJ*abs; const leftover=Math.max(0,eMJ-absorbed); if(state.shield.armed){ state.shield.charge = clamp(state.shield.charge - absorbed*0.0015, 0, 1); } state.shield.health = clamp(state.shield.health - leftover*0.003, 0, 1); const breached = leftover>5; const ts = new Date().toISOString().slice(11,19); state.events.unshift({ts, kind, eMJ:round1(eMJ), absorbed:round1(absorbed), leftover:round1(leftover), breached}); state.events = state.events.slice(0, 200); renderEvents(); }
+    function simulateImpact(kind){ const eMJ=(IMPACT_MJ[kind]??5); const abs= state.shield.armed ? absorptionFraction(state.shield.power, state.shield.mode, state.bubble, state.shield.charge, state.shield.health) : 0; const absorbed=eMJ*abs; const leftover=Math.max(0,eMJ-absorbed); if(state.shield.armed){ state.shield.charge = clamp(state.shield.charge - absorbed*0.0015, 0, 1); } state.shield.health = clamp(state.shield.health - leftover*0.003, 0, 1); const breached = leftover>5; const ts = fmtCST(Date.now()); state.events.unshift({ts, kind, eMJ:round1(eMJ), absorbed:round1(absorbed), leftover:round1(leftover), breached}); state.events = state.events.slice(0, 200); renderEvents(); }
 
     function renderEvents(){ dom.events.innerHTML=''; if(state.events.length===0){ const p=ce('div'); p.className='muted small'; p.textContent='No events yet. Use the buttons to run a simulation.'; dom.events.appendChild(p); return; } state.events.forEach(e=>{ const d=ce('div'); d.className='ev small '+(e.breached?'bad':'good'); d.textContent=`[${e.ts}] ${e.kind} → E=${e.eMJ} MJ, absorbed=${e.absorbed} MJ, leftover=${e.leftover} MJ ${e.breached?'— BREACH':'— contained'}`; dom.events.appendChild(d); }); }
 
-    function syncShipClock(){ const now=Date.now(); state.shipTimeMs = now; refreshUI(); }
+    function syncShipClock(){ const now=Date.now(); state.shipTimeMs = now; if(!state.pauseClocks) state.earthDisplayMs = now; refreshUI(); }
 
     // ---------- CSV Exports ----------
     function exportHazardsCSV(){ const rows = [ ['timestamp_cst','kind','energy_MJ','absorbed_MJ','leftover_MJ','breach'] ]; state.events.slice().reverse().forEach(e=>{ rows.push([ e.ts, e.kind, e.eMJ, e.absorbed, e.leftover, e.breached?1:0 ]); }); downloadCSV(`hazards_${Date.now()}.csv`, rows); }
@@ -474,7 +537,13 @@
     requestAnimationFrame(frame);
     function frame(ts){ if(state.lastFrame==null) state.lastFrame=ts; const dt=Math.min(0.05,(ts-state.lastFrame)/1000); state.lastFrame=ts;
       // Clocks
-      dom.earthClock.textContent = fmtCST(Date.now()); if(state.shipTimeMs==null) state.shipTimeMs=Date.now(); state.shipTimeMs += dt*1000; dom.shipClock.textContent = fmtCST(state.shipTimeMs);
+      if(state.shipTimeMs==null) state.shipTimeMs=Date.now();
+      if(state.earthDisplayMs==null) state.earthDisplayMs=Date.now();
+      if(!state.pauseClocks){ state.earthDisplayMs = Date.now(); }
+      if(state.running){ state.shipTimeMs += dt*1000; }
+      else if(state.departTs==null && !state.pauseClocks){ state.shipTimeMs = Date.now(); }
+      dom.earthClock.textContent = fmtCST(state.earthDisplayMs);
+      dom.shipClock.textContent = fmtCST(state.shipTimeMs);
 
       // Determine active warp (auto-descent)
       const rem = Math.max(0, state.nav.totalAU - state.nav.travelledAU);
@@ -483,7 +552,7 @@
       state.warpActive = lerp(state.warpActive, targetActive, Math.min(1, dt*3)); // smooth ramp
 
       // Travel
-      if(state.running && !state.nav.arrived){ const v = BASE_AUHR * (state.warpActive*state.warpActive); state.nav.travelledAU = Math.min(state.nav.totalAU, state.nav.travelledAU + v*(dt/3600)); if(state.nav.travelledAU >= state.nav.totalAU - 1e-9){ state.nav.arrived = true; state.running=false; dom.statusPill.textContent='Arrived'; } }
+      if(state.running && !state.nav.arrived){ const v = BASE_AUHR * (state.warpActive*state.warpActive); state.nav.travelledAU = Math.min(state.nav.totalAU, state.nav.travelledAU + v*(dt/3600)); if(state.nav.travelledAU >= state.nav.totalAU - 1e-9){ state.nav.arrived = true; state.running=false; state.pauseClocks=false; setStatus('Arrived'); } }
 
       // Engine spins (running only)
       const spinGate = state.running ? 1 : 0; const w = state.warpActive; const rpmBussard=(30+40*w+120*state.throttle)*spinGate; const rpmPre=(60+50*w+300*state.throttle)*spinGate; const rpmCond=(45+40*w+220*state.throttle)*spinGate; const rpmDump=(25+30*w+160*state.throttle)*spinGate; const rpmCoilA=(15+25*w+60*state.throttle)*spinGate; const rpmCoilB=(15+25*w+60*state.throttle)*spinGate; const ddeg=dt*360; state.ang.bussard+=ddeg*(rpmBussard/60); state.ang.pre+=ddeg*(rpmPre/60); state.ang.cond+=ddeg*(rpmCond/60); state.ang.dump+=ddeg*(rpmDump/60); state.ang.coilA+=ddeg*(rpmCoilA/60); state.ang.coilB+=ddeg*(rpmCoilB/60);
