@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>CST Decision Engine V4</title>
+<title>CST Engine (Fixed Original Style)</title>
 
 <style>
 body{
@@ -18,64 +18,47 @@ body{
 }
 
 .panel{
-  width:320px;
+  width:300px;
   background:#111a2e;
   padding:10px;
-  overflow:auto;
 }
 
 .console{
   flex:1;
   padding:10px;
-  display:flex;
-  flex-direction:column;
 }
 
 button{
   width:100%;
-  margin:4px 0;
   padding:8px;
+  margin:5px 0;
   background:#1e2d50;
   color:white;
   border:none;
 }
 
-.slider{ width:100%; }
-
-.log{
-  height:120px;
-  background:black;
-  padding:8px;
-  overflow:auto;
-  font-size:12px;
-}
-
-.signal{
-  display:flex;
-  gap:10px;
-  margin-top:10px;
-}
-
 .node{
-  width:60px;
-  height:60px;
+  width:70px;
+  height:70px;
   background:#222;
-  display:flex;
+  display:inline-flex;
   align-items:center;
   justify-content:center;
-  border-radius:6px;
+  margin:5px;
+  border-radius:8px;
 }
 
 .active{ background:#00ff88; }
+.wait{ background:#ffaa00; }
+.off{ background:#222; }
 .bad{ background:#ff3355; }
 
-canvas{ background:#000; margin-top:5px; }
-
-.explain{
-  background:#111;
-  padding:8px;
+.log{
+  height:140px;
+  background:black;
+  overflow:auto;
   font-size:12px;
-  margin-top:5px;
+  padding:5px;
 }
 
 </style>
@@ -88,10 +71,10 @@ canvas{ background:#000; margin-top:5px; }
 <div class="panel">
 
 <h3>Run</h3>
-<button onclick="runCST()">Run CST Decision</button>
+<button onclick="startRun()">Run Decision</button>
 
-<h3>ΔT (Time Sync)</h3>
-<input id="dt" type="range" min="-1" max="1" step="0.1" class="slider">
+<h3>ΔT</h3>
+<input id="dt" type="range" min="-1" max="1" step="0.1" value="0">
 
 <h3>Scenario</h3>
 <select id="scenario">
@@ -108,28 +91,28 @@ canvas{ background:#000; margin-top:5px; }
 
 <div class="console">
 
-<h2>CST Decision Engine</h2>
+<h2>Decision Pipeline</h2>
 
-<div class="signal">
-<div id="ethicsNode" class="node">E</div>
-<div id="survivalNode" class="node">S</div>
-<div id="missionNode" class="node">M</div>
-<div id="decisionNode" class="node">D</div>
+<div id="pipeline">
+<div id="train" class="node">TR</div>
+<div id="positive" class="node">PN</div>
+<div id="mood" class="node">MD</div>
+<div id="agents" class="node">AG</div>
+<div id="conflict" class="node">CF</div>
+<div id="decision" class="node">DS</div>
 </div>
 
-<h3>Robot Output</h3>
-<div class="signal">
-<div id="leftArm" class="node">LA</div>
-<div id="rightArm" class="node">RA</div>
-<div id="legs" class="node">LG</div>
-<div id="idle" class="node">ID</div>
-</div>
+<h2>Robot Output</h2>
 
-<h3>Heatmap</h3>
-<canvas id="heat" width="500" height="100"></canvas>
+<div>
+<div id="LA" class="node">LA</div>
+<div id="RA" class="node">RA</div>
+<div id="LG" class="node">LG</div>
+<div id="ID" class="node">ID</div>
+</div>
 
 <h3>Explain</h3>
-<div id="explain" class="explain"></div>
+<div id="explain"></div>
 
 <h3>Log</h3>
 <div id="log" class="log"></div>
@@ -140,21 +123,17 @@ canvas{ background:#000; margin-top:5px; }
 
 <script>
 
-// ================= MEMORY =================
-
-let memory = JSON.parse(localStorage.getItem("cstMem")||"[]");
-
-// ================= SCENARIOS =================
+// ===== SCENARIOS =====
 
 const scenarios = {
-  Rescue:{risk:0.5,ethics:1.2,urgency:1.1},
-  Combat:{risk:1.3,ethics:0.4,urgency:0.9},
-  Medical:{risk:0.6,ethics:1.3,urgency:1.0},
-  Exploration:{risk:0.7,ethics:0.7,urgency:0.6},
-  Ethics:{risk:0.4,ethics:1.4,urgency:0.3}
+Rescue:{risk:0.5,ethics:1.2,urgency:1.1},
+Combat:{risk:1.3,ethics:0.4,urgency:0.9},
+Medical:{risk:0.6,ethics:1.3,urgency:1.0},
+Exploration:{risk:0.7,ethics:0.7,urgency:0.6},
+Ethics:{risk:0.4,ethics:1.4,urgency:0.3}
 };
 
-// ================= UTIL =================
+let memory = JSON.parse(localStorage.getItem("memFix")||"[]");
 
 function log(m){
   let el=document.getElementById("log");
@@ -164,120 +143,130 @@ function log(m){
 
 function resetNodes(){
   document.querySelectorAll(".node").forEach(n=>{
-    n.classList.remove("active","bad");
+    n.className="node off";
   });
 }
 
-// ================= AGENTS =================
+// ===== CORE STAGES =====
 
-function ethicsAgent(s,dt){
-  let v = s.ethics - s.risk*0.3 + dt*0.2;
+function stageTrain(s,dt){
+  return (s.ethics + s.urgency - s.risk) + dt*0.2;
+}
+
+function stagePositive(v){
+  return v * 1.1;
+}
+
+function stageMood(v){
+  return v * 0.9;
+}
+
+function stageAgents(s,dt){
+  let E = s.ethics - s.risk*0.3 + dt*0.2;
+  let S = (1-s.risk) + dt*0.1;
+  let M = s.urgency + dt*0.3;
+  return (E*0.4 + S*0.3 + M*0.3);
+}
+  function stageConflict(v){
   return v;
 }
 
-function survivalAgent(s,dt){
-  let v = (1 - s.risk) + dt*0.1;
-  return v;
-}
-
-function missionAgent(s,dt){
-  let v = s.urgency + dt*0.3;
-  return v;
-}
-  // ================= CORE =================
-
-function runCST(){
-
-  resetNodes();
-
-  let sc = document.getElementById("scenario").value;
-  let s = scenarios[sc];
-
-  let dt = parseFloat(document.getElementById("dt").value);
-
-  // Agents
-  let E = ethicsAgent(s,dt);
-  let S = survivalAgent(s,dt);
-  let M = missionAgent(s,dt);
-
-  document.getElementById("ethicsNode").classList.add("active");
-  document.getElementById("survivalNode").classList.add("active");
-  document.getElementById("missionNode").classList.add("active");
-
-  // Conflict resolution
-  let combined = (E*0.4 + S*0.3 + M*0.3);
-
-  // Adaptive learning
+function stageDecision(v){
   let bias = memory.length>0
     ? memory.reduce((a,b)=>a+b,0)/memory.length * 0.05
     : 0;
 
   let noise = Math.random()*0.2 - 0.1;
 
-  let score = combined + bias + noise;
+  return v + bias + noise;
+}
 
-  document.getElementById("decisionNode").classList.add("active");
+// ===== RUN WITH FLOW =====
 
-  // Coin toss
-  let coin = Math.random()>0.5 ? 1 : -1;
+async function startRun(){
 
-  // Decision
+  resetNodes();
+
+  let sc = scenario.value;
+  let s = scenarios[sc];
+  let dt = parseFloat(document.getElementById("dt").value);
+
+  // TRAIN
+  train.classList.add("wait");
+  await delay(300);
+  let t = stageTrain(s,dt);
+  train.classList.remove("wait");
+  train.classList.add("active");
+
+  // POSITIVE
+  positive.classList.add("wait");
+  await delay(300);
+  let p = stagePositive(t);
+  positive.classList.add("active");
+
+  // MOOD
+  mood.classList.add("wait");
+  await delay(300);
+  let m = stageMood(p);
+  mood.classList.add("active");
+
+  // AGENTS
+  agents.classList.add("wait");
+  await delay(300);
+  let a = stageAgents(s,dt);
+  agents.classList.add("active");
+
+  // CONFLICT
+  conflict.classList.add("wait");
+  await delay(300);
+  let c = stageConflict(a);
+  conflict.classList.add("active");
+
+  // DECISION
+  decision.classList.add("wait");
+  await delay(300);
+  let d = stageDecision(c);
+  decision.classList.add("active");
+
+  // ACTION
   let action;
 
-  if(score > 0.7) action="RIGHT_ARM";
-  else if(score > 0.2) action="LEFT_ARM";
-  else if(score > -0.2) action="LEGS";
-  else action="IDLE";
+  if(d > 0.7) action="RA";
+  else if(d > 0.2) action="LA";
+  else if(d > -0.2) action="LG";
+  else action="ID";
 
-  // Highlight robot output
-  if(action==="RIGHT_ARM") rightArm.classList.add("active");
-  if(action==="LEFT_ARM") leftArm.classList.add("active");
-  if(action==="LEGS") legs.classList.add("active");
-  if(action==="IDLE") idle.classList.add("bad");
+  document.getElementById(action).classList.add(
+    action==="ID" ? "bad":"active"
+  );
 
-  // Save learning
-  memory.push(score);
-  localStorage.setItem("cstMem", JSON.stringify(memory));
+  // COIN
+  let coin = Math.random()>0.5 ? "ACTION":"NO ACTION";
 
-  // Heatmap
-  drawHeat([E,S,M,score]);
+  memory.push(d);
+  localStorage.setItem("memFix", JSON.stringify(memory));
 
-  // Explain
-  document.getElementById("explain").innerHTML =
-    "ΔT: "+dt+"<br>"+
-    "Ethics: "+E.toFixed(2)+" | Survival: "+S.toFixed(2)+" | Mission: "+M.toFixed(2)+"<br>"+
-    "Combined: "+combined.toFixed(2)+"<br>"+
-    "Noise: "+noise.toFixed(2)+" | Memory Bias: "+bias.toFixed(2)+"<br>"+
-    "Final Score: "+score.toFixed(2)+"<br>"+
-    "Decision: "+action+"<br>"+
-    "Coin Toss Comparison: "+(coin>0?"Action":"No Action")+"<br>"+
-    "<br>⚠ Demonstrates how structured logic can approach coin-toss behavior.";
+  // EXPLAIN
+  explain.innerHTML =
+    "Score: "+d.toFixed(2)+"<br>"+
+    "Action: "+action+"<br>"+
+    "Coin Toss: "+coin+"<br>"+
+    "<br>System vs randomness comparison";
 
-  log(sc+" → "+action+" | Score "+score.toFixed(2));
-
+  log(sc+" → "+action+" | "+d.toFixed(2));
 }
 
-// ================= HEATMAP =================
-
-function drawHeat(arr){
-  let c=document.getElementById("heat");
-  let ctx=c.getContext("2d");
-
-  ctx.clearRect(0,0,c.width,c.height);
-
-  arr.forEach((v,i)=>{
-    ctx.fillStyle = v>0 ? "green":"red";
-    ctx.fillRect(i*120,0,100,100);
-  });
+function delay(ms){
+  return new Promise(r=>setTimeout(r,ms));
 }
 
-// ================= RESET =================
+// ===== RESET =====
 
 function resetAll(){
   memory=[];
-  localStorage.removeItem("cstMem");
-  document.getElementById("log").innerHTML="";
-  document.getElementById("explain").innerHTML="";
+  localStorage.removeItem("memFix");
+  log.innerHTML="";
+  explain.innerHTML="";
   resetNodes();
 }
 
