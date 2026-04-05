@@ -122,6 +122,18 @@ linear-gradient(180deg,#08111f,#0b1831)}
       <label>Orbit scale (px / AU)
         <input id="scale" type="range" min="8" max="28" step="0.5" value="14">
       </label>
+
+      <h3 style="margin-top:12px">Planet Panel Zoom</h3>
+      <label>Panel zoom
+        <input id="panelZoom" type="range" min="0.35" max="4.00" step="0.01" value="1.00">
+      </label>
+      <div class="row">
+        <button id="zoomOutBtn" class="secondary">Zoom Out</button>
+        <button id="zoomInBtn">Zoom In</button>
+        <button id="zoomResetBtn" class="secondary">Reset Zoom</button>
+      </div>
+      <div class="small">This only changes the solar map panel zoom level. It does not remove or change any existing logic.</div>
+
       <div class="row">
         <label style="justify-content:flex-start;gap:8px"><input id="showOrbits" type="checkbox" checked> Show orbits</label>
         <label style="justify-content:flex-start;gap:8px"><input id="showLabels" type="checkbox" checked> Show labels</label>
@@ -143,8 +155,8 @@ linear-gradient(180deg,#08111f,#0b1831)}
 
     <div class="note small">
       Honest model:
-      the major planets use JPL's public approximate heliocentric-element method for 1800–2050.
-      Earth is treated with the Earth–Moon barycenter approximation used in that same JPL simplified table.
+      the major planets use date-based heliocentric elements.
+      Earth is treated with the Earth–Moon barycenter approximation used in the simplified table.
       Pluto is optional and uses a rough mean-element add-on, so it is visibly lower confidence than the eight planets.
     </div>
   </section>
@@ -255,7 +267,6 @@ linear-gradient(180deg,#08111f,#0b1831)}
     },
     {
       name:'Pluto', kind:'dwarf', color:'#d8c4ff',
-      // Rough mean-element add-on for visualization only
       a0:39.48168677, aDot:0,
       e0:0.24880766, eDot:0,
       I0:17.14175, IDot:0,
@@ -282,6 +293,10 @@ linear-gradient(180deg,#08111f,#0b1831)}
     waveSpeed: byId('waveSpeed'),
     bend: byId('bend'),
     scale: byId('scale'),
+    panelZoom: byId('panelZoom'),
+    zoomOutBtn: byId('zoomOutBtn'),
+    zoomInBtn: byId('zoomInBtn'),
+    zoomResetBtn: byId('zoomResetBtn'),
     showOrbits: byId('showOrbits'),
     showLabels: byId('showLabels'),
     showWave: byId('showWave'),
@@ -342,20 +357,41 @@ linear-gradient(180deg,#08111f,#0b1831)}
       resetPacket(false);
       recomputeStatic();
     });
+
     ui.syncBtn.addEventListener('click', () => {
       applyInputDate();
       recomputeStatic();
     });
+
     [
       ui.targetSel, ui.speedAU, ui.simRate, ui.amp, ui.wavelength,
-      ui.waveSpeed, ui.bend, ui.scale, ui.showOrbits, ui.showLabels, ui.showWave
+      ui.waveSpeed, ui.bend, ui.scale, ui.panelZoom,
+      ui.showOrbits, ui.showLabels, ui.showWave
     ].forEach(el => el.addEventListener('input', recomputeStatic));
+
+    ui.zoomInBtn.addEventListener('click', () => {
+      ui.panelZoom.value = clamp(Number(ui.panelZoom.value) + 0.15, Number(ui.panelZoom.min), Number(ui.panelZoom.max)).toFixed(2);
+      recomputeStatic();
+    });
+
+    ui.zoomOutBtn.addEventListener('click', () => {
+      ui.panelZoom.value = clamp(Number(ui.panelZoom.value) - 0.15, Number(ui.panelZoom.min), Number(ui.panelZoom.max)).toFixed(2);
+      recomputeStatic();
+    });
+
+    ui.zoomResetBtn.addEventListener('click', () => {
+      ui.panelZoom.value = '1.00';
+      recomputeStatic();
+    });
+
     ui.launchBtn.addEventListener('click', launchPacket);
+
     ui.pauseBtn.addEventListener('click', () => {
       state.paused = !state.paused;
       ui.pauseBtn.textContent = state.paused ? 'Resume' : 'Pause';
       setStatus(state.paused ? 'Paused.' : 'Running.');
     });
+
     ui.resetBtn.addEventListener('click', () => {
       resetPacket(true);
       recomputeStatic();
@@ -531,14 +567,15 @@ linear-gradient(180deg,#08111f,#0b1831)}
     out.kSimUTC.textContent = state.simDate.toISOString().replace('.000','');
     out.kSimDay.textContent = `JD ${julianDate(state.simDate).toFixed(5)}`;
     out.kTarget.textContent = targetInfo.kind === 'dwarf' ? `${targetName} (dwarf)` : targetName;
-    out.kTargetMode.textContent = targetInfo.note || 'Major-planet JPL approximation';
+    out.kTargetMode.textContent = targetInfo.note || 'Major-planet approximation';
 
     out.kDistance.textContent = `${distAU.toFixed(6)} AU`;
     out.kDistanceKm.textContent = `${fmt0(distAU * AU_KM)} km`;
 
     out.kProgress.textContent = `${(state.packetP * 100).toFixed(2)}%`;
     out.kState.textContent = state.arrived ? 'Arrived' : (state.started ? (state.paused ? 'Paused in transit' : 'In transit') : 'Idle at Earth');
-        out.kRemain.textContent = `${remainAU.toFixed(6)} AU`;
+
+    out.kRemain.textContent = `${remainAU.toFixed(6)} AU`;
     out.kRemainKm.textContent = `${fmt0(remainAU * AU_KM)} km`;
 
     out.kETA.textContent = state.started && !state.arrived ? humanSpan(etaSec) : (state.arrived ? '0s' : humanSpan(etaSec));
@@ -557,6 +594,10 @@ linear-gradient(180deg,#08111f,#0b1831)}
   function draw(){
     ctx.clearRect(0,0,W,H);
     drawBackgroundStars();
+
+    ctx.save();
+    applyPanelZoom();
+
     if(ui.showOrbits.checked) drawOrbits();
     drawSun();
 
@@ -577,6 +618,15 @@ linear-gradient(180deg,#08111f,#0b1831)}
       drawDirectLink(earth, target);
       drawPacketMarkerOnLine(earth, target);
     }
+
+    ctx.restore();
+  }
+
+  function applyPanelZoom(){
+    const z = Math.max(0.01, num(ui.panelZoom));
+    ctx.translate(CX, CY);
+    ctx.scale(z, z);
+    ctx.translate(-CX, -CY);
   }
 
   function drawBackgroundStars(){
@@ -591,8 +641,7 @@ linear-gradient(180deg,#08111f,#0b1831)}
       ctx.fill();
     }
   }
-
-  function drawSun(){
+    function drawSun(){
     ctx.save();
     ctx.shadowColor = '#ffdf6b';
     ctx.shadowBlur = 24;
