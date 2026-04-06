@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Earth → Target Curvature Wave Simulator (Date-Based Solar Positions)</title>
+<title>Earth → Target Curvature Wave Simulator (Balanced Planet Panel)</title>
 <style>
 :root{
   --bg:#08111f; --bg2:#0d1830; --panel:#101c36; --panel2:#132347;
@@ -67,7 +67,7 @@ linear-gradient(180deg,#08111f,#0b1831)}
 <header>
   <h1>Earth → Target Curvature Wave Simulator</h1>
   <div class="sub">
-    Date-based solar positions, live Earth-to-target distance, a real packet that moves on the wave, and dashboard values tied to the actual animation state.
+    Real date-based planet positions, live Earth-to-target distance, a true moving packet on the wave, and a balanced solar-map display so inner and outer planets are easier to read.
   </div>
 </header>
 
@@ -83,7 +83,7 @@ linear-gradient(180deg,#08111f,#0b1831)}
         <button id="nowBtn">Use current UTC</button>
         <button id="syncBtn" class="secondary">Recompute positions</button>
       </div>
-      <div class="small">The orbital model uses date-based heliocentric elements. During playback, the UTC time advances by the simulation rate below.</div>
+      <div class="small">Positions are computed from the selected UTC time. During playback, simulation UTC advances at the selected rate.</div>
     </div>
 
     <div class="group">
@@ -96,7 +96,7 @@ linear-gradient(180deg,#08111f,#0b1831)}
       <label>Target
         <select id="targetSel"></select>
       </label>
-      <div class="small">The dropdown includes all 8 planets plus optional Pluto as a lower-precision dwarf-planet add-on.</div>
+      <div class="small">Includes the 8 planets plus optional Pluto as a dwarf-planet add-on.</div>
     </div>
 
     <div class="group">
@@ -132,7 +132,12 @@ linear-gradient(180deg,#08111f,#0b1831)}
         <button id="zoomInBtn">Zoom In</button>
         <button id="zoomResetBtn" class="secondary">Reset Zoom</button>
       </div>
-      <div class="small">This only changes the solar map panel zoom level. It does not remove or change any existing logic.</div>
+
+      <h3 style="margin-top:12px">Balanced Planet Spacing</h3>
+      <label>Orbit spread balance
+        <input id="spreadPower" type="range" min="0.35" max="0.90" step="0.01" value="0.58">
+      </label>
+      <div class="small">This only changes how the panel spaces the orbits visually. The live heliocentric calculations stay date-based.</div>
 
       <div class="row">
         <label style="justify-content:flex-start;gap:8px"><input id="showOrbits" type="checkbox" checked> Show orbits</label>
@@ -148,16 +153,12 @@ linear-gradient(180deg,#08111f,#0b1831)}
         <button id="pauseBtn" class="secondary">Pause</button>
         <button id="resetBtn" class="secondary">Reset packet</button>
       </div>
-      <div class="small">
-        Launch starts the packet at Earth. The packet progress, remaining distance, and ETA are computed from the packet's real progress fraction on the current Earth→target link, not from a fake timer.
-      </div>
     </div>
 
     <div class="note small">
       Honest model:
-      the major planets use date-based heliocentric elements.
-      Earth is treated with the Earth–Moon barycenter approximation used in the simplified table.
-      Pluto is optional and uses a rough mean-element add-on, so it is visibly lower confidence than the eight planets.
+      positions are computed from date-based heliocentric elements,
+      while the panel uses a balanced nonlinear radius map so Mercury/Venus/Earth/Mars are easier to separate and the outer planets are not pushed too far off-screen.
     </div>
   </section>
 
@@ -190,91 +191,18 @@ linear-gradient(180deg,#08111f,#0b1831)}
   const AU_KM = 149597870.7;
   const DAY_S = 86400;
   const J2000 = 2451545.0;
+  const DISPLAY_R_MAX_AU = 39.48168677;
 
   const PLANETS = [
-    {
-      name:'Mercury', kind:'planet', color:'#cbb79c',
-      a0:0.38709927, aDot:0.00000037,
-      e0:0.20563593, eDot:0.00001906,
-      I0:7.00497902, IDot:-0.00594749,
-      L0:252.25032350, LDot:149472.67411175,
-      p0:77.45779628, pDot:0.16047689,
-      O0:48.33076593, ODot:-0.12534081
-    },
-    {
-      name:'Venus', kind:'planet', color:'#ffbe7a',
-      a0:0.72333566, aDot:0.00000390,
-      e0:0.00677672, eDot:-0.00004107,
-      I0:3.39467605, IDot:-0.00078890,
-      L0:181.97909950, LDot:58517.81538729,
-      p0:131.60246718, pDot:0.00268329,
-      O0:76.67984255, ODot:-0.27769418
-    },
-    {
-      name:'Earth', kind:'planet', color:'#7bdcff',
-      a0:1.00000261, aDot:0.00000562,
-      e0:0.01671123, eDot:-0.00004392,
-      I0:-0.00001531, IDot:-0.01294668,
-      L0:100.46457166, LDot:35999.37244981,
-      p0:102.93768193, pDot:0.32327364,
-      O0:0.0, ODot:0.0,
-      note:'Earth/Moon barycenter approximation'
-    },
-    {
-      name:'Mars', kind:'planet', color:'#ff8e72',
-      a0:1.52371034, aDot:0.00001847,
-      e0:0.09339410, eDot:0.00007882,
-      I0:1.84969142, IDot:-0.00813131,
-      L0:-4.55343205, LDot:19140.30268499,
-      p0:-23.94362959, pDot:0.44441088,
-      O0:49.55953891, ODot:-0.29257343
-    },
-    {
-      name:'Jupiter', kind:'planet', color:'#ffe0af',
-      a0:5.20288700, aDot:-0.00011607,
-      e0:0.04838624, eDot:-0.00013253,
-      I0:1.30439695, IDot:-0.00183714,
-      L0:34.39644051, LDot:3034.74612775,
-      p0:14.72847983, pDot:0.21252668,
-      O0:100.47390909, ODot:0.20469106
-    },
-    {
-      name:'Saturn', kind:'planet', color:'#ffe49d',
-      a0:9.53667594, aDot:-0.00125060,
-      e0:0.05386179, eDot:-0.00050991,
-      I0:2.48599187, IDot:0.00193609,
-      L0:49.95424423, LDot:1222.49362201,
-      p0:92.59887831, pDot:-0.41897216,
-      O0:113.66242448, ODot:-0.28867794
-    },
-    {
-      name:'Uranus', kind:'planet', color:'#a7f0ff',
-      a0:19.18916464, aDot:-0.00196176,
-      e0:0.04725744, eDot:-0.00004397,
-      I0:0.77263783, IDot:-0.00242939,
-      L0:313.23810451, LDot:428.48202785,
-      p0:170.95427630, pDot:0.40805281,
-      O0:74.01692503, ODot:0.04240589
-    },
-    {
-      name:'Neptune', kind:'planet', color:'#9bcaff',
-      a0:30.06992276, aDot:0.00026291,
-      e0:0.00859048, eDot:0.00005105,
-      I0:1.77004347, IDot:0.00035372,
-      L0:-55.12002969, LDot:218.45945325,
-      p0:44.96476227, pDot:-0.32241464,
-      O0:131.78422574, ODot:-0.00508664
-    },
-    {
-      name:'Pluto', kind:'dwarf', color:'#d8c4ff',
-      a0:39.48168677, aDot:0,
-      e0:0.24880766, eDot:0,
-      I0:17.14175, IDot:0,
-      L0:238.92881, LDot:(360 / (248.0208 * 365.25)) * 36525,
-      p0:224.06676, pDot:0,
-      O0:110.30347, ODot:0,
-      note:'Lower-precision Pluto add-on'
-    }
+    { name:'Mercury', kind:'planet', color:'#cbb79c', a0:0.38709927, aDot:0.00000037, e0:0.20563593, eDot:0.00001906, I0:7.00497902, IDot:-0.00594749, L0:252.25032350, LDot:149472.67411175, p0:77.45779628, pDot:0.16047689, O0:48.33076593, ODot:-0.12534081 },
+    { name:'Venus', kind:'planet', color:'#ffbe7a', a0:0.72333566, aDot:0.00000390, e0:0.00677672, eDot:-0.00004107, I0:3.39467605, IDot:-0.00078890, L0:181.97909950, LDot:58517.81538729, p0:131.60246718, pDot:0.00268329, O0:76.67984255, ODot:-0.27769418 },
+    { name:'Earth', kind:'planet', color:'#7bdcff', a0:1.00000261, aDot:0.00000562, e0:0.01671123, eDot:-0.00004392, I0:-0.00001531, IDot:-0.01294668, L0:100.46457166, LDot:35999.37244981, p0:102.93768193, pDot:0.32327364, O0:0.0, ODot:0.0, note:'Earth/Moon barycenter approximation' },
+    { name:'Mars', kind:'planet', color:'#ff8e72', a0:1.52371034, aDot:0.00001847, e0:0.09339410, eDot:0.00007882, I0:1.84969142, IDot:-0.00813131, L0:-4.55343205, LDot:19140.30268499, p0:-23.94362959, pDot:0.44441088, O0:49.55953891, ODot:-0.29257343 },
+    { name:'Jupiter', kind:'planet', color:'#ffe0af', a0:5.20288700, aDot:-0.00011607, e0:0.04838624, eDot:-0.00013253, I0:1.30439695, IDot:-0.00183714, L0:34.39644051, LDot:3034.74612775, p0:14.72847983, pDot:0.21252668, O0:100.47390909, ODot:0.20469106 },
+    { name:'Saturn', kind:'planet', color:'#ffe49d', a0:9.53667594, aDot:-0.00125060, e0:0.05386179, eDot:-0.00050991, I0:2.48599187, IDot:0.00193609, L0:49.95424423, LDot:1222.49362201, p0:92.59887831, pDot:-0.41897216, O0:113.66242448, ODot:-0.28867794 },
+    { name:'Uranus', kind:'planet', color:'#a7f0ff', a0:19.18916464, aDot:-0.00196176, e0:0.04725744, eDot:-0.00004397, I0:0.77263783, IDot:-0.00242939, L0:313.23810451, LDot:428.48202785, p0:170.95427630, pDot:0.40805281, O0:74.01692503, ODot:0.04240589 },
+    { name:'Neptune', kind:'planet', color:'#9bcaff', a0:30.06992276, aDot:0.00026291, e0:0.00859048, eDot:0.00005105, I0:1.77004347, IDot:0.00035372, L0:-55.12002969, LDot:218.45945325, p0:44.96476227, pDot:-0.32241464, O0:131.78422574, ODot:-0.00508664 },
+    { name:'Pluto', kind:'dwarf', color:'#d8c4ff', a0:39.48168677, aDot:0, e0:0.24880766, eDot:0, I0:17.14175, IDot:0, L0:238.92881, LDot:(360 / (248.0208 * 365.25)) * 36525, p0:224.06676, pDot:0, O0:110.30347, ODot:0, note:'Lower-precision Pluto add-on' }
   ];
 
   const canvas = document.getElementById('sky');
@@ -297,6 +225,7 @@ linear-gradient(180deg,#08111f,#0b1831)}
     zoomOutBtn: byId('zoomOutBtn'),
     zoomInBtn: byId('zoomInBtn'),
     zoomResetBtn: byId('zoomResetBtn'),
+    spreadPower: byId('spreadPower'),
     showOrbits: byId('showOrbits'),
     showLabels: byId('showLabels'),
     showWave: byId('showWave'),
@@ -365,7 +294,7 @@ linear-gradient(180deg,#08111f,#0b1831)}
 
     [
       ui.targetSel, ui.speedAU, ui.simRate, ui.amp, ui.wavelength,
-      ui.waveSpeed, ui.bend, ui.scale, ui.panelZoom,
+      ui.waveSpeed, ui.bend, ui.scale, ui.panelZoom, ui.spreadPower,
       ui.showOrbits, ui.showLabels, ui.showWave
     ].forEach(el => el.addEventListener('input', recomputeStatic));
 
@@ -512,7 +441,7 @@ linear-gradient(180deg,#08111f,#0b1831)}
     const longPeri = fixDeg(p.p0 + p.pDot * T);
     const Omega = fixDeg(p.O0 + p.ODot * T);
     const omega = deg2rad(fixDeg(longPeri - Omega));
-    let M = fixDeg(L - longPeri);
+    const M = fixDeg(L - longPeri);
     const E = solveKepler(deg2rad(M), e);
     const xv = a * (Math.cos(E) - e);
     const yv = a * (Math.sqrt(1 - e*e) * Math.sin(E));
@@ -660,13 +589,14 @@ linear-gradient(180deg,#08111f,#0b1831)}
     ctx.strokeStyle = 'rgba(58,91,170,.55)';
     ctx.lineWidth = 1;
     for(const p of PLANETS){
+      const rr = displayRadiusPx(p.a0);
       if(p.name === 'Pluto'){
         ctx.setLineDash([4,4]);
       } else {
         ctx.setLineDash([]);
       }
       ctx.beginPath();
-      ctx.arc(CX, CY, p.a0 * num(ui.scale), 0, Math.PI * 2);
+      ctx.arc(CX, CY, rr, 0, Math.PI * 2);
       ctx.stroke();
     }
     ctx.restore();
@@ -802,10 +732,19 @@ linear-gradient(180deg,#08111f,#0b1831)}
     ctx.restore();
   }
 
+  function displayRadiusPx(rAU){
+    const p = num(ui.spreadPower);
+    const mapped = Math.pow(clamp(rAU / DISPLAY_R_MAX_AU, 0, 1), p) * DISPLAY_R_MAX_AU;
+    return mapped * num(ui.scale);
+  }
+
   function heliocentricToScreen(xAU, yAU){
+    const r = Math.hypot(xAU, yAU);
+    const ang = Math.atan2(yAU, xAU);
+    const rr = displayRadiusPx(r);
     return {
-      x: CX + xAU * num(ui.scale),
-      y: CY - yAU * num(ui.scale)
+      x: CX + Math.cos(ang) * rr,
+      y: CY - Math.sin(ang) * rr
     };
   }
 
