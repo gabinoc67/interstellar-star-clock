@@ -116,8 +116,10 @@
       box-shadow:inset 0 0 0 2px rgba(255,255,255,.10), 0 0 0 2px rgba(217,119,6,.18);
     }
     .btn.activeCat{
-      outline:3px solid rgba(255,255,255,.14);
-      box-shadow:inset 0 0 0 2px rgba(255,255,255,.12), 0 0 0 2px rgba(255,255,255,.05);
+      background:var(--gold)!important;
+      color:#fff;
+      outline:3px solid rgba(255,255,255,.12);
+      box-shadow:inset 0 0 0 2px rgba(255,255,255,.10), 0 0 0 2px rgba(217,119,6,.18);
     }
 
     .stats{
@@ -298,7 +300,7 @@
 
     .controls{
       display:grid;
-      grid-template-columns:repeat(3,1fr);
+      grid-template-columns:repeat(4,1fr);
       gap:10px;
       margin-top:12px;
     }
@@ -387,7 +389,7 @@
     <div class="top">
       <h1>Pre-K Home Practice — Timed BOY / MOY / EOY</h1>
       <div class="sub">
-        Timed English-only practice for visual recognition, listening, sound-letter connection, and faster response under light time pressure. If time runs out, the app marks the question as timed out and moves on.
+        Timed English-only practice for visual recognition, listening, sound-letter connection, and faster response under light time pressure. Use Pause if the child needs a moment to listen before answering.
       </div>
     </div>
 
@@ -478,6 +480,7 @@
         <div class="controls">
           <button class="btn blue" id="startBtn">Start Practice</button>
           <button class="btn" id="repeatBtn">Repeat EN</button>
+          <button class="btn" id="pauseBtn">Pause Timer</button>
           <button class="btn red" id="restartBtn">Restart</button>
         </div>
       </div>
@@ -502,6 +505,9 @@
     let questionTimerInterval = null;
     let timeLeft = 0;
     let timeLimit = 0;
+    let timerRunning = false;
+    let timerPaused = false;
+    let questionStartStamp = 0;
     let enabledCategories = new Set(["letters","sounds","rhyming","counting","numbers","shapes","colors","vocab"]);
     let sessionLog = [];
 
@@ -654,6 +660,19 @@
       return 10;
     }
 
+    function updatePauseButton(){
+      const btn = el("pauseBtn");
+      if(!started || !currentQuestion){
+        btn.textContent = "Pause Timer";
+        btn.disabled = true;
+        btn.style.opacity = ".65";
+        return;
+      }
+      btn.disabled = false;
+      btn.style.opacity = "1";
+      btn.textContent = timerPaused ? "Resume Timer" : "Pause Timer";
+    }
+
     function updateStats(){
       el("statChild").textContent = el("childName").value.trim() || "—";
       el("statWave").textContent = wave;
@@ -663,6 +682,7 @@
       el("statTime").textContent = started && currentQuestion ? `${Math.ceil(timeLeft)}s` : "—";
       const pct = practicePool.length ? ((Math.max(0,currentIndex)) / practicePool.length) * 100 : 0;
       el("progressFill").style.width = `${Math.max(0,Math.min(100,pct))}%`;
+      updatePauseButton();
     }
         function updateTimerUI(){
       if(!started || !currentQuestion){
@@ -672,7 +692,8 @@
         return;
       }
       const pct = timeLimit > 0 ? (timeLeft / timeLimit) * 100 : 0;
-      el("timerText").textContent = `${Math.max(0, Math.ceil(timeLeft))}s / ${timeLimit}s`;
+      const status = timerPaused ? " (Paused)" : "";
+      el("timerText").textContent = `${Math.max(0, Math.ceil(timeLeft))}s / ${timeLimit}s${status}`;
       el("timerFill").style.width = `${Math.max(0, Math.min(100, pct))}%`;
       el("statTime").textContent = `${Math.max(0, Math.ceil(timeLeft))}s`;
     }
@@ -682,17 +703,22 @@
         clearInterval(questionTimerInterval);
         questionTimerInterval = null;
       }
+      timerRunning = false;
     }
 
     function startQuestionTimer(){
       stopQuestionTimer();
       timeLimit = getTimeLimitForCategory(currentQuestion.cat);
       timeLeft = timeLimit;
+      timerPaused = false;
+      questionStartStamp = Date.now();
+      timerRunning = true;
       updateTimerUI();
+      updatePauseButton();
 
-      const startedAt = Date.now();
       questionTimerInterval = setInterval(() => {
-        const elapsed = (Date.now() - startedAt) / 1000;
+        if(timerPaused) return;
+        const elapsed = (Date.now() - questionStartStamp) / 1000;
         timeLeft = Math.max(0, timeLimit - elapsed);
         updateTimerUI();
 
@@ -701,6 +727,40 @@
           handleTimeout();
         }
       }, 100);
+    }
+
+    function pauseTimer(){
+      if(!started || !currentQuestion || answered || timerPaused || !timerRunning) return;
+      timerPaused = true;
+      stopQuestionTimer();
+      updateTimerUI();
+      updatePauseButton();
+    }
+
+    function resumeTimer(){
+      if(!started || !currentQuestion || answered || !timerPaused) return;
+      timerPaused = false;
+      timerRunning = true;
+      questionStartStamp = Date.now() - ((timeLimit - timeLeft) * 1000);
+      questionTimerInterval = setInterval(() => {
+        if(timerPaused) return;
+        const elapsed = (Date.now() - questionStartStamp) / 1000;
+        timeLeft = Math.max(0, timeLimit - elapsed);
+        updateTimerUI();
+
+        if(timeLeft <= 0){
+          stopQuestionTimer();
+          handleTimeout();
+        }
+      }, 100);
+      updateTimerUI();
+      updatePauseButton();
+    }
+
+    function togglePauseTimer(){
+      if(!started || !currentQuestion || answered) return;
+      if(timerPaused) resumeTimer();
+      else pauseTimer();
     }
 
     function renderDisplay(question){
@@ -732,6 +792,7 @@
         autoNextTimer = null;
       }
       stopQuestionTimer();
+      timerPaused = false;
       loadVoices();
       started = true;
       answered = false;
@@ -755,6 +816,7 @@
       }
 
       answered = false;
+      timerPaused = false;
       currentQuestion = practicePool[currentIndex];
       el("questionTag").textContent = `${wave} • ${labelForCat(currentQuestion.cat)}`;
       renderDisplay(currentQuestion);
@@ -817,6 +879,7 @@
         autoNextTimer = null;
       }
       stopQuestionTimer();
+      timerPaused = false;
 
       const correct = currentQuestion.answer;
       const buttons = $all(".answer");
@@ -855,6 +918,7 @@
       renderSessionReport();
       el("statScore").textContent = score;
       el("progressFill").style.width = `${((currentIndex + 1) / practicePool.length) * 100}%`;
+      updatePauseButton();
 
       autoNextTimer = setTimeout(()=>{
         currentIndex++;
@@ -865,6 +929,7 @@
     function handleTimeout(){
       if(answered || !currentQuestion) return;
       answered = true;
+      timerPaused = false;
 
       const buttons = $all(".answer");
       buttons.forEach(b=>b.disabled=true);
@@ -892,6 +957,7 @@
 
       renderSessionReport();
       updateStats();
+      updatePauseButton();
 
       autoNextTimer = setTimeout(()=>{
         currentIndex++;
@@ -906,6 +972,7 @@
         autoNextTimer = null;
       }
       stopQuestionTimer();
+      timerPaused = false;
       clearReadingHighlights();
       started = false;
       answered = false;
@@ -934,6 +1001,7 @@
         autoNextTimer = null;
       }
       stopQuestionTimer();
+      timerPaused = false;
       el("questionTag").textContent = wave + " • Session";
       el("displayBox").textContent = "🎉";
       el("promptText").textContent = `Practice finished. Score: ${score} / ${practicePool.length}`;
@@ -995,6 +1063,7 @@
 
     el("startBtn").onclick = ()=>startPractice();
     el("repeatBtn").onclick = ()=>readCurrentQuestionEn();
+    el("pauseBtn").onclick = ()=>togglePauseTimer();
     el("restartBtn").onclick = ()=>restartPractice();
 
     el("speakPromptEnBtn").onclick = ()=> {
