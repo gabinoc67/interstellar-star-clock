@@ -129,8 +129,39 @@
     font-size:14px;
     color:var(--soft);
   }
+  .typingHint{
+    margin-top:10px;
+    padding:12px 14px;
+    border:1px solid var(--line);
+    border-radius:14px;
+    background:#fffaf0;
+    color:#92400e;
+    font-size:14px;
+    line-height:1.5;
+  }
+  .nextCharBox{
+    margin-top:10px;
+    padding:12px 14px;
+    border:1px solid var(--line);
+    border-radius:14px;
+    background:#f0f9ff;
+    color:#0f172a;
+    font-size:15px;
+    line-height:1.5;
+    font-weight:700;
+  }
+  .disclaimer{
+    max-width:1200px;
+    margin:12px auto 16px auto;
+    padding:14px 16px;
+    background:#1f2937;
+    border:1px solid #334155;
+    border-radius:16px;
+    color:#e5e7eb;
+    font-size:14px;
+    line-height:1.6;
+  }
 
-  /* Print area */
   .printSheet{
     display:none;
   }
@@ -173,8 +204,6 @@
       padding-bottom:12px;
       border-bottom:2px solid #ddd;
     }
-
-    /* Dotted tracing style */
     .traceText{
       font-size:34px;
       line-height:1.9;
@@ -184,10 +213,15 @@
       font-weight:700;
       white-space:pre-wrap;
     }
-
     .nameLine{
       margin-top:24px;
       font-size:18px;
+    }
+    .disclaimer{
+      display:none;
+    }
+    .typingHint, .nextCharBox{
+      display:none;
     }
   }
 </style>
@@ -196,6 +230,10 @@
 <div class="wrap">
   <h1 class="title">PreK + Kinder Story Typing and Tracing Practice</h1>
   <p class="sub">A simple story generator with read-aloud, typing practice, local-only voice recording, and printable tracing pages.</p>
+
+  <p class="disclaimer">
+    <strong>Disclaimer:</strong> This software is a demo practice program created with the support of AI, ChatGPT, calculations, equations, and algorithms for the purpose of helping students practice testing skills. It is not a real test, not an official assessment, and not the original testing program, and the code used in this program is not the same as the original test. Although this program is designed to support yearly learning objectives aligned to TEKS-style goals, it is for practice only, may contain mistakes, and all questions and answers should always be reviewed carefully by an adult or teacher. This software is not to be used to pressure, stress, or punish any student, and it is recommended for short sessions of no more than 10 exercises per category, with only 1 category per day before restarting again later for additional practice. Results from this program will not count against any student’s grade, record, placement, or official performance. The school, district, teachers, and staff are not liable for any errors, misunderstandings, technical issues, or outcomes related to the use of this software. For any questions, software issues, or program concerns, please contact me by email.
+  </p>
 
   <div class="toolbar">
     <label for="levelSelect" style="display:flex;align-items:center;gap:8px;font-weight:700;">
@@ -235,23 +273,34 @@
 
     <section class="card">
       <h2>Typing Panel</h2>
-      <textarea id="typingBox" placeholder="Type the story here..."></textarea>
+      <textarea id="typingBox" placeholder="Type the story here..." autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false"></textarea>
+
+      <div class="nextCharBox" id="nextCharBox">
+        Next character: —
+      </div>
+
+      <div class="typingHint" id="typingHint">
+        Type exactly what you see in the story. The student must match every letter, space, and period correctly before moving on.
+      </div>
+
       <div class="row">
         <button id="checkBtn">Check Typing</button>
       </div>
+
       <div class="score" id="scoreBox">
         Accuracy: —<br>
         Letters typed: 0<br>
-        Words typed: 0
+        Words typed: 0<br>
+        Progress: 0 / 0
       </div>
+
       <div class="small" style="margin-top:10px;">
-        Tip: read the story aloud, then type what you hear.
+        Tip: type the story exactly the same as the Story Panel.
       </div>
     </section>
   </div>
 </div>
 
-<!-- Print Sheet -->
 <div class="printSheet" id="printSheet">
   <div class="traceTitle">Story Tracing Practice</div>
   <div class="traceInfo" id="printInfo">Level: PreK</div>
@@ -274,6 +323,8 @@
   const storyMeta = document.getElementById('storyMeta');
   const typingBox = document.getElementById('typingBox');
   const scoreBox = document.getElementById('scoreBox');
+  const typingHint = document.getElementById('typingHint');
+  const nextCharBox = document.getElementById('nextCharBox');
 
   const startRecBtn = document.getElementById('startRecBtn');
   const stopRecBtn = document.getElementById('stopRecBtn');
@@ -289,6 +340,7 @@
   let mediaRecorder = null;
   let audioChunks = [];
   let audioURL = "";
+  let lastGoodValue = "";
 
   const banks = {
     prek: {
@@ -334,8 +386,27 @@
           `${n} felt happy and waved at the ${animal}.`
         ];
 
-    // shuffle sentence order a bit but keep 3 sentences
     return starters.sort(() => Math.random() - 0.5).join(" ");
+  }
+
+  function visibleChar(ch){
+    if(ch === " ") return "[space]";
+    if(ch === ".") return "[period]";
+    return ch;
+  }
+    function updateNextChar(){
+    if(!currentStory){
+      nextCharBox.textContent = "Next character: —";
+      return;
+    }
+
+    if(typingBox.value.length >= currentStory.length){
+      nextCharBox.textContent = "Next character: Story complete";
+      return;
+    }
+
+    const nextChar = currentStory.charAt(typingBox.value.length);
+    nextCharBox.textContent = "Next character: " + visibleChar(nextChar);
   }
 
   function makeNewStory(){
@@ -344,7 +415,10 @@
     storyBox.textContent = currentStory;
     storyMeta.textContent = "Level: " + (level === "prek" ? "PreK" : "Kinder");
     typingBox.value = "";
+    lastGoodValue = "";
+    typingHint.textContent = "Type exactly what you see in the story. The student must match every letter, space, and period correctly before moving on.";
     updateScore();
+    updateNextChar();
   }
 
   function speakStory(){
@@ -367,34 +441,68 @@
     }
   }
 
-  function normalizeText(s){
-    return s
-      .toLowerCase()
-      .replace(/[^\w\s']/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-
   function updateScore(){
     const typed = typingBox.value;
-    const storyNorm = normalizeText(currentStory);
-    const typedNorm = normalizeText(typed);
+    const totalChars = currentStory.length || 1;
+    let exactMatches = 0;
 
-    const storyChars = storyNorm.length || 1;
-    let matches = 0;
-    for(let i = 0; i < Math.min(storyNorm.length, typedNorm.length); i++){
-      if(storyNorm[i] === typedNorm[i]) matches++;
+    for(let i = 0; i < typed.length; i++){
+      if(typed[i] === currentStory[i]){
+        exactMatches++;
+      } else {
+        break;
+      }
     }
 
-    const accuracy = currentStory ? Math.round((matches / storyChars) * 100) : 0;
+    const accuracy = currentStory ? Math.round((exactMatches / totalChars) * 100) : 0;
     const lettersTyped = typed.replace(/\s/g, "").length;
     const wordsTyped = typed.trim() ? typed.trim().split(/\s+/).length : 0;
 
     scoreBox.innerHTML = `
       Accuracy: ${currentStory ? accuracy + "%" : "—"}<br>
       Letters typed: ${lettersTyped}<br>
-      Words typed: ${wordsTyped}
+      Words typed: ${wordsTyped}<br>
+      Progress: ${typed.length} / ${currentStory.length}
     `;
+  }
+
+  function enforceExactTyping(){
+    if(!currentStory){
+      typingBox.value = "";
+      lastGoodValue = "";
+      updateScore();
+      updateNextChar();
+      return;
+    }
+
+    let typed = typingBox.value;
+    let corrected = "";
+
+    for(let i = 0; i < typed.length; i++){
+      if(typed[i] === currentStory[i]){
+        corrected += typed[i];
+      } else {
+        break;
+      }
+    }
+
+    if(typed !== corrected){
+      typingBox.value = corrected;
+      lastGoodValue = corrected;
+      const expected = currentStory.charAt(corrected.length);
+      typingHint.textContent = "Stop and fix it. Next correct character is " + visibleChar(expected) + ".";
+    } else {
+      lastGoodValue = corrected;
+      if(corrected.length === currentStory.length){
+        typingHint.textContent = "Excellent. You typed the whole story exactly right.";
+      } else {
+        const expected = currentStory.charAt(corrected.length);
+        typingHint.textContent = "Good job. Keep going. Next correct character is " + visibleChar(expected) + ".";
+      }
+    }
+
+    updateScore();
+    updateNextChar();
   }
 
   async function startRecording(){
@@ -454,12 +562,28 @@
   newStoryBtn.addEventListener("click", makeNewStory);
   readStoryBtn.addEventListener("click", speakStory);
   stopReadingBtn.addEventListener("click", stopSpeaking);
+
   clearTypingBtn.addEventListener("click", () => {
     typingBox.value = "";
+    lastGoodValue = "";
+    typingHint.textContent = "Type exactly what you see in the story. The student must match every letter, space, and period correctly before moving on.";
     updateScore();
+    updateNextChar();
+    typingBox.focus();
   });
+
   checkBtn.addEventListener("click", updateScore);
-  typingBox.addEventListener("input", updateScore);
+
+  typingBox.addEventListener("input", enforceExactTyping);
+
+  typingBox.addEventListener("paste", function(e){
+    e.preventDefault();
+    typingHint.textContent = "Paste is turned off for this activity. Please type the story by hand.";
+  });
+
+  typingBox.addEventListener("drop", function(e){
+    e.preventDefault();
+  });
 
   startRecBtn.addEventListener("click", startRecording);
   stopRecBtn.addEventListener("click", stopRecording);
