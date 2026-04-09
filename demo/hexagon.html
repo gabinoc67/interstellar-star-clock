@@ -1,3 +1,4 @@
+<!-- PART 1 OF 2 -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -99,7 +100,7 @@
         Constraint View (limits collide)
       </label>
 
-      <button id="stressBtn" title="For demonstration only: adds an artificial oscillation so you can see propagation more clearly.">Demo Oscillation</button>
+      <button id="stressBtn" title="Turns on a real sinusoidal source drive in the reduced field model.">Demo Oscillation</button>
     </div>
 
     <label>Polygon sides N (6=hexagon, 7=heptagon, …): <span id="nVal"></span></label>
@@ -126,15 +127,15 @@
     <label style="margin-top:12px;">CST-Inspired Phase Control (φₛₜ): <span class="bigNum" id="phiBig">0.00</span></label>
     <input id="phi" type="range" min="0" max="1" step="0.01" value="0.00" />
     <div class="small" id="phiHint" style="margin-top:6px;">
-      φₛₜ is a simulation control parameter used to change damping and stability behavior in this model. It is not atomic time,
-      not live browser time, and not a measured CST phase from real instruments.
+      φₛₜ now uses live browser UTC time as its base phase. The slider acts as a phase offset for the reduced field model.
+      It is still not a laboratory atomic-clock feed.
     </div>
 
     <div class="warn small" style="margin-top:10px;">
-      <b>Important:</b> This is a <b>systems/constraint demonstrator</b>, not a numerical solver for Maxwell, Einstein, quantum,
-      or real CST field equations. The six pillar stress values are heuristic simulation outputs derived from internal model sliders
-      such as overflow, coarseness, regulation pressure, damping, and optional demo oscillation. They are not experimentally validated
-      physical measurements.
+      <b>Important:</b> This version upgrades the internals from pure slider heuristics to a <b>reduced physics demonstrator</b>:
+      a 2D TMz Maxwell-style update, a Poisson curvature solve, and a Schrödinger-style wave update.
+      It is still not a full 3+1D validated solver for real Maxwell, Einstein, quantum, or CST field equations,
+      but the six pillar values now come from evolving fields rather than only hand-built slider relationships.
     </div>
 
     <h3>Step log</h3>
@@ -198,6 +199,18 @@
     ctx.stroke();
   }
 
+  function pointInPolygon(x, y, pts){
+    let inside = false;
+    for(let i=0, j=pts.length-1; i<pts.length; j=i++){
+      const xi = pts[i][0], yi = pts[i][1];
+      const xj = pts[j][0], yj = pts[j][1];
+      const intersect = ((yi > y) !== (yj > y)) &&
+        (x < (xj - xi) * (y - yi) / ((yj - yi) || 1e-9) + xi);
+      if(intersect) inside = !inside;
+    }
+    return inside;
+  }
+
   function updateKUI(regulated){
     const k = parseFloat(kEl.value);
     kBig.textContent = k.toFixed(2);
@@ -244,16 +257,158 @@
   }
 
   const pillars = [
-    { key:"Maxwell",     label:"Maxwell\n(reference)",          short:"M" },
-    { key:"Einstein",    label:"Einstein\n(reference)",         short:"E" },
-    { key:"Shannon",     label:"Shannon\n(reference)",          short:"S" },
-    { key:"vonNeumann",  label:"von Neumann\n(reference)",      short:"V" },
-    { key:"Turing",      label:"Turing\n(reference)",           short:"T" },
-    { key:"Feynman",     label:"Feynman\n(reference)",          short:"F" },
+    { key:"Maxwell",     label:"Maxwell\n(field energy)",      short:"M" },
+    { key:"Einstein",    label:"Einstein\n(curvature)",        short:"E" },
+    { key:"Shannon",     label:"Shannon\n(entropy)",           short:"S" },
+    { key:"vonNeumann",  label:"von Neumann\n(state entropy)", short:"V" },
+    { key:"Turing",      label:"Turing\n(state change)",       short:"T" },
+    { key:"Feynman",     label:"Feynman\n(phase coherence)",   short:"F" },
   ];
 
-  let stressInject = false;
-  let t0 = performance.now();
+  let driveOn = false;
+  let lastTime = performance.now();
+  let simTime = 0;
+  let dirtyMasks = true;
+
+  const sim = {
+    nx: 96,
+    ny: 64,
+    hx: 1,
+    hy: 1,
+    Ez: null,
+    Hx: null,
+    Hy: null,
+    Ez2: null,
+    psiR: null,
+    psiI: null,
+    psiR2: null,
+    psiI2: null,
+    rho: null,
+    phiG: null,
+    phiTmp: null,
+    maskPoly: null,
+    maskCircle: null,
+    sigma: null,
+    prevEnergy: null,
+    diagnostics: {
+      Maxwell:0, Einstein:0, Shannon:0, vonNeumann:0, Turing:0, Feynman:0,
+      emEnergy:0, qNorm:0, gravResidual:0, entropy:0, vnEntropy:0, phaseCoherence:0,
+      match:0, overflow:0, phiLive:0
+    }
+  };
+
+  if(!CanvasRenderingContext2D.prototype.roundRect){
+    CanvasRenderingContext2D.prototype.roundRect = function(x,y,w,h,r){
+      r = Math.min(r, w/2, h/2);
+      this.beginPath();
+      this.moveTo(x+r,y);
+      this.arcTo(x+w,y,x+w,y+h,r);
+      this.arcTo(x+w,y+h,x,y+h,r);
+      this.arcTo(x,y+h,x,y,r);
+      this.arcTo(x,y,x+w,y,r);
+      this.closePath();
+      return this;
+    };
+  }
+
+  function alloc(){
+    const N = sim.nx * sim.ny;
+    sim.Ez = new Float32Array(N);
+    sim.Hx = new Float32Array(N);
+    sim.Hy = new Float32Array(N);
+    sim.Ez2 = new Float32Array(N);
+    sim.psiR = new Float32Array(N);
+    sim.psiI = new Float32Array(N);
+    sim.psiR2 = new Float32Array(N);
+    sim.psiI2 = new Float32Array(N);
+    sim.rho = new Float32Array(N);
+    sim.phiG = new Float32Array(N);
+    sim.phiTmp = new Float32Array(N);
+    sim.maskPoly = new Uint8Array(N);
+    sim.maskCircle = new Uint8Array(N);
+    sim.sigma = new Float32Array(N);
+    sim.prevEnergy = new Float32Array(N);
+    resetFields();
+    dirtyMasks = true;
+  }
+
+  function resetFields(){
+    const N = sim.nx * sim.ny;
+    sim.Ez.fill(0); sim.Hx.fill(0); sim.Hy.fill(0);
+    sim.phiG.fill(0); sim.rho.fill(0);
+    sim.prevEnergy.fill(0);
+
+    const cx = sim.nx * 0.5;
+    const cy = sim.ny * 0.5;
+    for(let j=0;j<sim.ny;j++){
+      for(let i=0;i<sim.nx;i++){
+        const id = j*sim.nx+i;
+        const dx = i-cx, dy = j-cy;
+        const g = Math.exp(-(dx*dx+dy*dy)/(2*70));
+        sim.psiR[id] = g;
+        sim.psiI[id] = 0;
+      }
+    }
+    normalizePsi();
+  }
+
+  function normalizePsi(){
+    let sum = 0;
+    for(let i=0;i<sim.psiR.length;i++){
+      sum += sim.psiR[i]*sim.psiR[i] + sim.psiI[i]*sim.psiI[i];
+    }
+    const inv = 1/Math.sqrt(sum || 1);
+    for(let i=0;i<sim.psiR.length;i++){
+      sim.psiR[i] *= inv;
+      sim.psiI[i] *= inv;
+    }
+  }
+
+  function livePhi(){
+    const offset = parseFloat(phiEl.value) || 0;
+    const day = 86400000;
+    const base = (Date.now() % day) / day;
+    return (base + offset) % 1;
+  }
+
+  function rebuildMasks(){
+    dirtyMasks = false;
+
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    const cx = w/2;
+    const cy = h/2;
+
+    const Nside = parseInt(NEl.value,10);
+    const a = +aEl.value;
+    const R = +REl.value;
+    const k = parseFloat(kEl.value);
+    const rr = regulatedRadius(a, R, k);
+    const pts = polygonVertices(cx, cy, rr.rad, Nside);
+
+    for(let j=0;j<sim.ny;j++){
+      for(let i=0;i<sim.nx;i++){
+        const id = j*sim.nx + i;
+        const x = (i + 0.5) / sim.nx * w;
+        const y = (j + 0.5) / sim.ny * h;
+        const dx = x - cx, dy = y - cy;
+        const inCircle = (dx*dx + dy*dy) <= R*R;
+        const inPoly = pointInPolygon(x, y, pts);
+
+        sim.maskCircle[id] = inCircle ? 1 : 0;
+        sim.maskPoly[id] = inPoly ? 1 : 0;
+
+        let sig = 0.0025;
+        if(!inCircle) sig = 0.14;
+        else if(!inPoly) sig = 0.045;
+
+        const r = Math.sqrt(dx*dx + dy*dy);
+        const edgeBand = clamp((r - (R - 40)) / 40, 0, 1);
+        sig += 0.05 * edgeBand * edgeBand;
+        sim.sigma[id] = sig;
+      }
+    }
+  }
 
   function stressColor(s){
     if(s < 0.50){
@@ -277,53 +432,7 @@
     return "LIMIT HIT";
   }
 
-  function computeStresses({N,a,R,k,phi,regulated}){
-    const match = circleMatchPercent(N)/100;
-    const coarseness = clamp(1 - match, 0, 1);
-    const overflow = clamp((a - R)/Math.max(1,R), 0, 1);
-    const kPressure = clamp(Math.abs(k - 1.0)/1.5, 0, 1);
-    const clampActive = regulated ? 1 : 0;
-
-    const deco = (1 - phi);
-    const damp = lerp(1.0, 0.55, phi);
-
-    let inj = 0;
-    if(stressInject){
-      const tt = (performance.now() - t0) / 1000;
-      inj = 0.5 + 0.5*Math.sin(tt*2.3);
-    }
-
-    const base = {
-      Maxwell:    0.15 + 0.55*overflow + 0.25*coarseness + 0.10*inj,
-      Einstein:   0.18 + 0.60*overflow + 0.30*deco      + 0.06*clampActive + 0.08*inj,
-      Shannon:    0.14 + 0.50*coarseness + 0.40*deco    + 0.08*overflow + 0.06*inj,
-      vonNeumann: 0.16 + 0.55*kPressure + 0.20*deco     + 0.08*clampActive + 0.07*inj,
-      Turing:     0.16 + 0.45*kPressure + 0.35*coarseness + 0.10*inj,
-      Feynman:    0.18 + 0.45*coarseness + 0.55*deco    + 0.08*overflow + 0.10*inj,
-    };
-
-    const keys = ["Maxwell","Einstein","Feynman","Turing","vonNeumann","Shannon"];
-    const s0 = keys.map(k => base[k]);
-
-    const steps = 2;
-    const c = lerp(0.22, 0.12, phi);
-    let s = s0.slice();
-    for(let it=0; it<steps; it++){
-      const next = s.slice();
-      for(let i=0;i<keys.length;i++){
-        const left = s[(i-1+keys.length)%keys.length];
-        const right = s[(i+1)%keys.length];
-        const coupled = (s[i] + c*(left + right)) / (1 + 2*c);
-        next[i] = clamp(coupled * damp, 0, 1);
-      }
-      s = next;
-    }
-
-    const out = {};
-    for(let i=0;i<keys.length;i++) out[keys[i]] = s[i];
-    return { out, coarseness, overflow, kPressure, deco, match };
-  }
-    function drawConstraintOverlay(cx, cy, R, rr, stressPack){
+  function drawConstraintOverlay(cx, cy, R, rr, diag){
     const rad = Math.min(rr.rad, R*0.78);
     const pts = polygonVertices(cx, cy, rad, 6);
 
@@ -342,7 +451,7 @@
 
     for(let i=0;i<6;i++){
       const key = order[i];
-      const s = stressPack.out[key];
+      const s = diag[key];
       const [x,y] = pts[i];
 
       const col = stressColor(s);
@@ -379,8 +488,8 @@
 
       const bx = x + 20;
       const by = y - 10;
-      const w = 130;
-      const h = 44;
+      const w = 142;
+      const h = 58;
 
       ctx.fillStyle = "rgba(12,19,29,0.80)";
       ctx.strokeStyle = "rgba(45,71,100,0.60)";
@@ -407,51 +516,321 @@
     ctx.fillText("Constraint View: green=OK, yellow=near limit, red=limit hit", 14, canvas.clientHeight - 18);
   }
 
-  if(!CanvasRenderingContext2D.prototype.roundRect){
-    CanvasRenderingContext2D.prototype.roundRect = function(x,y,w,h,r){
-      r = Math.min(r, w/2, h/2);
-      this.beginPath();
-      this.moveTo(x+r,y);
-      this.arcTo(x+w,y,x+w,y+h,r);
-      this.arcTo(x+w,y+h,x,y+h,r);
-      this.arcTo(x,y+h,x,y,r);
-      this.arcTo(x,y,x+w,y,r);
-      this.closePath();
-      return this;
-    };
-  }
-
   function resize(){
-    const dpr=Math.max(1, window.devicePixelRatio || 1);
-    canvas.width=Math.floor(canvas.clientWidth*dpr);
-    canvas.height=Math.floor(canvas.clientHeight*dpr);
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    canvas.width = Math.floor(canvas.clientWidth*dpr);
+    canvas.height = Math.floor(canvas.clientHeight*dpr);
     ctx.setTransform(dpr,0,0,dpr,0,0);
+    dirtyMasks = true;
     draw();
   }
   window.addEventListener("resize", resize);
+
+  function idx(i,j){ return j*sim.nx+i; }
+
+  function stepMaxwell(dt, phiLive){
+    const nx = sim.nx, ny = sim.ny;
+    const ce = 0.44;
+    const ch = 0.44;
+    const srcI = (nx/2)|0;
+    const srcJ = (ny/2)|0;
+    const srcId = idx(srcI, srcJ);
+
+    for(let j=0;j<ny-1;j++){
+      for(let i=0;i<nx;i++){
+        const id = idx(i,j);
+        const idU = idx(i,j+1);
+        sim.Hx[id] -= ch * (sim.Ez[idU] - sim.Ez[id]);
+      }
+    }
+
+    for(let j=0;j<ny;j++){
+      for(let i=0;i<nx-1;i++){
+        const id = idx(i,j);
+        const idR = idx(i+1,j);
+        sim.Hy[id] += ch * (sim.Ez[idR] - sim.Ez[id]);
+      }
+    }
+
+    for(let j=1;j<ny-1;j++){
+      for(let i=1;i<nx-1;i++){
+        const id = idx(i,j);
+        const curl = (sim.Hy[id] - sim.Hy[idx(i-1,j)]) - (sim.Hx[id] - sim.Hx[idx(i,j-1)]);
+        const damp = 1 - sim.sigma[id];
+        sim.Ez2[id] = damp * sim.Ez[id] + ce * curl;
+      }
+    }
+
+    if(driveOn){
+      const freq = 2 + 8*phiLive;
+      sim.Ez2[srcId] += 0.9 * Math.sin(2*Math.PI*freq*simTime);
+    }
+
+    for(let i=0;i<nx;i++){
+      sim.Ez2[idx(i,0)] *= 0.92;
+      sim.Ez2[idx(i,ny-1)] *= 0.92;
+    }
+    for(let j=0;j<ny;j++){
+      sim.Ez2[idx(0,j)] *= 0.92;
+      sim.Ez2[idx(nx-1,j)] *= 0.92;
+    }
+
+    const tmp = sim.Ez;
+    sim.Ez = sim.Ez2;
+    sim.Ez2 = tmp;
+  }
+
+  function buildDensity(){
+    const nx = sim.nx, ny = sim.ny;
+    let maxRho = 1e-9;
+    for(let j=0;j<ny;j++){
+      for(let i=0;i<nx;i++){
+        const id = idx(i,j);
+        const ex = sim.Ez[id];
+        const hx = sim.Hx[id];
+        const hy = sim.Hy[id];
+        const p = sim.psiR[id]*sim.psiR[id] + sim.psiI[id]*sim.psiI[id];
+        const em = 0.5*(ex*ex + hx*hx + hy*hy);
+        const r = sim.maskCircle[id] ? (0.65*em + 0.35*p) : 0;
+        sim.rho[id] = r;
+        if(r > maxRho) maxRho = r;
+      }
+    }
+    const inv = 1 / maxRho;
+    for(let i=0;i<sim.rho.length;i++) sim.rho[i] *= inv;
+  }
+  <!-- PART 2 OF 2 -->
+      function solveGravity(){
+    const nx = sim.nx, ny = sim.ny;
+    for(let it=0; it<8; it++){
+      for(let j=1;j<ny-1;j++){
+        for(let i=1;i<nx-1;i++){
+          const id = idx(i,j);
+          if(!sim.maskCircle[id]){ sim.phiTmp[id] = 0; continue; }
+          const sumN = sim.phiG[idx(i+1,j)] + sim.phiG[idx(i-1,j)] + sim.phiG[idx(i,j+1)] + sim.phiG[idx(i,j-1)];
+          sim.phiTmp[id] = 0.25 * (sumN - 0.32 * sim.rho[id]);
+        }
+      }
+      const swap = sim.phiG;
+      sim.phiG = sim.phiTmp;
+      sim.phiTmp = swap;
+    }
+  }
+
+  function stepQuantum(phiLive){
+    const nx = sim.nx, ny = sim.ny;
+    const dtq = 0.055;
+    let maxAbsPhi = 1e-9;
+    for(let i=0;i<sim.phiG.length;i++) maxAbsPhi = Math.max(maxAbsPhi, Math.abs(sim.phiG[i]));
+
+    const phaseBias = 0.25 * Math.sin(2*Math.PI*phiLive);
+
+    for(let j=1;j<ny-1;j++){
+      for(let i=1;i<nx-1;i++){
+        const id = idx(i,j);
+        if(!sim.maskCircle[id]){
+          sim.psiR2[id] = 0;
+          sim.psiI2[id] = 0;
+          continue;
+        }
+
+        const lapR =
+          sim.psiR[idx(i+1,j)] + sim.psiR[idx(i-1,j)] +
+          sim.psiR[idx(i,j+1)] + sim.psiR[idx(i,j-1)] -
+          4 * sim.psiR[id];
+
+        const lapI =
+          sim.psiI[idx(i+1,j)] + sim.psiI[idx(i-1,j)] +
+          sim.psiI[idx(i,j+1)] + sim.psiI[idx(i,j-1)] -
+          4 * sim.psiI[id];
+
+        const V = (-sim.phiG[id] / maxAbsPhi) + phaseBias;
+        const damp = 1 - 0.5*sim.sigma[id];
+
+        sim.psiR2[id] = damp * (sim.psiR[id] + dtq * (-0.5*lapI + V*sim.psiI[id]));
+        sim.psiI2[id] = damp * (sim.psiI[id] + dtq * ( 0.5*lapR - V*sim.psiR[id]));
+      }
+    }
+
+    for(let i=0;i<sim.psiR.length;i++){
+      sim.psiR[i] = sim.psiR2[i];
+      sim.psiI[i] = sim.psiI2[i];
+    }
+    normalizePsi();
+  }
+
+  function computeDiagnostics(){
+    const nx = sim.nx, ny = sim.ny;
+    let totalEM = 0, boundaryEM = 0;
+    let qNorm = 0;
+    let gravResidual = 0, gravCount = 0;
+    let entropy = 0, active = 0;
+    let novelty = 0, totalRho = 0;
+    let phaseVecR = 0, phaseVecI = 0, probSum = 0;
+    let pL = 0, pR = 0, cRe = 0, cIm = 0;
+
+    const phiLive = livePhi();
+
+    for(let j=1;j<ny-1;j++){
+      for(let i=1;i<nx-1;i++){
+        const id = idx(i,j);
+        if(!sim.maskCircle[id]) continue;
+
+        const ex = sim.Ez[id];
+        const hx = sim.Hx[id];
+        const hy = sim.Hy[id];
+        const em = 0.5*(ex*ex + hx*hx + hy*hy);
+        totalEM += em;
+
+        const p = sim.psiR[id]*sim.psiR[id] + sim.psiI[id]*sim.psiI[id];
+        qNorm += p;
+
+        const lapPhi =
+          sim.phiG[idx(i+1,j)] + sim.phiG[idx(i-1,j)] +
+          sim.phiG[idx(i,j+1)] + sim.phiG[idx(i,j-1)] -
+          4*sim.phiG[id];
+        gravResidual += Math.abs(lapPhi + 0.32*sim.rho[id]);
+        gravCount++;
+
+        const r = sim.rho[id];
+        totalRho += r;
+        if(r > 1e-9){
+          active++;
+          entropy -= r * Math.log(r);
+        }
+
+        novelty += Math.abs(r - sim.prevEnergy[id]);
+        sim.prevEnergy[id] = r;
+
+        const phase = Math.atan2(sim.psiI[id], sim.psiR[id]);
+        phaseVecR += p * Math.cos(phase);
+        phaseVecI += p * Math.sin(phase);
+        probSum += p;
+
+        if(i < nx/2) pL += p; else pR += p;
+
+        const mirrorId = idx(nx-1-i, j);
+        cRe += sim.psiR[id]*sim.psiR[mirrorId] + sim.psiI[id]*sim.psiI[mirrorId];
+        cIm += sim.psiI[id]*sim.psiR[mirrorId] - sim.psiR[id]*sim.psiI[mirrorId];
+
+        const edgeBand = sim.sigma[id] > 0.035 ? 1 : 0;
+        if(edgeBand) boundaryEM += em;
+      }
+    }
+
+    let Hnorm = 0;
+    if(totalRho > 0 && active > 1){
+      Hnorm = clamp(entropy / Math.log(active), 0, 1);
+    }
+
+    const coh = probSum > 0 ? Math.hypot(phaseVecR, phaseVecI) / probSum : 0;
+    const phaseDecoherence = 1 - coh;
+
+    const off = Math.hypot(cRe, cIm);
+    const tr = pL + pR || 1;
+    const a = pL / tr;
+    const d = pR / tr;
+    const b = off / tr;
+    const disc = Math.max(0, (a-d)*(a-d) + 4*b*b);
+    const l1 = clamp(0.5*(1 + Math.sqrt(disc)), 1e-9, 1-1e-9);
+    const l2 = clamp(1-l1, 1e-9, 1-1e-9);
+    const SvN = -(l1*Math.log(l1) + l2*Math.log(l2)) / Math.log(2);
+
+    const noveltyNorm = clamp(novelty / (totalRho + 1e-9), 0, 1);
+    const gravNorm = clamp(gravResidual / (gravCount*0.06 + 1e-9), 0, 1);
+    const boundaryNorm = clamp(boundaryEM / (totalEM + 1e-9), 0, 1);
+    const emNorm = clamp(totalEM / 120, 0, 1);
+
+    sim.diagnostics = {
+      Maxwell: clamp(0.55*boundaryNorm + 0.45*emNorm, 0, 1),
+      Einstein: gravNorm,
+      Shannon: Hnorm,
+      vonNeumann: clamp(SvN, 0, 1),
+      Turing: noveltyNorm,
+      Feynman: clamp(phaseDecoherence, 0, 1),
+
+      emEnergy: totalEM,
+      qNorm,
+      gravResidual: gravNorm,
+      entropy: Hnorm,
+      vnEntropy: SvN,
+      phaseCoherence: coh,
+      match: circleMatchPercent(parseInt(NEl.value,10))/100,
+      overflow: clamp((+aEl.value - +REl.value)/Math.max(1,+REl.value), 0, 1),
+      phiLive
+    };
+  }
+
+  function advancePhysics(frameDt){
+    if(dirtyMasks) rebuildMasks();
+
+    const phiLive = livePhi();
+    const dt = clamp(frameDt, 0.001, 0.03);
+    const steps = Math.max(1, Math.min(4, Math.round(dt / 0.008)));
+
+    for(let s=0;s<steps;s++){
+      simTime += dt / steps;
+      stepMaxwell(dt / steps, phiLive);
+      buildDensity();
+      solveGravity();
+      stepQuantum(phiLive);
+    }
+
+    computeDiagnostics();
+  }
+
+  function drawFieldBackdrop(cx, cy, R){
+    const nx = sim.nx, ny = sim.ny;
+    const cellW = canvas.clientWidth / nx;
+    const cellH = canvas.clientHeight / ny;
+
+    for(let j=0;j<ny;j++){
+      for(let i=0;i<nx;i++){
+        const id = idx(i,j);
+        if(!sim.maskCircle[id]) continue;
+        const r = sim.rho[id];
+        if(r < 0.03) continue;
+
+        const alpha = clamp(r * 0.28, 0, 0.26);
+        const hue = 210 - Math.round(110*r);
+        ctx.fillStyle = `hsla(${hue}, 70%, 55%, ${alpha})`;
+        ctx.fillRect(i*cellW, j*cellH, cellW+0.5, cellH+0.5);
+      }
+    }
+
+    ctx.save();
+    ctx.globalAlpha = 0.12;
+    ctx.strokeStyle = "#8aa7c8";
+    ctx.lineWidth = 1.2;
+    for(let q=1;q<=4;q++){
+      ctx.beginPath();
+      ctx.arc(cx, cy, R*q/4, 0, Math.PI*2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
 
   function draw(){
     const N = parseInt(NEl.value,10);
     const a = +aEl.value;
     const R = +REl.value;
     const k = parseFloat(kEl.value);
-    const phi = parseFloat(phiEl.value);
+    const phiLive = livePhi();
 
     nVal.textContent = N;
     aVal.textContent = a;
     RVal.textContent = R;
+    phiBig.textContent = phiLive.toFixed(4);
 
-    phiBig.textContent = phi.toFixed(2);
-
-    if(phi < 0.20){
-      phiHint.textContent = "φₛₜ is a simulation control value at a low setting: stress propagates more strongly through the model.";
-    } else if(phi < 0.60){
-      phiHint.textContent = "φₛₜ is a simulation control value at a moderate setting: the model applies partial damping and moderate stabilization.";
+    if(phiLive < 0.20){
+      phiHint.textContent = "φₛₜ is now driven by live browser UTC time, with the slider acting as a phase offset. Current phase is in the lower band.";
+    } else if(phiLive < 0.60){
+      phiHint.textContent = "φₛₜ is now driven by live browser UTC time, with the slider acting as a phase offset. Current phase is in the middle band.";
     } else {
-      phiHint.textContent = "φₛₜ is a simulation control value at a high setting: the model applies stronger damping and fewer pillars tend to hit red zones.";
+      phiHint.textContent = "φₛₜ is now driven by live browser UTC time, with the slider acting as a phase offset. Current phase is in the upper band.";
     }
 
-    const w=canvas.clientWidth, h=canvas.clientHeight;
+    const w = canvas.clientWidth, h = canvas.clientHeight;
     ctx.clearRect(0,0,w,h);
 
     ctx.globalAlpha = 0.30;
@@ -463,10 +842,11 @@
     ctx.stroke();
     ctx.globalAlpha = 1;
 
-    const cx=w/2, cy=h/2;
+    const cx = w/2, cy = h/2;
+    drawFieldBackdrop(cx, cy, R);
 
-    ctx.strokeStyle="#3a5678";
-    ctx.lineWidth=2;
+    ctx.strokeStyle = "#3a5678";
+    ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(cx,cy,R,0,Math.PI*2);
     ctx.stroke();
@@ -478,7 +858,9 @@
     updatePills(rr.regulated, N, matchPct);
 
     const pts = polygonVertices(cx, cy, rr.rad, N);
-    ctx.fillStyle = rr.regulated ? "#0f2236" : "#0d1a2a";
+    const emTint = clamp(sim.diagnostics.emEnergy / 60, 0, 1);
+    const fillA = 0.15 + 0.15*emTint;
+    ctx.fillStyle = rr.regulated ? `rgba(15,34,54,${fillA})` : `rgba(13,26,42,${fillA})`;
     ctx.strokeStyle = strokeForK(rr.regulated, k);
     ctx.lineWidth = 2;
     drawPolygon(pts);
@@ -491,36 +873,50 @@
     ctx.stroke();
     ctx.globalAlpha = 1;
 
-    ctx.fillStyle="#e8eef6";
-    ctx.font="12px system-ui, Segoe UI, Arial";
+    ctx.fillStyle = "#e8eef6";
+    ctx.font = "12px system-ui, Segoe UI, Arial";
 
     const geomMsg = rr.regulated
       ? `Clamp: a=${a.toFixed(0)} > R=${R.toFixed(0)} → s=(R/a)^k = ${rr.s.toFixed(3)} (k=${k.toFixed(2)})`
       : `No clamp: a=${a.toFixed(0)} <= R=${R.toFixed(0)} → s=1.000 (k=${k.toFixed(2)})`;
 
     ctx.fillText(geomMsg, 14, 18);
-    ctx.fillStyle="rgba(138,167,200,0.95)";
+    ctx.fillStyle = "rgba(138,167,200,0.95)";
     ctx.fillText(`Boundary refinement: N=${N} sides. Circle-likeness (area match) ≈ ${matchPct.toFixed(1)}%`, 14, 36);
 
-    if(constraintViewEl.checked){
-      const stressPack = computeStresses({N,a,R,k,phi,regulated:rr.regulated});
-      drawConstraintOverlay(cx, cy, R, rr, stressPack);
+    ctx.fillStyle = "rgba(232,238,246,0.90)";
+    ctx.font = "12px system-ui, Segoe UI, Arial";
+    ctx.fillText(
+      `Reduced solver: TMz field + Poisson curvature + Schrödinger wave | φₛₜ=${phiLive.toFixed(4)} UTC-based`,
+      14, 54
+    );
 
-      const sVals = Object.values(stressPack.out);
-      const maxS = Math.max(...sVals);
+    if(constraintViewEl.checked){
+      drawConstraintOverlay(cx, cy, R, rr, sim.diagnostics);
+
+      const vals = [
+        sim.diagnostics.Maxwell,
+        sim.diagnostics.Einstein,
+        sim.diagnostics.Feynman,
+        sim.diagnostics.Turing,
+        sim.diagnostics.vonNeumann,
+        sim.diagnostics.Shannon
+      ];
+      const maxS = Math.max(...vals);
+
       ctx.fillStyle = "rgba(232,238,246,0.92)";
       ctx.font = "bold 13px system-ui, Segoe UI, Arial";
-      ctx.fillText(`Model collision severity: ${Math.round(maxS*100)}% (φₛₜ=${phi.toFixed(2)})`, 14, 56);
+      ctx.fillText(`Field collision severity: ${Math.round(maxS*100)}%`, 14, 74);
 
       ctx.fillStyle = "rgba(232,238,246,0.70)";
       ctx.font = "12px system-ui, Segoe UI, Arial";
       ctx.fillText(
-        `Model drivers: overflow=${Math.round(stressPack.overflow*100)}%, coarseness=${Math.round(stressPack.coarseness*100)}%, damping control=${Math.round(stressPack.deco*100)}%`,
-        14, 74
+        `EM=${sim.diagnostics.emEnergy.toFixed(2)} | grav=${sim.diagnostics.gravResidual.toFixed(2)} | H=${sim.diagnostics.entropy.toFixed(2)} | SvN=${sim.diagnostics.vnEntropy.toFixed(2)} | coh=${sim.diagnostics.phaseCoherence.toFixed(2)}`,
+        14, 92
       );
     } else {
-      ctx.fillStyle="rgba(232,238,246,0.92)";
-      ctx.font="bold 13px system-ui, Segoe UI, Arial";
+      ctx.fillStyle = "rgba(232,238,246,0.92)";
+      ctx.font = "bold 13px system-ui, Segoe UI, Arial";
       ctx.fillText(`N=${N}`, cx-20, cy+4);
     }
   }
@@ -528,13 +924,14 @@
   function setN(v){
     v = clamp(v, 6, 240);
     NEl.value = String(v);
+    dirtyMasks = true;
     draw();
   }
 
   document.getElementById("step").onclick = () => {
     const N = parseInt(NEl.value,10);
     setN(N+1);
-    log(`STEP: N=${N+1}. Boundary refined: 6→7→8→…  Circle-match ≈ ${circleMatchPercent(N+1).toFixed(2)}%`);
+    log(`STEP: N=${N+1}. Boundary refined. Circle-match ≈ ${circleMatchPercent(N+1).toFixed(2)}%`);
     log("—");
   };
 
@@ -547,13 +944,13 @@
 
   document.getElementById("reset").onclick = () => {
     setN(6);
-    logEl.textContent="";
-    log("RESET: N=6 (hexagon). This is the planar closed frame.");
-    log("Add one side => N=7 (not a new axis, boundary refinement).");
-    log("As N grows, polygon becomes circle-like under the model geometry.");
-    log("Constraint View shows six heuristic pillar stress nodes, not validated physical field solutions.");
-    log("φₛₜ is a simulation control value for damping/stability behavior, not atomic time or live measured instrument phase.");
-    log("Demo Oscillation adds artificial motion for visualization only.");
+    resetFields();
+    logEl.textContent = "";
+    log("RESET: N=6 (hexagon).");
+    log("Internal model now uses a reduced TMz Maxwell field, Poisson curvature, and Schrödinger-style wave.");
+    log("Six pillar values are field-derived diagnostics, not slider-only heuristic stress values.");
+    log("φₛₜ now follows live browser UTC time with the slider used as a phase offset.");
+    log("Demo Oscillation now injects a sinusoidal source drive into the reduced field model.");
     log("—");
     draw();
   };
@@ -573,8 +970,8 @@
 
   constraintViewEl.addEventListener("change", () => {
     if(constraintViewEl.checked){
-      log("Constraint View: ON (heuristic model limits shown across six pillar references).");
-      log("Tip: move a, R, k, and φₛₜ and watch which nodes hit red first in the simulation.");
+      log("Constraint View: ON.");
+      log("Pillars now display diagnostics derived from the reduced evolving fields.");
       log("—");
     } else {
       log("Constraint View: OFF.");
@@ -584,33 +981,39 @@
   });
 
   stressBtn.addEventListener("click", () => {
-    stressInject = !stressInject;
-    stressBtn.textContent = stressInject ? "Demo Oscillation: ON" : "Demo Oscillation";
-    log(`Demo Oscillation: ${stressInject ? "ON" : "OFF"}. Artificial oscillation added for visualization only.`);
+    driveOn = !driveOn;
+    stressBtn.textContent = driveOn ? "Demo Oscillation: ON" : "Demo Oscillation";
+    log(`Demo Oscillation: ${driveOn ? "ON" : "OFF"}. This now drives a sinusoidal source term in the reduced field model.`);
     log("—");
     draw();
   });
 
-  [NEl, aEl, REl, kEl, phiEl].forEach(el => el.addEventListener("input", draw));
+  [NEl, aEl, REl, kEl, phiEl].forEach(el => el.addEventListener("input", () => {
+    dirtyMasks = true;
+    draw();
+  }));
 
-  function tick(){
-    if(stressInject && constraintViewEl.checked){
-      draw();
-    }
+  function tick(now){
+    const dt = Math.min(0.033, (now - lastTime) / 1000 || 0.016);
+    lastTime = now;
+    advancePhysics(dt);
+    draw();
     requestAnimationFrame(tick);
   }
+
+  alloc();
 
   log("RESET: One shape centered in the circle.");
   log("N=6 starts as hexagon. Each +1 makes a 7-gon, 8-gon, ... approaching circle.");
   log("Regulation (k) clamps size only if the polygon would exceed R.");
-  log("This program is a visual systems/constraint simulation, not a solver for real Maxwell, Einstein, quantum, or CST field equations.");
-  log("The six pillar stress values are heuristic model outputs.");
-  log("φₛₜ is a simulation control parameter, not atomic time, live browser time, or measured instrument phase.");
-  log("Demo Oscillation is artificial and is only used to make propagation easier to see.");
+  log("Upgraded internals: reduced TMz Maxwell update, Poisson curvature solve, and Schrödinger-style wave update.");
+  log("Six pillar values now come from field evolution rather than only slider heuristics.");
+  log("φₛₜ now uses live browser UTC time plus user phase offset.");
+  log("Demo Oscillation now acts as a source drive instead of a purely visual fake oscillation.");
   log("—");
 
   resize();
-  tick();
+  requestAnimationFrame((t) => { lastTime = t; tick(t); });
 })();
 </script>
 </body>
