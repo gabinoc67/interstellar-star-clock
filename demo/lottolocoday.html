@@ -60,25 +60,12 @@
     border-radius:14px;
     padding:12px;
   }
-  textarea{
-    width:100%;
-    min-height:300px;
-    resize:vertical;
-    background:#081021;
-    color:var(--ink);
-    border:1px solid var(--line);
-    border-radius:12px;
-    padding:12px;
-    font-family:ui-monospace,Consolas,monospace;
-    font-size:0.92rem;
-    line-height:1.35;
-  }
   label{
     display:block;
     font-weight:800;
     margin:10px 0 6px;
   }
-  input[type="number"], select{
+  input[type="number"], select, input[type="file"]{
     width:100%;
     background:#081021;
     color:var(--ink);
@@ -176,6 +163,13 @@
     line-height:1.6;
     font-size:14px;
   }
+  .uploadBox{
+    background:#081021;
+    border:1px dashed #4c609e;
+    border-radius:14px;
+    padding:14px;
+    margin-top:10px;
+  }
 
   @media print{
     body{background:#fff;color:#000}
@@ -209,30 +203,34 @@
 <div class="wrap">
   <h1>Lottery Draw Analyzer — 20 Pretest Runs → Best 5 Plays</h1>
   <p>
-    Paste official draw history. The program analyzes historical frequency, draw-gap spacing, repeated pairs, repeated triples,
+    Upload official draw history. The program analyzes historical frequency, draw-gap spacing, repeated pairs, repeated triples,
     official combination odds, then runs <strong>20 pretest candidate lines</strong> and keeps the <strong>best 5 plays</strong>
     according to the program’s scoring rules.
   </p>
 
   <div class="grid">
     <div class="card">
-      <h2>1. Official Draw History Input</h2>
+      <h2>1. Official Draw History Upload</h2>
       <p>
-        Accepted formats per line:
+        Upload a text file containing one draw per line using either format:
         <span class="mono">YYYY-MM-DD: 3 11 14 26 35 41</span> or
         <span class="mono">3 11 14 26 35 41</span>
       </p>
 
-      <textarea id="historyInput" placeholder="Example:
-2026-01-12: 3 11 14 26 35 41
-2026-01-09: 7 10 19 29 39 52
-2026-01-06: 6 18 26 42 44 53"></textarea>
+      <div class="uploadBox">
+        <label for="historyFile">Upload draw history file</label>
+        <input id="historyFile" type="file" accept=".txt,.csv" />
+        <div class="tiny" style="margin-top:8px;">
+          Accepted file types: .txt or .csv
+        </div>
+        <div id="fileStatus" class="tiny" style="margin-top:8px;">No file uploaded yet.</div>
+      </div>
 
       <div class="row" style="margin-top:12px;">
         <div class="subcard">
           <label for="daysPerDraw">Days per draw (used if no dates)</label>
           <input id="daysPerDraw" type="number" min="1" max="14" step="0.5" value="3.5" />
-          <div class="tiny">Only used when lines do not include dates.</div>
+          <div class="tiny">Only used when uploaded lines do not include dates.</div>
         </div>
 
         <div class="subcard">
@@ -279,7 +277,7 @@
 
     <div class="card" id="printArea">
       <h2 class="print-dark">2. Analysis Summary</h2>
-      <div id="summaryBox" class="outbox print-dark">Paste draw history, then click <b>Generate</b>.</div>
+      <div id="summaryBox" class="outbox print-dark">Upload a draw history file, then click <b>Generate</b>.</div>
 
       <div class="kpis">
         <div class="kpi print-dark">
@@ -322,7 +320,8 @@
   const N_MAX = 54;
   const PICKS_PER_LINE = 6;
 
-  const historyInput = document.getElementById('historyInput');
+  const historyFileInput = document.getElementById('historyFile');
+  const fileStatus = document.getElementById('fileStatus');
   const daysPerDrawInput = document.getElementById('daysPerDraw');
   const suggestModeInput = document.getElementById('suggestMode');
   const avoidRecentRepeatInput = document.getElementById('avoidRecentRepeat');
@@ -338,6 +337,8 @@
   const combosBox = document.getElementById('combosBox');
   const playsBox = document.getElementById('playsBox');
   const footerNote = document.getElementById('footerNote');
+
+  let uploadedHistoryText = '';
 
   function clamp(x,a,b){ return Math.max(a, Math.min(b, x)); }
 
@@ -441,6 +442,26 @@
     }
     return candidates[candidates.length - 1];
   }
+
+  historyFileInput.addEventListener('change', function(){
+    const file = this.files && this.files[0];
+    if(!file){
+      uploadedHistoryText = '';
+      fileStatus.textContent = 'No file uploaded yet.';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function(e){
+      uploadedHistoryText = e.target.result || '';
+      fileStatus.textContent = `Loaded file: ${file.name}`;
+    };
+    reader.onerror = function(){
+      uploadedHistoryText = '';
+      fileStatus.textContent = 'Could not read the uploaded file.';
+    };
+    reader.readAsText(file);
+  });
     function buildModel(rows){
     const draws = rows.length;
     if(!draws) return null;
@@ -733,10 +754,20 @@
   }
 
   function runGenerator(){
-    const rowsRaw = parseHistory(historyInput.value);
+    if(!uploadedHistoryText.trim()){
+      summaryBox.innerHTML = '<span class="bad"><b>No uploaded draw history found.</b> Please upload a .txt or .csv file first.</span>';
+      oddsBox.textContent = '—';
+      historyStatsBox.textContent = '—';
+      topNumbersBox.textContent = '—';
+      combosBox.textContent = '—';
+      playsBox.textContent = '—';
+      return;
+    }
+
+    const rowsRaw = parseHistory(uploadedHistoryText);
 
     if(!rowsRaw.length){
-      summaryBox.innerHTML = '<span class="bad"><b>No valid draw history found.</b> Paste official draw lines first.</span>';
+      summaryBox.innerHTML = '<span class="bad"><b>No valid draw history found inside the uploaded file.</b></span>';
       oddsBox.textContent = '—';
       historyStatsBox.textContent = '—';
       topNumbersBox.textContent = '—';
@@ -773,7 +804,7 @@
     }
 
     if(!candidates.length){
-      playsBox.innerHTML = '<span class="bad">No candidate lines generated. Check your input data.</span>';
+      playsBox.innerHTML = '<span class="bad">No candidate lines generated. Check your uploaded file data.</span>';
       return;
     }
 
@@ -800,6 +831,7 @@
 
     playsBox.innerHTML = `
       <div class="tiny" style="margin-bottom:10px;">
+        <b>Uploaded file:</b> ${historyFileInput.files[0] ? historyFileInput.files[0].name : '—'}<br>
         <b>Pretest runs completed:</b> ${candidates.length} candidate lines<br>
         <b>Final output:</b> best 5 scoring lines from those 20 pretest runs
       </div>
