@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Hexagon Fix + Constraint View + CST Phase (φₛₜ)</title>
+<title>Hexagon Fix + Constraint View + CST-Inspired Phase Control</title>
 <style>
   :root{
     --bg:#0b0f14; --panel:#101823; --panel2:#0c131d; --line:#1f2c3c;
@@ -63,7 +63,6 @@
     padding:10px;border-radius:10px;
   }
 
-  /* Switch */
   .switch{
     display:flex;align-items:center;gap:8px;
     padding:6px 10px;border-radius:10px;
@@ -79,7 +78,7 @@
 <div class="wrap">
 
   <div class="panel">
-    <h2>Hexagon Fix + Systems Model: Constraint View + CST Phase (φₛₜ)</h2>
+    <h2>Hexagon Fix + Systems Model: Constraint View + CST-Inspired Phase Control</h2>
 
     <div class="row">
       <button id="step">+1 side</button>
@@ -100,7 +99,7 @@
         Constraint View (limits collide)
       </label>
 
-      <button id="stressBtn" title="For demonstration: injects oscillatory stress so you can see propagation.">Failure Inject</button>
+      <button id="stressBtn" title="For demonstration only: adds an artificial oscillation so you can see propagation more clearly.">Demo Oscillation</button>
     </div>
 
     <label>Polygon sides N (6=hexagon, 7=heptagon, …): <span id="nVal"></span></label>
@@ -124,16 +123,18 @@
       <div class="kHint" id="kText" style="margin-top:6px;"></div>
     </div>
 
-    <label style="margin-top:12px;">CST Phase Alignment (φₛₜ): <span class="bigNum" id="phiBig">0.00</span></label>
+    <label style="margin-top:12px;">CST-Inspired Phase Control (φₛₜ): <span class="bigNum" id="phiBig">0.00</span></label>
     <input id="phi" type="range" min="0" max="1" step="0.01" value="0.00" />
     <div class="small" id="phiHint" style="margin-top:6px;">
-      φₛₜ shifts how constraints interact (stability), not raw speed. Higher φₛₜ reduces “decoherence-like” stress and dampens
-      feedback propagation in this systems model.
+      φₛₜ is a simulation control parameter used to change damping and stability behavior in this model. It is not atomic time,
+      not live browser time, and not a measured CST phase from real instruments.
     </div>
 
     <div class="warn small" style="margin-top:10px;">
-      <b>Important:</b> This is a <b>systems/constraint demonstrator</b>, not a numerical solver for Maxwell/Einstein/QFT.
-      HTML/JS can credibly show <i>limit collisions</i> (thresholds) and <i>stabilization</i> (phase control) with clear visuals.
+      <b>Important:</b> This is a <b>systems/constraint demonstrator</b>, not a numerical solver for Maxwell, Einstein, quantum,
+      or real CST field equations. The six pillar stress values are heuristic simulation outputs derived from internal model sliders
+      such as overflow, coarseness, regulation pressure, damping, and optional demo oscillation. They are not experimentally validated
+      physical measurements.
     </div>
 
     <h3>Step log</h3>
@@ -178,10 +179,9 @@
   function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
   function lerp(a,b,t){ return a + (b-a)*t; }
 
-  // Regular N-gon vertices on circumradius rad
   function polygonVertices(cx, cy, rad, n){
     const pts=[];
-    const offset = -Math.PI/6; // keeps a “pointy” feel near N=6
+    const offset = -Math.PI/6;
     for(let i=0;i<n;i++){
       const ang = (Math.PI*2)*(i/n) + offset;
       pts.push([cx + rad*Math.cos(ang), cy + rad*Math.sin(ang)]);
@@ -221,15 +221,11 @@
     matchPill.textContent = `Match: ${matchPct.toFixed(1)}%`;
   }
 
-  // How “circle-like” is a regular N-gon vs its circumcircle?
-  // Using area ratio: A_ngon / A_circle = (N sin(2π/N)) / (2π)
   function circleMatchPercent(N){
     const ratio = (N * Math.sin((2*Math.PI)/N)) / (2*Math.PI);
-    return 100 * ratio; // 100% => perfect circle (limit)
+    return 100 * ratio;
   }
 
-  // Regulation: polygon "wants" circumradius = a, but must stay <= R.
-  // If a > R, clamp by scale s = (R/a)^k, final radius = a*s.
   function regulatedRadius(a, R, k){
     if(a <= R) return { rad: a, regulated:false, s:1.0 };
     const s = Math.pow(R / a, k);
@@ -247,34 +243,27 @@
     return `rgba(${r},${g},${b},${a})`;
   }
 
-  // =========================
-  // Systems Model (Constraint View)
-  // =========================
   const pillars = [
-    { key:"Maxwell",     label:"Maxwell\n(fields)",            short:"M" },
-    { key:"Einstein",    label:"Einstein\n(spacetime)",        short:"E" },
-    { key:"Shannon",     label:"Shannon\n(info)",             short:"S" },
-    { key:"vonNeumann",  label:"von Neumann\n(computation)",   short:"V" },
-    { key:"Turing",      label:"Turing\n(algorithms)",         short:"T" },
-    { key:"Feynman",     label:"Feynman\n(quantum)",           short:"F" },
+    { key:"Maxwell",     label:"Maxwell\n(reference)",          short:"M" },
+    { key:"Einstein",    label:"Einstein\n(reference)",         short:"E" },
+    { key:"Shannon",     label:"Shannon\n(reference)",          short:"S" },
+    { key:"vonNeumann",  label:"von Neumann\n(reference)",      short:"V" },
+    { key:"Turing",      label:"Turing\n(reference)",           short:"T" },
+    { key:"Feynman",     label:"Feynman\n(reference)",          short:"F" },
   ];
 
-  // Animated stress injection (for demos only)
   let stressInject = false;
   let t0 = performance.now();
 
-  // Convert stress [0..1] -> RGB
   function stressColor(s){
-    // green -> yellow -> red
-    // We keep it simple and readable.
     if(s < 0.50){
-      const t = s/0.50; // 0..1
+      const t = s/0.50;
       const r = Math.round(lerp(42, 214, t));
       const g = Math.round(lerp(163, 166, t));
       const b = Math.round(lerp(74, 58, t));
       return `rgb(${r},${g},${b})`;
     } else {
-      const t = (s-0.50)/0.50; // 0..1
+      const t = (s-0.50)/0.50;
       const r = Math.round(lerp(214, 208, t));
       const g = Math.round(lerp(166, 74, t));
       const b = Math.round(lerp(58, 74, t));
@@ -288,32 +277,22 @@
     return "LIMIT HIT";
   }
 
-  // Build a defensible stress model from your existing controls:
-  // - geometry overflow: a vs R (collision with domain constraint)
-  // - boundary coarseness: 1 - circleMatch
-  // - regulation pressure: k away from 1
-  // - CST alignment φ: damps propagation + reduces decoherence-like term
   function computeStresses({N,a,R,k,phi,regulated}){
-    const match = circleMatchPercent(N)/100;             // 0..1 (higher is circle-like)
-    const coarseness = clamp(1 - match, 0, 1);           // 0..1 (higher = more polygonal)
-    const overflow = clamp((a - R)/Math.max(1,R), 0, 1); // 0..1
-    const kPressure = clamp(Math.abs(k - 1.0)/1.5, 0, 1);// 0..1
+    const match = circleMatchPercent(N)/100;
+    const coarseness = clamp(1 - match, 0, 1);
+    const overflow = clamp((a - R)/Math.max(1,R), 0, 1);
+    const kPressure = clamp(Math.abs(k - 1.0)/1.5, 0, 1);
     const clampActive = regulated ? 1 : 0;
 
-    // CST damping: phi reduces "decoherence-like" and propagation.
-    const deco = (1 - phi); // 1=worst when CST off, 0=best when CST on
-    const damp = lerp(1.0, 0.55, phi); // propagation damping (lower is more stable)
+    const deco = (1 - phi);
+    const damp = lerp(1.0, 0.55, phi);
 
-    // Optional injected oscillation to visualize propagation
     let inj = 0;
     if(stressInject){
       const tt = (performance.now() - t0) / 1000;
-      // bounded oscillation
       inj = 0.5 + 0.5*Math.sin(tt*2.3);
     }
 
-    // Base stresses per pillar (heuristic, but consistent and explainable)
-    // Keep each in [0..1] after coupling.
     const base = {
       Maxwell:    0.15 + 0.55*overflow + 0.25*coarseness + 0.10*inj,
       Einstein:   0.18 + 0.60*overflow + 0.30*deco      + 0.06*clampActive + 0.08*inj,
@@ -323,21 +302,17 @@
       Feynman:    0.18 + 0.45*coarseness + 0.55*deco    + 0.08*overflow + 0.10*inj,
     };
 
-    // Coupling: “limits collide” by allowing stress to spread.
-    // Use a ring coupling matching hexagon adjacency.
-    const keys = ["Maxwell","Einstein","Feynman","Turing","vonNeumann","Shannon"]; // arranged for intuitive neighbors
+    const keys = ["Maxwell","Einstein","Feynman","Turing","vonNeumann","Shannon"];
     const s0 = keys.map(k => base[k]);
 
-    // One or two diffusion steps is enough for visualization (HTML-friendly).
     const steps = 2;
-    const c = lerp(0.22, 0.12, phi); // coupling strength decreases as CST alignment increases
+    const c = lerp(0.22, 0.12, phi);
     let s = s0.slice();
     for(let it=0; it<steps; it++){
       const next = s.slice();
       for(let i=0;i<keys.length;i++){
         const left = s[(i-1+keys.length)%keys.length];
         const right = s[(i+1)%keys.length];
-        // diffuse + damp
         const coupled = (s[i] + c*(left + right)) / (1 + 2*c);
         next[i] = clamp(coupled * damp, 0, 1);
       }
@@ -348,13 +323,10 @@
     for(let i=0;i<keys.length;i++) out[keys[i]] = s[i];
     return { out, coarseness, overflow, kPressure, deco, match };
   }
-
-  function drawConstraintOverlay(cx, cy, R, rr, stressPack){
-    // Fixed “pillar ring” so nodes don't jump around as N changes
+    function drawConstraintOverlay(cx, cy, R, rr, stressPack){
     const rad = Math.min(rr.rad, R*0.78);
     const pts = polygonVertices(cx, cy, rad, 6);
 
-    // Draw edges as coupling hints
     ctx.save();
     ctx.globalAlpha = 0.55;
     ctx.strokeStyle = "rgba(120,150,180,0.35)";
@@ -366,11 +338,8 @@
     ctx.stroke();
     ctx.restore();
 
-    // Node positions mapped to your 6 pillars (clockwise)
-    // Order here should match the coupling ring keys used in computeStresses()
     const order = ["Maxwell","Einstein","Feynman","Turing","vonNeumann","Shannon"];
 
-    // Draw nodes with glow + label
     for(let i=0;i<6;i++){
       const key = order[i];
       const s = stressPack.out[key];
@@ -379,7 +348,6 @@
       const col = stressColor(s);
       const r = 16;
 
-      // glow
       ctx.save();
       ctx.globalAlpha = 0.22;
       ctx.fillStyle = col;
@@ -388,7 +356,6 @@
       ctx.fill();
       ctx.restore();
 
-      // solid node
       ctx.fillStyle = col;
       ctx.strokeStyle = "rgba(255,255,255,0.22)";
       ctx.lineWidth = 1.2;
@@ -397,7 +364,6 @@
       ctx.fill();
       ctx.stroke();
 
-      // letter
       ctx.fillStyle = "#071019";
       ctx.font = "900 13px system-ui, Segoe UI, Arial";
       ctx.textAlign = "center";
@@ -405,7 +371,6 @@
       const short = pillars.find(p=>p.key===key)?.short || key[0];
       ctx.fillText(short, x, y);
 
-      // label box
       ctx.textAlign = "left";
       ctx.textBaseline = "alphabetic";
       ctx.font = "12px system-ui, Segoe UI, Arial";
@@ -430,13 +395,11 @@
       ctx.fillStyle = "rgba(232,238,246,0.72)";
       ctx.fillText(lines[1] || "", bx+8, by+34);
 
-      // status
       ctx.fillStyle = "rgba(232,238,246,0.70)";
       ctx.font = "11px system-ui, Segoe UI, Arial";
       ctx.fillText(`${stressLabel(s)} (${Math.round(s*100)}%)`, bx+8, by+50);
     }
 
-    // Global legend at bottom-left
     ctx.fillStyle = "rgba(232,238,246,0.92)";
     ctx.font = "12px system-ui, Segoe UI, Arial";
     ctx.textAlign = "left";
@@ -444,7 +407,6 @@
     ctx.fillText("Constraint View: green=OK, yellow=near limit, red=limit hit", 14, canvas.clientHeight - 18);
   }
 
-  // roundRect polyfill-ish: modern browsers support it; keep safe.
   if(!CanvasRenderingContext2D.prototype.roundRect){
     CanvasRenderingContext2D.prototype.roundRect = function(x,y,w,h,r){
       r = Math.min(r, w/2, h/2);
@@ -470,8 +432,8 @@
 
   function draw(){
     const N = parseInt(NEl.value,10);
-    const a = +aEl.value;     // intended radius
-    const R = +REl.value;     // domain radius
+    const a = +aEl.value;
+    const R = +REl.value;
     const k = parseFloat(kEl.value);
     const phi = parseFloat(phiEl.value);
 
@@ -481,19 +443,17 @@
 
     phiBig.textContent = phi.toFixed(2);
 
-    // tiny guidance that changes with phi (so they feel it)
     if(phi < 0.20){
-      phiHint.textContent = "φₛₜ is low: constraints propagate strongly (more red in collisions).";
+      phiHint.textContent = "φₛₜ is a simulation control value at a low setting: stress propagates more strongly through the model.";
     } else if(phi < 0.60){
-      phiHint.textContent = "φₛₜ moderate: partial phase-locking reduces instability and spreads stress less aggressively.";
+      phiHint.textContent = "φₛₜ is a simulation control value at a moderate setting: the model applies partial damping and moderate stabilization.";
     } else {
-      phiHint.textContent = "φₛₜ high: damping is strong; feedback loops stabilize and fewer pillars hit red zones.";
+      phiHint.textContent = "φₛₜ is a simulation control value at a high setting: the model applies stronger damping and fewer pillars tend to hit red zones.";
     }
 
     const w=canvas.clientWidth, h=canvas.clientHeight;
     ctx.clearRect(0,0,w,h);
 
-    // faint grid
     ctx.globalAlpha = 0.30;
     ctx.strokeStyle = "#1f2c3c";
     ctx.lineWidth = 1;
@@ -505,28 +465,24 @@
 
     const cx=w/2, cy=h/2;
 
-    // domain circle
     ctx.strokeStyle="#3a5678";
     ctx.lineWidth=2;
     ctx.beginPath();
     ctx.arc(cx,cy,R,0,Math.PI*2);
     ctx.stroke();
 
-    // regulation clamp
     const rr = regulatedRadius(a, R, k);
     updateKUI(rr.regulated);
 
     const matchPct = circleMatchPercent(N);
     updatePills(rr.regulated, N, matchPct);
 
-    // polygon
     const pts = polygonVertices(cx, cy, rr.rad, N);
     ctx.fillStyle = rr.regulated ? "#0f2236" : "#0d1a2a";
     ctx.strokeStyle = strokeForK(rr.regulated, k);
     ctx.lineWidth = 2;
     drawPolygon(pts);
 
-    // “mirror” overlay: show a faint circle at polygon radius so you can see convergence
     ctx.globalAlpha = 0.45;
     ctx.strokeStyle = "rgba(232,238,246,0.35)";
     ctx.lineWidth = 1.5;
@@ -535,7 +491,6 @@
     ctx.stroke();
     ctx.globalAlpha = 1;
 
-    // diagnostics text
     ctx.fillStyle="#e8eef6";
     ctx.font="12px system-ui, Segoe UI, Arial";
 
@@ -547,34 +502,29 @@
     ctx.fillStyle="rgba(138,167,200,0.95)";
     ctx.fillText(`Boundary refinement: N=${N} sides. Circle-likeness (area match) ≈ ${matchPct.toFixed(1)}%`, 14, 36);
 
-    // Constraint View overlay (the “limits collide” visual)
     if(constraintViewEl.checked){
       const stressPack = computeStresses({N,a,R,k,phi,regulated:rr.regulated});
       drawConstraintOverlay(cx, cy, R, rr, stressPack);
 
-      // Optional: show a compact global collision summary
       const sVals = Object.values(stressPack.out);
       const maxS = Math.max(...sVals);
       ctx.fillStyle = "rgba(232,238,246,0.92)";
       ctx.font = "bold 13px system-ui, Segoe UI, Arial";
-      ctx.fillText(`Collision severity: ${Math.round(maxS*100)}% (φₛₜ=${phi.toFixed(2)})`, 14, 56);
+      ctx.fillText(`Model collision severity: ${Math.round(maxS*100)}% (φₛₜ=${phi.toFixed(2)})`, 14, 56);
 
-      // show “what is driving stress” (defensible, derived from existing sliders)
       ctx.fillStyle = "rgba(232,238,246,0.70)";
       ctx.font = "12px system-ui, Segoe UI, Arial";
       ctx.fillText(
-        `Drivers: overflow=${Math.round(stressPack.overflow*100)}%, coarseness=${Math.round(stressPack.coarseness*100)}%, decoherence-like=${Math.round(stressPack.deco*100)}%`,
+        `Model drivers: overflow=${Math.round(stressPack.overflow*100)}%, coarseness=${Math.round(stressPack.coarseness*100)}%, damping control=${Math.round(stressPack.deco*100)}%`,
         14, 74
       );
     } else {
-      // label in center
       ctx.fillStyle="rgba(232,238,246,0.92)";
       ctx.font="bold 13px system-ui, Segoe UI, Arial";
       ctx.fillText(`N=${N}`, cx-20, cy+4);
     }
   }
 
-  // ===== Controls =====
   function setN(v){
     v = clamp(v, 6, 240);
     NEl.value = String(v);
@@ -600,9 +550,10 @@
     logEl.textContent="";
     log("RESET: N=6 (hexagon). This is the planar closed frame.");
     log("Add one side => N=7 (not a new axis, boundary refinement).");
-    log("As N grows, polygon becomes circle-like (embedding to domain constraint).");
-    log("Constraint View shows how limits collide across 6 pillars (green→yellow→red).");
-    log("φₛₜ dampens propagation (stabilization), it does not 'increase speed'.");
+    log("As N grows, polygon becomes circle-like under the model geometry.");
+    log("Constraint View shows six heuristic pillar stress nodes, not validated physical field solutions.");
+    log("φₛₜ is a simulation control value for damping/stability behavior, not atomic time or live measured instrument phase.");
+    log("Demo Oscillation adds artificial motion for visualization only.");
     log("—");
     draw();
   };
@@ -622,8 +573,8 @@
 
   constraintViewEl.addEventListener("change", () => {
     if(constraintViewEl.checked){
-      log("Constraint View: ON (limits collide — pillar nodes show threshold stress).");
-      log("Tip: move a, R, k, and φₛₜ and watch which pillars hit red first.");
+      log("Constraint View: ON (heuristic model limits shown across six pillar references).");
+      log("Tip: move a, R, k, and φₛₜ and watch which nodes hit red first in the simulation.");
       log("—");
     } else {
       log("Constraint View: OFF.");
@@ -634,15 +585,14 @@
 
   stressBtn.addEventListener("click", () => {
     stressInject = !stressInject;
-    stressBtn.textContent = stressInject ? "Failure Inject: ON" : "Failure Inject";
-    log(`Failure Inject: ${stressInject ? "ON" : "OFF"}. (Demo-only oscillation to visualize propagation.)`);
+    stressBtn.textContent = stressInject ? "Demo Oscillation: ON" : "Demo Oscillation";
+    log(`Demo Oscillation: ${stressInject ? "ON" : "OFF"}. Artificial oscillation added for visualization only.`);
     log("—");
     draw();
   });
 
   [NEl, aEl, REl, kEl, phiEl].forEach(el => el.addEventListener("input", draw));
 
-  // Animation loop only when failure injection is on (keeps it light)
   function tick(){
     if(stressInject && constraintViewEl.checked){
       draw();
@@ -650,12 +600,15 @@
     requestAnimationFrame(tick);
   }
 
-  // init
   log("RESET: One shape centered in the circle.");
   log("N=6 starts as hexagon. Each +1 makes a 7-gon, 8-gon, ... approaching circle.");
   log("Regulation (k) clamps size only if the polygon would exceed R.");
-  log("NEW: Constraint View (pillars green→yellow→red) + CST phase alignment φₛₜ for stabilization.");
+  log("This program is a visual systems/constraint simulation, not a solver for real Maxwell, Einstein, quantum, or CST field equations.");
+  log("The six pillar stress values are heuristic model outputs.");
+  log("φₛₜ is a simulation control parameter, not atomic time, live browser time, or measured instrument phase.");
+  log("Demo Oscillation is artificial and is only used to make propagation easier to see.");
   log("—");
+
   resize();
   tick();
 })();
