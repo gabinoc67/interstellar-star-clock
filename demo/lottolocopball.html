@@ -120,6 +120,7 @@
     gap:12px;
     padding:8px 0;
     border-bottom:1px dashed rgba(255,255,255,0.08);
+    align-items:center;
   }
   .play:last-child{border-bottom:none}
   .tag{
@@ -175,7 +176,12 @@
     text-align:center;
     margin-right:4px;
   }
-
+  .list{
+    margin:0;
+    padding-left:18px;
+    color:var(--muted);
+  }
+  .list li{margin:4px 0}
   @media print{
     body{background:#fff;color:#000}
     body *{visibility:hidden}
@@ -187,7 +193,7 @@
       width:100%;
       background:#fff;
       color:#000;
-      padding:20px;
+      padding:18px;
       border:none;
       box-shadow:none;
     }
@@ -207,7 +213,6 @@
       border:1px solid #000 !important;
     }
   }
-
   @media (max-width:900px){
     .grid{grid-template-columns:1fr}
     .row,.kpis{grid-template-columns:1fr}
@@ -277,13 +282,20 @@
         </div>
 
         <div class="disclaimer">
-          <strong>Disclaimer:</strong> This tool analyzes past Powerball drawings and ranks candidate number sets using historical patterns and combination math. It does not guarantee future winning numbers.
+          <strong>Disclaimer:</strong> This tool analyzes past Powerball drawings and ranks candidate number sets using historical patterns and combination math. It does not predict future winning numbers and does not increase official lottery odds.
         </div>
       </div>
 
       <div class="card" style="margin-top:16px;">
         <h2>1A. 20 Pretest Results</h2>
         <div id="pretestBox" class="outbox">Analyze first, then Generate to see the 20 pretest candidate lines.</div>
+      </div>
+
+      <div class="card" style="margin-top:16px;">
+        <h2>1B. Parser Notes</h2>
+        <div id="parserNotesBox" class="outbox">
+          Upload a file, then click <b>Analyze</b> to see parser validation notes.
+        </div>
       </div>
     </div>
 
@@ -293,7 +305,7 @@
 
       <div class="kpis">
         <div class="kpi print-dark">
-          <b>Official Odds</b>
+          <b>Powerball Odds Reference</b>
           <div id="oddsBox" class="small">—</div>
         </div>
         <div class="kpi print-dark">
@@ -331,7 +343,6 @@
   const MAIN_MIN = 1;
   const MAIN_MAX = 69;
   const MAIN_PICKS = 5;
-
   const PB_MIN = 1;
   const PB_MAX = 26;
 
@@ -355,6 +366,7 @@
   const playsBox = document.getElementById('playsBox');
   const footerNote = document.getElementById('footerNote');
   const pretestBox = document.getElementById('pretestBox');
+  const parserNotesBox = document.getElementById('parserNotesBox');
 
   let uploadedHistoryText = '';
   let analyzedModel = null;
@@ -374,11 +386,19 @@
     return Math.round(x).toLocaleString();
   }
 
+  function formatUTCDate(dt){
+    if(!dt) return '—';
+    const y = dt.getUTCFullYear();
+    const m = String(dt.getUTCMonth()+1).padStart(2,'0');
+    const d = String(dt.getUTCDate()).padStart(2,'0');
+    return `${y}-${m}-${d}`;
+  }
+
   function parseDateFlexible(s){
     const t = (s || '').trim();
     if(!t) return null;
 
-    let m = t.match(/^(\d{4})[-\/](\d{2})[-\/](\d{2})$/);
+    let m = t.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
     if(m){
       const y = +m[1], mo = +m[2], d = +m[3];
       const dt = new Date(Date.UTC(y, mo-1, d));
@@ -404,19 +424,17 @@
     return matches.map(x => parseInt(x,10)).filter(n => !isNaN(n));
   }
 
-  function keyMainCombo(a){ return a.join('-'); }
-  function keyFull(main, pb){ return main.join('-') + '|PB-' + pb; }
   function pairKey(a,b){ return a < b ? `${a}-${b}` : `${b}-${a}`; }
   function tripleKey(a,b,c){
     const t = [a,b,c].sort((x,y)=>x-y);
     return `${t[0]}-${t[1]}-${t[2]}`;
   }
+  function keyFull(main, pb, dateStr=''){
+    return `${dateStr}|${main.join('-')}|PB-${pb}`;
+  }
 
   function renderBalls(main, pb){
-    return `
-      ${main.map(n => `<span class="wb">${n}</span>`).join('')}
-      <span class="pb">${pb}</span>
-    `;
+    return `${main.map(n => `<span class="wb">${n}</span>`).join('')} <span class="pb">${pb}</span>`;
   }
 
   function mulberry32(seed){
@@ -440,11 +458,13 @@
     }
     return candidates[candidates.length - 1];
   }
-    function parseHistory(text){
+    function parseHistoryDetailed(text){
     const rows = [];
-    const lines = (text || '').split(/\r?\n+/);
+    const issues = [];
+    const lines = (text || '').split(/\r?\n/);
 
-    for(let raw of lines){
+    for(let idx = 0; idx < lines.length; idx++){
+      const raw = lines[idx];
       let line = (raw || '').trim();
       if(!line) continue;
 
@@ -481,35 +501,89 @@
         const y = date.getUTCFullYear();
         const m = date.getUTCMonth() + 1;
         const d = date.getUTCDate();
-        nums = nums.filter(n => n !== y && n !== m && n !== d);
+        nums = nums.filter(n => !(n === y || n === m || n === d));
+      }
+
+      if(nums.length < 6){
+        issues.push(`Line ${idx + 1}: skipped — fewer than 6 usable numbers.`);
+        continue;
       }
 
       const main = [];
       let pb = null;
+      const rejected = [];
 
       for(const n of nums){
         if(main.length < MAIN_PICKS){
-          if(n >= MAIN_MIN && n <= MAIN_MAX && !main.includes(n)){
-            main.push(n);
+          if(n >= MAIN_MIN && n <= MAIN_MAX){
+            if(main.includes(n)) rejected.push(`duplicate white ball ${n}`);
+            else main.push(n);
+          } else {
+            rejected.push(`white ball out of range ${n}`);
           }
         } else {
           if(n >= PB_MIN && n <= PB_MAX){
             pb = n;
             break;
+          } else {
+            rejected.push(`Powerball out of range ${n}`);
           }
         }
       }
 
-      if(main.length === MAIN_PICKS && pb !== null){
-        main.sort((a,b)=>a-b);
-        rows.push({ date, main, pb });
+      if(main.length !== MAIN_PICKS || pb === null){
+        issues.push(`Line ${idx + 1}: skipped — could not form valid 5 white balls + 1 Powerball.${rejected.length ? ' Notes: ' + rejected.join(', ') : ''}`);
+        continue;
       }
+
+      main.sort((a,b)=>a-b);
+      rows.push({
+        date,
+        dateStr: formatUTCDate(date),
+        main,
+        pb,
+        rawLine: raw
+      });
     }
 
-    return rows;
+    return { rows, issues };
   }
 
-  function buildModel(rows){
+  function attachFallbackDates(rows, daysPerDraw){
+    const hasDates = rows.some(r => !!r.date);
+    if(hasDates){
+      return rows.map(r => ({
+        ...r,
+        effectiveDate: r.date ? new Date(r.date.getTime()) : null
+      }));
+    }
+
+    const now = new Date();
+    const base = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    return rows.map((r, index) => ({
+      ...r,
+      effectiveDate: new Date(base - Math.round(index * daysPerDraw * 86400000))
+    }));
+  }
+
+  function dedupeRows(rows){
+    const seen = new Set();
+    const deduped = [];
+    let duplicatesRemoved = 0;
+
+    for(const row of rows){
+      const k = keyFull(row.main, row.pb, row.dateStr || '');
+      if(seen.has(k)){
+        duplicatesRemoved++;
+        continue;
+      }
+      seen.add(k);
+      deduped.push(row);
+    }
+    return { deduped, duplicatesRemoved };
+  }
+
+  function buildModel(rows, issuesBeforeDedupe){
     const draws = rows.length;
     if(!draws) return null;
 
@@ -521,20 +595,16 @@
 
     const pairCounts = new Map();
     const tripleCounts = new Map();
-    const allFullCombos = new Set();
+    const fullSet = new Set();
 
-    const hasDates = rows.some(r => !!r.date);
-    const latestTime = hasDates
-      ? Math.max(...rows.filter(r => r.date).map(r => r.date.getTime()))
-      : null;
-
-    const daysPerDraw = clamp(+daysPerDrawInput.value || 2.33, 1, 14);
+    const hasRealDates = rows.some(r => !!r.date);
+    const earliestTime = Math.min(...rows.map(r => r.effectiveDate.getTime()));
+    const latestTime = Math.max(...rows.map(r => r.effectiveDate.getTime()));
 
     for(let i = 0; i < rows.length; i++){
       const main = rows[i].main;
       const pb = rows[i].pb;
-
-      allFullCombos.add(keyFull(main, pb));
+      fullSet.add(`${main.join('-')}|PB-${pb}`);
 
       for(const n of main){
         freq[n]++;
@@ -561,42 +631,55 @@
       }
     }
 
+    const avgHits = (draws * MAIN_PICKS) / MAIN_MAX;
+    const avgPbHits = draws / PB_MAX;
+
     const gapDraws = new Array(MAIN_MAX + 1).fill(draws + 1);
+    const pbGapDraws = new Array(PB_MAX + 1).fill(draws + 1);
+
     for(let n=MAIN_MIN; n<=MAIN_MAX; n++){
       if(lastSeenDrawIndex[n] !== null) gapDraws[n] = lastSeenDrawIndex[n];
     }
-
-    const pbGapDraws = new Array(PB_MAX + 1).fill(draws + 1);
     for(let n=PB_MIN; n<=PB_MAX; n++){
       if(pbLastSeenDrawIndex[n] !== null) pbGapDraws[n] = pbLastSeenDrawIndex[n];
     }
 
-    const avgHits = (draws * MAIN_PICKS) / MAIN_MAX;
-    const avgPbHits = draws / PB_MAX;
+    const daysSpan = Math.max(1, (latestTime - earliestTime) / 86400000);
+    const avgDaysPerDrawReal = draws > 1 ? daysSpan / (draws - 1) : 0;
+
+    const latestDate = new Date(latestTime);
+    const mainOverdueDays = new Array(MAIN_MAX + 1).fill(daysSpan + 1);
+    const pbOverdueDays = new Array(PB_MAX + 1).fill(daysSpan + 1);
+
+    for(let n=MAIN_MIN; n<=MAIN_MAX; n++){
+      const row = rows.find(r => r.main.includes(n));
+      if(row) mainOverdueDays[n] = Math.max(0, (latestTime - row.effectiveDate.getTime()) / 86400000);
+    }
+    for(let n=PB_MIN; n<=PB_MAX; n++){
+      const row = rows.find(r => r.pb === n);
+      if(row) pbOverdueDays[n] = Math.max(0, (latestTime - row.effectiveDate.getTime()) / 86400000);
+    }
 
     const score = new Array(MAIN_MAX + 1).fill(0);
     const pbScore = new Array(PB_MAX + 1).fill(0);
 
     for(let n=MAIN_MIN; n<=MAIN_MAX; n++){
-      const f = freq[n];
-      const gap = gapDraws[n];
-      const overdueBoost = gap / Math.max(1, draws);
-      const freqNorm = f / Math.max(1, avgHits);
-      score[n] = 0.55 * freqNorm + 0.45 * overdueBoost;
+      const freqNorm = freq[n] / Math.max(1, avgHits);
+      const gapNorm = gapDraws[n] / Math.max(1, draws);
+      const dayNorm = mainOverdueDays[n] / Math.max(1, avgDaysPerDrawReal || 1);
+      score[n] = 0.45 * freqNorm + 0.30 * gapNorm + 0.25 * dayNorm;
     }
 
     for(let n=PB_MIN; n<=PB_MAX; n++){
-      const f = pbFreq[n];
-      const gap = pbGapDraws[n];
-      const overdueBoost = gap / Math.max(1, draws);
-      const freqNorm = f / Math.max(1, avgPbHits);
-      pbScore[n] = 0.55 * freqNorm + 0.45 * overdueBoost;
+      const freqNorm = pbFreq[n] / Math.max(1, avgPbHits);
+      const gapNorm = pbGapDraws[n] / Math.max(1, draws);
+      const dayNorm = pbOverdueDays[n] / Math.max(1, avgDaysPerDrawReal || 1);
+      pbScore[n] = 0.45 * freqNorm + 0.30 * gapNorm + 0.25 * dayNorm;
     }
 
     const topByFreq = [];
     const topByGap = [];
     const topByScore = [];
-
     const pbTopByFreq = [];
     const pbTopByGap = [];
     const pbTopByScore = [];
@@ -606,7 +689,6 @@
       topByGap.push({n, v:gapDraws[n]});
       topByScore.push({n, v:score[n]});
     }
-
     for(let n=PB_MIN; n<=PB_MAX; n++){
       pbTopByFreq.push({n, v:pbFreq[n]});
       pbTopByGap.push({n, v:pbGapDraws[n]});
@@ -616,7 +698,6 @@
     topByFreq.sort((a,b)=>b.v-a.v || a.n-b.n);
     topByGap.sort((a,b)=>b.v-a.v || a.n-b.n);
     topByScore.sort((a,b)=>b.v-a.v || a.n-b.n);
-
     pbTopByFreq.sort((a,b)=>b.v-a.v || a.n-b.n);
     pbTopByGap.sort((a,b)=>b.v-a.v || a.n-b.n);
     pbTopByScore.sort((a,b)=>b.v-a.v || a.n-b.n);
@@ -631,18 +712,20 @@
       .sort((a,b)=>b.v-a.v || a.k.localeCompare(b.k))
       .slice(0, 10);
 
-    const totalMainCombos = combination(69, 5);
-    const totalCombos = totalMainCombos * 26;
-
     return {
       rows,
       draws,
-      hasDates,
+      hasRealDates,
+      earliestTime,
       latestTime,
+      latestDate,
+      avgDaysPerDrawReal,
       freq,
       pbFreq,
       gapDraws,
       pbGapDraws,
+      mainOverdueDays,
+      pbOverdueDays,
       score,
       pbScore,
       avgHits,
@@ -655,16 +738,18 @@
       pbTopByScore,
       pairArr,
       tripleArr,
-      allFullCombos,
-      totalMainCombos,
-      totalCombos,
-      daysPerDraw
+      pairCounts,
+      tripleCounts,
+      allFullCombos: fullSet,
+      totalMainCombos: combination(69, 5),
+      totalCombos: combination(69, 5) * 26,
+      issuesBeforeDedupe
     };
   }
 
-  function renderModel(m){
-    const latestMain = m.rows[0]?.main || [];
-    const latestPb = m.rows[0]?.pb ?? '—';
+  function renderModel(m, duplicatesRemoved){
+    const latestRow = m.rows[0];
+    const earliestRow = m.rows[m.rows.length - 1];
     const uniqueUsed = m.freq.filter((x,idx)=>idx>=1 && x>0).length;
     const uniquePbUsed = m.pbFreq.filter((x,idx)=>idx>=1 && x>0).length;
     const expectedPerNumber = (m.draws * 5 / 69).toFixed(2);
@@ -673,7 +758,10 @@
     summaryBox.innerHTML = `
       <div><b>Draws analyzed:</b> ${fmtInt(m.draws)}</div>
       <div><b>Lottery format:</b> 5 from 69 + 1 Powerball from 26</div>
-      <div><b>Latest draw in file:</b> <span>${renderBalls(latestMain, latestPb)}</span></div>
+      <div><b>Latest draw used:</b> ${latestRow ? latestRow.dateStr : '—'} &nbsp; ${latestRow ? renderBalls(latestRow.main, latestRow.pb) : '—'}</div>
+      <div><b>Earliest draw used:</b> ${earliestRow ? earliestRow.dateStr : '—'}</div>
+      <div><b>Date handling:</b> ${m.hasRealDates ? 'Used real file dates' : 'Used estimated dates from Days per draw setting'}</div>
+      <div><b>Duplicate rows removed:</b> ${duplicatesRemoved}</div>
       <div><b>Unique white-ball numbers seen:</b> ${uniqueUsed} / 69</div>
       <div><b>Unique Powerball numbers seen:</b> ${uniquePbUsed} / 26</div>
       <div><b>Expected average white-ball hits per number:</b> ${expectedPerNumber}</div>
@@ -684,13 +772,13 @@
       <div><b>Jackpot:</b> 1 in 292,201,338</div>
       <div><b>$1 Million (5 only):</b> 1 in 11,688,053.52</div>
       <div><b>Overall prize odds:</b> 1 in 24.87</div>
-      <div><b>Game matrix:</b> 5/69 + 1/26</div>
+      <div><b>Game matrix reference:</b> 5/69 + 1/26</div>
     `;
 
     historyStatsBox.innerHTML = `
       <div><b>Average white-ball hits per number:</b> ${m.avgHits.toFixed(2)}</div>
       <div><b>Average Powerball hits per number:</b> ${m.avgPbHits.toFixed(2)}</div>
-      <div><b>Date-aware file:</b> ${m.hasDates ? 'Yes' : 'No'}</div>
+      <div><b>Average days per draw used:</b> ${m.avgDaysPerDrawReal ? m.avgDaysPerDrawReal.toFixed(2) : '—'}</div>
       <div><b>Total possible full lines:</b> ${fmtInt(m.totalCombos)}</div>
     `;
 
@@ -705,14 +793,14 @@
     topNumbersBox.innerHTML = `
       <div><span class="tag">White balls — most frequent</span></div>
       <div class="mono">${hot || '—'}</div>
-      <div style="margin-top:10px;"><span class="tag">White balls — most overdue</span></div>
+      <div style="margin-top:10px;"><span class="tag">White balls — most overdue by draws</span></div>
       <div class="mono">${overdue || '—'}</div>
       <div style="margin-top:10px;"><span class="tag">White balls — best blended score</span></div>
       <div class="mono">${blended || '—'}</div>
 
       <div style="margin-top:14px;"><span class="tag">Powerball — most frequent</span></div>
       <div class="mono">${pbHot || '—'}</div>
-      <div style="margin-top:10px;"><span class="tag">Powerball — most overdue</span></div>
+      <div style="margin-top:10px;"><span class="tag">Powerball — most overdue by draws</span></div>
       <div class="mono">${pbOverdue || '—'}</div>
       <div style="margin-top:10px;"><span class="tag">Powerball — best blended score</span></div>
       <div class="mono">${pbBlended || '—'}</div>
@@ -728,8 +816,12 @@
       <div class="mono">${triples || '—'}</div>
     `;
 
-    footerNote.innerHTML =
-      `Analyzed ${fmtInt(m.draws)} draws. Generate will run 20 pretests and keep the best 5 Powerball plays.`;
+    const topIssues = m.issuesBeforeDedupe.slice(0, 14);
+    parserNotesBox.innerHTML = topIssues.length
+      ? `<ul class="list">${topIssues.map(x => `<li>${x}</li>`).join('')}</ul>`
+      : `<div class="ok">No parser problems found in the accepted lines.</div>`;
+
+    footerNote.innerHTML = `Analyzed ${fmtInt(m.draws)} draws. Data was cleaned, deduplicated, sorted newest-to-oldest, then used to generate 20 pretests and keep the best 5 plays.`;
   }
     function makeWeightMap(m, playIndex){
     const mode = suggestModeInput.value;
@@ -740,15 +832,18 @@
     for(let n=MAIN_MIN; n<=MAIN_MAX; n++){
       const freqNorm = m.freq[n] / Math.max(1, m.avgHits);
       const gapNorm = m.gapDraws[n] / Math.max(1, m.draws);
+      const dayNorm = m.mainOverdueDays[n] / Math.max(1, m.avgDaysPerDrawReal || 1);
       let s = 1;
 
-      if(mode === 'balanced') s = 0.52 * freqNorm + 0.48 * gapNorm;
-      else if(mode === 'hot') s = 0.72 * freqNorm + 0.28 * gapNorm;
-      else if(mode === 'overdue') s = 0.25 * freqNorm + 0.75 * gapNorm;
-      else if(mode === 'mixed') s = playIndex % 2 === 0 ? 0.62 * freqNorm + 0.38 * gapNorm : 0.35 * freqNorm + 0.65 * gapNorm;
+      if(mode === 'balanced') s = 0.44 * freqNorm + 0.30 * gapNorm + 0.26 * dayNorm;
+      else if(mode === 'hot') s = 0.68 * freqNorm + 0.18 * gapNorm + 0.14 * dayNorm;
+      else if(mode === 'overdue') s = 0.18 * freqNorm + 0.42 * gapNorm + 0.40 * dayNorm;
+      else if(mode === 'mixed') s = playIndex % 2 === 0
+        ? 0.58 * freqNorm + 0.22 * gapNorm + 0.20 * dayNorm
+        : 0.24 * freqNorm + 0.38 * gapNorm + 0.38 * dayNorm;
 
-      if(avoidRecent === 'soft' && latestMain.includes(n)) s *= 0.78;
-      if(avoidRecent === 'yes' && latestMain.includes(n)) s *= 0.22;
+      if(avoidRecent === 'soft' && latestMain.includes(n)) s *= 0.72;
+      if(avoidRecent === 'yes' && latestMain.includes(n)) s *= 0.18;
 
       w[n] = Math.max(0.0001, s);
     }
@@ -764,15 +859,16 @@
     for(let n=PB_MIN; n<=PB_MAX; n++){
       const freqNorm = m.pbFreq[n] / Math.max(1, m.avgPbHits);
       const gapNorm = m.pbGapDraws[n] / Math.max(1, m.draws);
+      const dayNorm = m.pbOverdueDays[n] / Math.max(1, m.avgDaysPerDrawReal || 1);
       let s = 1;
 
-      if(mode === 'balanced') s = 0.52 * freqNorm + 0.48 * gapNorm;
-      else if(mode === 'hot') s = 0.72 * freqNorm + 0.28 * gapNorm;
-      else if(mode === 'overdue') s = 0.25 * freqNorm + 0.75 * gapNorm;
-      else if(mode === 'mixed') s = 0.5 * freqNorm + 0.5 * gapNorm;
+      if(mode === 'balanced') s = 0.44 * freqNorm + 0.30 * gapNorm + 0.26 * dayNorm;
+      else if(mode === 'hot') s = 0.68 * freqNorm + 0.18 * gapNorm + 0.14 * dayNorm;
+      else if(mode === 'overdue') s = 0.18 * freqNorm + 0.42 * gapNorm + 0.40 * dayNorm;
+      else if(mode === 'mixed') s = 0.38 * freqNorm + 0.31 * gapNorm + 0.31 * dayNorm;
 
-      if(avoidRecent === 'soft' && latestPb === n) s *= 0.78;
-      if(avoidRecent === 'yes' && latestPb === n) s *= 0.22;
+      if(avoidRecent === 'soft' && latestPb === n) s *= 0.72;
+      if(avoidRecent === 'yes' && latestPb === n) s *= 0.18;
 
       w[n] = Math.max(0.0001, s);
     }
@@ -801,41 +897,54 @@
     return false;
   }
 
+  function countOdd(main){
+    return main.filter(n => n % 2 === 1).length;
+  }
+
+  function countLow(main){
+    return main.filter(n => n <= 34).length;
+  }
+
   function scoreLine(main, pb, m){
     let total = 0;
 
     for(const n of main){
       total += m.score[n] * 10;
-      total += (m.freq[n] / Math.max(1, m.avgHits)) * 6;
-      total += (m.gapDraws[n] / Math.max(1, m.draws)) * 5;
+      total += (m.freq[n] / Math.max(1, m.avgHits)) * 5;
+      total += (m.gapDraws[n] / Math.max(1, m.draws)) * 4;
     }
 
     total += m.pbScore[pb] * 12;
-    total += (m.pbFreq[pb] / Math.max(1, m.avgPbHits)) * 5;
-    total += (m.pbGapDraws[pb] / Math.max(1, m.draws)) * 5;
+    total += (m.pbFreq[pb] / Math.max(1, m.avgPbHits)) * 4;
+    total += (m.pbGapDraws[pb] / Math.max(1, m.draws)) * 4;
 
     for(let i=0;i<main.length;i++){
       for(let j=i+1;j<main.length;j++){
-        const pk = pairKey(main[i], main[j]);
-        total += (m.pairArr.find(x => x.k === pk)?.v || 0) * 1.4;
+        total += (m.pairCounts.get(pairKey(main[i], main[j])) || 0) * 1.3;
       }
     }
 
     for(let i=0;i<main.length;i++){
       for(let j=i+1;j<main.length;j++){
         for(let k=j+1;k<main.length;k++){
-          const tk = tripleKey(main[i], main[j], main[k]);
-          total += (m.tripleArr.find(x => x.k === tk)?.v || 0) * 1.8;
+          total += (m.tripleCounts.get(tripleKey(main[i], main[j], main[k])) || 0) * 1.7;
         }
       }
     }
 
     const spread = main[main.length - 1] - main[0];
     if(spread >= 18 && spread <= 55) total += 6;
+    else total -= 3;
 
-    const odds = main.filter(n => n % 2 === 1).length;
-    const evens = main.length - odds;
-    if(odds >= 2 && odds <= 3 && evens >= 2 && evens <= 3) total += 5;
+    const odd = countOdd(main);
+    const even = main.length - odd;
+    if(odd >= 2 && odd <= 3 && even >= 2 && even <= 3) total += 5;
+    else total -= 2;
+
+    const low = countLow(main);
+    const high = main.length - low;
+    if(low >= 2 && low <= 3 && high >= 2 && high <= 3) total += 5;
+    else total -= 2;
 
     if(hasRunOf3(main)) total -= 10;
     return total;
@@ -862,11 +971,16 @@
     return { main: chosen.sort((a,b)=>a-b), pb };
   }
 
-  historyFileInput.addEventListener('change', function(){
-    const file = this.files && this.files[0];
+  function resetOutputs(){
     analyzedModel = null;
     playsBox.innerHTML = 'Analyze first, then Generate.';
     pretestBox.innerHTML = 'Analyze first, then Generate to see the 20 pretest candidate lines.';
+    parserNotesBox.innerHTML = 'Upload a file, then click <b>Analyze</b> to see parser validation notes.';
+  }
+
+  historyFileInput.addEventListener('change', function(){
+    const file = this.files && this.files[0];
+    resetOutputs();
 
     if(!file){
       uploadedHistoryText = '';
@@ -880,11 +994,11 @@
       uploadedHistoryText = String(e.target.result || '');
       fileStatus.textContent = `Loaded file: ${file.name}`;
 
-      const previewRows = parseHistory(uploadedHistoryText);
-      if(previewRows.length){
-        parseStatus.innerHTML = `<span class="ok">Preview found ${previewRows.length} valid Powerball draw lines.</span>`;
+      const preview = parseHistoryDetailed(uploadedHistoryText);
+      if(preview.rows.length){
+        parseStatus.innerHTML = `<span class="ok">Preview found ${preview.rows.length} valid Powerball draw lines.</span>`;
       } else {
-        parseStatus.innerHTML = `<span class="bad">No valid Powerball draw lines found yet. Your file may have extra text, headers, or non-draw content.</span>`;
+        parseStatus.innerHTML = `<span class="bad">No valid Powerball draw lines found yet. Check the file formatting.</span>`;
       }
     };
     reader.onerror = function(){
@@ -896,9 +1010,7 @@
   });
 
   function doAnalyze(){
-    analyzedModel = null;
-    playsBox.innerHTML = 'Analyze first, then Generate.';
-    pretestBox.innerHTML = 'Analyze first, then Generate to see the 20 pretest candidate lines.';
+    resetOutputs();
 
     if(!uploadedHistoryText.trim()){
       summaryBox.innerHTML = '<span class="bad"><b>No uploaded file content found.</b> Upload the history file first.</span>';
@@ -910,22 +1022,38 @@
       return;
     }
 
-    const rows = parseHistory(uploadedHistoryText);
+    const daysPerDraw = clamp(+daysPerDrawInput.value || 2.33, 1, 14);
+    const detailed = parseHistoryDetailed(uploadedHistoryText);
 
-    if(!rows.length){
+    if(!detailed.rows.length){
       summaryBox.innerHTML = '<span class="bad"><b>No valid Powerball draw history found inside the uploaded file.</b></span>';
       oddsBox.textContent = '—';
       historyStatsBox.textContent = '—';
       topNumbersBox.textContent = '—';
       combosBox.textContent = '—';
       footerNote.textContent = 'Analysis failed.';
+      parserNotesBox.innerHTML = detailed.issues.length
+        ? `<ul class="list">${detailed.issues.slice(0,20).map(x => `<li>${x}</li>`).join('')}</ul>`
+        : 'No usable lines found.';
       parseStatus.innerHTML = '<span class="bad">Parser found 0 usable Powerball draw lines.</span>';
       return;
     }
 
-    analyzedModel = buildModel(rows);
-    renderModel(analyzedModel);
-    parseStatus.innerHTML = `<span class="ok">Analysis complete. Found ${rows.length} usable Powerball draw lines.</span>`;
+    let rows = attachFallbackDates(detailed.rows, daysPerDraw);
+
+    rows.sort((a,b) => {
+      const ta = a.effectiveDate ? a.effectiveDate.getTime() : 0;
+      const tb = b.effectiveDate ? b.effectiveDate.getTime() : 0;
+      return tb - ta;
+    });
+
+    const dedupe = dedupeRows(rows);
+    rows = dedupe.deduped;
+
+    analyzedModel = buildModel(rows, detailed.issues);
+    renderModel(analyzedModel, dedupe.duplicatesRemoved);
+
+    parseStatus.innerHTML = `<span class="ok">Analysis complete. Found ${rows.length} cleaned Powerball draw lines after sorting and deduplication.</span>`;
   }
 
   function doGenerate(){
@@ -942,17 +1070,26 @@
     const used = new Set();
     let attempts = 0;
 
-    while(candidates.length < pretestRuns && attempts < 30000){
+    while(candidates.length < pretestRuns && attempts < 50000){
       attempts++;
       const p = generateOnePlay(analyzedModel, rng, candidates.length);
-      const key = keyFull(p.main, p.pb);
+      const key = `${p.main.join('-')}|PB-${p.pb}`;
 
       if(analyzedModel.allFullCombos.has(key)) continue;
       if(used.has(key)) continue;
       if(hasRunOf3(p.main)) continue;
 
+      const odd = countOdd(p.main);
+      const low = countLow(p.main);
+      if(odd < 1 || odd > 4) continue;
+      if(low < 1 || low > 4) continue;
+
       used.add(key);
-      candidates.push({ main: p.main, pb: p.pb, score: scoreLine(p.main, p.pb, analyzedModel) });
+      candidates.push({
+        main: p.main,
+        pb: p.pb,
+        score: scoreLine(p.main, p.pb, analyzedModel)
+      });
     }
 
     if(!candidates.length){
@@ -988,7 +1125,9 @@
 
     for(const c of candidates){
       if(best5.length >= 5) break;
-      if(!best5.some(x => keyFull(x.main, x.pb) === keyFull(c.main, c.pb))) best5.push(c);
+      if(!best5.some(x => `${x.main.join('-')}|PB-${x.pb}` === `${c.main.join('-')}|PB-${c.pb}`)){
+        best5.push(c);
+      }
     }
 
     playsBox.innerHTML = `
