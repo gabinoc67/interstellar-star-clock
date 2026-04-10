@@ -347,14 +347,14 @@
     let m = t.match(/^(\d{4})[-\/](\d{2})[-\/](\d{2})$/);
     if(m){
       const y = +m[1], mo = +m[2], d = +m[3];
-      const dt = new Date(Date.UTC(y, mo-1, d));
+      const dt = new Date(Date.UTC(y, mo - 1, d));
       return isNaN(dt.getTime()) ? null : dt;
     }
 
     m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
     if(m){
       const mo = +m[1], d = +m[2], y = +m[3];
-      const dt = new Date(Date.UTC(y, mo-1, d));
+      const dt = new Date(Date.UTC(y, mo - 1, d));
       return isNaN(dt.getTime()) ? null : dt;
     }
     return null;
@@ -422,8 +422,10 @@
       }
 
       if(unique.length >= PICKS_PER_LINE){
-        const combo = unique.slice(0, PICKS_PER_LINE).sort((a,b)=>a-b);
-        rows.push({ date, combo });
+        rows.push({
+          date,
+          combo: unique.slice(0, PICKS_PER_LINE).sort((a,b)=>a-b)
+        });
       }
     }
 
@@ -491,30 +493,54 @@
     };
     reader.readAsText(file);
   });
-    function buildModel(rows){
+    function normalizeRows(rows){
+    const hasDates = rows.some(r => !!r.date);
+    let newestRows = rows.slice();
+
+    if(hasDates){
+      newestRows.sort((a,b)=>{
+        const at = a.date ? a.date.getTime() : -Infinity;
+        const bt = b.date ? b.date.getTime() : -Infinity;
+        return bt - at;
+      });
+    }
+
+    const latestRow = hasDates
+      ? newestRows.find(r => !!r.date) || newestRows[0] || null
+      : (rows[0] || null);
+
+    return {
+      hasDates,
+      newestRows,
+      latestRow
+    };
+  }
+
+  function buildModel(rows){
     const draws = rows.length;
     if(!draws) return null;
 
+    const normalized = normalizeRows(rows);
+    const hasDates = normalized.hasDates;
+    const newestRows = normalized.newestRows;
+    const latestRow = normalized.latestRow;
+
     const freq = new Array(N_MAX + 1).fill(0);
-    const lastSeenDrawIndex = new Array(N_MAX + 1).fill(null);
     const pairCounts = new Map();
     const tripleCounts = new Map();
     const allCombos = new Set();
 
-    const hasDates = rows.some(r => !!r.date);
-    const latestTime = hasDates
-      ? Math.max(...rows.filter(r => r.date).map(r => r.date.getTime()))
-      : null;
+    const lastSeenNewestIndex = new Array(N_MAX + 1).fill(null);
 
-    const daysPerDraw = clamp(+daysPerDrawInput.value || 3.5, 1, 14);
-
-    for(let i = 0; i < rows.length; i++){
-      const combo = rows[i].combo;
+    for(let i = 0; i < newestRows.length; i++){
+      const combo = newestRows[i].combo;
       allCombos.add(keyCombo(combo));
 
       for(const n of combo){
         freq[n]++;
-        if(lastSeenDrawIndex[n] === null) lastSeenDrawIndex[n] = i;
+        if(lastSeenNewestIndex[n] === null){
+          lastSeenNewestIndex[n] = i;
+        }
       }
 
       for(let a=0; a<combo.length; a++){
@@ -536,7 +562,9 @@
 
     const gapDraws = new Array(N_MAX + 1).fill(draws + 1);
     for(let n=N_MIN; n<=N_MAX; n++){
-      if(lastSeenDrawIndex[n] !== null) gapDraws[n] = lastSeenDrawIndex[n];
+      if(lastSeenNewestIndex[n] !== null){
+        gapDraws[n] = lastSeenNewestIndex[n];
+      }
     }
 
     const avgHits = (draws * PICKS_PER_LINE) / N_MAX;
@@ -575,16 +603,17 @@
       .slice(0, 10);
 
     const totalCombos = combination(54, 6);
-    const oddsJackpot = totalCombos;
-    const odds5 = combination(6,5) * combination(48,1);
-    const odds4 = combination(6,4) * combination(48,2);
-    const odds3 = combination(6,3) * combination(48,3);
+    const jackpotOdds = totalCombos;
+    const favorable5 = combination(6,5) * combination(48,1);
+    const favorable4 = combination(6,4) * combination(48,2);
+    const favorable3 = combination(6,3) * combination(48,3);
 
     return {
       rows,
+      newestRows,
+      latestRow,
       draws,
       hasDates,
-      latestTime,
       freq,
       gapDraws,
       score,
@@ -596,18 +625,17 @@
       tripleArr,
       allCombos,
       totalCombos,
-      oddsJackpot,
-      odds5,
-      odds4,
-      odds3,
-      daysPerDraw
+      jackpotOdds,
+      favorable5,
+      favorable4,
+      favorable3
     };
   }
 
   function renderModel(m){
-    const latest = m.rows[0]?.combo?.join(' ') || '—';
+    const latest = m.latestRow?.combo?.join(' ') || '—';
     const uniqueUsed = m.freq.filter((x,idx)=>idx>=1 && x>0).length;
-    const expectedPerNumber = (m.draws * 6 / 54).toFixed(2);
+    const expectedPerNumber = (m.draws * PICKS_PER_LINE / N_MAX).toFixed(2);
 
     summaryBox.innerHTML = `
       <div><b>Draws analyzed:</b> ${fmtInt(m.draws)}</div>
@@ -618,10 +646,10 @@
     `;
 
     oddsBox.innerHTML = `
-      <div><b>Jackpot:</b> 1 in ${fmtInt(m.oddsJackpot)}</div>
-      <div><b>Exactly 5 matches:</b> ${fmtInt(m.odds5)} combinations</div>
-      <div><b>Exactly 4 matches:</b> ${fmtInt(m.odds4)} combinations</div>
-      <div><b>Exactly 3 matches:</b> ${fmtInt(m.odds3)} combinations</div>
+      <div><b>Jackpot odds:</b> 1 in ${fmtInt(m.jackpotOdds)}</div>
+      <div><b>Exact 5-match favorable combinations:</b> ${fmtInt(m.favorable5)}</div>
+      <div><b>Exact 4-match favorable combinations:</b> ${fmtInt(m.favorable4)}</div>
+      <div><b>Exact 3-match favorable combinations:</b> ${fmtInt(m.favorable3)}</div>
     `;
 
     historyStatsBox.innerHTML = `
@@ -661,7 +689,7 @@
     const mode = suggestModeInput.value;
     const avoidRecent = avoidRecentRepeatInput.value;
     const w = new Array(N_MAX + 1).fill(0);
-    const latestCombo = m.rows[0]?.combo || [];
+    const latestCombo = m.latestRow?.combo || [];
 
     for(let n=N_MIN; n<=N_MAX; n++){
       const freqNorm = m.freq[n] / Math.max(1, m.avgHits);
@@ -671,7 +699,9 @@
       if(mode === 'balanced') s = 0.52 * freqNorm + 0.48 * gapNorm;
       else if(mode === 'hot') s = 0.72 * freqNorm + 0.28 * gapNorm;
       else if(mode === 'overdue') s = 0.25 * freqNorm + 0.75 * gapNorm;
-      else if(mode === 'mixed') s = playIndex % 2 === 0 ? 0.62 * freqNorm + 0.38 * gapNorm : 0.35 * freqNorm + 0.65 * gapNorm;
+      else if(mode === 'mixed') s = playIndex % 2 === 0
+        ? 0.62 * freqNorm + 0.38 * gapNorm
+        : 0.35 * freqNorm + 0.65 * gapNorm;
 
       if(avoidRecent === 'soft' && latestCombo.includes(n)) s *= 0.78;
       if(avoidRecent === 'yes' && latestCombo.includes(n)) s *= 0.22;
@@ -752,8 +782,7 @@
     }
     return chosen.sort((a,b)=>a-b);
   }
-
-  function doAnalyze(){
+    function doAnalyze(){
     analyzedModel = null;
     playsBox.innerHTML = 'Analyze first, then Generate.';
     pretestBox.innerHTML = 'Analyze first, then Generate to see the 20 pretest candidate lines.';
@@ -846,7 +875,9 @@
 
     for(const c of candidates){
       if(best5.length >= 5) break;
-      if(!best5.some(x => keyCombo(x.combo) === keyCombo(c.combo))) best5.push(c);
+      if(!best5.some(x => keyCombo(x.combo) === keyCombo(c.combo))){
+        best5.push(c);
+      }
     }
 
     playsBox.innerHTML = `
