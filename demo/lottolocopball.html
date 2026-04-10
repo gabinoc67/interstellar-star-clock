@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Powerball Analyzer — Analyze, Generate, Print</title>
+
+<style>
+:root{
+  --bg:#0b1020;
+  --panel:#121932;
+  --ink:#eef3ff;
+  --line:#26345f;
+  --accent:#8fb4ff;
+}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui;}
+.wrap{max-width:1280px;margin:auto;padding:18px}
+.card{background:var(--panel);border-radius:16px;padding:16px;margin-bottom:16px}
+.outbox{background:#081021;border:1px solid var(--line);padding:12px;border-radius:12px}
+button{padding:10px 16px;border-radius:999px;border:none;background:var(--accent);font-weight:800;cursor:pointer}
+.mono{font-family:monospace}
+</style>
+</head>
+
+<body>
+<div class="wrap">
+
+<h1>Powerball Analyzer</h1>
+
+<div class="card">
+<h2>Upload Draw History</h2>
+<input id="historyFile" type="file" />
+<button id="analyzeBtn">Analyze</button>
+<button id="generateBtn">Generate</button>
+<button onclick="window.print()">Print</button>
+</div>
+
+<div class="card">
+<h2>20 Pretest Results</h2>
+<div id="pretestBox" class="outbox">—</div>
+</div>
+
+<div class="card">
+<h2>Best 5 Plays</h2>
+<div id="playsBox" class="outbox">—</div>
+</div>
+<script>
+(function(){
+
+// =============================
+// POWERBALL SETTINGS
+// =============================
+const MAIN_MIN = 1;
+const MAIN_MAX = 69;
+const PICKS = 5;
+
+const PB_MIN = 1;
+const PB_MAX = 26;
+
+// =============================
+let historyText = '';
+let model = null;
+
+// =============================
+document.getElementById("historyFile").addEventListener("change", e=>{
+  const reader = new FileReader();
+  reader.onload = ev => historyText = ev.target.result;
+  reader.readAsText(e.target.files[0]);
+});
+
+// =============================
+// PARSER (5 + Powerball)
+// =============================
+function parse(text){
+  const rows = [];
+  const lines = text.split(/\n/);
+
+  for(let line of lines){
+    const nums = (line.match(/\d+/g)||[]).map(Number);
+
+    if(nums.length >= 6){
+      const main = nums.slice(0,5)
+        .filter(n=>n>=MAIN_MIN && n<=MAIN_MAX)
+        .sort((a,b)=>a-b);
+
+      const pb = nums[5];
+
+      if(main.length===5 && pb>=PB_MIN && pb<=PB_MAX){
+        rows.push({main, pb});
+      }
+    }
+  }
+  return rows;
+}
+
+// =============================
+function buildModel(rows){
+
+  const freq = Array(MAIN_MAX+1).fill(0);
+  const pbFreq = Array(PB_MAX+1).fill(0);
+
+  for(const r of rows){
+    r.main.forEach(n=>freq[n]++);
+    pbFreq[r.pb]++;
+  }
+
+  return {rows, freq, pbFreq};
+}
+  // =============================
+// GENERATOR + SCORING
+// =============================
+function rand(arr){
+  return arr[Math.floor(Math.random()*arr.length)];
+}
+
+function generateOne(m){
+
+  const pool = [];
+  for(let i=MAIN_MIN;i<=MAIN_MAX;i++) pool.push(i);
+
+  const pick = [];
+
+  while(pick.length < PICKS){
+    const n = rand(pool);
+    pick.push(n);
+    pool.splice(pool.indexOf(n),1);
+  }
+
+  pick.sort((a,b)=>a-b);
+
+  const pb = Math.floor(Math.random()*PB_MAX)+1;
+
+  return {main:pick, pb};
+}
+
+// =============================
+function score(p,m){
+
+  let s=0;
+
+  p.main.forEach(n=> s += m.freq[n]);
+
+  // Powerball weighted stronger
+  s += m.pbFreq[p.pb] * 2;
+
+  return s;
+}
+
+// =============================
+function analyze(){
+  const rows = parse(historyText);
+  model = buildModel(rows);
+  alert("Analysis complete: "+rows.length+" draws");
+}
+
+// =============================
+function generate(){
+
+  if(!model){
+    alert("Analyze first");
+    return;
+  }
+
+  const pre = [];
+
+  for(let i=0;i<20;i++){
+    const p = generateOne(model);
+    pre.push({p, score:score(p,model)});
+  }
+
+  // SHOW PRETEST PANEL
+  document.getElementById("pretestBox").innerHTML =
+    pre.map((x,i)=>`
+      Run ${i+1}: 
+      <span class="mono">${x.p.main.join(" ")} + ${x.p.pb}</span> 
+      (${x.score})
+    `).join("<br>");
+
+  // SORT BEST
+  pre.sort((a,b)=>b.score-a.score);
+
+  const best = pre.slice(0,5);
+
+  // FINAL OUTPUT
+  document.getElementById("playsBox").innerHTML =
+    best.map((x,i)=>`
+      Play ${i+1}: 
+      <span class="mono">${x.p.main.join(" ")} + ${x.p.pb}</span>
+    `).join("<br>");
+}
+
+// =============================
+document.getElementById("analyzeBtn").onclick = analyze;
+document.getElementById("generateBtn").onclick = generate;
+
+})();
+</script>
+
+</body>
+</html>
