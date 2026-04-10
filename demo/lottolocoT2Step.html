@@ -1,4 +1,3 @@
-<!-- PART 1 OF 2 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -305,7 +304,7 @@
 
       <div class="kpis">
         <div class="kpi print-dark">
-          <b>Official / Modeled Odds</b>
+          <b>Modeled Odds</b>
           <div id="oddsBox" class="small">—</div>
         </div>
         <div class="kpi print-dark">
@@ -386,30 +385,36 @@
   }
 
   function fmtOdds(x){
+    if(!isFinite(x) || x <= 0) return '—';
     return '1 in ' + Math.round(x).toLocaleString();
   }
 
-  function fmtPct(x){
-    return (x * 100).toFixed(2) + '%';
+  function fmtDateUTC(dt){
+    if(!dt) return '—';
+    const y = dt.getUTCFullYear();
+    const m = String(dt.getUTCMonth() + 1).padStart(2,'0');
+    const d = String(dt.getUTCDate()).padStart(2,'0');
+    return `${y}-${m}-${d}`;
   }
 
   function parseDateFlexible(s){
     const t = (s || '').trim();
     if(!t) return null;
 
-    let m = t.match(/^(\d{4})[-\/](\d{2})[-\/](\d{2})$/);
+    let m = t.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
     if(m){
       const y = +m[1], mo = +m[2], d = +m[3];
-      const dt = new Date(Date.UTC(y, mo-1, d));
+      const dt = new Date(Date.UTC(y, mo - 1, d));
       return isNaN(dt.getTime()) ? null : dt;
     }
 
     m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
     if(m){
       const mo = +m[1], d = +m[2], y = +m[3];
-      const dt = new Date(Date.UTC(y, mo-1, d));
+      const dt = new Date(Date.UTC(y, mo - 1, d));
       return isNaN(dt.getTime()) ? null : dt;
     }
+
     return null;
   }
 
@@ -448,7 +453,10 @@
   function weightedPick(candidates, weightMap, rng){
     let total = 0;
     for(const n of candidates) total += Math.max(0, weightMap[n] || 0);
-    if(total <= 0) return candidates[Math.floor(rng() * candidates.length)];
+
+    if(total <= 0){
+      return candidates[Math.floor(rng() * candidates.length)];
+    }
 
     let r = rng() * total;
     for(const n of candidates){
@@ -458,13 +466,22 @@
     return candidates[candidates.length - 1];
   }
 
-  function countMainMatches(a, b){
+  function countMainMatches(a,b){
     let c = 0;
     for(const n of a) if(b.includes(n)) c++;
     return c;
   }
 
-  function parseHistory(text){
+  function renderBalls(main, bonus){
+    return `
+      <div class="ballset">
+        ${main.map(n => `<span class="ball">${n}</span>`).join('')}
+        <span class="tag">Bonus</span>
+        <span class="ball bonusBall">${bonus}</span>
+      </div>
+    `;
+  }
+    function parseHistory(text){
     const rows = [];
     const lines = (text || '').split(/\r?\n+/);
 
@@ -500,18 +517,10 @@
       }
 
       let nums = extractNumbersFromLine(working);
-
-      if(date){
-        const y = date.getUTCFullYear();
-        const m = date.getUTCMonth() + 1;
-        const d = date.getUTCDate();
-        nums = nums.filter(n => n !== y && n !== m && n !== d);
-      }
-
       nums = nums.filter(n => n >= 1 && n <= 35);
 
       if(nums.length >= 5){
-        const rawMain = nums.slice(0, 4);
+        const rawMain = nums.slice(0,4);
         const bonus = nums[4];
 
         const uniqueMain = [];
@@ -536,16 +545,6 @@
     });
 
     return rows;
-  }
-
-  function renderBalls(main, bonus){
-    return `
-      <div class="ballset">
-        ${main.map(n => `<span class="ball">${n}</span>`).join('')}
-        <span class="tag">Bonus</span>
-        <span class="ball bonusBall">${bonus}</span>
-      </div>
-    `;
   }
 
   historyFileInput.addEventListener('change', function(){
@@ -596,10 +595,8 @@
     const allDraws = new Set();
 
     const hasDates = rows.some(r => !!r.date);
-    const latestTime = hasDates
-      ? Math.max(...rows.filter(r => r.date).map(r => r.date.getTime()))
-      : null;
-
+    const latestRow = rows[0] || null;
+    const latestTime = latestRow && latestRow.date ? latestRow.date.getTime() : null;
     const daysPerDraw = clamp(+daysPerDrawInput.value || 3.5, 1, 7);
 
     for(let i = 0; i < rows.length; i++){
@@ -687,26 +684,40 @@
     const pairArr = [...pairCounts.entries()]
       .map(([k,v]) => ({k,v}))
       .sort((a,b)=>b.v-a.v || a.k.localeCompare(b.k))
-      .slice(0, 12);
+      .slice(0,12);
 
     const tripleArr = [...tripleCounts.entries()]
       .map(([k,v]) => ({k,v}))
       .sort((a,b)=>b.v-a.v || a.k.localeCompare(b.k))
-      .slice(0, 10);
+      .slice(0,10);
 
-    const jackpotOddsModeled = combination(35, 4) * 35;
-    const exact4NoBonus = combination(35,4) * 34;
-    const exact3WithBonus = combination(4,3) * combination(31,1) * 1;
-    const exact3NoBonus = combination(4,3) * combination(31,1) * 34;
-    const exact2WithBonus = combination(4,2) * combination(31,2) * 1;
-    const exact1WithBonus = combination(4,1) * combination(31,3) * 1;
-    const exact0WithBonus = combination(31,4) * 1;
+    const totalCombos = combination(35, 4) * 35;
+
+    const prizeCounts = {
+      jackpot4Bonus: 1,
+      exact4NoBonus: 34,
+      exact3Bonus: combination(4,3) * combination(31,1),
+      exact3NoBonus: combination(4,3) * combination(31,1) * 34,
+      exact2Bonus: combination(4,2) * combination(31,2),
+      exact1Bonus: combination(4,1) * combination(31,3),
+      exact0Bonus: combination(31,4)
+    };
+
+    const anyPrizeCount =
+      prizeCounts.jackpot4Bonus +
+      prizeCounts.exact4NoBonus +
+      prizeCounts.exact3Bonus +
+      prizeCounts.exact3NoBonus +
+      prizeCounts.exact2Bonus +
+      prizeCounts.exact1Bonus +
+      prizeCounts.exact0Bonus;
 
     return {
       rows,
       draws,
       hasDates,
       latestTime,
+      latestRow,
       freqMain,
       freqBonus,
       gapMain,
@@ -724,46 +735,45 @@
       pairArr,
       tripleArr,
       allDraws,
-      jackpotOddsModeled,
-      exact4NoBonus,
-      exact3WithBonus,
-      exact3NoBonus,
-      exact2WithBonus,
-      exact1WithBonus,
-      exact0WithBonus,
+      totalCombos,
+      prizeCounts,
+      anyPrizeCount,
       daysPerDraw
     };
   }
-  <!-- PART 2 OF 2 -->
+
   function renderModel(m){
-    const latest = m.rows[0] ? renderBalls(m.rows[0].main, m.rows[0].bonus) : '—';
-    const uniqueMainUsed = m.freqMain.filter((x,idx)=>idx>=1 && x>0).length;
-    const uniqueBonusUsed = m.freqBonus.filter((x,idx)=>idx>=1 && x>0).length;
+    const latest = m.latestRow ? renderBalls(m.latestRow.main, m.latestRow.bonus) : '—';
+    const uniqueMainUsed = m.freqMain.filter((x,idx)=>idx >= 1 && x > 0).length;
+    const uniqueBonusUsed = m.freqBonus.filter((x,idx)=>idx >= 1 && x > 0).length;
 
     summaryBox.innerHTML = `
       <div><b>Draws analyzed:</b> ${fmtInt(m.draws)}</div>
       <div><b>Lottery format:</b> 4 main from 35 + 1 Bonus Ball from 35</div>
       <div><b>Latest draw in file:</b><div style="margin-top:8px;">${latest}</div></div>
-      <div style="margin-top:8px;"><b>Main numbers seen:</b> ${uniqueMainUsed} / 35</div>
+      <div style="margin-top:8px;"><b>Latest draw date:</b> ${m.latestRow && m.latestRow.date ? fmtDateUTC(m.latestRow.date) : 'Not supplied in file'}</div>
+      <div><b>Main numbers seen:</b> ${uniqueMainUsed} / 35</div>
       <div><b>Bonus Ball values seen:</b> ${uniqueBonusUsed} / 35</div>
       <div><b>Expected average main hits per number:</b> ${m.avgHitsMain.toFixed(2)}</div>
       <div><b>Expected average bonus hits per number:</b> ${m.avgHitsBonus.toFixed(2)}</div>
     `;
 
     oddsBox.innerHTML = `
-      <div><b>Official overall odds (any prize):</b> 1 in 32.4</div>
-      <div><b>Modeled jackpot odds (4 + Bonus):</b> ${fmtOdds(m.jackpotOddsModeled)}</div>
-      <div><b>Modeled exact 4 without Bonus:</b> ${fmtOdds(m.jackpotOddsModeled / m.exact4NoBonus)}</div>
-      <div><b>Modeled exact 3 + Bonus:</b> ${fmtOdds(m.jackpotOddsModeled / m.exact3WithBonus)}</div>
-      <div><b>Modeled exact 3 without Bonus:</b> ${fmtOdds(m.jackpotOddsModeled / m.exact3NoBonus)}</div>
-      <div><b>Modeled exact 2 + Bonus:</b> ${fmtOdds(m.jackpotOddsModeled / m.exact2WithBonus)}</div>
+      <div><b>Modeled overall odds (any listed prize):</b> ${fmtOdds(m.totalCombos / m.anyPrizeCount)}</div>
+      <div><b>Modeled jackpot odds (4 + Bonus):</b> ${fmtOdds(m.totalCombos / m.prizeCounts.jackpot4Bonus)}</div>
+      <div><b>Modeled exact 4 without Bonus:</b> ${fmtOdds(m.totalCombos / m.prizeCounts.exact4NoBonus)}</div>
+      <div><b>Modeled exact 3 + Bonus:</b> ${fmtOdds(m.totalCombos / m.prizeCounts.exact3Bonus)}</div>
+      <div><b>Modeled exact 3 without Bonus:</b> ${fmtOdds(m.totalCombos / m.prizeCounts.exact3NoBonus)}</div>
+      <div><b>Modeled exact 2 + Bonus:</b> ${fmtOdds(m.totalCombos / m.prizeCounts.exact2Bonus)}</div>
+      <div><b>Modeled exact 1 + Bonus:</b> ${fmtOdds(m.totalCombos / m.prizeCounts.exact1Bonus)}</div>
+      <div><b>Modeled exact 0 + Bonus:</b> ${fmtOdds(m.totalCombos / m.prizeCounts.exact0Bonus)}</div>
     `;
 
     historyStatsBox.innerHTML = `
       <div><b>Average main hits per number:</b> ${m.avgHitsMain.toFixed(2)}</div>
       <div><b>Average Bonus Ball hits per number:</b> ${m.avgHitsBonus.toFixed(2)}</div>
       <div><b>Date-aware file:</b> ${m.hasDates ? 'Yes' : 'No'}</div>
-      <div><b>Total modeled combinations:</b> ${fmtInt(m.jackpotOddsModeled)}</div>
+      <div><b>Total modeled combinations:</b> ${fmtInt(m.totalCombos)}</div>
     `;
 
     const hotMain = m.topMainByFreq.slice(0,12).map(x => `${x.n}(${x.v})`).join('  ');
@@ -863,8 +873,7 @@
     }
     return w;
   }
-
-  function overlapsTooMuch(candidate, existing){
+    function overlapsTooMuch(candidate, existing){
     for(const play of existing){
       let common = 0;
       for(const n of candidate.main) if(play.main.includes(n)) common++;
@@ -1003,6 +1012,7 @@
 
     while(candidates.length < pretestRuns && attempts < 40000){
       attempts++;
+
       const line = generateOneLine(analyzedModel, rng, candidates.length);
       const key = drawKey(line.main, line.bonus);
 
@@ -1011,7 +1021,10 @@
       if(hasRunOf3(line.main)) continue;
 
       used.add(key);
-      candidates.push({ ...line, score: scoreLine(line, analyzedModel) });
+      candidates.push({
+        ...line,
+        score: scoreLine(line, analyzedModel)
+      });
     }
 
     if(!candidates.length){
