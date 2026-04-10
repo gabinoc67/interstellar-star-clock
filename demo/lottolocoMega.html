@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Mega Lottery Draw Analyzer — Analyze, Generate, Print</title>
+<title>Mega Millions Draw Analyzer — Analyze, Generate, Print</title>
 <style>
   :root{
     --bg:#0b1020;
@@ -185,15 +185,15 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>Mega Lottery Draw Analyzer — Analyze, Generate, Print</h1>
+  <h1>Mega Millions Draw Analyzer — Analyze, Generate, Print</h1>
   <p>
-    Upload the Mega draw-history file, analyze it first, then generate the best 5 plays from 20 pretest runs.
+    Upload the Mega Millions draw-history file, analyze it first, then generate the best 5 plays from 20 pretest runs.
   </p>
 
   <div class="grid">
     <div>
       <div class="card">
-        <h2>1. Official Mega Draw History Upload</h2>
+        <h2>1. Official Mega Millions Draw History Upload</h2>
 
         <div class="uploadBox">
           <label for="historyFile">Upload draw history file</label>
@@ -204,12 +204,6 @@
 
         <div class="row" style="margin-top:12px;">
           <div class="subcard">
-            <label for="daysPerDraw">Days per draw</label>
-            <input id="daysPerDraw" type="number" min="1" max="14" step="0.5" value="3.5" />
-            <div class="tiny">Used when the file does not contain usable dates.</div>
-          </div>
-
-          <div class="subcard">
             <label for="suggestMode">Suggestion mode</label>
             <select id="suggestMode">
               <option value="balanced" selected>Balanced</option>
@@ -219,9 +213,7 @@
             </select>
             <div class="tiny">Changes how candidate plays are scored.</div>
           </div>
-        </div>
 
-        <div class="row" style="margin-top:10px;">
           <div class="subcard">
             <label for="avoidRecentRepeat">Avoid latest draw numbers</label>
             <select id="avoidRecentRepeat">
@@ -231,11 +223,22 @@
             </select>
             <div class="tiny">Helps reduce copying the newest draw.</div>
           </div>
+        </div>
 
+        <div class="row" style="margin-top:10px;">
           <div class="subcard">
             <label for="pretestRuns">Pretest runs</label>
             <input id="pretestRuns" type="number" min="20" max="20" step="1" value="20" />
             <div class="tiny">Fixed at 20.</div>
+          </div>
+
+          <div class="subcard">
+            <label for="lineDiversity">Line diversity</label>
+            <select id="lineDiversity">
+              <option value="normal" selected>Normal</option>
+              <option value="high">High</option>
+            </select>
+            <div class="tiny">High diversity tries harder to reduce overlap in final plays.</div>
           </div>
         </div>
 
@@ -246,7 +249,7 @@
         </div>
 
         <div class="disclaimer">
-          <strong>Disclaimer:</strong> This tool analyzes past lottery drawings and ranks candidate number sets using historical patterns and combination math. It does not guarantee future winning numbers.
+          <strong>Disclaimer:</strong> This tool analyzes past Mega Millions drawings and ranks candidate number sets using historical patterns and combination math. It does not guarantee future winning numbers.
         </div>
       </div>
 
@@ -273,12 +276,12 @@
 
       <div class="hr"></div>
 
-      <h2 class="print-dark">3. Top Historical Numbers</h2>
+      <h2 class="print-dark">3. Top Historical Main Numbers</h2>
       <div id="topNumbersBox" class="outbox print-dark">—</div>
 
       <div class="hr"></div>
 
-      <h2 class="print-dark">4. Best Historical Pairs / Triples</h2>
+      <h2 class="print-dark">4. Best Historical Pairs / Triples / Mega Balls</h2>
       <div id="combosBox" class="outbox print-dark">—</div>
 
       <div class="hr"></div>
@@ -297,17 +300,20 @@
 
 <script>
 (function(){
-  const N_MIN = 1;
-  const N_MAX = 54;
-  const PICKS_PER_LINE = 6;
+  const MAIN_MIN = 1;
+  const MAIN_MAX = 70;
+  const MAIN_PICKS = 5;
+  const MEGA_MIN = 1;
+  const MEGA_MAX = 25;
 
   const historyFileInput = document.getElementById('historyFile');
   const fileStatus = document.getElementById('fileStatus');
   const parseStatus = document.getElementById('parseStatus');
-  const daysPerDrawInput = document.getElementById('daysPerDraw');
+
   const suggestModeInput = document.getElementById('suggestMode');
   const avoidRecentRepeatInput = document.getElementById('avoidRecentRepeat');
   const pretestRunsInput = document.getElementById('pretestRuns');
+  const lineDiversityInput = document.getElementById('lineDiversity');
 
   const analyzeBtn = document.getElementById('analyzeBtn');
   const generateBtn = document.getElementById('generateBtn');
@@ -332,7 +338,9 @@
     if(k === 0 || k === n) return 1;
     k = Math.min(k, n-k);
     let result = 1;
-    for(let i=1;i<=k;i++) result = result * (n - k + i) / i;
+    for(let i=1;i<=k;i++){
+      result = result * (n - k + i) / i;
+    }
     return result;
   }
 
@@ -344,7 +352,7 @@
     const t = (s || '').trim();
     if(!t) return null;
 
-    let m = t.match(/^(\d{4})[-\/](\d{2})[-\/](\d{2})$/);
+    let m = t.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
     if(m){
       const y = +m[1], mo = +m[2], d = +m[3];
       const dt = new Date(Date.UTC(y, mo-1, d));
@@ -364,10 +372,12 @@
     return /^\d{4}[-\/]\d{1,2}[-\/]\d{1,2}$/.test(token) || /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(token);
   }
 
-  function extractNumbersFromLine(line){
-    const matches = line.match(/\d+/g);
-    if(!matches) return [];
-    return matches.map(x => parseInt(x,10)).filter(n => !isNaN(n));
+  function uniqueSorted(arr){
+    const out = [];
+    for(const n of arr){
+      if(!out.includes(n)) out.push(n);
+    }
+    return out.sort((a,b)=>a-b);
   }
 
   function parseHistory(text){
@@ -405,7 +415,7 @@
         }
       }
 
-      let nums = extractNumbersFromLine(working);
+      let nums = (working.match(/\d+/g) || []).map(n => parseInt(n,10)).filter(n => !isNaN(n));
 
       if(date){
         const y = date.getUTCFullYear();
@@ -414,24 +424,47 @@
         nums = nums.filter(n => n !== y && n !== m && n !== d);
       }
 
-      nums = nums.filter(n => n >= N_MIN && n <= N_MAX);
+      const mainsRaw = [];
+      let mega = null;
 
-      const unique = [];
       for(const n of nums){
-        if(!unique.includes(n)) unique.push(n);
+        if(mainsRaw.length < MAIN_PICKS){
+          if(n >= MAIN_MIN && n <= MAIN_MAX) mainsRaw.push(n);
+        } else {
+          if(mega === null && n >= MEGA_MIN && n <= MEGA_MAX){
+            mega = n;
+            break;
+          }
+        }
       }
 
-      if(unique.length >= PICKS_PER_LINE){
-        const combo = unique.slice(0, PICKS_PER_LINE).sort((a,b)=>a-b);
-        rows.push({ date, combo });
+      const mains = uniqueSorted(mainsRaw);
+
+      if(mains.length === MAIN_PICKS && mega !== null && !mains.includes(mega)){
+        rows.push({ date, main:mains, mega });
       }
     }
 
+    rows.sort((a,b)=>{
+      const ta = a.date ? a.date.getTime() : 0;
+      const tb = b.date ? b.date.getTime() : 0;
+      return tb - ta;
+    });
+
     return rows;
   }
+    function keyMain(main){
+    return main.join('-');
+  }
 
-  function keyCombo(a){ return a.join('-'); }
-  function pairKey(a,b){ return a < b ? `${a}-${b}` : `${b}-${a}`; }
+  function keyFull(main, mega){
+    return `${main.join('-')}|${mega}`;
+  }
+
+  function pairKey(a,b){
+    return a < b ? `${a}-${b}` : `${b}-${a}`;
+  }
+
   function tripleKey(a,b,c){
     const t = [a,b,c].sort((x,y)=>x-y);
     return `${t[0]}-${t[1]}-${t[2]}`;
@@ -459,110 +492,102 @@
     return candidates[candidates.length - 1];
   }
 
-  historyFileInput.addEventListener('change', function(){
-    const file = this.files && this.files[0];
-    analyzedModel = null;
-    playsBox.innerHTML = 'Analyze first, then Generate.';
-    pretestBox.innerHTML = 'Analyze first, then Generate to see the 20 pretest candidate lines.';
-
-    if(!file){
-      uploadedHistoryText = '';
-      fileStatus.textContent = 'No file uploaded yet.';
-      parseStatus.textContent = 'Waiting for file.';
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = function(e){
-      uploadedHistoryText = String(e.target.result || '');
-      fileStatus.textContent = `Loaded file: ${file.name}`;
-
-      const previewRows = parseHistory(uploadedHistoryText);
-      if(previewRows.length){
-        parseStatus.innerHTML = `<span class="ok">Preview found ${previewRows.length} valid draw lines.</span>`;
-      } else {
-        parseStatus.innerHTML = `<span class="bad">No valid draw lines found yet. Your file may have extra text, headers, or non-draw content.</span>`;
-      }
-    };
-    reader.onerror = function(){
-      uploadedHistoryText = '';
-      fileStatus.textContent = 'Could not read the uploaded file.';
-      parseStatus.innerHTML = `<span class="bad">Read error.</span>`;
-    };
-    reader.readAsText(file);
-  });
-    function buildModel(rows){
+  function buildModel(rows){
     const draws = rows.length;
     if(!draws) return null;
 
-    const freq = new Array(N_MAX + 1).fill(0);
-    const lastSeenDrawIndex = new Array(N_MAX + 1).fill(null);
+    const mainFreq = new Array(MAIN_MAX + 1).fill(0);
+    const megaFreq = new Array(MEGA_MAX + 1).fill(0);
+    const mainLastSeen = new Array(MAIN_MAX + 1).fill(null);
+    const megaLastSeen = new Array(MEGA_MAX + 1).fill(null);
+
     const pairCounts = new Map();
     const tripleCounts = new Map();
-    const allCombos = new Set();
+    const allFullCombos = new Set();
 
-    const hasDates = rows.some(r => !!r.date);
-    const latestTime = hasDates
-      ? Math.max(...rows.filter(r => r.date).map(r => r.date.getTime()))
-      : null;
+    for(let i=0;i<rows.length;i++){
+      const row = rows[i];
+      allFullCombos.add(keyFull(row.main, row.mega));
 
-    const daysPerDraw = clamp(+daysPerDrawInput.value || 3.5, 1, 14);
-
-    for(let i = 0; i < rows.length; i++){
-      const combo = rows[i].combo;
-      allCombos.add(keyCombo(combo));
-
-      for(const n of combo){
-        freq[n]++;
-        if(lastSeenDrawIndex[n] === null) lastSeenDrawIndex[n] = i;
+      for(const n of row.main){
+        mainFreq[n]++;
+        if(mainLastSeen[n] === null) mainLastSeen[n] = i;
       }
 
-      for(let a=0; a<combo.length; a++){
-        for(let b=a+1; b<combo.length; b++){
-          const pk = pairKey(combo[a], combo[b]);
+      megaFreq[row.mega]++;
+      if(megaLastSeen[row.mega] === null) megaLastSeen[row.mega] = i;
+
+      for(let a=0;a<row.main.length;a++){
+        for(let b=a+1;b<row.main.length;b++){
+          const pk = pairKey(row.main[a], row.main[b]);
           pairCounts.set(pk, (pairCounts.get(pk) || 0) + 1);
         }
       }
 
-      for(let a=0; a<combo.length; a++){
-        for(let b=a+1; b<combo.length; b++){
-          for(let c=b+1; c<combo.length; c++){
-            const tk = tripleKey(combo[a], combo[b], combo[c]);
+      for(let a=0;a<row.main.length;a++){
+        for(let b=a+1;b<row.main.length;b++){
+          for(let c=b+1;c<row.main.length;c++){
+            const tk = tripleKey(row.main[a], row.main[b], row.main[c]);
             tripleCounts.set(tk, (tripleCounts.get(tk) || 0) + 1);
           }
         }
       }
     }
 
-    const gapDraws = new Array(N_MAX + 1).fill(draws + 1);
-    for(let n=N_MIN; n<=N_MAX; n++){
-      if(lastSeenDrawIndex[n] !== null) gapDraws[n] = lastSeenDrawIndex[n];
+    const avgMainHits = (draws * MAIN_PICKS) / MAIN_MAX;
+    const avgMegaHits = draws / MEGA_MAX;
+
+    const mainGap = new Array(MAIN_MAX + 1).fill(draws + 1);
+    const megaGap = new Array(MEGA_MAX + 1).fill(draws + 1);
+
+    for(let n=MAIN_MIN;n<=MAIN_MAX;n++){
+      if(mainLastSeen[n] !== null) mainGap[n] = mainLastSeen[n];
+    }
+    for(let n=MEGA_MIN;n<=MEGA_MAX;n++){
+      if(megaLastSeen[n] !== null) megaGap[n] = megaLastSeen[n];
     }
 
-    const avgHits = (draws * PICKS_PER_LINE) / N_MAX;
-    const score = new Array(N_MAX + 1).fill(0);
+    const mainScore = new Array(MAIN_MAX + 1).fill(0);
+    const megaScore = new Array(MEGA_MAX + 1).fill(0);
 
-    for(let n=N_MIN; n<=N_MAX; n++){
-      const f = freq[n];
-      const gap = gapDraws[n];
-      const overdueBoost = gap / Math.max(1, draws);
-      const freqNorm = f / Math.max(1, avgHits);
-      score[n] = 0.55 * freqNorm + 0.45 * overdueBoost;
+    for(let n=MAIN_MIN;n<=MAIN_MAX;n++){
+      const freqNorm = mainFreq[n] / Math.max(1, avgMainHits);
+      const gapNorm = mainGap[n] / Math.max(1, draws);
+      mainScore[n] = 0.55 * freqNorm + 0.45 * gapNorm;
     }
 
-    const topByFreq = [];
-    const topByGap = [];
-    const topByScore = [];
-
-    for(let n=N_MIN; n<=N_MAX; n++){
-      topByFreq.push({n, v:freq[n]});
-      topByGap.push({n, v:gapDraws[n]});
-      topByScore.push({n, v:score[n]});
+    for(let n=MEGA_MIN;n<=MEGA_MAX;n++){
+      const freqNorm = megaFreq[n] / Math.max(1, avgMegaHits);
+      const gapNorm = megaGap[n] / Math.max(1, draws);
+      megaScore[n] = 0.55 * freqNorm + 0.45 * gapNorm;
     }
 
-    topByFreq.sort((a,b)=>b.v-a.v || a.n-b.n);
-    topByGap.sort((a,b)=>b.v-a.v || a.n-b.n);
-    topByScore.sort((a,b)=>b.v-a.v || a.n-b.n);
+    const topMainByFreq = [];
+    const topMainByGap = [];
+    const topMainByScore = [];
+    const topMegaByFreq = [];
+    const topMegaByGap = [];
+    const topMegaByScore = [];
+
+    for(let n=MAIN_MIN;n<=MAIN_MAX;n++){
+      topMainByFreq.push({n, v:mainFreq[n]});
+      topMainByGap.push({n, v:mainGap[n]});
+      topMainByScore.push({n, v:mainScore[n]});
+    }
+
+    for(let n=MEGA_MIN;n<=MEGA_MAX;n++){
+      topMegaByFreq.push({n, v:megaFreq[n]});
+      topMegaByGap.push({n, v:megaGap[n]});
+      topMegaByScore.push({n, v:megaScore[n]});
+    }
+
+    topMainByFreq.sort((a,b)=>b.v-a.v || a.n-b.n);
+    topMainByGap.sort((a,b)=>b.v-a.v || a.n-b.n);
+    topMainByScore.sort((a,b)=>b.v-a.v || a.n-b.n);
+
+    topMegaByFreq.sort((a,b)=>b.v-a.v || a.n-b.n);
+    topMegaByGap.sort((a,b)=>b.v-a.v || a.n-b.n);
+    topMegaByScore.sort((a,b)=>b.v-a.v || a.n-b.n);
 
     const pairArr = [...pairCounts.entries()]
       .map(([k,v]) => ({k,v}))
@@ -574,98 +599,111 @@
       .sort((a,b)=>b.v-a.v || a.k.localeCompare(b.k))
       .slice(0, 10);
 
-    const totalCombos = combination(54, 6);
-    const oddsJackpot = totalCombos;
-    const odds5 = combination(6,5) * combination(48,1);
-    const odds4 = combination(6,4) * combination(48,2);
-    const odds3 = combination(6,3) * combination(48,3);
+    const totalMainCombos = combination(MAIN_MAX, MAIN_PICKS);
+    const totalTicketCombos = totalMainCombos * MEGA_MAX;
 
     return {
       rows,
       draws,
-      hasDates,
-      latestTime,
-      freq,
-      gapDraws,
-      score,
-      avgHits,
-      topByFreq,
-      topByGap,
-      topByScore,
+      mainFreq,
+      megaFreq,
+      mainGap,
+      megaGap,
+      mainScore,
+      megaScore,
+      avgMainHits,
+      avgMegaHits,
+      topMainByFreq,
+      topMainByGap,
+      topMainByScore,
+      topMegaByFreq,
+      topMegaByGap,
+      topMegaByScore,
       pairArr,
       tripleArr,
-      allCombos,
-      totalCombos,
-      oddsJackpot,
-      odds5,
-      odds4,
-      odds3,
-      daysPerDraw
+      allFullCombos,
+      totalMainCombos,
+      totalTicketCombos
     };
   }
 
   function renderModel(m){
-    const latest = m.rows[0]?.combo?.join(' ') || '—';
-    const uniqueUsed = m.freq.filter((x,idx)=>idx>=1 && x>0).length;
-    const expectedPerNumber = (m.draws * 6 / 54).toFixed(2);
+    const latestRow = m.rows[0];
+    const latestText = latestRow
+      ? `${latestRow.main.join(' ')}  +  Mega ${latestRow.mega}`
+      : '—';
+
+    const uniqueMainSeen = m.mainFreq.filter((x,idx)=>idx>=1 && x>0).length;
+    const uniqueMegaSeen = m.megaFreq.filter((x,idx)=>idx>=1 && x>0).length;
 
     summaryBox.innerHTML = `
       <div><b>Draws analyzed:</b> ${fmtInt(m.draws)}</div>
-      <div><b>Lottery format:</b> 6 from 54</div>
-      <div><b>Latest draw in file:</b> <span class="mono">${latest}</span></div>
-      <div><b>Unique numbers seen:</b> ${uniqueUsed} / 54</div>
-      <div><b>Expected average hits per number:</b> ${expectedPerNumber}</div>
+      <div><b>Lottery format:</b> 5 from 70 + Mega Ball 1 from 25</div>
+      <div><b>Latest draw in file:</b> <span class="mono">${latestText}</span></div>
+      <div><b>Unique main numbers seen:</b> ${uniqueMainSeen} / 70</div>
+      <div><b>Unique Mega Balls seen:</b> ${uniqueMegaSeen} / 25</div>
     `;
 
     oddsBox.innerHTML = `
-      <div><b>Jackpot:</b> 1 in ${fmtInt(m.oddsJackpot)}</div>
-      <div><b>Exactly 5 matches:</b> ${fmtInt(m.odds5)} combinations</div>
-      <div><b>Exactly 4 matches:</b> ${fmtInt(m.odds4)} combinations</div>
-      <div><b>Exactly 3 matches:</b> ${fmtInt(m.odds3)} combinations</div>
+      <div><b>Jackpot:</b> 1 in ${fmtInt(m.totalTicketCombos)}</div>
+      <div><b>Main-number combinations:</b> ${fmtInt(m.totalMainCombos)}</div>
+      <div><b>Mega Ball possibilities:</b> ${fmtInt(MEGA_MAX)}</div>
     `;
 
     historyStatsBox.innerHTML = `
-      <div><b>Average hits per number:</b> ${m.avgHits.toFixed(2)}</div>
-      <div><b>Date-aware file:</b> ${m.hasDates ? 'Yes' : 'No'}</div>
-      <div><b>Total possible 6-number lines:</b> ${fmtInt(m.totalCombos)}</div>
+      <div><b>Average main hits per number:</b> ${m.avgMainHits.toFixed(2)}</div>
+      <div><b>Average Mega hits per ball:</b> ${m.avgMegaHits.toFixed(2)}</div>
+      <div><b>Total ticket combinations:</b> ${fmtInt(m.totalTicketCombos)}</div>
     `;
 
-    const hot = m.topByFreq.slice(0,12).map(x => `${x.n}(${x.v})`).join('  ');
-    const overdue = m.topByGap.slice(0,12).map(x => `${x.n}(${x.v})`).join('  ');
-    const blended = m.topByScore.slice(0,12).map(x => `${x.n}(${x.v.toFixed(2)})`).join('  ');
+    const hotMain = m.topMainByFreq.slice(0,12).map(x => `${x.n}(${x.v})`).join('  ');
+    const overdueMain = m.topMainByGap.slice(0,12).map(x => `${x.n}(${x.v})`).join('  ');
+    const scoreMain = m.topMainByScore.slice(0,12).map(x => `${x.n}(${x.v.toFixed(2)})`).join('  ');
 
     topNumbersBox.innerHTML = `
-      <div><span class="tag">Most frequent</span></div>
-      <div class="mono">${hot || '—'}</div>
-      <div style="margin-top:10px;"><span class="tag">Most overdue</span></div>
-      <div class="mono">${overdue || '—'}</div>
-      <div style="margin-top:10px;"><span class="tag">Best blended score</span></div>
-      <div class="mono">${blended || '—'}</div>
+      <div><span class="tag">Main numbers by frequency</span></div>
+      <div class="mono">${hotMain || '—'}</div>
+      <div style="margin-top:10px;"><span class="tag">Main numbers by overdue gap</span></div>
+      <div class="mono">${overdueMain || '—'}</div>
+      <div style="margin-top:10px;"><span class="tag">Main numbers by blended score</span></div>
+      <div class="mono">${scoreMain || '—'}</div>
     `;
 
     const pairs = m.pairArr.map(x => `${x.k} (${x.v})`).join('<br>');
     const triples = m.tripleArr.map(x => `${x.k} (${x.v})`).join('<br>');
+    const megaHot = m.topMegaByFreq.slice(0,10).map(x => `${x.n}(${x.v})`).join('  ');
+    const megaOverdue = m.topMegaByGap.slice(0,10).map(x => `${x.n}(${x.v})`).join('  ');
+    const megaScore = m.topMegaByScore.slice(0,10).map(x => `${x.n}(${x.v.toFixed(2)})`).join('  ');
 
     combosBox.innerHTML = `
-      <div><span class="tag">Top pairs</span></div>
+      <div><span class="tag">Top main-number pairs</span></div>
       <div class="mono">${pairs || '—'}</div>
-      <div style="margin-top:12px;"><span class="tag">Top triples</span></div>
+
+      <div style="margin-top:12px;"><span class="tag">Top main-number triples</span></div>
       <div class="mono">${triples || '—'}</div>
+
+      <div style="margin-top:12px;"><span class="tag">Mega Ball frequency</span></div>
+      <div class="mono">${megaHot || '—'}</div>
+
+      <div style="margin-top:12px;"><span class="tag">Mega Ball overdue</span></div>
+      <div class="mono">${megaOverdue || '—'}</div>
+
+      <div style="margin-top:12px;"><span class="tag">Mega Ball blended score</span></div>
+      <div class="mono">${megaScore || '—'}</div>
     `;
 
-    footerNote.innerHTML =
-      `Analyzed ${fmtInt(m.draws)} draws. Generate will run 20 pretests and keep the best 5 plays.`;
+    footerNote.innerHTML = `Analyzed ${fmtInt(m.draws)} Mega Millions draws. Generate will run 20 pretests and keep the best 5 plays.`;
   }
 
-  function makeWeightMap(m, playIndex){
+  function makeMainWeightMap(m, playIndex){
     const mode = suggestModeInput.value;
     const avoidRecent = avoidRecentRepeatInput.value;
-    const w = new Array(N_MAX + 1).fill(0);
-    const latestCombo = m.rows[0]?.combo || [];
+    const latestMain = m.rows[0]?.main || [];
+    const w = new Array(MAIN_MAX + 1).fill(0);
 
-    for(let n=N_MIN; n<=N_MAX; n++){
-      const freqNorm = m.freq[n] / Math.max(1, m.avgHits);
-      const gapNorm = m.gapDraws[n] / Math.max(1, m.draws);
+    for(let n=MAIN_MIN;n<=MAIN_MAX;n++){
+      const freqNorm = m.mainFreq[n] / Math.max(1, m.avgMainHits);
+      const gapNorm = m.mainGap[n] / Math.max(1, m.draws);
       let s = 1;
 
       if(mode === 'balanced') s = 0.52 * freqNorm + 0.48 * gapNorm;
@@ -673,27 +711,41 @@
       else if(mode === 'overdue') s = 0.25 * freqNorm + 0.75 * gapNorm;
       else if(mode === 'mixed') s = playIndex % 2 === 0 ? 0.62 * freqNorm + 0.38 * gapNorm : 0.35 * freqNorm + 0.65 * gapNorm;
 
-      if(avoidRecent === 'soft' && latestCombo.includes(n)) s *= 0.78;
-      if(avoidRecent === 'yes' && latestCombo.includes(n)) s *= 0.22;
+      if(avoidRecent === 'soft' && latestMain.includes(n)) s *= 0.78;
+      if(avoidRecent === 'yes' && latestMain.includes(n)) s *= 0.22;
 
       w[n] = Math.max(0.0001, s);
     }
     return w;
   }
 
-  function overlapsTooMuch(candidate, existing){
-    for(const play of existing){
-      let common = 0;
-      for(const n of candidate) if(play.includes(n)) common++;
-      if(common >= 4) return true;
-    }
-    return false;
-  }
+  function makeMegaWeightMap(m, playIndex){
+    const mode = suggestModeInput.value;
+    const avoidRecent = avoidRecentRepeatInput.value;
+    const latestMega = m.rows[0]?.mega ?? null;
+    const w = new Array(MEGA_MAX + 1).fill(0);
 
-  function hasRunOf3(combo){
+    for(let n=MEGA_MIN;n<=MEGA_MAX;n++){
+      const freqNorm = m.megaFreq[n] / Math.max(1, m.avgMegaHits);
+      const gapNorm = m.megaGap[n] / Math.max(1, m.draws);
+      let s = 1;
+
+      if(mode === 'balanced') s = 0.52 * freqNorm + 0.48 * gapNorm;
+      else if(mode === 'hot') s = 0.72 * freqNorm + 0.28 * gapNorm;
+      else if(mode === 'overdue') s = 0.25 * freqNorm + 0.75 * gapNorm;
+      else if(mode === 'mixed') s = playIndex % 2 === 0 ? 0.62 * freqNorm + 0.38 * gapNorm : 0.35 * freqNorm + 0.65 * gapNorm;
+
+      if(avoidRecent === 'soft' && latestMega === n) s *= 0.78;
+      if(avoidRecent === 'yes' && latestMega === n) s *= 0.22;
+
+      w[n] = Math.max(0.0001, s);
+    }
+    return w;
+  }
+    function hasRunOf3(main){
     let run = 1;
-    for(let i=1;i<combo.length;i++){
-      if(combo[i] === combo[i-1] + 1){
+    for(let i=1;i<main.length;i++){
+      if(main[i] === main[i-1] + 1){
         run++;
         if(run >= 3) return true;
       } else {
@@ -703,54 +755,84 @@
     return false;
   }
 
-  function scoreLine(combo, m){
+  function overlapsTooMuch(candidateMain, existing){
+    const threshold = lineDiversityInput.value === 'high' ? 3 : 4;
+    for(const play of existing){
+      let common = 0;
+      for(const n of candidateMain){
+        if(play.main.includes(n)) common++;
+      }
+      if(common >= threshold) return true;
+    }
+    return false;
+  }
+
+  function scoreLine(ticket, m){
     let total = 0;
 
-    for(const n of combo){
-      total += m.score[n] * 10;
-      total += (m.freq[n] / Math.max(1, m.avgHits)) * 6;
-      total += (m.gapDraws[n] / Math.max(1, m.draws)) * 5;
+    for(const n of ticket.main){
+      total += m.mainScore[n] * 10;
+      total += (m.mainFreq[n] / Math.max(1, m.avgMainHits)) * 6;
+      total += (m.mainGap[n] / Math.max(1, m.draws)) * 5;
     }
 
-    for(let i=0;i<combo.length;i++){
-      for(let j=i+1;j<combo.length;j++){
-        const pk = pairKey(combo[i], combo[j]);
-        total += (m.pairArr.find(x => x.k === pk)?.v || 0) * 1.4;
+    total += m.megaScore[ticket.mega] * 12;
+    total += (m.megaFreq[ticket.mega] / Math.max(1, m.avgMegaHits)) * 5;
+    total += (m.megaGap[ticket.mega] / Math.max(1, m.draws)) * 5;
+
+    for(let i=0;i<ticket.main.length;i++){
+      for(let j=i+1;j<ticket.main.length;j++){
+        const pk = pairKey(ticket.main[i], ticket.main[j]);
+        total += (m.pairArr.find(x => x.k === pk)?.v || 0) * 1.5;
       }
     }
 
-    for(let i=0;i<combo.length;i++){
-      for(let j=i+1;j<combo.length;j++){
-        for(let k=j+1;k<combo.length;k++){
-          const tk = tripleKey(combo[i], combo[j], combo[k]);
+    for(let i=0;i<ticket.main.length;i++){
+      for(let j=i+1;j<ticket.main.length;j++){
+        for(let k=j+1;k<ticket.main.length;k++){
+          const tk = tripleKey(ticket.main[i], ticket.main[j], ticket.main[k]);
           total += (m.tripleArr.find(x => x.k === tk)?.v || 0) * 1.8;
         }
       }
     }
 
-    const spread = combo[combo.length - 1] - combo[0];
-    if(spread >= 20 && spread <= 45) total += 6;
+    const spread = ticket.main[ticket.main.length - 1] - ticket.main[0];
+    if(spread >= 18 && spread <= 55) total += 6;
 
-    const odds = combo.filter(n => n % 2 === 1).length;
-    const evens = combo.length - odds;
-    if(odds >= 2 && odds <= 4 && evens >= 2 && evens <= 4) total += 5;
+    const oddCount = ticket.main.filter(n => n % 2 === 1).length;
+    const evenCount = ticket.main.length - oddCount;
+    if(oddCount >= 2 && oddCount <= 3 && evenCount >= 2 && evenCount <= 3) total += 5;
 
-    if(hasRunOf3(combo)) total -= 10;
+    const lowCount = ticket.main.filter(n => n <= 35).length;
+    const highCount = ticket.main.length - lowCount;
+    if(lowCount >= 2 && highCount >= 2) total += 4;
+
+    if(hasRunOf3(ticket.main)) total -= 10;
+
     return total;
   }
 
-  function generateOnePlay(m, rng, playIndex){
-    const weights = makeWeightMap(m, playIndex);
-    const available = [];
-    for(let n=N_MIN; n<=N_MAX; n++) available.push(n);
+  function generateOneTicket(m, rng, playIndex){
+    const mainWeights = makeMainWeightMap(m, playIndex);
+    const megaWeights = makeMegaWeightMap(m, playIndex);
 
-    const chosen = [];
-    while(chosen.length < PICKS_PER_LINE && available.length){
-      const pick = weightedPick(available, weights, rng);
-      chosen.push(pick);
-      available.splice(available.indexOf(pick), 1);
+    const availableMain = [];
+    for(let n=MAIN_MIN;n<=MAIN_MAX;n++) availableMain.push(n);
+
+    const main = [];
+    while(main.length < MAIN_PICKS && availableMain.length){
+      const pick = weightedPick(availableMain, mainWeights, rng);
+      main.push(pick);
+      availableMain.splice(availableMain.indexOf(pick), 1);
     }
-    return chosen.sort((a,b)=>a-b);
+
+    main.sort((a,b)=>a-b);
+
+    const megaPool = [];
+    for(let n=MEGA_MIN;n<=MEGA_MAX;n++) megaPool.push(n);
+    const mega = weightedPick(megaPool, megaWeights, rng);
+
+    return { main, mega };
   }
 
   function doAnalyze(){
@@ -771,19 +853,19 @@
     const rows = parseHistory(uploadedHistoryText);
 
     if(!rows.length){
-      summaryBox.innerHTML = '<span class="bad"><b>No valid draw history found inside the uploaded file.</b></span>';
+      summaryBox.innerHTML = '<span class="bad"><b>No valid Mega Millions draw history found inside the uploaded file.</b></span>';
       oddsBox.textContent = '—';
       historyStatsBox.textContent = '—';
       topNumbersBox.textContent = '—';
       combosBox.textContent = '—';
       footerNote.textContent = 'Analysis failed.';
-      parseStatus.innerHTML = '<span class="bad">Parser found 0 usable draw lines.</span>';
+      parseStatus.innerHTML = '<span class="bad">Parser found 0 usable Mega Millions draw lines.</span>';
       return;
     }
 
     analyzedModel = buildModel(rows);
     renderModel(analyzedModel);
-    parseStatus.innerHTML = `<span class="ok">Analysis complete. Found ${rows.length} usable draw lines.</span>`;
+    parseStatus.innerHTML = `<span class="ok">Analysis complete. Found ${rows.length} usable Mega Millions draw lines.</span>`;
   }
 
   function doGenerate(){
@@ -800,17 +882,22 @@
     const used = new Set();
     let attempts = 0;
 
-    while(candidates.length < pretestRuns && attempts < 30000){
+    while(candidates.length < pretestRuns && attempts < 50000){
       attempts++;
-      const combo = generateOnePlay(analyzedModel, rng, candidates.length);
-      const key = keyCombo(combo);
 
-      if(analyzedModel.allCombos.has(key)) continue;
-      if(used.has(key)) continue;
-      if(hasRunOf3(combo)) continue;
+      const ticket = generateOneTicket(analyzedModel, rng, candidates.length);
+      const fullKey = keyFull(ticket.main, ticket.mega);
 
-      used.add(key);
-      candidates.push({ combo, score: scoreLine(combo, analyzedModel) });
+      if(analyzedModel.allFullCombos.has(fullKey)) continue;
+      if(used.has(fullKey)) continue;
+      if(hasRunOf3(ticket.main)) continue;
+
+      used.add(fullKey);
+      candidates.push({
+        main: ticket.main,
+        mega: ticket.mega,
+        score: scoreLine(ticket, analyzedModel)
+      });
     }
 
     if(!candidates.length){
@@ -829,16 +916,16 @@
             <b>Run ${idx + 1}</b><br>
             <span class="tiny">Score: ${p.score.toFixed(2)}</span>
           </div>
-          <div class="mono">${p.combo.join('  ')}</div>
+          <div class="mono">${p.main.join('  ')}  +  Mega ${p.mega}</div>
         </div>
       `).join('')}
     `;
 
-    candidates.sort((a,b)=>b.score-a.score || a.combo[0]-b.combo[0]);
+    candidates.sort((a,b)=>b.score-a.score || a.main[0]-b.main[0] || a.mega-b.mega);
 
     const best5 = [];
     for(const c of candidates){
-      if(best5.length === 0 || !overlapsTooMuch(c.combo, best5.map(x => x.combo))){
+      if(best5.length === 0 || !overlapsTooMuch(c.main, best5)){
         best5.push(c);
       }
       if(best5.length >= 5) break;
@@ -846,13 +933,15 @@
 
     for(const c of candidates){
       if(best5.length >= 5) break;
-      if(!best5.some(x => keyCombo(x.combo) === keyCombo(c.combo))) best5.push(c);
+      if(!best5.some(x => keyFull(x.main, x.mega) === keyFull(c.main, c.mega))){
+        best5.push(c);
+      }
     }
 
     playsBox.innerHTML = `
       <div class="tiny" style="margin-bottom:10px;">
         <b>Pretest runs completed:</b> ${candidates.length}<br>
-        <b>Final output:</b> best 5 scoring lines
+        <b>Final output:</b> best 5 scoring Mega Millions lines
       </div>
       ${best5.map((p,idx)=>`
         <div class="play">
@@ -860,165 +949,49 @@
             <b>Play ${idx + 1}</b><br>
             <span class="tiny">Score: ${p.score.toFixed(2)}</span>
           </div>
-          <div class="mono">${p.combo.join('  ')}</div>
+          <div class="mono">${p.main.join('  ')}  +  Mega ${p.mega}</div>
         </div>
       `).join('')}
     `;
   }
+
+  historyFileInput.addEventListener('change', function(){
+    const file = this.files && this.files[0];
+    analyzedModel = null;
+    playsBox.innerHTML = 'Analyze first, then Generate.';
+    pretestBox.innerHTML = 'Analyze first, then Generate to see the 20 pretest candidate lines.';
+
+    if(!file){
+      uploadedHistoryText = '';
+      fileStatus.textContent = 'No file uploaded yet.';
+      parseStatus.textContent = 'Waiting for file.';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function(e){
+      uploadedHistoryText = String(e.target.result || '');
+      fileStatus.textContent = `Loaded file: ${file.name}`;
+
+      const previewRows = parseHistory(uploadedHistoryText);
+      if(previewRows.length){
+        parseStatus.innerHTML = `<span class="ok">Preview found ${previewRows.length} valid Mega Millions draw lines.</span>`;
+      } else {
+        parseStatus.innerHTML = `<span class="bad">No valid Mega Millions draw lines found yet. Your file may have extra text, headers, or non-draw content.</span>`;
+      }
+    };
+    reader.onerror = function(){
+      uploadedHistoryText = '';
+      fileStatus.textContent = 'Could not read the uploaded file.';
+      parseStatus.innerHTML = `<span class="bad">Read error.</span>`;
+    };
+    reader.readAsText(file);
+  });
 
   analyzeBtn.addEventListener('click', doAnalyze);
   generateBtn.addEventListener('click', doGenerate);
   printBtn.addEventListener('click', ()=> window.print());
 })();
 </script>
-</body>
-</html>
-<script>
-(function(){
-
-// =============================
-// MEGA MILLIONS SETTINGS
-// =============================
-const MAIN_MIN = 1;
-const MAIN_MAX = 70;
-const PICKS = 5;
-
-const MEGA_MIN = 1;
-const MEGA_MAX = 25;
-
-// =============================
-let historyText = '';
-let model = null;
-
-// =============================
-document.getElementById("historyFile").addEventListener("change", e=>{
-  const reader = new FileReader();
-  reader.onload = ev => historyText = ev.target.result;
-  reader.readAsText(e.target.files[0]);
-});
-
-// =============================
-// PARSER (5 + Mega Ball)
-// =============================
-function parse(text){
-  const rows = [];
-  const lines = text.split(/\n/);
-
-  for(let line of lines){
-    const nums = (line.match(/\d+/g)||[]).map(Number);
-
-    if(nums.length >= 6){
-      const main = nums.slice(0,5)
-        .filter(n=>n>=MAIN_MIN && n<=MAIN_MAX)
-        .sort((a,b)=>a-b);
-
-      const mega = nums[5];
-
-      if(main.length===5 && mega>=MEGA_MIN && mega<=MEGA_MAX){
-        rows.push({main, mega});
-      }
-    }
-  }
-  return rows;
-}
-
-// =============================
-function buildModel(rows){
-
-  const freq = Array(MAIN_MAX+1).fill(0);
-  const megaFreq = Array(MEGA_MAX+1).fill(0);
-
-  for(const r of rows){
-    r.main.forEach(n=>freq[n]++);
-    megaFreq[r.mega]++;
-  }
-
-  return {rows, freq, megaFreq};
-}
-  // =============================
-// RANDOM + GENERATOR
-// =============================
-function rand(arr){
-  return arr[Math.floor(Math.random()*arr.length)];
-}
-
-function generateOne(m){
-
-  const pool = [];
-  for(let i=MAIN_MIN;i<=MAIN_MAX;i++) pool.push(i);
-
-  const pick = [];
-
-  while(pick.length < PICKS){
-    const n = rand(pool);
-    pick.push(n);
-    pool.splice(pool.indexOf(n),1);
-  }
-
-  pick.sort((a,b)=>a-b);
-
-  const mega = Math.floor(Math.random()*MEGA_MAX)+1;
-
-  return {main:pick, mega};
-}
-
-// =============================
-function score(p,m){
-
-  let s=0;
-
-  p.main.forEach(n=> s += m.freq[n]);
-  s += m.megaFreq[p.mega]*2;
-
-  return s;
-}
-
-// =============================
-function analyze(){
-  const rows = parse(historyText);
-  model = buildModel(rows);
-  alert("Analysis complete: "+rows.length+" draws");
-}
-
-// =============================
-function generate(){
-
-  if(!model){
-    alert("Analyze first");
-    return;
-  }
-
-  const pre = [];
-
-  for(let i=0;i<20;i++){
-    const p = generateOne(model);
-    pre.push({p, score:score(p,model)});
-  }
-
-  document.getElementById("pretestBox").innerHTML =
-    pre.map((x,i)=>`
-      Run ${i+1}:
-      <span class="mono">${x.p.main.join(" ")} + ${x.p.mega}</span>
-      (${x.score})
-    `).join("<br>");
-
-  pre.sort((a,b)=>b.score-a.score);
-
-  const best = pre.slice(0,5);
-
-  document.getElementById("playsBox").innerHTML =
-    best.map((x,i)=>`
-      Play ${i+1}:
-      <span class="mono">${x.p.main.join(" ")} + ${x.p.mega}</span>
-    `).join("<br>");
-}
-
-// =============================
-document.getElementById("analyzeBtn").onclick = analyze;
-document.getElementById("generateBtn").onclick = generate;
-
-})();
-</script>
-
 </body>
 </html>
