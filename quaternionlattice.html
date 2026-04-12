@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Quaternion Lattice + CST Timing Sandbox</title>
+<style>
+  :root{
+    --bg:#071018;
+    --panel:#0d1822;
+    --panel2:#122232;
+    --line:#21405d;
+    --text:#d9f3ff;
+    --muted:#8db7cb;
+    --good:#79f2a3;
+    --warn:#ffd166;
+    --bad:#ff7b7b;
+    --accent:#62d7ff;
+    --accent2:#9c8bff;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:linear-gradient(180deg,#061019,#08131c 55%,#071018);color:var(--text);font-family:Arial,Helvetica,sans-serif}
+  .wrap{max-width:1600px;margin:0 auto;padding:14px}
+  h1,h2,h3,p{margin:0}
+  .topbar{
+    display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;
+    margin-bottom:12px
+  }
+  .titlebox{
+    background:linear-gradient(180deg,#102031,#0b1722);
+    border:1px solid var(--line);
+    border-radius:16px;
+    padding:12px 14px;
+    box-shadow:0 8px 24px rgba(0,0,0,.25);
+    min-width:320px;
+    flex:1 1 520px;
+  }
+  .titlebox h1{font-size:22px;letter-spacing:.3px}
+  .titlebox p{font-size:12px;color:var(--muted);margin-top:5px;line-height:1.45}
+  .btnrow{
+    display:flex;flex-wrap:wrap;gap:8px;align-items:center;
+    background:linear-gradient(180deg,#102031,#0b1722);
+    border:1px solid var(--line);
+    border-radius:16px;
+    padding:10px;
+    box-shadow:0 8px 24px rgba(0,0,0,.25);
+  }
+  button{
+    background:linear-gradient(180deg,#183146,#112536);
+    border:1px solid #335978;
+    color:var(--text);
+    border-radius:12px;
+    padding:9px 12px;
+    cursor:pointer;
+    font-weight:700;
+    font-size:12px;
+  }
+  button:hover{filter:brightness(1.08)}
+  button.active{outline:2px solid var(--accent)}
+  .grid{
+    display:grid;
+    grid-template-columns: 1.1fr 1.1fr 1.2fr;
+    gap:12px;
+  }
+  .col{
+    display:flex;flex-direction:column;gap:12px;
+  }
+  .panel{
+    background:linear-gradient(180deg,var(--panel),var(--panel2));
+    border:1px solid var(--line);
+    border-radius:18px;
+    padding:12px;
+    box-shadow:0 10px 24px rgba(0,0,0,.25);
+    min-height:120px;
+  }
+  .panel h2{
+    font-size:14px;
+    color:#f0fbff;
+    margin-bottom:8px;
+    letter-spacing:.4px;
+  }
+  .panel .sub{
+    font-size:11px;color:var(--muted);line-height:1.45;margin-bottom:8px
+  }
+  .controls{
+    display:grid;
+    grid-template-columns: repeat(2,minmax(180px,1fr));
+    gap:10px;
+  }
+  .field{
+    background:#0a1420;border:1px solid #1d354a;border-radius:12px;padding:8px
+  }
+  .field label{
+    display:block;font-size:11px;color:var(--muted);margin-bottom:5px
+  }
+  .field input[type="range"]{width:100%}
+  .field .v{
+    display:flex;justify-content:space-between;gap:10px;font-size:12px
+  }
+  .readouts{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(140px,1fr));
+    gap:8px;
+  }
+  .mini{
+    background:#08131d;border:1px solid #1f3a52;border-radius:12px;padding:8px
+  }
+  .mini .k{font-size:11px;color:var(--muted);margin-bottom:4px}
+  .mini .n{font-size:18px;font-weight:700}
+  .status.good{color:var(--good)}
+  .status.warn{color:var(--warn)}
+  .status.bad{color:var(--bad)}
+  canvas{
+    width:100%;
+    display:block;
+    background:radial-gradient(circle at 50% 45%, rgba(20,42,63,.9), rgba(7,16,24,1) 70%);
+    border:1px solid #23425d;
+    border-radius:16px;
+  }
+  #mainView{height:420px}
+  #metricChart,#clockChart,#sweepChart{height:220px}
+  .legend{
+    display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--muted);margin-top:8px
+  }
+  .dot{
+    display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:middle
+  }
+  .tablelike{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap:8px;
+  }
+  .note{
+    font-size:11px;color:var(--muted);line-height:1.5
+  }
+  .bigline{
+    font-size:13px;line-height:1.6;color:#e9fbff
+  }
+  .footerNote{
+    margin-top:12px;
+    font-size:11px;color:var(--muted);line-height:1.55;
+    background:#0a1420;border:1px solid #1d354a;border-radius:14px;padding:10px
+  }
+  @media (max-width:1200px){
+    .grid{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="titlebox">
+      <h1>Quaternion Lattice + CST Timing Sandbox</h1>
+      <p>
+        Concept simulator for quaternion-node evolution, observer-angle sweeps, harmonic coherence,
+        relativistic time drift, and CST-style synchronization against UTC/GPS reference time.
+      </p>
+    </div>
+    <div class="btnrow">
+      <button id="startBtn">Start</button>
+      <button id="stopBtn">Stop</button>
+      <button id="resetBtn">Reset</button>
+      <button id="sweepBtn">Run Angle Sweep</button>
+      <button id="syncBtn" class="active">CST Sync: ON</button>
+      <button id="noiseBtn">Noise: OFF</button>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="col">
+      <div class="panel">
+        <h2>Simulation Controls</h2>
+        <div class="sub">Tune the lattice engine, observer rotation, fold strength, time dilation factors, and CST synchronization.</div>
+        <div class="controls">
+          <div class="field">
+            <label>Node Count</label>
+            <input id="nodeCount" type="range" min="60" max="600" step="10" value="240"/>
+            <div class="v"><span>Light</span><span id="nodeCountVal">240</span><span>Dense</span></div>
+          </div>
+          <div class="field">
+            <label>Observer Angle (deg)</label>
+            <input id="observerAngle" type="range" min="0" max="180" step="0.5" value="120"/>
+            <div class="v"><span>0°</span><span id="observerAngleVal">120.0°</span><span>180°</span></div>
+          </div>
+          <div class="field">
+            <label>Fold Strength</label>
+            <input id="foldStrength" type="range" min="0" max="1.2" step="0.01" value="0.48"/>
+            <div class="v"><span>0.00</span><span id="foldStrengthVal">0.48</span><span>1.20</span></div>
+          </div>
+          <div class="field">
+            <label>Rotation Weight</label>
+            <input id="rotWeight" type="range" min="0" max="4" step="0.01" value="2.5"/>
+            <div class="v"><span>0.00</span><span id="rotWeightVal">2.50</span><span>4.00</span></div>
+          </div>
+          <div class="field">
+            <label>Fold Weight</label>
+            <input id="imagWeight" type="range" min="0" max="4" step="0.01" value="1.5"/>
+            <div class="v"><span>0.00</span><span id="imagWeightVal">1.50</span><span>4.00</span></div>
+          </div>
+          <div class="field">
+            <label>Velocity Fraction v/c</label>
+            <input id="velocityFrac" type="range" min="0" max="0.95" step="0.001" value="0.15"/>
+            <div class="v"><span>0.000</span><span id="velocityFracVal">0.150</span><span>0.950</span></div>
+          </div>
+          <div class="field">
+            <label>Gravity Factor (toy)</label>
+            <input id="gravityFactor" type="range" min="0" max="0.4" step="0.001" value="0.02"/>
+            <div class="v"><span>0.000</span><span id="gravityFactorVal">0.020</span><span>0.400</span></div>
+          </div>
+          <div class="field">
+            <label>CST Gain</label>
+            <input id="cstGain" type="range" min="0" max="1" step="0.01" value="0.22"/>
+            <div class="v"><span>0.00</span><span id="cstGainVal">0.22</span><span>1.00</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Engine Readouts</h2>
+        <div class="readouts">
+          <div class="mini"><div class="k">Lion-Like Ratio L</div><div class="n" id="ratioReadout">1.000</div></div>
+          <div class="mini"><div class="k">Variance</div><div class="n" id="varReadout">0.000000</div></div>
+          <div class="mini"><div class="k">Convergence Score</div><div class="n" id="convReadout">0.000</div></div>
+          <div class="mini"><div class="k">Harmonic Coherence</div><div class="n" id="coherenceReadout">0.000</div></div>
+          <div class="mini"><div class="k">Reference Clock UTC/GPS</div><div class="n" id="utcReadout">0.000 s</div></div>
+          <div class="mini"><div class="k">Local Clock</div><div class="n" id="localReadout">0.000 s</div></div>
+          <div class="mini"><div class="k">ΔT = Local - Ref</div><div class="n" id="deltaTReadout">0.000000 s</div></div>
+          <div class="mini"><div class="k">Status</div><div class="n status good" id="statusReadout">STABLE</div></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Interpretation Panel</h2>
+        <div class="bigline" id="interpretationLine">
+          Waiting to initialize lattice, clocks, and observer dynamics.
+        </div>
+        <div class="footerNote">
+          This sandbox separates three layers: quaternion geometry, timing physics, and CST-style synchronization.
+          It does not claim that consciousness, dark matter, or universal constants are proven by simulation alone.
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="panel">
+        <h2>Quaternion Lattice View</h2>
+        <div class="sub">Nodes are projected from quaternion states into a 2D display. Color and motion reflect real/imaginary balance, observer angle, and phase coherence.</div>
+        <canvas id="mainView" width="760" height="420"></canvas>
+        <div class="legend">
+          <span><span class="dot" style="background:#62d7ff"></span>Reference-aligned nodes</span>
+          <span><span class="dot" style="background:#9c8bff"></span>Imaginary-dominant nodes</span>
+          <span><span class="dot" style="background:#79f2a3"></span>Stable coherence band</span>
+          <span><span class="dot" style="background:#ff7b7b"></span>Drift / mismatch</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Metric History</h2>
+        <div class="sub">Tracks ratio, coherence, and convergence over time.</div>
+        <canvas id="metricChart" width="760" height="220"></canvas>
+      </div>
+
+      <div class="panel">
+        <h2>Clock Drift History</h2>
+        <div class="sub">Compares reference UTC/GPS clock against the local relativistically shifted clock. With CST on, local time is nudged toward reference.</div>
+        <canvas id="clockChart" width="760" height="220"></canvas>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="panel">
+        <h2>Observer Angle Sweep</h2>
+        <div class="sub">Runs a sweep across observer angles and measures the ratio response. Useful for seeing peaks, troughs, and whether 120° behaves specially in this sandbox.</div>
+        <canvas id="sweepChart" width="760" height="220"></canvas>
+        <div class="tablelike" style="margin-top:8px">
+          <div class="mini"><div class="k">Best Sweep Angle</div><div class="n" id="bestAngleReadout">—</div></div>
+          <div class="mini"><div class="k">Best Sweep Ratio</div><div class="n" id="bestSweepReadout">—</div></div>
+          <div class="mini"><div class="k">Estimated Peak Count</div><div class="n" id="peakCountReadout">—</div></div>
+          <div class="mini"><div class="k">Sweep Verdict</div><div class="n" id="sweepVerdictReadout">WAITING</div></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Physics / Theory Separation</h2>
+        <div class="note">
+          <strong>Established or engineering-grounded in this sandbox:</strong><br/>
+          quaternion rotation for orientation, harmonic oscillators as measurable frequency standards,
+          relativistic clock drift as a toy approximation, synchronization to a reference clock, and
+          system-level coherence tracking.<br/><br/>
+          <strong>Exploratory only:</strong><br/>
+          symbolic mappings like cognition/emotion/archetype, claims about dark matter as geometry,
+          or universal constants emerging from simulation alone.
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Live Equation Summary</h2>
+        <div class="note" id="eqBox">
+          q = w + xi + yj + zk<br/>
+          L = |imaginary| / |real|<br/>
+          ΔT = T_local − T_reference<br/>
+          time scale ≈ sqrt(1 − v²/c²) × (1 − gravityFactor)<br/>
+          CST correction ≈ −gain × ΔT
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Manual Notes</h2>
+        <div class="note">
+          Try these tests:
+          <br/>1. Set observer angle near 120° and fold strength near 0.48.
+          <br/>2. Raise velocity fraction to increase local clock drift.
+          <br/>3. Turn CST sync off and compare ΔT growth.
+          <br/>4. Run the angle sweep and inspect whether peaks are broad, narrow, or unstable.
+          <br/>5. Add noise and see if convergence survives.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const TAU = Math.PI * 2;
+  const EPS = 1e-9;
+
+  const els = {
+    startBtn: document.getElementById("startBtn"),
+    stopBtn: document.getElementById("stopBtn"),
+    resetBtn: document.getElementById("resetBtn"),
+    sweepBtn: document.getElementById("sweepBtn"),
+    syncBtn: document.getElementById("syncBtn"),
+    noiseBtn: document.getElementById("noiseBtn"),
+
+    nodeCount: document.getElementById("nodeCount"),
+    observerAngle: document.getElementById("observerAngle"),
+    foldStrength: document.getElementById("foldStrength"),
+    rotWeight: document.getElementById("rotWeight"),
+    imagWeight: document.getElementById("imagWeight"),
+    velocityFrac: document.getElementById("velocityFrac"),
+    gravityFactor: document.getElementById("gravityFactor"),
+    cstGain: document.getElementById("cstGain"),
+
+    nodeCountVal: document.getElementById("nodeCountVal"),
+    observerAngleVal: document.getElementById("observerAngleVal"),
+    foldStrengthVal: document.getElementById("foldStrengthVal"),
+    rotWeightVal: document.getElementById("rotWeightVal"),
+    imagWeightVal: document.getElementById("imagWeightVal"),
+    velocityFracVal: document.getElementById("velocityFracVal"),
+    gravityFactorVal: document.getElementById("gravityFactorVal"),
+    cstGainVal: document.getElementById("cstGainVal"),
+
+    ratioReadout: document.getElementById("ratioReadout"),
+    varReadout: document.getElementById("varReadout"),
+    convReadout: document.getElementById("convReadout"),
+    coherenceReadout: document.getElementById("coherenceReadout"),
+    utcReadout: document.getElementById("utcReadout"),
+    localReadout: document.getElementById("localReadout"),
+    deltaTReadout: document.getElementById("deltaTReadout"),
+    statusReadout: document.getElementById("statusReadout"),
+    interpretationLine: document.getElementById("interpretationLine"),
+
+    bestAngleReadout: document.getElementById("bestAngleReadout"),
+    bestSweepReadout: document.getElementById("bestSweepReadout"),
+    peakCountReadout: document.getElementById("peakCountReadout"),
+    sweepVerdictReadout: document.getElementById("sweepVerdictReadout"),
+    eqBox: document.getElementById("eqBox"),
+
+    mainView: document.getElementById("mainView"),
+    metricChart: document.getElementById("metricChart"),
+    clockChart: document.getElementById("clockChart"),
+    sweepChart: document.getElementById("sweepChart"),
+  };
+
+  const ctxMain = els.mainView.getContext("2d");
+  const ctxMetric = els.metricChart.getContext("2d");
+  const ctxClock = els.clockChart.getContext("2d");
+  const ctxSweep = els.sweepChart.getContext("2d");
+
+  const state = {
+    running: false,
+    syncOn: true,
+    noiseOn: false,
+    lastTs: 0,
+    simTime: 0,
+    stepCount: 0,
+    nodes: [],
+    historyRatio: [],
+    historyCoherence: [],
+    historyConv: [],
+    historyRefClock: [],
+    historyLocalClock: [],
+    historyDeltaT: [],
+    sweepPoints: [],
+    bestSweepAngle: null,
+    bestSweepRatio: null,
+    peakCount: 0,
+    refClock: 0,
+    localClock: 0,
+    localPhase: 0,
+    refPhase: 0,
+    convergenceScore: 0,
+  };
+
+  function clamp(x, a, b){ return Math.max(a, Math.min(b, x)); }
+  function lerp(a,b,t){ return a + (b-a)*t; }
+  function degToRad(d){ return d * Math.PI / 180; }
+  function fmt(n, d=3){ return Number(n).toFixed(d); }
+
+  function randRange(a,b){ return a + Math.random() * (b-a); }
+
+  function qNorm(q){
+    const m = Math.hypot(q.w, q.x, q.y, q.z) || 1;
+    q.w/=m; q.x/=m; q.y/=m; q.z/=m;
+    return q;
+  }
+
+  function qMul(a,b){
+    return {
+      w: a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z,
+      x: a.w*b.x + a.x*b.w + a.y*b.z - a.z*b.y,
+      y: a.w*b.y - a.x*b.z + a.y*b.w + a.z*b.x,
+      z: a.w*b.z + a.x*b.y - a.y*b.x + a.z*b.w
+    };
+  }
+
+  function qConj(q){ return {w:q.w, x:-q.x, y:-q.y, z:-q.z}; }
+
+  function qAdd(a,b){
+    return {w:a.w+b.w, x:a.x+b.x, y:a.y+b.y, z:a.z+b.z};
+  }
+
+  function qScale(q,s){
+    return {w:q.w*s, x:q.x*s, y:q.y*s, z:q.z*s};
+  }
+
+  function randomQuaternion(){
+    return qNorm({
+      w: randRange(-1,1),
+      x: randRange(-1,1),
+      y: randRange(-1,1),
+      z: randRange(-1,1),
+    });
+  }
+
+  function axisAngleQuaternion(axis, angleRad){
+    const half = angleRad * 0.5;
+    const s = Math.sin(half);
+    const n = Math.hypot(axis.x, axis.y, axis.z) || 1;
+    return qNorm({
+      w: Math.cos(half),
+      x: axis.x/n * s,
+      y: axis.y/n * s,
+      z: axis.z/n * s,
+    });
+  }
+
+  function rotateByObserver(q, angleDeg){
+    const axis = {x:1, y:1, z:1};
+    const rot = axisAngleQuaternion(axis, degToRad(angleDeg));
+    const rotInv = qConj(rot);
+    return qNorm(qMul(qMul(rot, q), rotInv));
+  }
+  function foldQuaternion(q, strength){
+    const fold = {w:0, x:strength, y:0, z:0};
+    return qMul(fold, q);
+  }
+
+  function imaginaryMagnitude(q){
+    return Math.hypot(q.x, q.y, q.z);
+  }
+
+  function ratioL(q){
+    return imaginaryMagnitude(q) / Math.max(Math.abs(q.w), EPS);
+  }
+
+  function getParams(){
+    return {
+      nodeCount: +els.nodeCount.value,
+      observerAngle: +els.observerAngle.value,
+      foldStrength: +els.foldStrength.value,
+      rotWeight: +els.rotWeight.value,
+      imagWeight: +els.imagWeight.value,
+      velocityFrac: +els.velocityFrac.value,
+      gravityFactor: +els.gravityFactor.value,
+      cstGain: +els.cstGain.value,
+    };
+  }
+
+  function updateSliderLabels(){
+    const p = getParams();
+    els.nodeCountVal.textContent = String(p.nodeCount);
+    els.observerAngleVal.textContent = fmt(p.observerAngle,1) + "°";
+    els.foldStrengthVal.textContent = fmt(p.foldStrength,2);
+    els.rotWeightVal.textContent = fmt(p.rotWeight,2);
+    els.imagWeightVal.textContent = fmt(p.imagWeight,2);
+    els.velocityFracVal.textContent = fmt(p.velocityFrac,3);
+    els.gravityFactorVal.textContent = fmt(p.gravityFactor,3);
+    els.cstGainVal.textContent = fmt(p.cstGain,2);
+    els.eqBox.innerHTML =
+      `q = w + xi + yj + zk<br/>
+       L = |imaginary| / |real|<br/>
+       observer = ${fmt(p.observerAngle,1)}°<br/>
+       fold strength = ${fmt(p.foldStrength,2)}<br/>
+       ΔT = T_local − T_reference<br/>
+       time scale ≈ sqrt(1 − (${fmt(p.velocityFrac,3)})²) × (1 − ${fmt(p.gravityFactor,3)})<br/>
+       CST correction ≈ −${fmt(p.cstGain,2)} × ΔT`;
+  }
+
+  function buildNodes(count){
+    state.nodes.length = 0;
+    for(let i=0;i<count;i++){
+      const q = randomQuaternion();
+      state.nodes.push({
+        q,
+        phase: Math.random() * TAU,
+        drift: randRange(-0.002, 0.002),
+        colorBias: Math.random(),
+      });
+    }
+  }
+
+  function resetAll(){
+    state.simTime = 0;
+    state.stepCount = 0;
+    state.refClock = 0;
+    state.localClock = 0;
+    state.refPhase = 0;
+    state.localPhase = 0;
+    state.historyRatio = [];
+    state.historyCoherence = [];
+    state.historyConv = [];
+    state.historyRefClock = [];
+    state.historyLocalClock = [];
+    state.historyDeltaT = [];
+    state.sweepPoints = [];
+    state.bestSweepAngle = null;
+    state.bestSweepRatio = null;
+    state.peakCount = 0;
+    state.convergenceScore = 0;
+    buildNodes(getParams().nodeCount);
+    drawAll();
+    updateReadouts(1,0,0,0);
+  }
+
+  function applyOneStep(dt){
+    const p = getParams();
+    const ratios = [];
+    let sum = 0, sumSq = 0;
+    let phaseAlign = 0;
+
+    for(const n of state.nodes){
+      let qRot = rotateByObserver(n.q, p.observerAngle);
+      let qFold = foldQuaternion(n.q, p.foldStrength);
+
+      let combined = qAdd(qScale(qRot, p.rotWeight / Math.max(p.rotWeight + p.imagWeight, EPS)),
+                          qScale(qFold, p.imagWeight / Math.max(p.rotWeight + p.imagWeight, EPS)));
+
+      if(state.noiseOn){
+        combined.w += randRange(-0.004,0.004);
+        combined.x += randRange(-0.004,0.004);
+        combined.y += randRange(-0.004,0.004);
+        combined.z += randRange(-0.004,0.004);
+      }
+
+      n.q = qNorm(combined);
+      n.phase += (0.6 + n.drift + p.foldStrength*0.14 + p.observerAngle*0.0006) * dt;
+
+      const r = ratioL(n.q);
+      ratios.push(r);
+      sum += r;
+      sumSq += r*r;
+
+      const phaseErr = Math.cos(n.phase - state.refPhase);
+      phaseAlign += phaseErr;
+    }
+
+    const mean = sum / Math.max(ratios.length,1);
+    const variance = Math.max(sumSq / Math.max(ratios.length,1) - mean*mean, 0);
+    const coherence = clamp((phaseAlign / Math.max(state.nodes.length,1) + 1) * 0.5, 0, 1);
+
+    const prevMean = state.historyRatio.length ? state.historyRatio[state.historyRatio.length - 1] : mean;
+    const conv = 1 / (1 + Math.abs(mean - prevMean) * 25 + variance * 20);
+    state.convergenceScore = conv;
+
+    updateClocks(dt, coherence);
+
+    pushHistory(state.historyRatio, mean, 240);
+    pushHistory(state.historyCoherence, coherence, 240);
+    pushHistory(state.historyConv, conv, 240);
+    pushHistory(state.historyRefClock, state.refClock, 240);
+    pushHistory(state.historyLocalClock, state.localClock, 240);
+    pushHistory(state.historyDeltaT, state.localClock - state.refClock, 240);
+
+    updateReadouts(mean, variance, conv, coherence);
+  }
+
+  function updateClocks(dt, coherence){
+    const p = getParams();
+    const sr = Math.sqrt(Math.max(1 - p.velocityFrac*p.velocityFrac, 0.000001));
+    const gr = (1 - p.gravityFactor);
+    const timeScale = sr * gr;
+
+    state.refClock += dt;
+    state.refPhase += TAU * 0.7 * dt;
+
+    state.localClock += dt * timeScale;
+    state.localPhase += TAU * (0.7 * timeScale + (1-coherence)*0.06) * dt;
+
+    const deltaT = state.localClock - state.refClock;
+
+    if(state.syncOn){
+      const correction = -p.cstGain * deltaT * dt;
+      state.localClock += correction;
+      state.localPhase += correction * TAU * 0.7;
+    }
+  }
+
+  function pushHistory(arr, value, maxLen){
+    arr.push(value);
+    if(arr.length > maxLen) arr.shift();
+  }
+
+  function updateReadouts(mean, variance, conv, coherence){
+    const deltaT = state.localClock - state.refClock;
+    els.ratioReadout.textContent = fmt(mean,3);
+    els.varReadout.textContent = variance.toExponential(3);
+    els.convReadout.textContent = fmt(conv,3);
+    els.coherenceReadout.textContent = fmt(coherence,3);
+    els.utcReadout.textContent = fmt(state.refClock,3) + " s";
+    els.localReadout.textContent = fmt(state.localClock,3) + " s";
+    els.deltaTReadout.textContent = (deltaT >= 0 ? "+" : "") + deltaT.toFixed(6) + " s";
+
+    let status = "STABLE";
+    let cls = "good";
+    if(Math.abs(deltaT) > 0.08 || coherence < 0.45){ status = "DRIFTING"; cls = "warn"; }
+    if(Math.abs(deltaT) > 0.20 || coherence < 0.22){ status = "UNSTABLE"; cls = "bad"; }
+
+    els.statusReadout.textContent = status;
+    els.statusReadout.className = "n status " + cls;
+
+    let msg = "";
+    if(status === "STABLE"){
+      msg = "Quaternion lattice and timing layer are remaining coherent. The current configuration behaves like a synchronized geometric engine rather than a free-drift symbolic system.";
+    }else if(status === "DRIFTING"){
+      msg = "Timing mismatch is increasing. Geometry still evolves, but local oscillators are drifting from the reference frame. This is where CST correction becomes important.";
+    }else{
+      msg = "The model is unstable under current settings. Either time dilation, fold intensity, or observer forcing is overwhelming coherence. Simulation patterns here should not be treated as physical constants.";
+    }
+    els.interpretationLine.textContent = msg;
+  }
+
+  function projectNode(q, w, h){
+    const depth = 1.8 + q.w;
+    const s = 140 / depth;
+    return {
+      x: w*0.5 + q.x * s * 1.1 + q.z * 35,
+      y: h*0.5 + q.y * s * 1.1 - q.z * 18,
+      scale: clamp(1.8 - depth*0.35, 0.4, 2.4),
+      depth
+    };
+  }
+
+  function drawMain(){
+    const ctx = ctxMain, c = els.mainView;
+    ctx.clearRect(0,0,c.width,c.height);
+
+    ctx.save();
+    const g = ctx.createRadialGradient(c.width*0.5,c.height*0.5,10,c.width*0.5,c.height*0.5,c.width*0.6);
+    g.addColorStop(0,"rgba(28,53,78,.35)");
+    g.addColorStop(1,"rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,c.width,c.height);
+    ctx.restore();
+
+    ctx.strokeStyle = "rgba(98,215,255,.15)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(c.width/2, 22); ctx.lineTo(c.width/2, c.height-22);
+    ctx.moveTo(22, c.height/2); ctx.lineTo(c.width-22, c.height/2);
+    ctx.stroke();
+
+    for(const n of state.nodes){
+      const p = projectNode(n.q, c.width, c.height);
+      const r = ratioL(n.q);
+      const coherenceHint = clamp(Math.cos(n.phase - state.refPhase)*0.5+0.5,0,1);
+
+      let fill = "#62d7ff";
+      if(r > 2.0) fill = "#9c8bff";
+      if(coherenceHint > 0.8 && Math.abs((state.localClock - state.refClock)) < 0.06) fill = "#79f2a3";
+      if(coherenceHint < 0.25) fill = "#ff7b7b";
+
+      ctx.beginPath();
+      ctx.fillStyle = fill;
+      ctx.globalAlpha = 0.4 + 0.5 * coherenceHint;
+      ctx.arc(p.x, p.y, 2 + p.scale*1.8, 0, TAU);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    ctx.fillStyle = "#d9f3ff";
+    ctx.font = "12px Arial";
+    ctx.fillText("Ref Frame", 14, 18);
+    ctx.fillText("Local ΔT: " + ((state.localClock-state.refClock)>=0?"+":"") + (state.localClock-state.refClock).toFixed(6) + " s", c.width-180, 18);
+  }
+
+  function drawLineChart(ctx, canvas, seriesDefs, titleY=false){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    const W = canvas.width, H = canvas.height;
+    const pad = {l:44, r:12, t:12, b:24};
+
+    ctx.strokeStyle = "rgba(141,183,203,.15)";
+    ctx.lineWidth = 1;
+    for(let i=0;i<5;i++){
+      const y = lerp(pad.t, H-pad.b, i/4);
+      ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke();
+    }
+    let minY = Infinity, maxY = -Infinity;
+    for(const s of seriesDefs){
+      for(const v of s.data){
+        if(v < minY) minY = v;
+        if(v > maxY) maxY = v;
+      }
+    }
+    if(!isFinite(minY) || !isFinite(maxY)){ minY = 0; maxY = 1; }
+    if(Math.abs(maxY-minY) < 1e-9){ maxY = minY + 1; }
+
+    function yMap(v){
+      return (H-pad.b) - ((v - minY) / (maxY - minY)) * (H-pad.t-pad.b);
+    }
+
+    ctx.fillStyle = "#8db7cb";
+    ctx.font = "11px Arial";
+    ctx.fillText(maxY.toFixed(3), 6, pad.t+8);
+    ctx.fillText(minY.toFixed(3), 6, H-pad.b);
+
+    for(const s of seriesDefs){
+      if(!s.data.length) continue;
+      ctx.beginPath();
+      ctx.lineWidth = s.width || 2;
+      ctx.strokeStyle = s.color;
+      for(let i=0;i<s.data.length;i++){
+        const x = lerp(pad.l, W-pad.r, s.data.length===1 ? 0 : i/(s.data.length-1));
+        const y = yMap(s.data[i]);
+        if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      }
+      ctx.stroke();
+    }
+
+    let lx = pad.l, ly = H - 8;
+    ctx.font = "11px Arial";
+    for(const s of seriesDefs){
+      ctx.fillStyle = s.color;
+      ctx.fillRect(lx, ly-8, 10, 4);
+      ctx.fillStyle = "#bfe9ff";
+      ctx.fillText(s.label, lx+14, ly-4);
+      lx += ctx.measureText(s.label).width + 52;
+    }
+  }
+
+  function drawSweepChart(){
+    const ctx = ctxSweep, canvas = els.sweepChart;
+    const data = state.sweepPoints.map(p => p.value);
+    drawLineChart(ctx, canvas, [
+      {label:"Sweep Ratio", color:"#ffd166", data, width:2.2}
+    ]);
+  }
+
+  function drawAll(){
+    drawMain();
+    drawLineChart(ctxMetric, els.metricChart, [
+      {label:"Ratio L", color:"#62d7ff", data: state.historyRatio},
+      {label:"Coherence", color:"#79f2a3", data: state.historyCoherence},
+      {label:"Convergence", color:"#9c8bff", data: state.historyConv},
+    ]);
+    drawLineChart(ctxClock, els.clockChart, [
+      {label:"Reference", color:"#62d7ff", data: state.historyRefClock},
+      {label:"Local", color:"#ff7b7b", data: state.historyLocalClock},
+      {label:"ΔT", color:"#ffd166", data: state.historyDeltaT},
+    ]);
+    drawSweepChart();
+  }
+
+  function simulateForAngle(angleDeg, steps=36){
+    const p = getParams();
+    const testNodes = [];
+    for(let i=0;i<Math.min(180,p.nodeCount);i++) testNodes.push({ q: randomQuaternion() });
+
+    let mean = 1;
+    for(let s=0;s<steps;s++){
+      let sum = 0;
+      for(const n of testNodes){
+        const qRot = rotateByObserver(n.q, angleDeg);
+        const qFold = foldQuaternion(n.q, p.foldStrength);
+        const combined = qAdd(
+          qScale(qRot, p.rotWeight / Math.max(p.rotWeight + p.imagWeight, EPS)),
+          qScale(qFold, p.imagWeight / Math.max(p.rotWeight + p.imagWeight, EPS))
+        );
+        n.q = qNorm(combined);
+        sum += ratioL(n.q);
+      }
+      mean = sum / testNodes.length;
+    }
+    return mean;
+  }
+
+  function countPeaks(arr){
+    let peaks = 0;
+    for(let i=1;i<arr.length-1;i++){
+      if(arr[i] > arr[i-1] && arr[i] > arr[i+1]) peaks++;
+    }
+    return peaks;
+  }
+
+  function runSweep(){
+    state.sweepPoints = [];
+    let bestAngle = 0;
+    let bestValue = -Infinity;
+
+    for(let a=0;a<=180;a+=2){
+      const v = simulateForAngle(a, 28);
+      state.sweepPoints.push({angle:a, value:v});
+      if(v > bestValue){
+        bestValue = v;
+        bestAngle = a;
+      }
+    }
+
+    const vals = state.sweepPoints.map(p => p.value);
+    state.bestSweepAngle = bestAngle;
+    state.bestSweepRatio = bestValue;
+    state.peakCount = countPeaks(vals);
+
+    els.bestAngleReadout.textContent = fmt(bestAngle,1) + "°";
+    els.bestSweepReadout.textContent = fmt(bestValue,3);
+    els.peakCountReadout.textContent = String(state.peakCount);
+
+    let verdict = "BROAD RESPONSE";
+    if(Math.abs(bestAngle - 120) <= 6) verdict = "120° REGION ACTIVE";
+    if(state.peakCount >= 3) verdict = "MULTI-PEAK RESPONSE";
+    if(bestValue < 1.2) verdict = "WEAK RESPONSE";
+
+    els.sweepVerdictReadout.textContent = verdict;
+    drawAll();
+  }
+
+  function animate(ts){
+    if(!state.lastTs) state.lastTs = ts;
+    const dt = clamp((ts - state.lastTs) / 1000, 0.001, 0.05);
+    state.lastTs = ts;
+
+    if(state.running){
+      state.simTime += dt;
+      state.stepCount++;
+      applyOneStep(dt);
+      drawAll();
+    }
+
+    requestAnimationFrame(animate);
+  }
+
+  function hookEvents(){
+    [
+      els.nodeCount, els.observerAngle, els.foldStrength, els.rotWeight,
+      els.imagWeight, els.velocityFrac, els.gravityFactor, els.cstGain
+    ].forEach(el => el.addEventListener("input", () => {
+      updateSliderLabels();
+      if(el === els.nodeCount) buildNodes(+els.nodeCount.value);
+      drawAll();
+    }));
+
+    els.startBtn.addEventListener("click", () => { state.running = true; });
+    els.stopBtn.addEventListener("click", () => { state.running = false; });
+    els.resetBtn.addEventListener("click", () => { resetAll(); });
+    els.sweepBtn.addEventListener("click", () => { runSweep(); });
+    els.syncBtn.addEventListener("click", () => {
+      state.syncOn = !state.syncOn;
+      els.syncBtn.textContent = "CST Sync: " + (state.syncOn ? "ON" : "OFF");
+      els.syncBtn.classList.toggle("active", state.syncOn);
+    });
+    els.noiseBtn.addEventListener("click", () => {
+      state.noiseOn = !state.noiseOn;
+      els.noiseBtn.textContent = "Noise: " + (state.noiseOn ? "ON" : "OFF");
+      els.noiseBtn.classList.toggle("active", state.noiseOn);
+    });
+  }
+
+  function init(){
+    hookEvents();
+    updateSliderLabels();
+    resetAll();
+    requestAnimationFrame(animate);
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
