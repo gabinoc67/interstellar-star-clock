@@ -302,7 +302,7 @@
 
         <div class="control">
           <label><span>Earth–Mars path length</span><strong id="distanceLabel">225,000,000 km</strong></label>
-          <input id="distance" type="range" min="56000000" max="401000000" step="1000000" value="310000000">
+          <input id="distance" type="range" min="56000000" max="401000000" step="1000000" value="225000000">
         </div>
 
         <div class="control">
@@ -343,8 +343,8 @@
         <div class="control">
           <label><span>Reactor / propulsion mode</span></label>
           <select id="source">
-            <option value="fission" selected>Nuclear Fission</option>
-            <option value="fusion">Fusion</option>
+            <option value="fission">Nuclear Fission</option>
+            <option value="fusion" selected>Fusion</option>
             <option value="plasma">Plasma / Electric</option>
             <option value="warp">Speculative Moving-Space Field</option>
           </select>
@@ -617,12 +617,14 @@
       fieldMap: document.getElementById('fieldMap')
     };
 
+    const ctx = els.waveCanvas.getContext('2d');
+
     let phase = 0;
     let simRunning = false;
     let simElapsed = 0;
     let lastFrameTs = null;
 
-    let liveDeltaT = 0;
+    let liveDeltaT = Number(els.deltaT.value);
     let rawDeltaT = Number(els.deltaT.value);
     let lastUserDeltaT = rawDeltaT;
 
@@ -639,12 +641,13 @@
 
     function fmtDuration(sec){
       if (!isFinite(sec)) return '∞';
+      const sign = sec < 0 ? '-' : '';
       const abs = Math.abs(sec);
-      if (abs < 60) return fmtNumber(sec, 2) + ' s';
-      if (abs < 3600) return fmtNumber(sec / 60, 2) + ' min';
-      if (abs < 86400) return fmtNumber(sec / 3600, 2) + ' hr';
-      if (abs < 31557600) return fmtNumber(sec / 86400, 2) + ' days';
-      return fmtNumber(sec / 31557600, 2) + ' yr';
+      if (abs < 60) return sign + fmtNumber(abs, 2) + ' s';
+      if (abs < 3600) return sign + fmtNumber(abs / 60, 2) + ' min';
+      if (abs < 86400) return sign + fmtNumber(abs / 3600, 2) + ' hr';
+      if (abs < 31557600) return sign + fmtNumber(abs / 86400, 2) + ' days';
+      return sign + fmtNumber(abs / 31557600, 2) + ' yr';
     }
 
     function fmtDistanceMeters(m){
@@ -662,10 +665,12 @@
     }
 
     function currentMode(v){
-      return v === 'warp' ? 'MOVING SPACE' : (v === 'plasma' ? 'PLASMA' : (v === 'fusion' ? 'FUSION' : 'FISSION'));
+      if (v === 'warp') return 'MOVING SPACE';
+      if (v === 'plasma') return 'PLASMA';
+      if (v === 'fusion') return 'FUSION';
+      return 'FISSION';
     }
-
-    function updateLiveBrowserClocks(){
+        function updateLiveBrowserClocks(){
       const now = new Date();
       els.liveLocalClock.textContent = now.toLocaleTimeString();
       els.liveUtcClock.textContent = now.toISOString().slice(11,19);
@@ -684,7 +689,8 @@
       if (progress < 0.98) return Math.max(0.08, 1 - ((progress - 0.80) / 0.18) * 0.92);
       return 0;
     }
-        function correctionGain(fieldFreq){
+
+    function correctionGain(fieldFreq){
       return Math.min(8, Math.max(0.35, fieldFreq / 8000));
     }
 
@@ -742,7 +748,7 @@
       }
     }
 
-    function updateModel(){
+    function getModelState(){
       const Dkm = Number(els.distance.value);
       const D = Dkm * 1000;
       const mass = Number(els.mass.value);
@@ -753,22 +759,10 @@
       const fieldFreq = Number(els.fieldFreq.value);
       const source = els.source.value;
 
-      els.distanceLabel.textContent = fmtNumber(Dkm, 0) + ' km';
-      els.massLabel.textContent = fmtNumber(mass, 0) + ' kg';
-      els.speedLabel.textContent = beta.toFixed(2) + ' c';
-      els.effLabel.textContent = fmtNumber(eff * 100, 0) + '%';
-      els.sharkFreqLabel.textContent = sharkFreq.toFixed(2) + ' Hz';
-      els.ampLabel.textContent = amp.toFixed(2) + ' m';
-      els.fieldFreqLabel.textContent = fmtNumber(fieldFreq, 0) + ' Hz';
-      els.deltaTLabel.textContent = rawDeltaT.toFixed(6) + ' s';
-
-      updateStatusFromLiveDeltaT();
-
       const dxCs = dxCsConst;
       const lightTime = D / c;
       const oscCount = D / dxCs;
       const vCruise = beta * c;
-
       const gamma = 1 / Math.sqrt(1 - beta * beta);
       const kinetic = (gamma - 1) * mass * c2;
       const requiredSourceEnergy = kinetic / Math.max(eff, 0.0001);
@@ -776,6 +770,7 @@
       const cruiseTime = D / Math.max(vCruise, 1);
 
       const compression = 1 + Math.max(0, beta * 4) + Math.max(0, Math.abs(liveDeltaT) * 300);
+
       const tunnelSpeed = source === 'warp'
         ? Math.min((1 + beta * 1.5 + Math.abs(liveDeltaT) * 50), 5) * c
         : vCruise;
@@ -794,54 +789,75 @@
 
       const covered = Math.min(D, progress * D);
       const remaining = Math.max(0, D - covered);
-
       const refClock = simElapsed;
       const shipClock = simElapsed + liveDeltaT;
-
       const loopCount = effectiveTransitTime * fieldFreq;
       const power = requiredSourceEnergy / Math.max(effectiveTransitTime, 1);
+      const st = (sharkFreq * amp) / Math.max(vCruise, 1);
 
-      const st = (sharkFreq * amp) / Math.max(beta * c, 1);
+      return {
+        Dkm, D, mass, beta, eff, sharkFreq, amp, fieldFreq, source,
+        dxCs, lightTime, oscCount, vCruise, gamma, kinetic,
+        requiredSourceEnergy, massEquivalent, cruiseTime,
+        compression, tunnelSpeed, effectiveTransitTime,
+        progress, stage, stageFrac, liveSpeed, covered,
+        remaining, refClock, shipClock, loopCount, power, st
+      };
+    }
 
-      els.travelModeValue.textContent = currentMode(source);
+    function updateModel(){
+      const s = getModelState();
 
-      els.dxCs.textContent = dxCs.toFixed(4) + ' m';
-      els.lightTime.textContent = fmtDuration(lightTime);
-      els.oscCount.textContent = sci(oscCount, 3);
+      els.distanceLabel.textContent = fmtNumber(s.Dkm, 0) + ' km';
+      els.massLabel.textContent = fmtNumber(s.mass, 0) + ' kg';
+      els.speedLabel.textContent = s.beta.toFixed(2) + ' c';
+      els.effLabel.textContent = fmtNumber(s.eff * 100, 0) + '%';
+      els.sharkFreqLabel.textContent = s.sharkFreq.toFixed(2) + ' Hz';
+      els.ampLabel.textContent = s.amp.toFixed(2) + ' m';
+      els.fieldFreqLabel.textContent = fmtNumber(s.fieldFreq, 0) + ' Hz';
+      els.deltaTLabel.textContent = rawDeltaT.toFixed(6) + ' s';
 
-      els.targetSpeed.textContent = sci(vCruise, 3) + ' m/s';
-      els.relEnergy.textContent = sci(kinetic, 3) + ' J';
-      els.sourceEnergy.textContent = sci(requiredSourceEnergy, 3) + ' J';
-      els.massEq.textContent = fmtNumber(massEquivalent, 3) + ' kg';
-      els.cruiseTime.textContent = fmtDuration(cruiseTime);
-      els.powerValue.textContent = sci(power, 3) + ' W';
+      updateStatusFromLiveDeltaT();
 
-      els.loopCount.textContent = sci(loopCount, 3);
-      els.totValue.textContent = fmtDuration(effectiveTransitTime);
-      els.compressionValue.textContent = compression.toFixed(3) + '×';
-      els.tunnelSpeedValue.textContent = sci(tunnelSpeed, 3) + ' m/s';
+      els.travelModeValue.textContent = currentMode(s.source);
+
+      els.dxCs.textContent = s.dxCs.toFixed(4) + ' m';
+      els.lightTime.textContent = fmtDuration(s.lightTime);
+      els.oscCount.textContent = sci(s.oscCount, 3);
+
+      els.targetSpeed.textContent = sci(s.vCruise, 3) + ' m/s';
+      els.relEnergy.textContent = sci(s.kinetic, 3) + ' J';
+      els.sourceEnergy.textContent = sci(s.requiredSourceEnergy, 3) + ' J';
+      els.massEq.textContent = fmtNumber(s.massEquivalent, 3) + ' kg';
+      els.cruiseTime.textContent = fmtDuration(s.cruiseTime);
+      els.powerValue.textContent = sci(s.power, 3) + ' W';
+
+      els.loopCount.textContent = sci(s.loopCount, 3);
+      els.totValue.textContent = fmtDuration(s.effectiveTransitTime);
+      els.compressionValue.textContent = s.compression.toFixed(3) + '×';
+      els.tunnelSpeedValue.textContent = sci(s.tunnelSpeed, 3) + ' m/s';
       els.cstState.textContent = liveDeltaT.toFixed(6) + ' s';
-      els.syncRatio.textContent = sci(fieldFreq / Math.max(sharkFreq, 0.00001), 3);
+      els.syncRatio.textContent = sci(s.fieldFreq / Math.max(s.sharkFreq, 0.00001), 3);
 
-      els.refClockValue.textContent = fmtDuration(refClock);
-      els.shipClockValue.textContent = fmtDuration(shipClock);
-      els.refClockMini.textContent = fmtDuration(refClock);
-      els.shipClockMini.textContent = fmtDuration(shipClock);
+      els.refClockValue.textContent = fmtDuration(s.refClock);
+      els.shipClockValue.textContent = fmtDuration(s.shipClock);
+      els.refClockMini.textContent = fmtDuration(s.refClock);
+      els.shipClockMini.textContent = fmtDuration(s.shipClock);
       els.liveDeltaTMini.textContent = liveDeltaT.toFixed(6) + ' s';
 
-      els.progressValue.textContent = (progress * 100).toFixed(2) + '%';
-      els.stageValue.textContent = stage;
-      els.coveredValue.textContent = fmtDistanceMeters(covered);
-      els.remainingValue.textContent = fmtDistanceMeters(remaining);
+      els.progressValue.textContent = (s.progress * 100).toFixed(2) + '%';
+      els.stageValue.textContent = s.stage;
+      els.coveredValue.textContent = fmtDistanceMeters(s.covered);
+      els.remainingValue.textContent = fmtDistanceMeters(s.remaining);
 
-      els.stNum.textContent = st === 0 ? '0' : sci(st, 3);
+      els.stNum.textContent = s.st === 0 ? '0' : sci(s.st, 3);
 
       els.atomicEq.textContent =
 `Real calculations:
 Δt_cs = 1 / 9,192,631,770 s
-Δx_cs = c / 9,192,631,770 = ${dxCs.toFixed(6)} m
-N_cs = D / Δx_cs = ${sci(oscCount, 4)} oscillations
-Light-time = D / c = ${fmtDuration(lightTime)}
+Δx_cs = c / 9,192,631,770 = ${s.dxCs.toFixed(6)} m
+N_cs = D / Δx_cs = ${sci(s.oscCount, 4)} oscillations
+Light-time = D / c = ${fmtDuration(s.lightTime)}
 
 Meaning:
 Atomic time is the live timing ruler.
@@ -850,13 +866,13 @@ This is the lower-bound propagation time at c.`;
 
       els.energyEq.textContent =
 `Real calculations:
-v_cruise = βc = ${sci(vCruise, 4)} m/s
-γ = 1 / √(1 - β²) = ${gamma.toFixed(6)}
-K = (γ - 1) m c² = ${sci(kinetic, 4)} J
-E_source = K / η = ${sci(requiredSourceEnergy, 4)} J
-m_eq = E_source / c² = ${fmtNumber(massEquivalent, 6)} kg
-Cruise time ≈ D / v_cruise = ${fmtDuration(cruiseTime)}
-Average mission power ≈ ${sci(power, 4)} W
+v_cruise = βc = ${sci(s.vCruise, 4)} m/s
+γ = 1 / √(1 - β²) = ${s.gamma.toFixed(6)}
+K = (γ - 1) m c² = ${sci(s.kinetic, 4)} J
+E_source = K / η = ${sci(s.requiredSourceEnergy, 4)} J
+m_eq = E_source / c² = ${fmtNumber(s.massEquivalent, 6)} kg
+Cruise time ≈ D / v_cruise = ${fmtDuration(s.cruiseTime)}
+Average mission power ≈ ${sci(s.power, 4)} W
 
 Meaning:
 This panel uses standard timing and relativistic energy equations.
@@ -866,13 +882,13 @@ m = E / c² is bookkeeping, not the full propulsion equation.`;
 `Theory calculations:
 Target offset command = ${rawDeltaT.toFixed(6)} s
 Live effective offset = ${liveDeltaT.toFixed(6)} s
-Compression factor C_comp = ${compression.toFixed(6)}
-Tunnel propagation speed = ${sci(tunnelSpeed, 4)} m/s
-Time on target = ${fmtDuration(effectiveTransitTime)}
-Control loop frequency = ${fmtNumber(fieldFreq, 0)} Hz
-Ship clock = t_ref + ΔT_eff = ${fmtDuration(shipClock)}
-Reference clock = ${fmtDuration(refClock)}
-Synchronization ratio = ${sci(fieldFreq / Math.max(sharkFreq, 0.00001), 4)}
+Compression factor C_comp = ${s.compression.toFixed(6)}
+Tunnel propagation speed = ${sci(s.tunnelSpeed, 4)} m/s
+Time on target = ${fmtDuration(s.effectiveTransitTime)}
+Control loop frequency = ${fmtNumber(s.fieldFreq, 0)} Hz
+Ship clock = t_ref + ΔT_eff = ${fmtDuration(s.shipClock)}
+Reference clock = ${fmtDuration(s.refClock)}
+Synchronization ratio = ${sci(s.fieldFreq / Math.max(s.sharkFreq, 0.00001), 4)}
 
 Meaning:
 This layer labels moving-space compression, tunnel motion,
@@ -881,13 +897,13 @@ The live timing loop now corrects drift toward stable lock.`;
 
       els.missionEq.textContent =
 `Live mission calculations:
-Progress = ${(progress * 100).toFixed(2)}%
-Stage = ${stage}
-Covered distance = ${fmtDistanceMeters(covered)}
-Remaining distance = ${fmtDistanceMeters(remaining)}
-Live ship speed = ${sci(liveSpeed, 4)} m/s
-Ship clock = ${fmtDuration(shipClock)}
-Reference clock = ${fmtDuration(refClock)}
+Progress = ${(s.progress * 100).toFixed(2)}%
+Stage = ${s.stage}
+Covered distance = ${fmtDistanceMeters(s.covered)}
+Remaining distance = ${fmtDistanceMeters(s.remaining)}
+Live ship speed = ${sci(s.liveSpeed, 4)} m/s
+Ship clock = ${fmtDuration(s.shipClock)}
+Reference clock = ${fmtDuration(s.refClock)}
 
 Meaning:
 This mission layer shows moving time, live motion time clock,
@@ -897,11 +913,11 @@ and arrival-state logic from A to B.`;
 `Field mapping for this run:
 
 Atomic time = timing ruler
-Distance to Mars = ${fmtNumber(Dkm, 0)} km path length
+Distance to Mars = ${fmtNumber(s.Dkm, 0)} km path length
 c = ideal light-speed timing bound
 m = E / c² = energy–mass bookkeeping
 Propulsion system = actual motion mechanism
-Selected source = ${sourceLabel(source)}
+Selected source = ${sourceLabel(s.source)}
 
 Real layer:
 - Atomic ruler converts time to distance by Δx_cs = c / ν_cs
@@ -922,5 +938,229 @@ Shark in water = energy source + coupling medium + stable oscillation
 Ship in space = power source + propulsion mechanism + stable timing
 Warp idea = power source + field control + phase synchronization`;
     }
-    </body>
+
+    function resizeCanvasForDisplay(){
+      const ratio = window.devicePixelRatio || 1;
+      const rect = els.waveCanvas.getBoundingClientRect();
+      const width = Math.max(600, Math.floor(rect.width * ratio));
+      const height = Math.max(220, Math.floor(rect.height * ratio));
+
+      if (els.waveCanvas.width !== width || els.waveCanvas.height !== height){
+        els.waveCanvas.width = width;
+        els.waveCanvas.height = height;
+      }
+    }
+
+    function drawWaveScene(){
+      resizeCanvasForDisplay();
+      const w = els.waveCanvas.width;
+      const h = els.waveCanvas.height;
+      const s = getModelState();
+
+      ctx.clearRect(0,0,w,h);
+
+      const grad = ctx.createLinearGradient(0,0,0,h);
+      grad.addColorStop(0,'#03121c');
+      grad.addColorStop(1,'#02080d');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0,0,w,h);
+
+      for(let i=0;i<55;i++){
+        const x = (i * 137.5 + phase * 20) % w;
+        const y = (i * 61.7) % h;
+        const r = 1 + (i % 3);
+        ctx.fillStyle = 'rgba(180,220,255,0.25)';
+        ctx.beginPath();
+        ctx.arc(x,y,r,0,Math.PI*2);
+        ctx.fill();
+      }
+
+      const tunnelY = h * 0.52;
+      const bandH = h * 0.17;
+      const progressX = Math.max(80, Math.min(w - 80, 90 + s.progress * (w - 180)));
+
+      const compAlpha = Math.min(0.45, 0.10 + (s.compression - 1) * 0.04);
+      ctx.fillStyle = `rgba(122,184,255,${compAlpha})`;
+      ctx.fillRect(progressX - 45, tunnelY - bandH, 60, bandH * 2);
+
+      ctx.fillStyle = 'rgba(84,255,214,0.12)';
+      ctx.fillRect(progressX - 120, tunnelY - bandH * 0.75, 180, bandH * 1.5);
+
+      ctx.strokeStyle = 'rgba(84,255,214,0.9)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(70, tunnelY);
+      ctx.lineTo(w - 70, tunnelY);
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(122,184,255,0.35)';
+      ctx.lineWidth = 1;
+      for(let i=0;i<6;i++){
+        const yy = tunnelY - bandH + i * (bandH * 2 / 5);
+        ctx.beginPath();
+        ctx.moveTo(70, yy);
+        ctx.lineTo(w - 70, yy);
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = '#7ab8ff';
+      ctx.beginPath();
+      ctx.arc(90, tunnelY, 18, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#071018';
+      ctx.font = `${Math.max(18, h * 0.05)}px Arial`;
+      ctx.fillText('E', 84, tunnelY + 6);
+
+      ctx.fillStyle = '#ff8fb0';
+      ctx.beginPath();
+      ctx.arc(w - 90, tunnelY, 20, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#071018';
+      ctx.fillText('M', w - 98, tunnelY + 6);
+            const sharkX = 130 + (w - 260) * s.progress;
+      const sharkY = h * 0.24 + Math.sin(phase * s.sharkFreq * 2) * (s.amp * 40);
+      const bodyLen = Math.min(140, w * 0.12);
+
+      ctx.strokeStyle = '#54ffd6';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      for(let i=0;i<=22;i++){
+        const t = i / 22;
+        const x = sharkX - bodyLen * 0.5 + t * bodyLen;
+        const wave = Math.sin(phase * s.sharkFreq * 4 - t * 5.2) * s.amp * 18 * (0.25 + t);
+        const y = sharkY + wave;
+        if(i === 0) ctx.moveTo(x,y);
+        else ctx.lineTo(x,y);
+      }
+      ctx.stroke();
+
+      ctx.fillStyle = '#54ffd6';
+      ctx.beginPath();
+      ctx.moveTo(sharkX + bodyLen * 0.52, sharkY);
+      ctx.lineTo(sharkX + bodyLen * 0.32, sharkY - 18);
+      ctx.lineTo(sharkX + bodyLen * 0.32, sharkY + 18);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = 'rgba(255,216,107,0.9)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for(let x=70;x<w-70;x+=8){
+        const y = tunnelY - 70 + Math.sin((x * 0.015) - phase * 6) * 10;
+        if(x === 70) ctx.moveTo(x,y);
+        else ctx.lineTo(x,y);
+      }
+      ctx.stroke();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(progressX, tunnelY, 10, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(progressX, tunnelY - 28);
+      ctx.lineTo(progressX, tunnelY + 28);
+      ctx.stroke();
+
+      ctx.fillStyle = '#c8e9ff';
+      ctx.font = `${Math.max(14, h * 0.038)}px Arial`;
+      ctx.fillText(`Progress: ${(s.progress * 100).toFixed(2)}%`, 24, 28);
+      ctx.fillText(`Stage: ${s.stage}`, 24, 50);
+      ctx.fillText(`Ship speed: ${sci(s.liveSpeed, 2)} m/s`, 24, 72);
+      ctx.fillText(`CST offset: ${liveDeltaT.toFixed(6)} s`, 24, 94);
+      ctx.fillText(`Mode: ${currentMode(s.source)}`, 24, 116);
+
+      ctx.fillText('Earth', 64, tunnelY + 40);
+      ctx.fillText('Mars', w - 108, tunnelY + 42);
+      ctx.fillText('Shark / oscillation analog', sharkX - 65, sharkY - 28);
+      ctx.fillText('Time signal / lock wave', 24, tunnelY - 90);
+      ctx.fillText('Moving-space / tunnel corridor', 24, tunnelY + 72);
+    }
+
+    function render(){
+      updateLiveBrowserClocks();
+      updateModel();
+      drawWaveScene();
+    }
+
+    function step(timestamp){
+      if (lastFrameTs == null) lastFrameTs = timestamp;
+      const dt = Math.min(0.1, (timestamp - lastFrameTs) / 1000);
+      lastFrameTs = timestamp;
+
+      if (simRunning){
+        simElapsed += dt;
+        phase += dt * 2.4;
+        updateLiveCorrection(dt);
+      } else {
+        phase += dt * 0.35;
+      }
+
+      render();
+      requestAnimationFrame(step);
+    }
+
+    function startSim(){
+      simRunning = true;
+    }
+
+    function pauseSim(){
+      simRunning = false;
+    }
+
+    function resetSim(){
+      simRunning = false;
+      simElapsed = 0;
+      phase = 0;
+      rawDeltaT = Number(els.deltaT.value);
+      lastUserDeltaT = rawDeltaT;
+      liveDeltaT = rawDeltaT;
+      render();
+    }
+
+    function bindControls(){
+      els.startBtn.addEventListener('click', startSim);
+      els.pauseBtn.addEventListener('click', pauseSim);
+      els.resetBtn.addEventListener('click', resetSim);
+      els.printBtn.addEventListener('click', () => window.print());
+
+      [
+        els.distance,
+        els.mass,
+        els.speedFrac,
+        els.eff,
+        els.sharkFreq,
+        els.amp,
+        els.fieldFreq,
+        els.deltaT,
+        els.source
+      ].forEach(el => {
+        el.addEventListener('input', () => {
+          rawDeltaT = Number(els.deltaT.value);
+          render();
+        });
+        el.addEventListener('change', () => {
+          rawDeltaT = Number(els.deltaT.value);
+          render();
+        });
+      });
+
+      window.addEventListener('resize', render);
+    }
+
+    function init(){
+      bindControls();
+      updateLiveBrowserClocks();
+      rawDeltaT = Number(els.deltaT.value);
+      lastUserDeltaT = rawDeltaT;
+      liveDeltaT = rawDeltaT;
+      render();
+      requestAnimationFrame(step);
+    }
+
+    init();
+  </script>
+</body>
 </html>
