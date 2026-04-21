@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>CST Geometry-Engine — Live Earth↔Mars Corridor</title>
+<title>CST Geometry-Engine — Live Earth ↔ Mars Curvature Tunnel</title>
 <style>
   :root{
     color-scheme:dark;
@@ -39,7 +39,6 @@
   }
 
   .wrap{max-width:1560px;margin:0 auto;padding:16px}
-
   header{
     border:1px solid var(--line);
     border-radius:var(--radius);
@@ -100,7 +99,6 @@
     grid-template-columns:repeat(auto-fit,minmax(210px,1fr));
     gap:10px;
   }
-
   .wideGrid{
     display:grid;
     grid-template-columns:1.15fr .85fr;
@@ -144,7 +142,6 @@
     word-break:break-word;
   }
   .kpi .s{margin-top:5px;font-size:11px;color:var(--muted);line-height:1.3}
-
   .mono{font-family:var(--mono)}
 
   .bar{
@@ -198,16 +195,16 @@
 <div class="wrap">
   <header>
     <div>
-      <h1>CST Geometry-Engine — Live Earth ↔ Mars Corridor</h1>
+      <h1>CST Geometry-Engine — Live Earth ↔ Mars Curvature Tunnel</h1>
       <div class="sub">
-        Stable no-flicker corridor view with live ship marker, live slider response, smoother motion, and independent balanced panels.
+        Launch-locked curvature tunnel. The ship starts exactly at Earth, follows the curved tunnel, and stops exactly at Mars.
         This is a toy visualization/control model, not a real astrodynamics solver.
       </div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <span class="pill mono" id="statusPill">STATUS: READY</span>
       <span class="pill mono" id="phasePill">PHASE: IDLE</span>
-      <span class="pill mono" id="ratePill">fps: live</span>
+      <span class="pill mono" id="ratePill">sim accel: 7200×</span>
     </div>
   </header>
 
@@ -216,7 +213,7 @@
       <section class="card">
         <div class="hd">
           <b>Controls</b>
-          <span class="pill mono">live update while running</span>
+          <span class="pill mono">launch locks tunnel</span>
         </div>
         <div class="bd">
           <div class="controlsGrid">
@@ -243,19 +240,19 @@
                 <option value="avg">Average</option>
                 <option value="conj">Conjunction-like</option>
               </select>
-              <div class="small">Nudges the toy separation.</div>
+              <div class="small">Nudges the toy separation before launch lock.</div>
             </div>
 
             <div>
               <label>Base cruise (km/s)</label>
               <input id="baseV" type="number" min="1" max="300" step="1" value="24">
-              <div class="small">Speed through the effective corridor.</div>
+              <div class="small">Cruise speed in the tunnel model.</div>
             </div>
 
             <div>
               <label>Corridor compression factor</label>
               <input id="warpF" type="number" min="1" max="50" step="0.5" value="6">
-              <div class="small">Higher factor lowers effective distance.</div>
+              <div class="small">Higher factor lowers locked effective distance.</div>
             </div>
 
             <div>
@@ -328,8 +325,8 @@
           </div>
 
           <div class="noteBox" style="margin-top:10px">
-            <b>Important fix:</b> the ship marker is now drawn on a dedicated corridor track from Earth to Mars so movement is clearly visible.
-            The canvas background is prebuilt and stable, which removes most flicker.
+            <b>Fix applied:</b> once you press Start, the tunnel is locked. The total tunnel length no longer changes under the ship,
+            so the marker starts on Earth, follows the curved tunnel, and stops on Mars exactly.
           </div>
         </div>
       </section>
@@ -343,8 +340,8 @@
           <div class="noteBox">
             <div><b>3D distance:</b> <span class="mono">D3 = √(dx² + dy² + dz²)</span></div>
             <div><b>4D distance:</b> <span class="mono">D4 = √(dx² + dy² + dz² + dw²)</span></div>
-            <div><b>Effective corridor:</b> <span class="mono">D_eff = (D4 / warpF) / compressionMultiplier</span></div>
-            <div><b>Progress:</b> <span class="mono">progress = traveled_eff / D_eff</span></div>
+            <div><b>Locked effective tunnel:</b> <span class="mono">D_eff,lock = (D4 / warpF) / compressionMultiplier</span></div>
+            <div><b>Progress:</b> <span class="mono">progress = traveled_eff / D_eff,lock</span></div>
             <div><b>Authority budget:</b> <span class="mono">m_eq = E / c²</span></div>
           </div>
         </div>
@@ -388,7 +385,7 @@
             <div class="kpi">
               <div class="t">ETA</div>
               <div class="v mono" id="etaV">--</div>
-              <div class="s">Uses effective corridor</div>
+              <div class="s">Uses locked tunnel distance</div>
             </div>
 
             <div class="kpi">
@@ -462,13 +459,13 @@
           <div style="height:10px"></div>
 
           <div class="kpi">
-            <div class="t">Mini-map (stable live corridor)</div>
+            <div class="t">Mini-map (curvature tunnel)</div>
             <div class="canvasWrap"><canvas id="map"></canvas></div>
             <div class="legend">
               <span><i class="dot" style="background:#60a5fa"></i>Earth</span>
               <span><i class="dot" style="background:#fbbf24"></i>Mars</span>
               <span><i class="dot" style="background:#22c55e"></i>Ship</span>
-              <span class="mono">live visible progress along corridor</span>
+              <span class="mono">ship starts at Earth, follows tunnel arc, stops at Mars</span>
             </div>
           </div>
 
@@ -504,6 +501,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const AU = 149597870700;
   const DAY = 86400;
   const PJ = 1e15;
+  const SIM_ACCEL = 7200; // 2 sim-hours per real second so motion is visible
 
   const ORBIT = {
     earth:{ a_AU:1.000, period_d:365.256, inc_deg:0.000, phase0:0.0 },
@@ -539,7 +537,14 @@ document.addEventListener("DOMContentLoaded", () => {
     D3_AU:0,
     D4_AU:0,
     Deff_AU:0,
+
+    locked:false,
+    lockDeff_AU:0,
+    lockD3_AU:0,
+    lockD4_AU:0,
     traveled_eff_AU:0,
+    progress:0,
+    displayProgress:0,
 
     drift_s:0,
     shipClock_s:0,
@@ -559,9 +564,6 @@ document.addEventListener("DOMContentLoaded", () => {
     best:null,
     csv:[],
     logs:[],
-
-    displayProgress:0,
-    previewProgress:0,
     liveRingPhase:0
   };
 
@@ -696,7 +698,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const compMul = compressionMultiplier();
     state.Deff_AU = Math.max(1e-9, (state.D4_AU / state.warpF) / compMul);
-    state.traveled_eff_AU = clamp(state.traveled_eff_AU, 0, state.Deff_AU);
 
     const authNorm = clamp(authorityKg()/1e6, 0, 1);
     const aggress = clamp((state.warpF - 1)/49, 0, 1);
@@ -722,24 +723,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const deflect = clamp(0.18 + 0.74*state.confinement, 0, 0.96);
     state.hitsPerS = Math.max(0, (rawFlux*(1-deflect) + rawFlux*0.22)*120);
     state.shieldRegen = 0.0018 + 0.010*authNorm + 0.006*state.magK*state.coherence;
-
-    state.previewProgress = clamp(
-      0.10
-      + 0.28*((state.warpF-1)/49)
-      + 0.18*state.compGain
-      + 0.12*state.tension
-      + 0.10*state.magK
-      - 0.12*state.pert
-      + 0.06*(state.warpMode-1),
-      0, 0.92
-    );
   }
     function resizeCanvasIfNeeded(){
     const dpr = Math.max(1, window.devicePixelRatio || 1);
     const rect = map.getBoundingClientRect();
     const w = Math.round(rect.width * dpr);
     const h = Math.round(rect.height * dpr);
-
     if(map.width !== w || map.height !== h){
       map.width = w;
       map.height = h;
@@ -752,7 +741,6 @@ document.addEventListener("DOMContentLoaded", () => {
   function buildStaticBackground(){
     const w = bgCanvas.width;
     const h = bgCanvas.height;
-
     bgCtx.clearRect(0,0,w,h);
 
     const grad = bgCtx.createLinearGradient(0,0,w,h);
@@ -764,7 +752,6 @@ document.addEventListener("DOMContentLoaded", () => {
     bgCtx.globalAlpha = 0.22;
     bgCtx.strokeStyle = "rgba(148,163,184,.45)";
     bgCtx.lineWidth = 1;
-
     for(let i=0;i<=12;i++){
       const x = i/12*w;
       bgCtx.beginPath(); bgCtx.moveTo(x,0); bgCtx.lineTo(x,h); bgCtx.stroke();
@@ -786,12 +773,25 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  function stepSimulation(dt){
-    if(dt <= 0) return;
+  function lockTunnelAtLaunch(){
+    recalcDerived();
+    state.locked = true;
+    state.lockDeff_AU = state.Deff_AU;
+    state.lockD3_AU = state.D3_AU;
+    state.lockD4_AU = state.D4_AU;
+    state.traveled_eff_AU = 0;
+    state.progress = 0;
+    state.displayProgress = 0;
+    logLine(`Tunnel locked at launch. Locked D_eff = ${fmtKmFromAU(state.lockDeff_AU)}.`);
+  }
 
+  function stepSimulation(dtReal){
+    if(dtReal <= 0) return;
+
+    const dt = dtReal * SIM_ACCEL;   // accelerated simulation time
     state.tick++;
     state.simTime_s += dt;
-    state.liveRingPhase += dt*2.4;
+    state.liveRingPhase += dtReal*2.2;
 
     const rand = (Math.random()*2 - 1);
     const driftInject = rand * state.pert * (0.028 + 0.048*(1-state.tension));
@@ -801,28 +801,32 @@ document.addEventListener("DOMContentLoaded", () => {
     state.drift_s += (-corrGain * state.drift_s);
 
     const oscNoise = (Math.random()*2 - 1) * state.pert * 0.0022;
-    state.shipClock_s += (-0.22 * state.drift_s * dt) + oscNoise * dt;
-    state.cstClock_s  += (-0.10 * driftInject) + (-0.52 * state.drift_s * dt);
+    state.shipClock_s += (-0.22 * state.drift_s * dtReal) + oscNoise * dtReal;
+    state.cstClock_s  += (-0.10 * driftInject) + (-0.52 * state.drift_s * dtReal);
 
     state.coherence = clamp(1 - Math.abs(state.drift_s)/0.20, 0, 1);
 
     recalcDerived();
 
+    if(!state.locked){
+      lockTunnelAtLaunch();
+    }
+
     const v_AU_s = (state.v_kms*1000)/AU;
     const loss = (1-state.tension)*state.pert*(0.20 + 0.16*state.warpMode);
     const d_eff = Math.max(0, v_AU_s * dt * (1-loss));
 
-    state.traveled_eff_AU = clamp(state.traveled_eff_AU + d_eff, 0, state.Deff_AU);
+    state.traveled_eff_AU = clamp(state.traveled_eff_AU + d_eff, 0, state.lockDeff_AU);
+    state.progress = clamp(state.traveled_eff_AU / Math.max(state.lockDeff_AU, 1e-9), 0, 1);
+    state.displayProgress = lerp(state.displayProgress, state.progress, 0.16);
 
-    const drain = clamp(state.hitsPerS/90000, 0, 0.08) * dt;
-    const regen = state.shieldRegen * dt;
+    const drain = clamp(state.hitsPerS/90000, 0, 0.08) * dtReal;
+    const regen = state.shieldRegen * dtReal;
     state.shieldHP = clamp(state.shieldHP - drain + regen, 0, 1);
 
     if(state.tick % state.logEvery === 0){
-      const p = clamp(state.traveled_eff_AU / Math.max(state.Deff_AU, 1e-9), 0, 1);
-      const rem_AU = Math.max(0, state.Deff_AU - state.traveled_eff_AU);
+      const rem_AU = Math.max(0, state.lockDeff_AU - state.traveled_eff_AU);
       const eta_s = (rem_AU*AU)/(state.v_kms*1000);
-
       state.csv.push([
         state.simTime_s.toFixed(3),
         (state.epoch_ms + state.simTime_s*1000).toFixed(0),
@@ -830,10 +834,10 @@ document.addEventListener("DOMContentLoaded", () => {
         state.earth4.x.toFixed(6), state.earth4.y.toFixed(6), state.earth4.z.toFixed(6), state.earth4.w.toFixed(6),
         state.mars4.x.toFixed(6), state.mars4.y.toFixed(6), state.mars4.z.toFixed(6), state.mars4.w.toFixed(6),
         state.phase_deg.toFixed(3),
-        state.D3_AU.toFixed(6),
-        state.D4_AU.toFixed(6),
-        state.Deff_AU.toFixed(6),
-        (p*100).toFixed(4),
+        state.lockD3_AU.toFixed(6),
+        state.lockD4_AU.toFixed(6),
+        state.lockDeff_AU.toFixed(6),
+        (state.progress*100).toFixed(4),
         eta_s.toFixed(2),
         state.stability.toFixed(4),
         state.tidal.toFixed(4),
@@ -845,14 +849,12 @@ document.addEventListener("DOMContentLoaded", () => {
       ]);
     }
 
-    const rawProgress = clamp(state.traveled_eff_AU / Math.max(state.Deff_AU, 1e-9), 0, 1);
-    state.displayProgress = lerp(state.displayProgress, rawProgress, 0.18);
-
-    if(rawProgress >= 1){
+    if(state.progress >= 1){
       state.running = false;
+      state.displayProgress = 1;
       $("statusPill").textContent = "STATUS: ARRIVED";
       $("phasePill").textContent = "PHASE: ARRIVAL";
-      logLine("Arrival reached.");
+      logLine("Arrival reached. Ship stopped at Mars.");
     } else {
       $("statusPill").textContent =
         state.shieldHP < 0.25 ? "STATUS: SHIELD LOW" :
@@ -864,99 +866,107 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  function drawQuadraticCurvePoint(x0,y0,cx,cy,x1,y1,t){
+    const omt = 1-t;
+    return {
+      x: omt*omt*x0 + 2*omt*t*cx + t*t*x1,
+      y: omt*omt*y0 + 2*omt*t*cy + t*t*y1
+    };
+  }
+
   function drawMap(){
     resizeCanvasIfNeeded();
 
     const w = map.width;
     const h = map.height;
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+
     mapCtx.clearRect(0,0,w,h);
     mapCtx.drawImage(bgCanvas,0,0);
 
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const leftX  = Math.round(w * 0.14);
+    const rightX = Math.round(w * 0.86);
+    const y0 = Math.round(h * 0.62);
+    const cx = Math.round(w * 0.50);
+    const cy = Math.round(h * 0.22);
 
-    const leftX  = Math.round(w * 0.12);
-    const rightX = Math.round(w * 0.88);
-    const y      = Math.round(h * 0.52);
-
-    // stable corridor line
+    // full tunnel arc
     mapCtx.globalAlpha = 1;
-    mapCtx.strokeStyle = "rgba(226,232,240,.55)";
+    mapCtx.strokeStyle = "rgba(226,232,240,.45)";
     mapCtx.lineWidth = 4*dpr;
     mapCtx.beginPath();
-    mapCtx.moveTo(leftX, y);
-    mapCtx.lineTo(rightX, y);
+    mapCtx.moveTo(leftX, y0);
+    mapCtx.quadraticCurveTo(cx, cy, rightX, y0);
     mapCtx.stroke();
 
-    // segmented guide
-    mapCtx.globalAlpha = 0.25;
-    mapCtx.strokeStyle = "rgba(148,163,184,.7)";
+    // guide marks on tunnel
+    mapCtx.globalAlpha = 0.18;
+    mapCtx.strokeStyle = "rgba(148,163,184,.65)";
     mapCtx.lineWidth = 1*dpr;
-    for(let i=0;i<=10;i++){
-      const x = lerp(leftX,rightX,i/10);
+    for(let i=1;i<10;i++){
+      const p = drawQuadraticCurvePoint(leftX,y0,cx,cy,rightX,y0,i/10);
       mapCtx.beginPath();
-      mapCtx.moveTo(x, y - 18*dpr);
-      mapCtx.lineTo(x, y + 18*dpr);
+      mapCtx.arc(p.x,p.y,2.5*dpr,0,Math.PI*2);
       mapCtx.stroke();
     }
 
-    // Earth and Mars anchors
+    // Earth and Mars
     mapCtx.globalAlpha = 1;
     mapCtx.fillStyle = "rgba(96,165,250,.98)";
-    mapCtx.beginPath(); mapCtx.arc(leftX,y,10*dpr,0,Math.PI*2); mapCtx.fill();
+    mapCtx.beginPath(); mapCtx.arc(leftX,y0,10*dpr,0,Math.PI*2); mapCtx.fill();
 
     mapCtx.fillStyle = "rgba(251,191,36,.98)";
-    mapCtx.beginPath(); mapCtx.arc(rightX,y,10*dpr,0,Math.PI*2); mapCtx.fill();
+    mapCtx.beginPath(); mapCtx.arc(rightX,y0,10*dpr,0,Math.PI*2); mapCtx.fill();
 
-    // choose live visible progress
-    let shownProgress = state.running ? state.displayProgress : state.previewProgress;
-    shownProgress = clamp(shownProgress, 0, 1);
+    // ship exactly on tunnel
+    const t = clamp(state.displayProgress, 0, 1);
+    const ship = drawQuadraticCurvePoint(leftX,y0,cx,cy,rightX,y0,t);
 
-    const shipX = lerp(leftX, rightX, shownProgress);
-    const shipY = y;
-
-    // traveled line
+    // traveled tunnel highlight
     mapCtx.strokeStyle = "rgba(34,197,94,.42)";
     mapCtx.lineWidth = 8*dpr;
     mapCtx.beginPath();
-    mapCtx.moveTo(leftX, y);
-    mapCtx.lineTo(shipX, shipY);
+    mapCtx.moveTo(leftX, y0);
+    for(let i=1;i<=Math.max(2, Math.floor(t*80));i++){
+      const p = drawQuadraticCurvePoint(leftX,y0,cx,cy,rightX,y0,i/80);
+      mapCtx.lineTo(p.x,p.y);
+    }
     mapCtx.stroke();
 
     // ship glow
-    const glow = mapCtx.createRadialGradient(shipX,shipY,1,shipX,shipY,26*dpr);
+    const glow = mapCtx.createRadialGradient(ship.x,ship.y,1,ship.x,ship.y,26*dpr);
     glow.addColorStop(0,"rgba(255,255,255,.95)");
     glow.addColorStop(0.28,"rgba(34,197,94,.98)");
     glow.addColorStop(1,"rgba(34,197,94,0)");
     mapCtx.fillStyle = glow;
     mapCtx.beginPath();
-    mapCtx.arc(shipX,shipY,26*dpr,0,Math.PI*2);
+    mapCtx.arc(ship.x,ship.y,26*dpr,0,Math.PI*2);
     mapCtx.fill();
 
     // ship dot
     mapCtx.fillStyle = "rgba(34,197,94,.99)";
     mapCtx.beginPath();
-    mapCtx.arc(shipX,shipY,8*dpr,0,Math.PI*2);
+    mapCtx.arc(ship.x,ship.y,8*dpr,0,Math.PI*2);
     mapCtx.fill();
 
-    // smooth ring, no flicker
+    // live ring
     const ringR = (18 + 2*Math.sin(state.liveRingPhase)) * dpr;
     mapCtx.strokeStyle = "rgba(255,77,77,.95)";
     mapCtx.lineWidth = 2*dpr;
     mapCtx.beginPath();
-    mapCtx.arc(shipX,shipY,ringR,0,Math.PI*2);
+    mapCtx.arc(ship.x,ship.y,ringR,0,Math.PI*2);
     mapCtx.stroke();
 
     // labels
     mapCtx.fillStyle = "rgba(229,231,235,.95)";
     mapCtx.font = `${12*dpr}px system-ui`;
-    mapCtx.fillText("Earth", leftX - 18*dpr, y - 22*dpr);
-    mapCtx.fillText("Mars", rightX - 14*dpr, y - 22*dpr);
-    mapCtx.fillText("Ship", shipX - 12*dpr, y - 28*dpr);
+    mapCtx.fillText("Earth", leftX - 18*dpr, y0 - 22*dpr);
+    mapCtx.fillText("Mars", rightX - 14*dpr, y0 - 22*dpr);
+    mapCtx.fillText("Ship", ship.x - 12*dpr, ship.y - 28*dpr);
 
-    // percent label
     mapCtx.fillStyle = "rgba(255,77,77,.95)";
     mapCtx.font = `${13*dpr}px ui-monospace, monospace`;
-    mapCtx.fillText(`${(shownProgress*100).toFixed(2)}%`, shipX + 14*dpr, shipY + 5*dpr);
+    mapCtx.fillText(`${(state.progress*100).toFixed(2)}%`, ship.x + 14*dpr, ship.y + 5*dpr);
   }
 
   function render(){
@@ -973,25 +983,21 @@ document.addEventListener("DOMContentLoaded", () => {
     $("e4V").textContent = `${fmtAU(state.earth4.x)}, ${fmtAU(state.earth4.y)}, ${fmtAU(state.earth4.z)}, ${fmtAU(state.earth4.w)}`;
     $("m4V").textContent = `${fmtAU(state.mars4.x)}, ${fmtAU(state.mars4.y)}, ${fmtAU(state.mars4.z)}, ${fmtAU(state.mars4.w)}`;
 
-    $("d3V").textContent = `${state.D3_AU.toFixed(4)} AU · ${fmtKmFromAU(state.D3_AU)}`;
-    $("d4V").textContent = `${state.D4_AU.toFixed(4)} AU · ${fmtKmFromAU(state.D4_AU)}`;
+    $("d3V").textContent = `${(state.locked ? state.lockD3_AU : state.D3_AU).toFixed(4)} AU · ${fmtKmFromAU(state.locked ? state.lockD3_AU : state.D3_AU)}`;
+    $("d4V").textContent = `${(state.locked ? state.lockD4_AU : state.D4_AU).toFixed(4)} AU · ${fmtKmFromAU(state.locked ? state.lockD4_AU : state.D4_AU)}`;
     $("phV").textContent = `${state.phase_deg.toFixed(2)}°`;
 
     const compMul = compressionMultiplier();
     $("compV").textContent = `mult=${compMul.toFixed(3)} · shrink=${(1/compMul).toFixed(3)}`;
-    $("effV").textContent = `D_eff=${state.Deff_AU.toFixed(5)} AU · ${fmtKmFromAU(state.Deff_AU)}`;
+    const showDeff = state.locked ? state.lockDeff_AU : state.Deff_AU;
+    $("effV").textContent = `D_eff=${showDeff.toFixed(5)} AU · ${fmtKmFromAU(showDeff)}`;
 
-    const rawProgress = clamp(state.traveled_eff_AU / Math.max(state.Deff_AU, 1e-9), 0, 1);
-    if(!state.running){
-      state.displayProgress = lerp(state.displayProgress, state.previewProgress, 0.10);
-    }
-
-    const remaining_AU = Math.max(0, state.Deff_AU - state.traveled_eff_AU);
+    const remaining_AU = Math.max(0, showDeff - state.traveled_eff_AU);
     const eta_s = (remaining_AU*AU)/(state.v_kms*1000);
 
     $("etaV").textContent = fmtHMS(eta_s);
-    $("progV").textContent = `${(rawProgress*100).toFixed(3)}%`;
-    $("progBar").style.width = `${rawProgress*100}%`;
+    $("progV").textContent = `${(state.progress*100).toFixed(3)}%`;
+    $("progBar").style.width = `${state.progress*100}%`;
     $("trvV").textContent = `traveled: ${(state.traveled_eff_AU*AU/1000).toFixed(1)} km · remaining: ${fmtKmFromAU(remaining_AU)}`;
 
     $("stabV").textContent = `${state.stability.toFixed(3)} / 1.000`;
@@ -1010,7 +1016,7 @@ document.addEventListener("DOMContentLoaded", () => {
     $("hitsV").textContent = `hits/s: ${state.hitsPerS.toFixed(1)}`;
     $("hpV").textContent = `shield: ${(state.shieldHP*100).toFixed(1)}%`;
 
-    $("ratePill").textContent = `fps: live`;
+    $("ratePill").textContent = `sim accel: ${SIM_ACCEL}×`;
 
     if(state.best){
       $("solveV").textContent = new Date(state.best.depart_ms).toLocaleString();
@@ -1064,7 +1070,15 @@ document.addEventListener("DOMContentLoaded", () => {
     state.lastTs = 0;
     state.simTime_s = 0;
     state.tick = 0;
+
+    state.locked = false;
+    state.lockDeff_AU = 0;
+    state.lockD3_AU = 0;
+    state.lockD4_AU = 0;
     state.traveled_eff_AU = 0;
+    state.progress = 0;
+    state.displayProgress = 0;
+
     state.drift_s = 0;
     state.shipClock_s = 0;
     state.cstClock_s = 0;
@@ -1078,7 +1092,6 @@ document.addEventListener("DOMContentLoaded", () => {
     state.hitsPerS = 0;
     state.shieldHP = 1;
     state.best = null;
-    state.displayProgress = 0;
     state.liveRingPhase = 0;
     state.logs = [];
     state.csv = [[
@@ -1091,6 +1104,8 @@ document.addEventListener("DOMContentLoaded", () => {
     $("solverPill").textContent = "solver: waiting";
     $("solveV").textContent = "No solution yet";
     $("solveS").textContent = "Press “Solve Fastest Path” to scan forward dates.";
+    $("statusPill").textContent = "STATUS: READY";
+    $("phasePill").textContent = "PHASE: IDLE";
     logLine("Reset complete.");
     render();
   }
@@ -1121,13 +1136,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function animate(ts){
     if(!state.lastTs) state.lastTs = ts;
-    let dt = (ts - state.lastTs)/1000;
+    let dtReal = (ts - state.lastTs)/1000;
     state.lastTs = ts;
-    dt = clamp(dt, 0, 0.05);
+    dtReal = clamp(dtReal, 0, 0.05);
 
     readInputs();
-    if(state.running) stepSimulation(dt);
-    else state.liveRingPhase += dt*2.0;
+
+    if(state.running) stepSimulation(dtReal);
+    else state.liveRingPhase += dtReal*2.0;
 
     render();
     requestAnimationFrame(animate);
@@ -1135,15 +1151,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
   $("btnStart").addEventListener("click", () => {
     if(!state.running){
+      if(!state.locked) lockTunnelAtLaunch();
       state.running = true;
       $("phasePill").textContent = "PHASE: CORRIDOR ACTIVE";
-      logLine("Start pressed. Corridor active.");
+      $("statusPill").textContent = "STATUS: RUNNING";
+      logLine("Start pressed. Ship launched from Earth.");
     }
   });
 
   $("btnStop").addEventListener("click", () => {
     state.running = false;
     $("phasePill").textContent = "PHASE: PAUSED";
+    $("statusPill").textContent = "STATUS: PAUSED";
     logLine("Stop pressed. Corridor paused.");
   });
 
@@ -1157,14 +1176,18 @@ document.addEventListener("DOMContentLoaded", () => {
     "EPJ","tension","magK","env","pert","gain","scanDays","logEvery"
   ].forEach(id => {
     $(id).addEventListener("input", () => {
-      readInputs();
-      recalcDerived();
-      render();
+      if(!state.locked){
+        readInputs();
+        recalcDerived();
+        render();
+      }
     });
     $(id).addEventListener("change", () => {
-      readInputs();
-      recalcDerived();
-      render();
+      if(!state.locked){
+        readInputs();
+        recalcDerived();
+        render();
+      }
     });
   });
 
