@@ -1,5 +1,7 @@
 README — Casanova CST Research Platform
+
 Curvature Synchronization Theory (CST) • Hybrid Warp Systems • Educational Simulations • Advanced Space Research
+
 This platform serves as a continuously evolving research environment dedicated to the exploration of both proven physics and theoretical frontier concepts involving spacetime control, warp navigation, hybrid propulsion systems, synchronization physics, educational simulations, and future space exploration technologies.
 Its purpose is not to claim completed engineering solutions, but to provide a structured scientific framework where theoretical models, simulations, equations, and testable ideas can be explored, challenged, improved, and shared openly for academic discussion and future development.
 The project is built around the principle that time should be treated not only as a measurement, but also as an active engineering variable capable of influencing navigation stability, biological equilibrium, and large-scale synchronization across physical systems.
