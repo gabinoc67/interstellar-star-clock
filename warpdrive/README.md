@@ -217,3 +217,19 @@ From atomic clocks to interstellar travel, from classroom education to hybrid pr
 To turn impossible ideas into testable engineering.
 
 Because humans dream of the impossible before building it.
+
+Main Webpages:
+https://author.amazon.com/home
+https://casmaronline.wixsite.com/consulting
+https://casmaronline.wixsite.com/robotics2020
+https://casmaronline.wixsite.com/spaceflightschool
+https://casmaronline.wixsite.com/workshoprobotics
+https://utrgv.academia.edu/GabinoCasanova
+https://www.facebook.com/profile.php?id=100008392057132
+https://www.linkedin.com/in/gabino-and-margarita-casanova-49583276/
+https://www.mureka.ai?invite_code=y6ZV7z
+https://www.tiktok.com/@gabinoamazonmc1
+https://www.youtube.com/@CasanovaLoveSongs
+https://x.com/ga27114
+
+
