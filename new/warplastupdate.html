@@ -298,6 +298,69 @@ canvas{
   background:var(--good);
   box-shadow:0 0 12px var(--good);
 }
+.planetClockBox{
+  margin:10px 0;
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+}
+.planetCard{
+  background:#07111f;
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:10px;
+  text-align:center;
+}
+.planetCard img{
+  width:66px;
+  height:66px;
+  object-fit:contain;
+  display:block;
+  margin:0 auto 6px;
+  filter:drop-shadow(0 0 12px rgba(97,168,255,.45));
+}
+.planetCard strong{
+  font-size:13px;
+}
+.clockMini{
+  margin-top:5px;
+  font-family:Consolas, monospace;
+  font-size:12px;
+  color:#fff;
+}
+.triangleMini{
+  position:relative;
+  height:86px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:
+    radial-gradient(circle at 16% 72%,rgba(97,168,255,.28),transparent 12%),
+    radial-gradient(circle at 84% 72%,rgba(255,120,90,.22),transparent 12%),
+    radial-gradient(circle at 50% 16%,rgba(192,132,252,.22),transparent 12%),
+    #07111f;
+  margin:10px 0;
+  overflow:hidden;
+}
+.triangleMini:before{
+  content:"";
+  position:absolute;
+  left:17%;
+  right:17%;
+  top:22%;
+  bottom:24%;
+  border-left:1px solid rgba(85,230,255,.55);
+  border-right:1px solid rgba(85,230,255,.55);
+  border-bottom:1px solid rgba(85,230,255,.55);
+  transform:skewX(-22deg);
+}
+.node{
+  position:absolute;
+  font-size:10px;
+  color:var(--muted);
+}
+.nodeEarth{left:8%; bottom:10px;}
+.nodeMars{right:8%; bottom:10px;}
+.nodeVoyager{left:42%; top:8px;}
 footer{
   padding:16px 22px 28px;
   color:var(--muted);
@@ -315,6 +378,7 @@ footer{
 @media(max-width:620px){
   main{grid-template-columns:1fr;}
   .wide{grid-column:span 1;}
+  .planetClockBox{grid-template-columns:1fr;}
 }
 @media print{
   body{background:white;color:black}
@@ -450,11 +514,34 @@ Nuclear/fusion system supplies base energy</div>
 
 <section class="panel">
   <h2>9. CST Timing and Control</h2>
-  <p class="small">Timing lock keeps staged energy and particle flow synchronized.</p>
+  <p class="small">Timing lock keeps staged energy and particle flow synchronized with Earth, Mars, Voyager 1, and Voyager 2 references.</p>
+
+  <div class="planetClockBox">
+    <div class="planetCard">
+      <img src="https://gabinoc67.github.io/interstellar-star-clock/earth.png" alt="Earth">
+      <strong>Earth Clock</strong>
+      <div class="clockMini" id="earthClockVal">0.000</div>
+    </div>
+    <div class="planetCard">
+      <img src="https://gabinoc67.github.io/interstellar-star-clock/mars.png" alt="Mars">
+      <strong>Mars Clock</strong>
+      <div class="clockMini" id="marsClockVal">0.000</div>
+    </div>
+  </div>
+
+  <div class="triangleMini">
+    <div class="node nodeEarth">Earth</div>
+    <div class="node nodeVoyager">Voyager 1 / 2</div>
+    <div class="node nodeMars">Mars</div>
+  </div>
+
   <div class="readout"><span>Atomic clock</span><span class="value" id="atomicVal">0.000</span></div>
   <div class="readout"><span>CST clock</span><span class="value" id="cstVal">0.000</span></div>
   <div class="readout"><span>UTC proxy</span><span class="value" id="utcVal">0.000</span></div>
+  <div class="readout"><span>Voyager 1 clock</span><span class="value" id="voyager1Val">0.000</span></div>
+  <div class="readout"><span>Voyager 2 clock</span><span class="value" id="voyager2Val">0.000</span></div>
   <div class="readout"><span>ΔT Atomic-CST</span><span class="value" id="dtVal">0.000</span></div>
+  <div class="readout"><span>Voyager triangle error</span><span class="value" id="voyagerErrVal">0.000</span></div>
   <div class="status" id="timingStatus">WAITING</div>
 </section>
 
@@ -528,6 +615,10 @@ let dt=0.035;
 let atomic=0;
 let cst=0;
 let utc=0;
+let earthClock=0;
+let marsClock=0;
+let voyager1Clock=0;
+let voyager2Clock=0;
 
 const $=id=>document.getElementById(id);
 
@@ -541,6 +632,10 @@ function resetSim(){
   atomic=0;
   cst=0;
   utc=0;
+  earthClock=0;
+  marsClock=0;
+  voyager1Clock=0;
+  voyager2Clock=0;
   updateReadouts(0,0,0,0,0,0,0,0);
   drawAll();
 }
@@ -582,10 +677,21 @@ function updateReadouts(ion,vortex,sep,neutral,exhaust,pulse,thrust,drift){
   $("atomicVal").textContent=atomic.toFixed(3);
   $("cstVal").textContent=cst.toFixed(3);
   $("utcVal").textContent=utc.toFixed(3);
+  $("earthClockVal").textContent=earthClock.toFixed(3);
+  $("marsClockVal").textContent=marsClock.toFixed(3);
+  $("voyager1Val").textContent=voyager1Clock.toFixed(3);
+  $("voyager2Val").textContent=voyager2Clock.toFixed(3);
   $("dtVal").textContent=drift.toFixed(5);
 
+  let voyagerErr =
+    Math.abs(earthClock - voyager1Clock) * 0.01 +
+    Math.abs(earthClock - voyager2Clock) * 0.01 +
+    Math.abs(marsClock - cst) * 0.01;
+
+  $("voyagerErrVal").textContent=voyagerErr.toFixed(5);
+
   let timing=$("timingStatus");
-  if(Math.abs(drift)<0.05){
+  if(Math.abs(drift)<0.05 && voyagerErr<0.05){
     timing.textContent="CST TIMING LOCK";
     timing.className="status good";
   }else{
@@ -619,6 +725,11 @@ function step(){
   t+=dt;
   atomic+=dt;
   utc+=dt*.999999;
+  earthClock+=dt;
+  marsClock+=dt*(1+0.00015*Math.sin(t*.11));
+  voyager1Clock+=dt*(1+0.00025*Math.sin(t*.07));
+  voyager2Clock+=dt*(1+0.00022*Math.cos(t*.06));
+
   let p=phase();
 
   let ion=clamp(p*3.0,0,1);
@@ -651,7 +762,7 @@ function drawGrid(ctx,w,h){
     ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke();
   }
   for(let y=0;y<h;y+=50){
-    ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,h);ctx.stroke();
   }
 }
 
@@ -673,7 +784,6 @@ function dot(ctx,x,y,r,color,glow=true){
 function drawIonization(){
   let c=$("ionCanvas"),ctx=clearCanvas("ionCanvas");
   drawGrid(ctx,c.width,c.height);
-  let p=phase();
   for(let i=0;i<55;i++){
     let a=i*2.399+t*.8;
     let rr=30+(i%9)*10+Math.sin(t+i)*8;
