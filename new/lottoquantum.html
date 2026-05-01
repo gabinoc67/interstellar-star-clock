@@ -11,7 +11,7 @@ header{text-align:center;padding:10px;background:#10213a;border-bottom:1px solid
 header h1{margin:0;font-size:21px}
 header p{margin:5px 0 0;font-size:12px;color:#bdd0ee}
 main{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:8px}
-.panel{background:#10233e;border:1px solid #31577f;border-radius:10px;padding:8px;min-height:135px;max-height:310px;overflow:auto}
+.panel{background:#10233e;border:1px solid #31577f;border-radius:10px;padding:8px;min-height:135px;max-height:330px;overflow:auto}
 .panel h2{margin:0 0 5px;font-size:14px}
 .small{font-size:11px;color:#c7d9f5;line-height:1.3}
 textarea,input{width:100%;border-radius:7px;border:1px solid #456b9c;background:#071222;color:white;padding:6px;font-size:11px;margin-bottom:5px}
@@ -37,7 +37,7 @@ button,textarea,input{display:none}
 <body>
 <header>
 <h1>Lottery 6/54 Tomorrow Pressure Engine</h1>
-<p>Numbers 1–54 • 6 Drawn • Last 100 Draws • A1/A2/A3 Pretests • Tomorrow 30-Number Pool • Balanced Picks</p>
+<p>Numbers 1–54 • 6 Drawn • Data Analysis • Pair Cluster Engine • 10 No-Sequence Picks + 10 Pair Picks</p>
 </header>
 
 <main>
@@ -82,16 +82,16 @@ button,textarea,input{display:none}
 
 <section class="panel">
 <h2>6. Build Picks</h2>
-<p class="small">Creates 20 balanced 6-number sets.</p>
+<p class="small">Creates 10 no-sequence picks and 10 pair-based picks.</p>
 <button onclick="buildBalancedPicks()">Build 20 Picks</button>
 <div id="pickOutput" class="output"></div>
 </section>
 
 <section class="panel">
-<h2>7. Replacement Panel</h2>
-<p class="small">Shows today numbers cooling and tomorrow replacements.</p>
-<button onclick="showReplacementPanel()">Show Replacements</button>
-<div id="replacementOutput" class="output"></div>
+<h2>7. Pair Cluster Panel</h2>
+<p class="small">Shows common pairs and least-used pairs from your pasted data.</p>
+<button onclick="showPairPanel()">Show Pair Analysis</button>
+<div id="pairOutput" class="output"></div>
 </section>
 
 <section class="panel">
@@ -103,23 +103,27 @@ button,textarea,input{display:none}
 </section>
 
 <section class="panel">
-<h2>Click Order</h2>
+<h2>9. Replacement Panel</h2>
+<p class="small">Shows today numbers cooling and tomorrow replacements.</p>
+<button onclick="showReplacementPanel()">Show Replacements</button>
+<div id="replacementOutput" class="output"></div>
+</section>
+
+<section class="panel">
+<h2>Pick Split Rule</h2>
 <div class="note">
-1. Analyze Draws<br>
-2. Analyze Pretests<br>
-3. Enter Today Draw<br>
-4. Analyze Today Draw<br>
-5. Run Full Engine<br>
-6. Generate 30 Numbers<br>
-7. Build 20 Picks<br>
-8. Backtest / Print
+Picks 1–10:<br>
+No sequence / no adjacent numbers.<br><br>
+Picks 11–20:<br>
+Pair-based outcomes using common pairs and least-used pairs.<br><br>
+4-number chains are blocked.
 </div>
 </section>
 
 <section class="panel">
 <h2>Formula</h2>
 <div class="note">
-Tomorrow Score = Long Frequency + Gap Pressure + Pretest Signal + Natural Stability + Odd/Even Fit − Today Draw Cooling Penalty.
+Tomorrow Score = Long Frequency + Recent Frequency + Gap Pressure + Pretest Signal + Natural Stability + Pair Support − Today Cooling Penalty.
 </div>
 </section>
 
@@ -128,7 +132,7 @@ Tomorrow Score = Long Frequency + Gap Pressure + Pretest Signal + Natural Stabil
 <table>
 <thead>
 <tr>
-<th>#</th><th>Odd/Even</th><th>100 Count</th><th>20 Count</th><th>Gap</th><th>Pretest</th><th>Today?</th><th>Hot</th><th>Natural</th><th>Pressure</th><th>Cooling</th><th>Penalty</th><th>Score</th><th>Reason</th>
+<th>#</th><th>Odd/Even</th><th>100 Count</th><th>20 Count</th><th>Gap</th><th>Pretest</th><th>Pair</th><th>Today?</th><th>Hot</th><th>Natural</th><th>Pressure</th><th>Cooling</th><th>Penalty</th><th>Score</th><th>Reason</th>
 </tr>
 </thead>
 <tbody id="pressureTable"></tbody>
@@ -146,6 +150,7 @@ let officialModel=null;
 let pretestModel=null;
 let todayModel=null;
 let scoreModel=null;
+let pairModel=null;
 let numberPool=[];
 let balancedPicks=[];
 
@@ -228,6 +233,90 @@ function normalize(v,max){
   return max>0?v/max:0;
 }
 
+function hasAdjacentPair(draw){
+  const d=[...draw].sort((a,b)=>a-b);
+  for(let i=1;i<d.length;i++){
+    if(d[i]===d[i-1]+1)return true;
+  }
+  return false;
+}
+
+function sequencePairs(draw){
+  const d=[...draw].sort((a,b)=>a-b);
+  const pairs=[];
+  for(let i=1;i<d.length;i++){
+    if(d[i]===d[i-1]+1)pairs.push(`${d[i-1]}-${d[i]}`);
+  }
+  return pairs;
+}
+
+function longestSequenceRun(draw){
+  const d=[...draw].sort((a,b)=>a-b);
+  let run=1,maxRun=1;
+  for(let i=1;i<d.length;i++){
+    if(d[i]===d[i-1]+1){
+      run++;
+      maxRun=Math.max(maxRun,run);
+    }else{
+      run=1;
+    }
+  }
+  return maxRun;
+}
+
+function hasFourSequence(draw){
+  return longestSequenceRun(draw)>=4;
+}
+
+function buildPairModel(draws){
+  const pairFreq={};
+  const pairSupport=blankFreq();
+  const supportMap={};
+  let noSeq=0,pairDraws=0,threeSeq=0,fourSeq=0;
+
+  for(let a=1;a<MAX_NUM;a++){
+    pairFreq[`${a}-${a+1}`]=0;
+    supportMap[`${a}-${a+1}`]=blankFreq();
+  }
+
+  draws.forEach(draw=>{
+    const pairs=sequencePairs(draw);
+    const maxRun=longestSequenceRun(draw);
+
+    if(pairs.length===0)noSeq++;
+    if(pairs.length>0)pairDraws++;
+    if(maxRun>=3)threeSeq++;
+    if(maxRun>=4)fourSeq++;
+
+    pairs.forEach(key=>{
+      pairFreq[key]++;
+      const [a,b]=key.split("-").map(Number);
+      pairSupport[a]++;
+      pairSupport[b]++;
+      draw.forEach(n=>{
+        if(n!==a && n!==b)supportMap[key][n]++;
+      });
+    });
+  });
+
+  const rankedPairs=Object.entries(pairFreq)
+    .map(([key,count])=>{
+      const [a,b]=key.split("-").map(Number);
+      return {key,count,a,b};
+    })
+    .filter(p=>p.count>0)
+    .sort((x,y)=>y.count-x.count || x.a-y.a);
+
+  const leastPairs=Object.entries(pairFreq)
+    .map(([key,count])=>{
+      const [a,b]=key.split("-").map(Number);
+      return {key,count,a,b};
+    })
+    .sort((x,y)=>x.count-y.count || x.a-y.a);
+
+  return {pairFreq,pairSupport,supportMap,rankedPairs,leastPairs,noSeq,pairDraws,threeSeq,fourSeq};
+}
+
 function analyzeOfficialDraws(){
   const allDraws=parseDrawLines(document.getElementById("officialDraws").value);
   const draws=allDraws.slice(-100);
@@ -239,6 +328,7 @@ function analyzeOfficialDraws(){
   const freq10=countFreq(last10);
   const gaps=gapsFromLast(draws);
   const oe100=oddEvenStats(draws);
+  pairModel=buildPairModel(draws);
 
   officialModel={allDraws,draws,last20,last10,freq100,freq20,freq10,gaps,oe100};
 
@@ -258,7 +348,16 @@ Cold last 100:
 ${topList(freq100,12,false)}
 
 Odd/even:
-3/3=${oe100["3/3"]} | 4/2=${oe100["4/2"]} | 2/4=${oe100["2/4"]}`;
+3/3=${oe100["3/3"]} | 4/2=${oe100["4/2"]} | 2/4=${oe100["2/4"]}
+
+Sequence analysis:
+No sequence=${pairModel.noSeq}
+Pair draws=${pairModel.pairDraws}
+3-chain=${pairModel.threeSeq}
+4-chain=${pairModel.fourSeq}
+
+Common pairs:
+${pairModel.rankedPairs.slice(0,8).map(p=>`${p.key}(${p.count})`).join(", ") || "none"}`;
 
   updateTable();
 }
@@ -334,8 +433,14 @@ ${nums.join(" - ")}
 Pattern:
 ${todayModel.pattern}
 
+Pairs:
+${sequencePairs(nums).join(", ") || "none"}
+
+Longest sequence:
+${longestSequenceRun(nums)}
+
 Tomorrow logic:
-Today numbers receive cooling pressure unless they still have strong pretest or gap support.`;
+Today numbers receive cooling pressure unless they still have strong pretest, gap, or pair support.`;
 
   updateTable();
 }
@@ -350,17 +455,21 @@ function calculatePressureScores(){
     return;
   }
 
+  if(!pairModel)pairModel=buildPairModel(officialModel.draws);
+
   const freq100=officialModel.freq100;
   const freq20=officialModel.freq20;
   const freq10=officialModel.freq10;
   const gaps=officialModel.gaps;
   const pretestFreq=pretestModel?.pretestFreq||blankFreq();
   const todayFreq=todayModel?.freq||blankFreq();
+  const pairSupport=pairModel?.pairSupport||blankFreq();
 
   const max100=Math.max(...Object.values(freq100));
   const max20=Math.max(...Object.values(freq20));
   const max10=Math.max(...Object.values(freq10));
   const maxPre=Math.max(...Object.values(pretestFreq));
+  const maxPair=Math.max(...Object.values(pairSupport));
 
   const scores={};
 
@@ -371,6 +480,7 @@ function calculatePressureScores(){
     const gap=gaps[n]||9999;
     const pre=pretestFreq[n]||0;
     const today=todayFreq[n]||0;
+    const pair=pairSupport[n]||0;
 
     const longFrequency=normalize(count100,max100)*26;
     const recentFrequency=normalize(count20,max20)*10;
@@ -382,6 +492,7 @@ function calculatePressureScores(){
     else if(gap>=3)gapPressure=4;
 
     const pretestSignal=maxPre>0?normalize(pre,maxPre)*24:0;
+    const pairSignal=maxPair>0?normalize(pair,maxPair)*12:0;
     const oddEvenFit=5;
 
     let naturalStability=0;
@@ -393,15 +504,16 @@ function calculatePressureScores(){
 
     let coolingPenalty=0;
     if(today>0)coolingPenalty+=18;
-    if(hot&&count10>=Math.max(1,Math.round(max10*0.60))&&pre===0)coolingPenalty+=10;
-    if(hot&&count20>=Math.max(1,Math.round(max20*0.60))&&pre===0)coolingPenalty+=6;
+    if(hot&&count10>=Math.max(1,Math.round(max10*0.60))&&pre===0&&pair===0)coolingPenalty+=10;
+    if(hot&&count20>=Math.max(1,Math.round(max20*0.60))&&pre===0&&pair===0)coolingPenalty+=6;
     if(pre>0&&today>0)coolingPenalty-=6;
+    if(pair>0&&today>0)coolingPenalty-=4;
     if(coolingPenalty<0)coolingPenalty=0;
 
     const cooling=coolingPenalty>0;
-    const pressure=(gapPressure>=16||pretestSignal>=12)&&!cooling;
+    const pressure=(gapPressure>=16||pretestSignal>=12||pairSignal>=8)&&!cooling;
 
-    let finalScore=longFrequency+recentFrequency+gapPressure+pretestSignal+oddEvenFit+naturalStability-coolingPenalty;
+    let finalScore=longFrequency+recentFrequency+gapPressure+pretestSignal+pairSignal+oddEvenFit+naturalStability-coolingPenalty;
     if(finalScore<0)finalScore=0;
 
     let reason=[];
@@ -411,11 +523,12 @@ function calculatePressureScores(){
     if(pressure)reason.push("tomorrow pressure");
     if(cooling)reason.push("cooling");
     if(pre>0)reason.push(`pretest ${pre}`);
+    if(pair>0)reason.push(`pair ${pair}`);
     if(gap>=10&&gap<9999)reason.push(`gap ${gap}`);
     if(reason.length===0)reason.push("low signal");
 
-    scores[n]={number:n,oddEven:n%2===0?"Even":"Odd",count100,count20,count10,gap,pre,today,
-      gapPressure,pretestSignal,naturalStability,coolingPenalty,finalScore,hot,natural,pressure,cooling,reason:reason.join(", ")};
+    scores[n]={number:n,oddEven:n%2===0?"Even":"Odd",count100,count20,count10,gap,pre,pair,today,
+      gapPressure,pretestSignal,pairSignal,naturalStability,coolingPenalty,finalScore,hot,natural,pressure,cooling,reason:reason.join(", ")};
   }
 
   scoreModel=scores;
@@ -429,6 +542,7 @@ function runFullEngine(){
   calculatePressureScores();
   generatePool();
   buildBalancedPicks();
+  showPairPanel();
   showReplacementPanel();
 
   document.getElementById("engineOutput").textContent=
@@ -441,14 +555,19 @@ Compared:
 • Today real draw
 • Cooling penalty
 • Replacement pressure
+• Pair cluster support
 • Tomorrow 30-number pool
-• 20 balanced 6-number picks`;
+
+Pick split:
+1–10 = no adjacent sequence
+11–20 = common/least pair mix`;
 }
 
 function generatePool(){
   if(!scoreModel)calculatePressureScores();
 
   const sorted=Object.values(scoreModel).sort((a,b)=>b.finalScore-a.finalScore);
+  const pairNums=sorted.filter(x=>x.pair>0&&!x.cooling).map(x=>x.number);
   const pressure=sorted.filter(x=>x.pressure&&!x.cooling).map(x=>x.number);
   const natural=sorted.filter(x=>x.natural&&!x.cooling).map(x=>x.number);
   const hot=sorted.filter(x=>x.hot&&!x.cooling).map(x=>x.number);
@@ -462,9 +581,10 @@ function generatePool(){
     }
   }
 
-  add(pressure,14);
-  add(natural,22);
-  add(hot,26);
+  add(pairNums,10);
+  add(pressure,16);
+  add(natural,23);
+  add(hot,27);
   add(backup,POOL_SIZE);
 
   if(selected.length<POOL_SIZE){
@@ -487,39 +607,161 @@ Odd: ${odd}
 Even: ${even}
 
 Selected from:
-pressure + pretest + natural stability + non-cooling hot numbers.
+pair support + pressure + pretest + natural stability + non-cooling hot numbers.
 
-For 6/54, this pool is bigger than Cash 5 because the number range is larger.`;
+The 20 picks are split:
+1–10 no sequence
+11–20 pair mix.`;
+}
+
+function getSortedPool(){
+  return [...numberPool].sort((a,b)=>scoreModel[b].finalScore-scoreModel[a].finalScore);
+}
+
+function addBestNoSequence(pick,source,limit){
+  for(const n of source){
+    if(pick.length>=limit)break;
+    if(!pick.includes(n)){
+      const test=[...pick,n].sort((a,b)=>a-b);
+      if(!hasAdjacentPair(test))pick=test;
+    }
+  }
+  return pick;
+}
+
+function buildNoSequencePick(index){
+  const sorted=getSortedPool();
+  const rotated=sorted.slice(index%sorted.length).concat(sorted.slice(0,index%sorted.length));
+  let pick=[];
+
+  const odds=rotated.filter(n=>n%2!==0);
+  const evens=rotated.filter(n=>n%2===0);
+
+  let oddNeed=3;
+  if(index%3===1)oddNeed=4;
+  if(index%3===2)oddNeed=2;
+  const evenNeed=PICK_COUNT-oddNeed;
+
+  pick=addBestNoSequence(pick,odds,oddNeed);
+  pick=addBestNoSequence(pick,evens,PICK_COUNT);
+
+  if(pick.length<PICK_COUNT){
+    pick=addBestNoSequence(pick,rotated,PICK_COUNT);
+  }
+
+  return pick.sort((a,b)=>a-b);
+}
+
+function getPairLists(){
+  if(!pairModel)pairModel=buildPairModel(officialModel?.draws||[]);
+  const poolSet=new Set(numberPool);
+
+  const common=pairModel.rankedPairs
+    .filter(p=>poolSet.has(p.a)&&poolSet.has(p.b))
+    .sort((a,b)=>b.count-a.count || a.a-b.a);
+
+  const least=pairModel.leastPairs
+    .filter(p=>poolSet.has(p.a)&&poolSet.has(p.b))
+    .sort((a,b)=>a.count-b.count || a.a-b.a);
+
+  return {common,least};
+}
+
+function supportForPair(pair){
+  const key=pair.key;
+  const support=pairModel?.supportMap?.[key]||blankFreq();
+
+  return Object.entries(support)
+    .map(([n,c])=>({n:Number(n),c}))
+    .filter(x=>numberPool.includes(x.n))
+    .sort((a,b)=>{
+      const scoreA=(b.c-a.c);
+      if(scoreA!==0)return scoreA;
+      return scoreModel[b.n].finalScore-scoreModel[a.n].finalScore;
+    })
+    .map(x=>x.n);
+}
+
+function addBestWithPairRules(pick,source,limit){
+  for(const n of source){
+    if(pick.length>=limit)break;
+    if(!pick.includes(n)){
+      const test=[...pick,n].sort((a,b)=>a-b);
+      if(!hasFourSequence(test))pick=test;
+    }
+  }
+  return pick;
+}
+
+function buildPairPick(index){
+  const sorted=getSortedPool();
+  const lists=getPairLists();
+
+  let sourceList;
+  let type;
+  if(index%2===0 && lists.common.length){
+    sourceList=lists.common;
+    type="COMMON PAIR";
+  }else if(lists.least.length){
+    sourceList=lists.least;
+    type="LEAST PAIR";
+  }else{
+    sourceList=lists.common;
+    type="COMMON PAIR";
+  }
+
+  if(!sourceList || sourceList.length===0){
+    return {pick:buildNoSequencePick(index),type:"NO PAIR AVAILABLE",pair:"none"};
+  }
+
+  const pair=sourceList[index%sourceList.length];
+  let pick=[pair.a,pair.b];
+
+  const support=supportForPair(pair);
+  const anchors=sorted.filter(n=>scoreModel[n].hot||scoreModel[n].natural);
+  const pressure=sorted.filter(n=>scoreModel[n].pressure||scoreModel[n].gapPressure>=9||scoreModel[n].pretestSignal>0);
+  const backup=sorted;
+
+  pick=addBestWithPairRules(pick,support,4);
+  pick=addBestWithPairRules(pick,anchors,5);
+  pick=addBestWithPairRules(pick,pressure,6);
+  pick=addBestWithPairRules(pick,backup,6);
+
+  return {pick:[...new Set(pick)].slice(0,PICK_COUNT).sort((a,b)=>a-b),type,pair:pair.key,count:pair.count};
 }
 
 function buildBalancedPicks(){
   if(numberPool.length<PICK_COUNT)generatePool();
 
-  const sorted=[...numberPool].sort((a,b)=>scoreModel[b].finalScore-scoreModel[a].finalScore);
   const picks=[];
+  const meta=[];
+  const used=new Set();
+  let attempt=0;
 
-  for(let i=0;i<20;i++){
-    const rotated=sorted.slice(i).concat(sorted.slice(0,i));
-    const odds=rotated.filter(n=>n%2!==0);
-    const evens=rotated.filter(n=>n%2===0);
-
-    let pattern=i%3;
-    let oddNeed=3;
-    if(pattern===1)oddNeed=4;
-    if(pattern===2)oddNeed=2;
-    let evenNeed=PICK_COUNT-oddNeed;
-
-    let pick=[];
-    pick=pick.concat(odds.slice(0,oddNeed));
-    pick=pick.concat(evens.slice(0,evenNeed));
-
-    if(pick.length<PICK_COUNT){
-      rotated.forEach(n=>{
-        if(pick.length<PICK_COUNT&&!pick.includes(n))pick.push(n);
-      });
+  while(picks.length<10 && attempt<500){
+    const pick=buildNoSequencePick(attempt);
+    const key=pick.join("-");
+    if(pick.length===PICK_COUNT && !hasAdjacentPair(pick) && !used.has(key)){
+      picks.push(pick);
+      meta.push({type:"NO SEQUENCE",pair:"none"});
+      used.add(key);
     }
+    attempt++;
+  }
 
-    picks.push(pick.sort((a,b)=>a-b));
+  attempt=0;
+  while(picks.length<20 && attempt<700){
+    const result=buildPairPick(attempt);
+    const pick=result.pick;
+    const key=pick.join("-");
+    const pairs=sequencePairs(pick);
+
+    if(pick.length===PICK_COUNT && pairs.length>=1 && !hasFourSequence(pick) && !used.has(key)){
+      picks.push(pick);
+      meta.push(result);
+      used.add(key);
+    }
+    attempt++;
   }
 
   balancedPicks=picks;
@@ -527,10 +769,46 @@ function buildBalancedPicks(){
   document.getElementById("pickOutput").textContent=
 `20 BALANCED 6-NUMBER PICKS
 
-${picks.map((p,i)=>`${i+1}. ${p.join(" - ")}   Pattern ${oddEvenKey(p)}`).join("\n")}
+PICKS 1–10: NO SEQUENCE
+PICKS 11–20: PAIR MIX
 
-Target patterns:
-3/3, 4/2, and 2/4 odd/even.`;
+${picks.map((p,i)=>{
+  const pairs=sequencePairs(p);
+  const label=i<10 ? "NO-SEQUENCE" : "PAIR-MIX";
+  const pairText=pairs.length ? `Pairs: ${pairs.join(", ")}` : "Pairs: none";
+  const run=longestSequenceRun(p);
+  const m=meta[i]||{};
+  return `${i+1}. ${p.join(" - ")}   ${label}   Pattern ${oddEvenKey(p)}   ${pairText}   Longest:${run}   Source:${m.type||""} ${m.pair||""}`;
+}).join("\n")}
+
+Rule:
+1–10 have no adjacent sequence.
+11–20 include common and least-used pairs.
+4-number chains are blocked.`;
+}
+
+function showPairPanel(){
+  if(!officialModel)analyzeOfficialDraws();
+  if(!pairModel)pairModel=buildPairModel(officialModel.draws);
+
+  document.getElementById("pairOutput").textContent=
+`PAIR CLUSTER ANALYSIS
+
+Sequence count:
+No sequence draws: ${pairModel.noSeq}
+Pair draws: ${pairModel.pairDraws}
+3-number chains: ${pairModel.threeSeq}
+4-number chains: ${pairModel.fourSeq}
+
+Most common pairs:
+${pairModel.rankedPairs.slice(0,15).map(p=>`${p.key} = ${p.count}`).join("\n") || "none"}
+
+Least-used pairs:
+${pairModel.leastPairs.slice(0,15).map(p=>`${p.key} = ${p.count}`).join("\n") || "none"}
+
+Pick builder:
+1–10 uses no-sequence outcomes.
+11–20 uses common and least pair outcomes.`;
 }
 
 function showReplacementPanel(){
@@ -538,6 +816,7 @@ function showReplacementPanel(){
 
   const cooling=Object.values(scoreModel).filter(x=>x.cooling).sort((a,b)=>b.coolingPenalty-a.coolingPenalty);
   const replacement=Object.values(scoreModel).filter(x=>x.pressure&&!x.cooling).sort((a,b)=>b.finalScore-a.finalScore);
+  const pairSupport=Object.values(scoreModel).filter(x=>x.pair>0).sort((a,b)=>b.pair-a.pair);
 
   document.getElementById("replacementOutput").textContent=
 `REPLACEMENT MAP
@@ -548,9 +827,12 @@ ${cooling.length?cooling.slice(0,15).map(x=>`${x.number} penalty ${x.coolingPena
 Tomorrow replacement numbers:
 ${replacement.length?replacement.slice(0,20).map(x=>`${x.number} score ${x.finalScore.toFixed(1)}`).join(", "):"None"}
 
+Pair-supported numbers:
+${pairSupport.length?pairSupport.slice(0,20).map(x=>`${x.number} pair ${x.pair}`).join(", "):"None"}
+
 Meaning:
 Numbers drawn today are reduced for tomorrow.
-Pressure numbers from gaps and A1/A2/A3 can replace them.`;
+Pair support can soften cooling and help build pair-mix outcomes.`;
 }
 
 function runBacktest(){
@@ -601,6 +883,7 @@ function updateTable(){
     const count20=s?.count20??officialModel?.freq20?.[n]??0;
     const gap=s?.gap??officialModel?.gaps?.[n]??"";
     const pre=s?.pre??pretestModel?.pretestFreq?.[n]??0;
+    const pair=s?.pair??pairModel?.pairSupport?.[n]??0;
     const today=s?.today??todayModel?.freq?.[n]??0;
 
     const tr=document.createElement("tr");
@@ -611,6 +894,7 @@ function updateTable(){
 <td>${count20}</td>
 <td>${gap===9999?"Never":gap}</td>
 <td>${pre}</td>
+<td>${pair}</td>
 <td>${today?"Yes":"No"}</td>
 <td>${s?.hot?"Yes":"No"}</td>
 <td>${s?.natural?"Yes":"No"}</td>
