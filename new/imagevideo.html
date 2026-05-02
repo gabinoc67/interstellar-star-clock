@@ -3,69 +3,65 @@
 <head>
 <meta charset="UTF-8">
 <title>57 Image Video Maker</title>
+
 <style>
-  body {
-    margin: 0;
-    background: #05070d;
-    color: white;
-    font-family: Arial, sans-serif;
-    text-align: center;
-  }
+body {
+  margin: 0;
+  background: #05070d;
+  color: white;
+  font-family: Arial, sans-serif;
+  text-align: center;
+}
 
-  h1 {
-    margin-top: 20px;
-  }
+.panel {
+  width: 95%;
+  max-width: 1000px;
+  margin: 20px auto;
+  background: #111827;
+  border: 1px solid #334155;
+  border-radius: 14px;
+  padding: 16px;
+}
 
-  .panel {
-    width: 95%;
-    max-width: 1000px;
-    margin: 20px auto;
-    background: #111827;
-    border: 1px solid #334155;
-    border-radius: 14px;
-    padding: 16px;
-  }
+canvas {
+  width: 100%;
+  max-width: 900px;
+  aspect-ratio: 16 / 9;
+  background: black;
+  border: 2px solid white;
+  border-radius: 12px;
+}
 
-  canvas {
-    width: 100%;
-    max-width: 900px;
-    aspect-ratio: 16 / 9;
-    background: black;
-    border: 2px solid white;
-    border-radius: 12px;
-  }
+button, input {
+  padding: 10px 14px;
+  margin: 6px;
+  font-size: 15px;
+  border-radius: 8px;
+  border: none;
+}
 
-  button, input {
-    padding: 10px 14px;
-    margin: 6px;
-    font-size: 15px;
-    border-radius: 8px;
-    border: none;
-  }
+button {
+  cursor: pointer;
+  background: #2563eb;
+  color: white;
+}
 
-  button {
-    cursor: pointer;
-    background: #2563eb;
-    color: white;
-  }
+button:hover {
+  background: #1d4ed8;
+}
 
-  button:hover {
-    background: #1d4ed8;
-  }
+.good {
+  background: #16a34a;
+}
 
-  .danger {
-    background: #dc2626;
-  }
+.danger {
+  background: #dc2626;
+}
 
-  .good {
-    background: #16a34a;
-  }
-
-  .info {
-    margin-top: 10px;
-    font-size: 14px;
-    color: #cbd5e1;
-  }
+.info {
+  color: #cbd5e1;
+  margin-top: 10px;
+}
 </style>
 </head>
 
@@ -74,51 +70,58 @@
 <h1>57 Image Video Maker</h1>
 
 <div class="panel">
-  <p>Upload your 57 PNG or JPG images. Name them in order like image01.png, image02.png, image03.png...</p>
 
-  <input type="file" id="imageInput" multiple accept="image/png,image/jpeg,image/jpg,image/webp">
+<p>
+Upload your PNG or JPG images. Name them in order:
+image01.png, image02.png, image03.png...
+</p>
 
-  <br>
+<input type="file" id="imageInput" multiple accept="image/png,image/jpeg,image/jpg,image/webp">
 
-  <label>Seconds per image:</label>
-  <input type="number" id="secondsPerImage" value="4" min="0.5" step="0.5">
+<br>
 
-  <label>Video FPS:</label>
-  <input type="number" id="fps" value="30" min="10" max="60">
+<label>Seconds per image:</label>
+<input type="number" id="secondsPerImage" value="4" min="1" step="1">
 
-  <br><br>
+<br><br>
 
-  <canvas id="videoCanvas" width="1920" height="1080"></canvas>
+<canvas id="canvas" width="1920" height="1080"></canvas>
 
-  <div>
-    <button onclick="startPreview()">Start</button>
-    <button onclick="pausePreview()">Pause</button>
-    <button onclick="resetPreview()" class="danger">Reset</button>
-    <button onclick="downloadVideo()" class="good">Download Video</button>
-  </div>
+<br>
 
-  <div class="info" id="status">No images loaded.</div>
+<button onclick="playSlideshow()">Start</button>
+<button onclick="pauseSlideshow()">Pause</button>
+<button onclick="resetSlideshow()" class="danger">Reset</button>
+<button onclick="downloadVideo()" class="good">Download Video</button>
+
+<div class="info" id="status">No images loaded.</div>
+
 </div>
 
 <script>
 const input = document.getElementById("imageInput");
-const canvas = document.getElementById("videoCanvas");
+const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
-const statusText = document.getElementById("status");
+const statusBox = document.getElementById("status");
 
 let images = [];
 let currentIndex = 0;
-let previewTimer = null;
-let isPaused = false;
+let playing = false;
+let paused = false;
+let timer = null;
 
-input.addEventListener("change", async function(event) {
+input.addEventListener("change", async function(e) {
   images = [];
   currentIndex = 0;
-  clearInterval(previewTimer);
+  playing = false;
+  paused = false;
+  clearTimeout(timer);
 
-  const files = Array.from(event.target.files);
+  const files = Array.from(e.target.files);
 
-  files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  files.sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { numeric: true })
+  );
 
   for (const file of files) {
     const img = new Image();
@@ -132,102 +135,125 @@ input.addEventListener("change", async function(event) {
   }
 
   if (images.length > 0) {
-    drawImageToCanvas(images[0]);
+    drawImage(images[0]);
     updateStatus();
-  } else {
-    statusText.innerText = "No images loaded.";
   }
 });
 
-function drawImageToCanvas(img) {
+function drawImage(img) {
   ctx.fillStyle = "black";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   const canvasRatio = canvas.width / canvas.height;
   const imageRatio = img.width / img.height;
 
-  let drawWidth, drawHeight, x, y;
+  let w, h, x, y;
 
   if (imageRatio > canvasRatio) {
-    drawWidth = canvas.width;
-    drawHeight = canvas.width / imageRatio;
+    w = canvas.width;
+    h = canvas.width / imageRatio;
     x = 0;
-    y = (canvas.height - drawHeight) / 2;
+    y = (canvas.height - h) / 2;
   } else {
-    drawHeight = canvas.height;
-    drawWidth = canvas.height * imageRatio;
-    x = (canvas.width - drawWidth) / 2;
+    h = canvas.height;
+    w = canvas.height * imageRatio;
+    x = (canvas.width - w) / 2;
     y = 0;
   }
 
-  ctx.drawImage(img, x, y, drawWidth, drawHeight);
+  ctx.drawImage(img, x, y, w, h);
 }
 
-function startPreview() {
+function playSlideshow() {
   if (images.length === 0) {
-    alert("Please upload your images first.");
+    alert("Upload images first.");
     return;
   }
 
-  clearInterval(previewTimer);
-  isPaused = false;
+  playing = true;
+  paused = false;
 
-  const seconds = parseFloat(document.getElementById("secondsPerImage").value);
-  const delay = seconds * 1000;
+  showCurrentImage();
+}
 
-  previewTimer = setInterval(() => {
-    if (!isPaused) {
-      drawImageToCanvas(images[currentIndex]);
-      updateStatus();
+function showCurrentImage() {
+  if (!playing || paused) return;
 
-      currentIndex++;
+  drawImage(images[currentIndex]);
+  updateStatus();
 
-      if (currentIndex >= images.length) {
-        currentIndex = images.length - 1;
-        clearInterval(previewTimer);
-      }
+  const seconds = Number(document.getElementById("secondsPerImage").value);
+
+  timer = setTimeout(() => {
+    currentIndex++;
+
+    if (currentIndex >= images.length) {
+      currentIndex = images.length - 1;
+      playing = false;
+      updateStatus("Finished.");
+      return;
     }
-  }, delay);
+
+    showCurrentImage();
+
+  }, seconds * 1000);
 }
 
-function pausePreview() {
-  isPaused = true;
-  statusText.innerText = "Paused at image " + (currentIndex + 1) + " / " + images.length;
+function pauseSlideshow() {
+  paused = true;
+  playing = false;
+  clearTimeout(timer);
+  updateStatus("Paused.");
 }
 
-function resetPreview() {
-  clearInterval(previewTimer);
+function resetSlideshow() {
+  clearTimeout(timer);
   currentIndex = 0;
-  isPaused = false;
+  playing = false;
+  paused = false;
 
   if (images.length > 0) {
-    drawImageToCanvas(images[0]);
+    drawImage(images[0]);
   }
 
-  updateStatus();
+  updateStatus("Reset.");
 }
 
-function updateStatus() {
-  statusText.innerText =
-    "Image " + (currentIndex + 1) + " / " + images.length +
-    " | Total video time: " +
-    Math.round(images.length * parseFloat(document.getElementById("secondsPerImage").value)) +
-    " seconds";
+function updateStatus(extra = "") {
+  const seconds = Number(document.getElementById("secondsPerImage").value);
+  const totalSeconds = images.length * seconds;
+
+  statusBox.innerText =
+    extra + " Image " + (currentIndex + 1) + " / " + images.length +
+    " | " + seconds + " seconds per image" +
+    " | Total: " + totalSeconds + " seconds";
 }
 
 async function downloadVideo() {
   if (images.length === 0) {
-    alert("Please upload your images first.");
+    alert("Upload images first.");
     return;
   }
 
-  const secondsPerImage = parseFloat(document.getElementById("secondsPerImage").value);
-  const fps = parseInt(document.getElementById("fps").value);
+  clearTimeout(timer);
+  playing = false;
+  paused = false;
+
+  const seconds = Number(document.getElementById("secondsPerImage").value);
+  const fps = 30;
+
+  let mimeType = "";
+
+  if (MediaRecorder.isTypeSupported("video/mp4")) {
+    mimeType = "video/mp4";
+  } else if (MediaRecorder.isTypeSupported("video/webm;codecs=vp9")) {
+    mimeType = "video/webm;codecs=vp9";
+  } else {
+    mimeType = "video/webm";
+  }
 
   const stream = canvas.captureStream(fps);
-  const recorder = new MediaRecorder(stream, {
-    mimeType: "video/webm"
-  });
+  const recorder = new MediaRecorder(stream, { mimeType });
 
   let chunks = [];
 
@@ -236,28 +262,34 @@ async function downloadVideo() {
   };
 
   recorder.onstop = () => {
-    const blob = new Blob(chunks, { type: "video/webm" });
+    const type = mimeType.includes("mp4") ? "video/mp4" : "video/webm";
+    const extension = mimeType.includes("mp4") ? "mp4" : "webm";
+
+    const blob = new Blob(chunks, { type });
     const url = URL.createObjectURL(blob);
 
     const a = document.createElement("a");
     a.href = url;
-    a.download = "57-image-video.webm";
+    a.download = "57-image-video." + extension;
     a.click();
 
     URL.revokeObjectURL(url);
-    statusText.innerText = "Video downloaded: 57-image-video.webm";
+
+    statusBox.innerText =
+      "Downloaded video as ." + extension +
+      ". If you need true MP4 and it downloaded WebM, convert it in Clipchamp, Canva, or CapCut.";
   };
 
   recorder.start();
 
-  statusText.innerText = "Recording video...";
+  statusBox.innerText = "Recording video...";
 
   for (let i = 0; i < images.length; i++) {
-    drawImageToCanvas(images[i]);
     currentIndex = i;
-    updateStatus();
+    drawImage(images[i]);
+    updateStatus("Recording.");
 
-    await wait(secondsPerImage * 1000);
+    await wait(seconds * 1000);
   }
 
   recorder.stop();
