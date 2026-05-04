@@ -82,21 +82,37 @@ button,textarea,input{display:none}
 </section>
 
 <section class="panel">
-<h2>6. Build 40 Outcomes</h2>
-<p class="small">Program decides no-pair vs pair-mix ratio from your data.</p>
+<h2>6. Previous Draw Feedback Analyzer</h2>
+<p class="small">Paste the previous 40-ticket frequency count, actual draw, and winning pair/cluster notes before building the next 40 outcomes.</p>
+<textarea id="previousGeneratedCounts" placeholder="35-16
+30-14
+33-13
+10-11
+31-5"></textarea>
+<input id="feedbackActualDraw" placeholder="Actual draw in drawn order, example 31 22 18 10 33">
+<textarea id="winningPairNotes" placeholder="10-31 no-pair won 3 tickets
+10-33 pair-mix won 2 tickets
+10-31-33 cluster won 1 ticket"></textarea>
+<button onclick="analyzeFeedbackPanel()">Analyze Previous Draw Feedback</button>
+<div id="feedbackOutput" class="output"></div>
+</section>
+
+<section class="panel">
+<h2>7. Build 40 Outcomes</h2>
+<p class="small">Program decides no-pair vs pair-mix ratio from your data plus optional previous draw feedback.</p>
 <button onclick="buildBalancedPicks()">Build 40 Adaptive Outcomes</button>
 <div id="pickOutput" class="output"></div>
 </section>
 
 <section class="panel">
-<h2>7. Adaptive Ratio Panel</h2>
+<h2>8. Adaptive Ratio Panel</h2>
 <p class="small">Shows how many outcomes will be no-pair and how many will use pairs.</p>
 <button onclick="showAdaptivePanel()">Show Adaptive Ratio</button>
 <div id="adaptiveOutput" class="output"></div>
 </section>
 
 <section class="panel">
-<h2>8. Backtest Panel</h2>
+<h2>9. Backtest Panel</h2>
 <p class="small">Tests tomorrow 20-number pool against the last 100 draws.</p>
 <button onclick="runBacktest()">Run Backtest</button>
 <button onclick="exportFullCSV()">Export CSV / Excel</button>
@@ -104,21 +120,21 @@ button,textarea,input{display:none}
 </section>
 
 <section class="panel">
-<h2>9. Pair Cluster Engine</h2>
+<h2>10. Pair Cluster Engine</h2>
 <p class="small">Scans your data for common and least-used adjacent pairs.</p>
 <button onclick="showPairPanel()">Show Pair Clusters</button>
 <div id="pairOutput" class="output"></div>
 </section>
 
 <section class="panel">
-<h2>10. Replacement Panel</h2>
+<h2>11. Replacement Panel</h2>
 <p class="small">Shows cooling numbers, replacements, and pair support.</p>
 <button onclick="showReplacementPanel()">Show Replacements</button>
 <div id="replacementOutput" class="output"></div>
 </section>
 
 <section class="panel">
-<h2>11. Draw Result Tracker</h2>
+<h2>12. Draw Result Tracker</h2>
 <p class="small">After a real Cash 5 draw, enter the 5 numbers here to compare against your generated 40 outcomes and save the record.</p>
 <input id="drawResultDate" placeholder="Draw date, example 2026-05-04">
 <input id="drawResultNumbers" placeholder="Winning draw, example 10 31 33 4 22">
@@ -128,7 +144,7 @@ button,textarea,input{display:none}
 </section>
 
 <section class="panel">
-<h2>12. CSV / Excel Records</h2>
+<h2>13. CSV / Excel Records</h2>
 <p class="small">Exports the pressure table, 20-number pool, 40 generated outcomes, draw comparison, and saved draw records as CSV files that open in Excel.</p>
 <button onclick="exportFullCSV()">Export Full CSV / Excel Report</button>
 <button onclick="exportDrawRecordsCSV()">Export Saved Draw Records CSV</button>
@@ -149,7 +165,7 @@ Minimum pair coverage: 20% of 40 = 8 pair outcomes.
 <section class="panel">
 <h2>Formula</h2>
 <div class="note">
-Tomorrow Score = Long Frequency + Recent Frequency + Gap Pressure + Pretest Signal + Natural Stability + Pair Strength − Today Cooling Penalty.
+Tomorrow Score = Long Frequency + Recent Frequency + Gap Pressure + Pretest Signal + Natural Stability + Pair Strength + Optional Feedback Boost − Today Cooling Penalty − Optional Overexposure Cooling.
 </div>
 </section>
 
@@ -158,7 +174,7 @@ Tomorrow Score = Long Frequency + Recent Frequency + Gap Pressure + Pretest Sign
 <table>
 <thead>
 <tr>
-<th>#</th><th>Odd/Even</th><th>100 Count</th><th>20 Count</th><th>Gap</th><th>Pretest</th><th>Pair</th><th>Today?</th><th>Hot</th><th>Natural</th><th>Pressure</th><th>Cooling</th><th>Penalty</th><th>Score</th><th>Reason</th>
+<th>#</th><th>Odd/Even</th><th>100 Count</th><th>20 Count</th><th>Gap</th><th>Pretest</th><th>Pair</th><th>Today?</th><th>Hot</th><th>Natural</th><th>Pressure</th><th>Cooling</th><th>Penalty</th><th>Feedback</th><th>Missed</th><th>Cluster</th><th>Over</th><th>Prev40</th><th>Score</th><th>Reason</th>
 </tr>
 </thead>
 <tbody id="pressureTable"></tbody>
@@ -178,6 +194,7 @@ let twentyPool=[];
 let balancedPicks=[];
 let drawResultRecords=[];
 let lastDrawComparison=null;
+let feedbackModel=null;
 
 const TOTAL_OUTCOMES=40;
 
@@ -521,6 +538,131 @@ Today numbers receive cooling pressure unless they still have strong pretest, ga
   updateTable();
 }
 
+
+function parseGeneratedCountLines(text){
+  const freq=blankFreq();
+  const lines=text.trim().split(/\n+/).filter(x=>x.trim());
+  lines.forEach(line=>{
+    const nums=(line.match(/\d+/g)||[]).map(Number);
+    if(nums.length>=2){
+      const n=nums[0];
+      const count=nums[1];
+      if(n>=1&&n<=35&&count>=0)freq[n]=count;
+    }
+  });
+  return freq;
+}
+
+function parseWinningFeedbackLines(text){
+  const groups=[];
+  const lines=text.trim().split(/\n+/).filter(x=>x.trim());
+  lines.forEach(line=>{
+    const rawNums=(line.match(/\d+/g)||[]).map(Number).filter(n=>n>=1&&n<=35);
+    if(rawNums.length<2)return;
+
+    const lower=line.toLowerCase();
+    const hasWinWords=/won|win|ticket|tickets|times|x\b/.test(lower);
+    let wins=1;
+    let nums=[...rawNums];
+
+    if(hasWinWords && rawNums.length>=3){
+      wins=rawNums[rawNums.length-1];
+      nums=rawNums.slice(0,-1);
+    }
+
+    nums=[...new Set(nums)].slice(0,5).sort((a,b)=>a-b);
+    if(nums.length>=2){
+      let type="manual";
+      if(lower.includes("no-pair")||lower.includes("no pair"))type="no-pair";
+      if(lower.includes("pair-mix")||lower.includes("pair mix"))type="pair-mix";
+      if(lower.includes("cluster"))type="cluster";
+      groups.push({nums,wins:Math.max(1,wins),type,line});
+    }
+  });
+  return groups;
+}
+
+function analyzeFeedbackPanel(){
+  const generatedFreq=parseGeneratedCountLines(document.getElementById("previousGeneratedCounts").value);
+
+  let actual=parseNumbers(document.getElementById("feedbackActualDraw").value);
+  actual=[...new Set(actual)].slice(0,5).sort((a,b)=>a-b);
+
+  const groups=parseWinningFeedbackLines(document.getElementById("winningPairNotes").value);
+
+  const actualSet=new Set(actual);
+  const feedbackBoost=blankFreq();
+  const missedRecovery=blankFreq();
+  const overexposurePenalty=blankFreq();
+  const groupBoost=blankFreq();
+
+  for(let n=1;n<=35;n++){
+    const g=generatedFreq[n]||0;
+    if(actualSet.has(n) && g>0){
+      feedbackBoost[n]=Math.min(16,4+(g*0.65));
+    }
+    if(actualSet.has(n) && g===0){
+      missedRecovery[n]=14;
+    }
+    if(!actualSet.has(n) && g>=12){
+      overexposurePenalty[n]=Math.min(12,(g-10)*1.5);
+    }
+  }
+
+  groups.forEach(group=>{
+    group.nums.forEach(n=>{
+      groupBoost[n]+=Math.min(14,group.wins*3+(group.nums.length-2)*2);
+    });
+  });
+
+  feedbackModel={generatedFreq,actual,groups,feedbackBoost,missedRecovery,overexposurePenalty,groupBoost};
+
+  const hitLines=actual.length?actual.map(n=>{
+    const g=generatedFreq[n]||0;
+    const status=g>0?`hit and appeared ${g} times in prior 40`:`hit but was missing / under-covered`;
+    return `${n}: ${status}`;
+  }).join("\n"):"No actual draw entered.";
+
+  const overLines=Object.entries(generatedFreq)
+    .filter(([n,c])=>Number(c)>=12 && !actualSet.has(Number(n)))
+    .sort((a,b)=>b[1]-a[1])
+    .map(([n,c])=>`${n}: appeared ${c} times but did not hit, small cooling applied`)
+    .join("\n") || "No high-overexposure misses found.";
+
+  const groupLines=groups.length?groups.map(g=>`${g.nums.join("-")} | ${g.type} | weight ${g.wins}`).join("\n"):"No winning pair/cluster notes entered.";
+
+  document.getElementById("feedbackOutput").textContent=
+`PREVIOUS DRAW FEEDBACK ANALYSIS
+
+Actual draw checked:
+${actual.join(" - ") || "none"}
+
+Hit / missed coverage:
+${hitLines}
+
+Overexposure cooling:
+${overLines}
+
+Manual winning pair / cluster reinforcement:
+${groupLines}
+
+Adjustment rule:
+Hit numbers receive reinforcement.
+Missed actual draw numbers receive recovery boost.
+Overexposed numbers that did not hit receive small cooling.
+Winning pairs or clusters receive manual reinforcement.
+
+Theory-only note:
+This is a feedback record and does not guarantee future lottery results.`;
+
+  if(scoreModel)calculatePressureScores();
+  return feedbackModel;
+}
+
+function getFeedbackValue(model,key,n){
+  return model&&model[key]&&model[key][n]?model[key][n]:0;
+}
+
 function calculatePressureScores(){
   if(!officialModel)analyzeOfficialDraws();
   if(!pretestModel)analyzePretests();
@@ -540,6 +682,8 @@ function calculatePressureScores(){
   const pretestFreq=pretestModel?.pretestFreq||blankFreq();
   const todayFreq=todayModel?.freq||blankFreq();
   const pairSupport=pairModel?.pairSupport||blankFreq();
+  if(!feedbackModel)analyzeFeedbackPanel();
+  const feedback=feedbackModel;
 
   const max100=Math.max(...Object.values(freq100));
   const max20=Math.max(...Object.values(freq20));
@@ -557,6 +701,11 @@ function calculatePressureScores(){
     const pre=pretestFreq[n]||0;
     const today=todayFreq[n]||0;
     const pair=pairSupport[n]||0;
+    const priorGenerated=getFeedbackValue(feedback,"generatedFreq",n);
+    const hitReinforcement=getFeedbackValue(feedback,"feedbackBoost",n);
+    const missedRecoveryBoost=getFeedbackValue(feedback,"missedRecovery",n);
+    const manualGroupBoost=getFeedbackValue(feedback,"groupBoost",n);
+    const overexposureCooling=getFeedbackValue(feedback,"overexposurePenalty",n);
 
     const longFrequency=normalize(count100,max100)*26;
     const recentFrequency=normalize(count20,max20)*10;
@@ -590,7 +739,7 @@ function calculatePressureScores(){
     const cooling=coolingPenalty>0;
     const pressure=(gapPressure>=15||pretestSignal>=12||pairStrength>=8)&&!cooling;
 
-    let finalScore=longFrequency+recentFrequency+gapPressure+pretestSignal+oddEvenFit+naturalStability+pairStrength-coolingPenalty;
+    let finalScore=longFrequency+recentFrequency+gapPressure+pretestSignal+oddEvenFit+naturalStability+pairStrength+hitReinforcement+missedRecoveryBoost+manualGroupBoost-coolingPenalty-overexposureCooling;
     if(finalScore<0)finalScore=0;
 
     let reason=[];
@@ -601,12 +750,16 @@ function calculatePressureScores(){
     if(cooling)reason.push("cooling");
     if(pre>0)reason.push(`pretest ${pre}`);
     if(pair>0)reason.push(`pair support ${pair}`);
+    if(hitReinforcement>0)reason.push(`feedback hit +${hitReinforcement.toFixed(1)}`);
+    if(missedRecoveryBoost>0)reason.push(`missed draw recovery +${missedRecoveryBoost.toFixed(1)}`);
+    if(manualGroupBoost>0)reason.push(`winning pair/cluster +${manualGroupBoost.toFixed(1)}`);
+    if(overexposureCooling>0)reason.push(`overexposed prior 40 -${overexposureCooling.toFixed(1)}`);
     if(gap>=8&&gap<9999)reason.push(`gap ${gap}`);
     if(reason.length===0)reason.push("low signal");
 
     scores[n]={number:n,oddEven:n%2===0?"Even":"Odd",count100,count20,count10,gap,pre,pair,today,
       longFrequency,recentFrequency,gapPressure,pretestSignal,pairStrength,oddEvenFit,naturalStability,
-      coolingPenalty,finalScore,hot,natural,pressure,cooling,reason:reason.join(", ")};
+      coolingPenalty,overexposureCooling,hitReinforcement,missedRecoveryBoost,manualGroupBoost,priorGenerated,finalScore,hot,natural,pressure,cooling,reason:reason.join(", ")};
   }
 
   scoreModel=scores;
@@ -617,6 +770,7 @@ function runFullEngine(){
   analyzeOfficialDraws();
   analyzePretests();
   analyzeTodayDraw();
+  analyzeFeedbackPanel();
   calculatePressureScores();
   generateTwentyNumbers();
   buildBalancedPicks();
@@ -635,6 +789,7 @@ The program compared:
 • Cooling penalty
 • Gap pressure
 • Pair cluster strength
+• Previous draw feedback panel
 • Tomorrow 20-number pool
 
 Adaptive 40 outcome split:
@@ -1159,10 +1314,10 @@ function clearDrawRecords(){
 
 function exportPressureTableCSV(){
   if(!scoreModel)calculatePressureScores();
-  const rows=[["Number","Odd/Even","100 Count","20 Count","Gap","Pretest","Pair","Today","Hot","Natural","Pressure","Cooling","Penalty","Score","Reason"]];
+  const rows=[["Number","Odd/Even","100 Count","20 Count","Gap","Pretest","Pair","Today","Hot","Natural","Pressure","Cooling","Penalty","Feedback Hit Boost","Missed Draw Boost","Manual Pair/Cluster Boost","Overexposure Cooling","Prior 40 Count","Score","Reason"]];
   for(let n=1;n<=35;n++){
     const s=scoreModel[n];
-    rows.push([n,s.oddEven,s.count100,s.count20,s.gap===9999?"Never":s.gap,s.pre,s.pair,s.today?"Yes":"No",s.hot?"Yes":"No",s.natural?"Yes":"No",s.pressure?"Yes":"No",s.cooling?"Yes":"No",s.coolingPenalty.toFixed(1),s.finalScore.toFixed(1),s.reason]);
+    rows.push([n,s.oddEven,s.count100,s.count20,s.gap===9999?"Never":s.gap,s.pre,s.pair,s.today?"Yes":"No",s.hot?"Yes":"No",s.natural?"Yes":"No",s.pressure?"Yes":"No",s.cooling?"Yes":"No",s.coolingPenalty.toFixed(1),(s.hitReinforcement||0).toFixed(1),(s.missedRecoveryBoost||0).toFixed(1),(s.manualGroupBoost||0).toFixed(1),(s.overexposureCooling||0).toFixed(1),s.priorGenerated||0,s.finalScore.toFixed(1),s.reason]);
   }
   return rows;
 }
@@ -1275,6 +1430,11 @@ function updateTable(){
 <td>${s?.pressure?"Yes":"No"}</td>
 <td>${s?.cooling?"Yes":"No"}</td>
 <td>${s?s.coolingPenalty.toFixed(1):"0.0"}</td>
+<td>${s?(s.hitReinforcement||0).toFixed(1):"0.0"}</td>
+<td>${s?(s.missedRecoveryBoost||0).toFixed(1):"0.0"}</td>
+<td>${s?(s.manualGroupBoost||0).toFixed(1):"0.0"}</td>
+<td>${s?(s.overexposureCooling||0).toFixed(1):"0.0"}</td>
+<td>${s?(s.priorGenerated||0):0}</td>
 <td>${s?s.finalScore.toFixed(1):"0.0"}</td>
 <td>${s?.reason||""}</td>`;
     tbody.appendChild(tr);
