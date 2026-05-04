@@ -68,16 +68,6 @@ button,textarea,input{display:none}
 </section>
 
 <section class="panel">
-<h2>3A. Daily Draw Result / CSV Record</h2>
-<p class="small">Enter the official drawn numbers after the draw. The program compares them with your generated 40 tickets and saves a CSV-ready record.</p>
-<input id="resultDate" placeholder="2026-05-04">
-<input id="drawResult" placeholder="10 31 33 4 22">
-<button onclick="compareAndSaveDrawResult()">Compare Result + Save Record</button>
-<button onclick="exportCash5CSV()">Export CSV / Excel Report</button>
-<div id="resultCompareOutput" class="output"></div>
-</section>
-
-<section class="panel">
 <h2>4. Run Full Engine</h2>
 <p class="small">Runs all analysis and builds 40 adaptive outcomes.</p>
 <button onclick="runFullEngine()">Run Full Engine</button>
@@ -109,7 +99,7 @@ button,textarea,input{display:none}
 <h2>8. Backtest Panel</h2>
 <p class="small">Tests tomorrow 20-number pool against the last 100 draws.</p>
 <button onclick="runBacktest()">Run Backtest</button>
-<button onclick="exportCash5CSV()">Export CSV / Excel Report</button>
+<button onclick="exportFullCSV()">Export CSV / Excel</button>
 <div id="backtestOutput" class="output"></div>
 </section>
 
@@ -128,6 +118,25 @@ button,textarea,input{display:none}
 </section>
 
 <section class="panel">
+<h2>11. Draw Result Tracker</h2>
+<p class="small">After a real Cash 5 draw, enter the 5 numbers here to compare against your generated 40 outcomes and save the record.</p>
+<input id="drawResultDate" placeholder="Draw date, example 2026-05-04">
+<input id="drawResultNumbers" placeholder="Winning draw, example 10 31 33 4 22">
+<button onclick="compareDrawResult()">Compare Draw to 40 Outcomes</button>
+<button onclick="saveDrawResultRecord()">Save Draw Record</button>
+<div id="drawResultOutput" class="output"></div>
+</section>
+
+<section class="panel">
+<h2>12. CSV / Excel Records</h2>
+<p class="small">Exports the pressure table, 20-number pool, 40 generated outcomes, draw comparison, and saved draw records as CSV files that open in Excel.</p>
+<button onclick="exportFullCSV()">Export Full CSV / Excel Report</button>
+<button onclick="exportDrawRecordsCSV()">Export Saved Draw Records CSV</button>
+<button onclick="clearDrawRecords()">Clear Saved Draw Records</button>
+<div id="csvOutput" class="output"></div>
+</section>
+
+<section class="panel">
 <h2>Adaptive Rule</h2>
 <div class="note">
 The program analyzes your pasted draws.<br><br>
@@ -140,7 +149,7 @@ Minimum pair coverage: 20% of 40 = 8 pair outcomes.
 <section class="panel">
 <h2>Formula</h2>
 <div class="note">
-Tomorrow Score = Long Frequency + Recent Frequency + Gap Pressure + Pretest Signal + Natural Stability + Pair Strength − Today Cooling Penalty.<br><br>Result Overlap Record = Draw Number Appearances in 40 Tickets + Hit Pair Repetition + Free-Ticket Count.
+Tomorrow Score = Long Frequency + Recent Frequency + Gap Pressure + Pretest Signal + Natural Stability + Pair Strength − Today Cooling Penalty.
 </div>
 </section>
 
@@ -159,9 +168,6 @@ Tomorrow Score = Long Frequency + Recent Frequency + Gap Pressure + Pretest Sign
 </main>
 
 <script>
-/* PART 2 continues here */
-  /* PART 2: replace the comment above with this full script, then close with </script></body></html> already included below */
-
 let officialModel=null;
 let pretestModel=null;
 let todayModel=null;
@@ -170,7 +176,8 @@ let pairModel=null;
 let adaptiveModel=null;
 let twentyPool=[];
 let balancedPicks=[];
-let drawResultRecords=loadDrawResultRecords();
+let drawResultRecords=[];
+let lastDrawComparison=null;
 
 const TOTAL_OUTCOMES=40;
 
@@ -971,19 +978,31 @@ Draw-by-draw:
 ${lines.join("\n")}`;
 }
 
-function loadDrawResultRecords(){
-  try{
-    return JSON.parse(localStorage.getItem("cash5DrawResultRecords")||"[]");
-  }catch(e){
-    return [];
-  }
+
+function csvEscape(value){
+  const text=String(value??"");
+  if(/[",\n\r]/.test(text))return '"'+text.replace(/"/g,'""')+'"';
+  return text;
 }
 
-function saveDrawResultRecords(){
-  localStorage.setItem("cash5DrawResultRecords",JSON.stringify(drawResultRecords));
+function rowsToCSV(rows){
+  return rows.map(row=>row.map(csvEscape).join(",")).join("\n");
 }
 
-function getTodayDateText(){
+function downloadCSV(filename,rows){
+  const csv=rowsToCSV(rows);
+  const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;
+  a.download=filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function currentDateStamp(){
   const d=new Date();
   const y=d.getFullYear();
   const m=String(d.getMonth()+1).padStart(2,"0");
@@ -991,156 +1010,241 @@ function getTodayDateText(){
   return `${y}-${m}-${day}`;
 }
 
-function countNumberAppearancesInPicks(nums,picks){
-  const out={};
-  nums.forEach(n=>out[n]=0);
-  picks.forEach(p=>nums.forEach(n=>{if(p.includes(n))out[n]++;}));
-  return out;
+function getSavedDrawRecords(){
+  try{
+    const raw=localStorage.getItem("cash5DrawResultRecords");
+    drawResultRecords=raw?JSON.parse(raw):[];
+  }catch(e){
+    drawResultRecords=[];
+  }
+  return drawResultRecords;
 }
 
-function hitPairsFromDrawAndPick(draw,pick){
-  const hits=draw.filter(n=>pick.includes(n)).sort((a,b)=>a-b);
-  const pairs=[];
-  for(let i=0;i<hits.length;i++){
-    for(let j=i+1;j<hits.length;j++){
-      pairs.push(`${hits[i]}-${hits[j]}`);
+function setSavedDrawRecords(records){
+  drawResultRecords=records;
+  localStorage.setItem("cash5DrawResultRecords",JSON.stringify(records));
+}
+
+function compareDrawResult(){
+  if(balancedPicks.length<1)buildBalancedPicks();
+
+  let nums=parseNumbers(document.getElementById("drawResultNumbers").value);
+  nums=[...new Set(nums)].slice(0,5).sort((a,b)=>a-b);
+
+  if(nums.length!==5){
+    alert("Enter exactly 5 winning draw numbers from 1 through 35.");
+    return null;
+  }
+
+  const date=document.getElementById("drawResultDate").value.trim()||currentDateStamp();
+  const drawSet=new Set(nums);
+  const numberHitCount=blankFreq();
+  let match2=0,match3=0,match4=0,match5=0;
+  let bestHits=0;
+  let bestTickets=[];
+  let ticketLines=[];
+
+  balancedPicks.forEach((pick,i)=>{
+    const hits=pick.filter(n=>drawSet.has(n));
+    hits.forEach(n=>numberHitCount[n]++);
+    if(hits.length>=2)match2++;
+    if(hits.length>=3)match3++;
+    if(hits.length>=4)match4++;
+    if(hits.length>=5)match5++;
+    if(hits.length>bestHits){
+      bestHits=hits.length;
+      bestTickets=[i+1];
+    }else if(hits.length===bestHits){
+      bestTickets.push(i+1);
+    }
+    ticketLines.push(`${i+1}. ${pick.join("-")} = ${hits.length} hits ${hits.length?"("+hits.join("-")+")":""}`);
+  });
+
+  const drawnStats=nums.map(n=>`${n} appeared in ${numberHitCount[n]} generated tickets`).join("\n");
+  const pairHits=[];
+  for(let i=0;i<nums.length;i++){
+    for(let j=i+1;j<nums.length;j++){
+      const a=nums[i],b=nums[j];
+      const count=balancedPicks.filter(p=>p.includes(a)&&p.includes(b)).length;
+      if(count>0)pairHits.push(`${a}-${b} appeared together in ${count} generated tickets`);
     }
   }
-  return pairs;
+
+  lastDrawComparison={date,draw:nums,numberHitCount,match2,match3,match4,match5,bestHits,bestTickets,pairHits,ticketLines};
+
+  document.getElementById("drawResultOutput").textContent=
+`DRAW RESULT COMPARISON
+
+Date:
+${date}
+
+Winning draw:
+${nums.join(" - ")}
+
+40-ticket result summary:
+Tickets with 2+ numbers: ${match2}
+Tickets with 3+ numbers: ${match3}
+Tickets with 4+ numbers: ${match4}
+Tickets with 5 numbers: ${match5}
+
+Best ticket hit count:
+${bestHits}
+
+Best ticket numbers:
+${bestTickets.join(", ") || "none"}
+
+Drawn-number coverage inside your generated 40 outcomes:
+${drawnStats}
+
+Drawn-pair coverage inside your generated 40 outcomes:
+${pairHits.join("\n") || "No drawn pairs appeared together in the 40 outcomes."}
+
+Theory-only note:
+This does not predict a lottery result. It only records how your generated 40 outcomes performed against the official draw and shows which numbers or pairs were being repeated by the engine.
+
+Ticket-by-ticket:
+${ticketLines.join("\n")}`;
+
+  return lastDrawComparison;
 }
 
-function compareAndSaveDrawResult(){
-  if(balancedPicks.length<40)buildBalancedPicks();
+function saveDrawResultRecord(){
+  const comparison=compareDrawResult();
+  if(!comparison)return;
 
-  let nums=parseNumbers(document.getElementById("drawResult").value);
-  nums=[...new Set(nums)].slice(0,5).sort((a,b)=>a-b);
-  if(nums.length!==5){
-    alert("Enter exactly 5 official drawn numbers from 1 through 35.");
+  const records=getSavedDrawRecords();
+  const drawText=comparison.draw.join("-");
+  const repeatedNumbers=comparison.draw.map(n=>`${n}:${comparison.numberHitCount[n]}`).join(" | ");
+  const pairText=comparison.pairHits.join(" | ")||"none";
+
+  records.push({
+    savedAt:new Date().toISOString(),
+    date:comparison.date,
+    draw:drawText,
+    ticketsWith2Plus:comparison.match2,
+    ticketsWith3Plus:comparison.match3,
+    ticketsWith4Plus:comparison.match4,
+    ticketsWith5:comparison.match5,
+    bestHits:comparison.bestHits,
+    bestTickets:comparison.bestTickets.join(" | "),
+    repeatedNumbers,
+    pairCoverage:pairText
+  });
+
+  setSavedDrawRecords(records);
+  document.getElementById("csvOutput").textContent=`Saved draw record. Total saved records: ${records.length}`;
+}
+
+function exportDrawRecordsCSV(){
+  const records=getSavedDrawRecords();
+  if(records.length===0){
+    alert("No saved draw records yet. Use Compare Draw and Save Draw Record first.");
     return;
   }
 
-  const dateText=document.getElementById("resultDate").value.trim() || getTodayDateText();
-  const appearances=countNumberAppearancesInPicks(nums,balancedPicks);
-  const ticketRows=[];
-  const pairHitCount={};
-  let freeTickets=0;
-  let maxHits=0;
-
-  balancedPicks.forEach((pick,i)=>{
-    const hits=pick.filter(n=>nums.includes(n)).sort((a,b)=>a-b);
-    maxHits=Math.max(maxHits,hits.length);
-    if(hits.length>=2)freeTickets++;
-    const pairs=hitPairsFromDrawAndPick(nums,pick);
-    pairs.forEach(k=>pairHitCount[k]=(pairHitCount[k]||0)+1);
-    ticketRows.push({ticket:i+1,pick:[...pick],hits,hitsCount:hits.length,pairs});
+  const rows=[["Saved At","Draw Date","Winning Draw","Tickets 2+","Tickets 3+","Tickets 4+","Tickets 5","Best Hits","Best Tickets","Drawn Number Coverage","Drawn Pair Coverage"]];
+  records.forEach(r=>{
+    rows.push([r.savedAt,r.date,r.draw,r.ticketsWith2Plus,r.ticketsWith3Plus,r.ticketsWith4Plus,r.ticketsWith5,r.bestHits,r.bestTickets,r.repeatedNumbers,r.pairCoverage]);
   });
 
-  const topPairs=Object.entries(pairHitCount).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]));
-  const record={
-    date:dateText,
-    draw:nums,
-    twentyPool:[...twentyPool],
-    adaptiveSplit:adaptiveModel?{noPairOutcomes:adaptiveModel.noPairOutcomes,pairOutcomes:adaptiveModel.pairOutcomes}:null,
-    appearances,
-    freeTickets,
-    maxHits,
-    topPairs,
-    ticketRows
-  };
-
-  drawResultRecords.push(record);
-  saveDrawResultRecords();
-
-  document.getElementById("resultCompareOutput").textContent=
-`DAILY RESULT COMPARE SAVED
-
-Date: ${dateText}
-Official draw: ${nums.join(" - ")}
-
-Number appearance inside generated 40 tickets:
-${nums.map(n=>`${n} appeared ${appearances[n]} times`).join("
-")}
-
-Tickets with 2 or more hits / free-ticket theory:
-${freeTickets}
-
-Best ticket hit count:
-${maxHits}
-
-Hit pairs found inside your 40 tickets:
-${topPairs.length?topPairs.slice(0,12).map(x=>`${x[0]} = ${x[1]} times`).join("
-"):"No 2-number pair hits"}
-
-Theory note:
-The useful record is not prediction certainty. It is overlap pressure: how often the real draw appeared inside the generated 40 tickets, which pairs repeated, and whether those numbers were from hot, gap, pretest, or pair-support logic.`;
+  downloadCSV(`cash5_saved_draw_records_${currentDateStamp()}.csv`,rows);
+  document.getElementById("csvOutput").textContent=`Exported saved draw records CSV. Records: ${records.length}`;
 }
 
-function csvEscape(v){
-  const s=String(v??"");
-  if(/[",
-]/.test(s))return `"${s.replace(/"/g,'""')}"`;
-  return s;
+function clearDrawRecords(){
+  if(!confirm("Clear all saved Cash 5 draw records from this browser?"))return;
+  setSavedDrawRecords([]);
+  document.getElementById("csvOutput").textContent="Saved draw records cleared.";
 }
 
-function makeCSV(rows){
-  return rows.map(r=>r.map(csvEscape).join(",")).join("
-");
-}
-
-function exportCash5CSV(){
+function exportPressureTableCSV(){
   if(!scoreModel)calculatePressureScores();
-  if(twentyPool.length<5)generateTwentyNumbers();
+  const rows=[["Number","Odd/Even","100 Count","20 Count","Gap","Pretest","Pair","Today","Hot","Natural","Pressure","Cooling","Penalty","Score","Reason"]];
+  for(let n=1;n<=35;n++){
+    const s=scoreModel[n];
+    rows.push([n,s.oddEven,s.count100,s.count20,s.gap===9999?"Never":s.gap,s.pre,s.pair,s.today?"Yes":"No",s.hot?"Yes":"No",s.natural?"Yes":"No",s.pressure?"Yes":"No",s.cooling?"Yes":"No",s.coolingPenalty.toFixed(1),s.finalScore.toFixed(1),s.reason]);
+  }
+  return rows;
+}
+
+function exportPicksCSVRows(){
+  if(balancedPicks.length<1)buildBalancedPicks();
+  const rows=[["Ticket","N1","N2","N3","N4","N5","Pattern","Type","Pairs"]];
+  balancedPicks.forEach((p,i)=>{
+    const pairs=sequencePairs(p);
+    rows.push([i+1,p[0],p[1],p[2],p[3],p[4],oddEvenKey(p),pairs.length?"PAIR-MIX":"NO-PAIR",pairs.join(" | ")||"none"]);
+  });
+  return rows;
+}
+
+function exportTwentyPoolCSVRows(){
+  if(twentyPool.length<1)generateTwentyNumbers();
+  const rows=[["Pool Position","Number","Score","Reason"]];
+  twentyPool.forEach((n,i)=>{
+    const s=scoreModel?.[n];
+    rows.push([i+1,n,s?s.finalScore.toFixed(1):"",s?s.reason:""]);
+  });
+  return rows;
+}
+
+function exportDrawComparisonCSVRows(){
+  if(!lastDrawComparison){
+    const input=document.getElementById("drawResultNumbers").value.trim();
+    if(input)compareDrawResult();
+  }
+  const rows=[["Draw Comparison Field","Value"]];
+  if(!lastDrawComparison){
+    rows.push(["Draw comparison","No draw comparison entered yet"]);
+    return rows;
+  }
+  const c=lastDrawComparison;
+  rows.push(["Date",c.date]);
+  rows.push(["Winning Draw",c.draw.join("-")]);
+  rows.push(["Tickets with 2+",c.match2]);
+  rows.push(["Tickets with 3+",c.match3]);
+  rows.push(["Tickets with 4+",c.match4]);
+  rows.push(["Tickets with 5",c.match5]);
+  rows.push(["Best Hits",c.bestHits]);
+  rows.push(["Best Tickets",c.bestTickets.join(" | ")]);
+  c.draw.forEach(n=>rows.push([`Number ${n} ticket appearances`,c.numberHitCount[n]]));
+  c.pairHits.forEach(p=>rows.push(["Pair coverage",p]));
+  return rows;
+}
+
+function exportFullCSV(){
+  if(!scoreModel)calculatePressureScores();
+  if(twentyPool.length<1)generateTwentyNumbers();
   if(balancedPicks.length<1)buildBalancedPicks();
 
   const rows=[];
-  rows.push(["Cash 5 Adaptive 40 Outcome Engine CSV Report"]);
-  rows.push(["Export Date",getTodayDateText()]);
-  rows.push([]);
-  rows.push(["Tomorrow 20-Number Pool",twentyPool.join(" - ")]);
-  rows.push(["No-Pair Outcomes",adaptiveModel?.noPairOutcomes??""]);
-  rows.push(["Pair-Mix Outcomes",adaptiveModel?.pairOutcomes??""]);
+  rows.push(["CASH 5 ADAPTIVE ENGINE FULL CSV REPORT"]);
+  rows.push(["Generated",new Date().toLocaleString()]);
+  rows.push(["Theory-only note","This report is for recordkeeping and statistical comparison only. It cannot predict or guarantee lottery results."]);
   rows.push([]);
 
-  rows.push(["40 Generated Tickets"]);
-  rows.push(["Ticket","Numbers","Pattern","Pairs","Type"]);
-  balancedPicks.forEach((p,i)=>{
-    const pairs=sequencePairs(p);
-    rows.push([i+1,p.join(" - "),oddEvenKey(p),pairs.join(" | ")||"none",pairs.length?"PAIR-MIX":"NO-PAIR"]);
-  });
+  rows.push(["SECTION","20-NUMBER POOL"]);
+  rows.push(...exportTwentyPoolCSVRows());
   rows.push([]);
 
-  rows.push(["Pressure Table"]);
-  rows.push(["Number","Odd/Even","100 Count","20 Count","Gap","Pretest","Pair","Today","Hot","Natural","Pressure","Cooling","Penalty","Score","Reason"]);
-  for(let n=1;n<=35;n++){
-    const s=scoreModel?.[n];
-    rows.push([n,n%2===0?"Even":"Odd",s?.count100??0,s?.count20??0,s?.gap===9999?"Never":s?.gap??"",s?.pre??0,s?.pair??0,s?.today?"Yes":"No",s?.hot?"Yes":"No",s?.natural?"Yes":"No",s?.pressure?"Yes":"No",s?.cooling?"Yes":"No",s?s.coolingPenalty.toFixed(1):"0.0",s?s.finalScore.toFixed(1):"0.0",s?.reason||""]);
-  }
+  rows.push(["SECTION","40 ADAPTIVE OUTCOMES"]);
+  rows.push(...exportPicksCSVRows());
   rows.push([]);
 
-  rows.push(["Saved Daily Result Records"]);
-  rows.push(["Date","Official Draw","Generated Pool","Free Tickets / 2+ Hits","Best Hit Count","Draw Number Appearances","Top Hit Pairs"]);
-  drawResultRecords.forEach(r=>{
-    rows.push([
-      r.date,
-      r.draw.join(" - "),
-      (r.twentyPool||[]).join(" - "),
-      r.freeTickets,
-      r.maxHits,
-      Object.entries(r.appearances||{}).map(x=>`${x[0]}=${x[1]}`).join(" | "),
-      (r.topPairs||[]).map(x=>`${x[0]}=${x[1]}`).join(" | ")
-    ]);
-  });
+  rows.push(["SECTION","PRESSURE TABLE"]);
+  rows.push(...exportPressureTableCSV());
+  rows.push([]);
 
-  const csv=makeCSV(rows);
-  const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement("a");
-  a.href=url;
-  a.download=`cash5_adaptive_report_${getTodayDateText()}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  rows.push(["SECTION","DRAW RESULT COMPARISON"]);
+  rows.push(...exportDrawComparisonCSVRows());
+  rows.push([]);
+
+  rows.push(["SECTION","SAVED DRAW RECORDS"]);
+  const records=getSavedDrawRecords();
+  rows.push(["Saved At","Draw Date","Winning Draw","Tickets 2+","Tickets 3+","Tickets 4+","Tickets 5","Best Hits","Best Tickets","Drawn Number Coverage","Drawn Pair Coverage"]);
+  records.forEach(r=>rows.push([r.savedAt,r.date,r.draw,r.ticketsWith2Plus,r.ticketsWith3Plus,r.ticketsWith4Plus,r.ticketsWith5,r.bestHits,r.bestTickets,r.repeatedNumbers,r.pairCoverage]));
+
+  downloadCSV(`cash5_full_excel_report_${currentDateStamp()}.csv`,rows);
+  document.getElementById("csvOutput").textContent="Exported full CSV / Excel report.";
 }
 
 function updateTable(){
@@ -1179,4 +1283,3 @@ function updateTable(){
 </script>
 </body>
 </html>
-    
