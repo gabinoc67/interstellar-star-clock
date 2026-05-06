@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CST Bell Sphere Artificial Gravity Equilibrium Simulator</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0;
+  background:#050912;
+  color:#eaf7ff;
+  font-family:Arial,Helvetica,sans-serif;
+  font-size:12px;
+}
+header{
+  text-align:center;
+  padding:10px;
+  background:#071525;
+  border-bottom:2px solid #1b9cff;
+}
+h1{margin:0;color:#fff;font-size:22px}
+h2{margin:4px 0;color:#ffd36a;font-size:14px}
+button,select,input{
+  background:#0b1c2e;
+  color:#eaf7ff;
+  border:1px solid #36b7ff;
+  padding:6px 10px;
+  border-radius:6px;
+  margin:2px;
+}
+button:hover{background:#12385a}
+.wrap{
+  display:grid;
+  grid-template-columns:1.2fr 1fr 1fr;
+  gap:8px;
+  padding:8px;
+}
+.panel{
+  border:1px solid #1b9cff;
+  border-radius:10px;
+  background:rgba(6,18,33,.92);
+  padding:8px;
+  box-shadow:0 0 12px rgba(0,150,255,.25);
+}
+.panel h3{
+  margin:0 0 6px;
+  color:#66cfff;
+  font-size:13px;
+  text-align:center;
+}
+.small{font-size:11px;color:#ccecff}
+canvas{
+  width:100%;
+  height:260px;
+  background:#020711;
+  border:1px solid #244a67;
+  border-radius:8px;
+}
+.reading{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:4px;
+}
+.box{
+  border:1px solid #244a67;
+  border-radius:6px;
+  padding:5px;
+  background:#07111e;
+}
+.good{color:#7dff9b}
+.warn{color:#ffd36a}
+.bad{color:#ff7777}
+table{width:100%;border-collapse:collapse;font-size:11px}
+th,td{border:1px solid #244a67;padding:4px;text-align:center}
+th{color:#66cfff;background:#071525}
+.compartment{
+  display:grid;
+  grid-template-columns:1fr 1fr 1fr;
+  gap:5px;
+}
+.comp{
+  border:1px solid #244a67;
+  border-radius:8px;
+  padding:5px;
+  background:#07111e;
+}
+.bar{
+  height:7px;
+  background:#12263a;
+  border-radius:6px;
+  overflow:hidden;
+}
+.fill{
+  height:100%;
+  width:50%;
+  background:linear-gradient(90deg,#38a8ff,#8d6bff);
+}
+.footer{
+  padding:8px;
+  text-align:center;
+  color:#ffd36a;
+}
+@media(max-width:1000px){
+  .wrap{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>CST TEMPORAL EQUILIBRIUM BELL SPHERE SIMULATOR</h1>
+  <h2>Earth-Gravity Crew Stabilization During Earth-to-Mars Near-Light-Speed Travel</h2>
+  <div>
+    <button onclick="startSim()">Start</button>
+    <button onclick="pauseSim()">Pause</button>
+    <button onclick="resetSim()">Reset</button>
+    <button onclick="window.print()">Print</button>
+    Cruise Fraction of Light Speed:
+    <input id="speedSlider" type="range" min="0.05" max="0.95" step="0.01" value="0.40" oninput="speedFrac=parseFloat(this.value)">
+    <span id="speedText">0.40 c</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="panel">
+    <h3>Ship View: Bell Spheres Under Compartments</h3>
+    <canvas id="shipCanvas" width="800" height="420"></canvas>
+    <p class="small">
+      Each blue-purple sphere represents a local Temporal Equilibrium Bell Sphere under a ship section.
+      The system adjusts field pressure, timing phase, and artificial acceleration to maintain Earth gravity:
+      <b>g₀ = 9.80665 m/s²</b>.
+    </p>
+  </div>
+
+  <div class="panel">
+    <h3>Mission Live Readings</h3>
+    <div class="reading">
+      <div class="box">UTC Time<br><b id="utc">--</b></div>
+      <div class="box">Atomic Time<br><b id="atomic">--</b></div>
+      <div class="box">CST Time<br><b id="cst">--</b></div>
+      <div class="box">Interstellar Time<br><b id="ist">--</b></div>
+      <div class="box">Distance to Mars<br><b id="dist">--</b></div>
+      <div class="box">Ship Speed<br><b id="speed">--</b></div>
+      <div class="box">Relativity γ<br><b id="gamma">--</b></div>
+      <div class="box">Trip Progress<br><b id="progress">--</b></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>Core Equations Used</h3>
+    <p><b>Standard Gravity:</b></p>
+    <p>g₀ = 9.80665 m/s²</p>
+    <p><b>Newton Second Law:</b></p>
+    <p>F = m a</p>
+    <p><b>Crew Weight Control:</b></p>
+    <p>W = m g</p>
+    <p><b>Bell Sphere Correction:</b></p>
+    <p>aCorrection = g₀ − gMeasured</p>
+    <p><b>CST Timing Error:</b></p>
+    <p>ΔT = Tcompartment − Tref</p>
+    <p><b>Stability Cost:</b></p>
+    <p>C = Σ wi(ΔTi)² + α(g₀ − gi)²</p>
+  </div>
+
+  <div class="panel">
+    <h3>Compartment Gravity Equilibrium</h3>
+    <div class="compartment" id="compartments"></div>
+  </div>
+
+  <div class="panel">
+    <h3>Sensor Table</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Section</th>
+          <th>g m/s²</th>
+          <th>Error</th>
+          <th>Sphere Power</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="sensorRows"></tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <h3>Purpose and Theory Explanation</h3>
+    <p>
+      This program is a theoretical CST Bell Sphere control demo. It shows how separate ship sections could use
+      local equilibrium spheres to keep crew gravity near Earth gravity while the spacecraft travels from Earth
+      to Mars.
+    </p>
+    <p>
+      In this model, each compartment has its own sensor loop. If measured gravity drops, the sphere increases
+      acceleration support. If gravity rises too high, the sphere reduces support. The goal is not time travel.
+      The goal is stable crew weight, stable timing, stable navigation, and safer field balance.
+    </p>
+    <p class="small">
+      Disclaimer: This is a conceptual educational simulator. It does not prove artificial gravity, warp drive,
+      or faster-than-light propulsion. It is a logic model based on field equilibrium, Newton’s second law,
+      timing synchronization, and control feedback.
+    </p>
+  </div>
+
+</div>
+
+<div class="footer">
+  CST Bell Sphere Principle: keep every ship section synchronized, balanced, and returned to Earth-gravity equilibrium.
+</div>
+
+<script>
+const c = 299792458;
+const g0 = 9.80665;
+const marsDistance = 225000000000;
+let running = false;
+let t = 0;
+let speedFrac = 0.40;
+let progress = 0;
+
+const sections = [
+  {name:"Crew Quarters", mass:80, g:9.80665, power:50, phase:0},
+  {name:"Navigation", mass:75, g:9.80665, power:50, phase:.4},
+  {name:"Control Room", mass:85, g:9.80665, power:50, phase:.8},
+  {name:"Operations", mass:90, g:9.80665, power:50, phase:1.2},
+  {name:"Engine Room", mass:95, g:9.80665, power:50, phase:1.6}
+];
+
+const shipCanvas = document.getElementById("shipCanvas");
+const ctx = shipCanvas.getContext("2d");
+
+function startSim(){running=true}
+function pauseSim(){running=false}
+function resetSim(){
+  running=false;t=0;progress=0;
+  sections.forEach(s=>{s.g=g0;s.power=50});
+  update();
+}
+
+function fmt(n,d=2){return Number(n).toFixed(d)}
+
+function updateClocks(){
+  const now = new Date();
+  document.getElementById("utc").textContent = now.toUTCString().split(" ")[4];
+
+  const atomicOffset = 37;
+  const atomic = new Date(now.getTime()+atomicOffset*1000);
+  document.getElementById("atomic").textContent = atomic.toUTCString().split(" ")[4] + " TAI";
+
+  const cstOffset = Math.sin(t/40)*0.004;
+  document.getElementById("cst").textContent = now.toUTCString().split(" ")[4] + " Δ" + cstOffset.toFixed(4)+"s";
+
+  const istDays = t/86400;
+  document.getElementById("ist").textContent = "Mars corridor +" + istDays.toFixed(4) + " d";
+}
+
+function updateMission(){
+  const v = speedFrac*c;
+  const beta = speedFrac;
+  const gamma = 1/Math.sqrt(1-beta*beta);
+  if(running){
+    progress += v*0.04;
+    if(progress>marsDistance) progress=marsDistance;
+  }
+
+  document.getElementById("speedText").textContent = speedFrac.toFixed(2)+" c";
+  document.getElementById("speed").textContent = fmt(v/1000,0)+" km/s";
+  document.getElementById("gamma").textContent = gamma.toFixed(4);
+  document.getElementById("dist").textContent = fmt((marsDistance-progress)/1000000,0)+" million km";
+  document.getElementById("progress").textContent = fmt((progress/marsDistance)*100,2)+"%";
+}
+
+function updateCompartments(){
+  const compDiv = document.getElementById("compartments");
+  const rows = document.getElementById("sensorRows");
+  compDiv.innerHTML="";
+  rows.innerHTML="";
+
+  sections.forEach((s,i)=>{
+    const disturbance =
+      Math.sin(t/9+s.phase)*0.05 +
+      Math.sin(t/23+s.phase)*0.025 +
+      (speedFrac-0.4)*0.03;
+
+    const measured = s.g + disturbance;
+    const error = g0 - measured;
+
+    s.power += error*12;
+    s.power = Math.max(0,Math.min(100,s.power));
+
+    s.g += error*0.12;
+
+    const status = Math.abs(error)<0.03 ? "Stable" : Math.abs(error)<0.08 ? "Correcting" : "Warning";
+    const cls = status==="Stable" ? "good" : status==="Correcting" ? "warn" : "bad";
+
+    const weight = s.mass*s.g;
+
+    compDiv.innerHTML += `
+      <div class="comp">
+        <b>${s.name}</b><br>
+        Gravity: <span class="${cls}">${s.g.toFixed(4)} m/s²</span><br>
+        Crew Weight Force: ${weight.toFixed(1)} N<br>
+        Δg Error: ${error.toFixed(4)}<br>
+        Sphere Output:
+        <div class="bar"><div class="fill" style="width:${s.power.toFixed(1)}%"></div></div>
+        ${s.power.toFixed(1)}%
+      </div>`;
+
+    rows.innerHTML += `
+      <tr>
+        <td>${s.name}</td>
+        <td>${s.g.toFixed(4)}</td>
+        <td>${error.toFixed(4)}</td>
+        <td>${s.power.toFixed(1)}%</td>
+        <td class="${cls}">${status}</td>
+      </tr>`;
+  });
+}
+
+function drawShip(){
+  ctx.clearRect(0,0,shipCanvas.width,shipCanvas.height);
+
+  const w = shipCanvas.width;
+  const h = shipCanvas.height;
+  const centerY = h/2;
+
+  ctx.strokeStyle="#36b7ff";
+  ctx.lineWidth=2;
+  ctx.beginPath();
+  ctx.moveTo(90,centerY-55);
+  ctx.lineTo(580,centerY-55);
+  ctx.lineTo(720,centerY);
+  ctx.lineTo(580,centerY+55);
+  ctx.lineTo(90,centerY+55);
+  ctx.closePath();
+  ctx.stroke();
+
+  ctx.fillStyle="rgba(40,160,255,.08)";
+  ctx.fill();
+
+  ctx.fillStyle="#eaf7ff";
+  ctx.font="13px Arial";
+  ctx.fillText("CST Ship Frame",330,centerY-80);
+
+  const xs=[160,270,380,490,600];
+  sections.forEach((s,i)=>{
+    const x=xs[i];
+    const y=centerY+80;
+    const radius=28+Math.sin(t/5+s.phase)*4;
+
+    const grad=ctx.createRadialGradient(x,y,4,x,y,radius);
+    grad.addColorStop(0,"rgba(255,255,255,.95)");
+    grad.addColorStop(.3,"rgba(100,180,255,.8)");
+    grad.addColorStop(1,"rgba(120,70,255,.08)");
+
+    ctx.fillStyle=grad;
+    ctx.beginPath();
+    ctx.arc(x,y,radius,0,Math.PI*2);
+    ctx.fill();
+
+    ctx.strokeStyle="rgba(120,220,255,.8)";
+    ctx.beginPath();
+    ctx.arc(x,y,radius,0,Math.PI*2);
+    ctx.stroke();
+
+    ctx.fillStyle="#ccecff";
+    ctx.font="10px Arial";
+    ctx.fillText(s.name,x-38,centerY-10);
+    ctx.fillText("Bell Sphere",x-28,y+45);
+
+    ctx.strokeStyle="rgba(120,220,255,.45)";
+    ctx.beginPath();
+    ctx.moveTo(x,y-25);
+    ctx.lineTo(x,centerY+40);
+    ctx.stroke();
+  });
+
+  const earthX=60, marsX=740;
+  ctx.fillStyle="#3ca7ff";
+  ctx.beginPath();ctx.arc(earthX,40,18,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle="#ff7b4a";
+  ctx.beginPath();ctx.arc(marsX,40,14,0,Math.PI*2);ctx.fill();
+
+  ctx.strokeStyle="#777";
+  ctx.beginPath();ctx.moveTo(earthX+20,40);ctx.lineTo(marsX-20,40);ctx.stroke();
+
+  const shipX=earthX+20+(marsX-earthX-40)*(progress/marsDistance);
+  ctx.fillStyle="#ffffff";
+  ctx.beginPath();
+  ctx.moveTo(shipX,34);ctx.lineTo(shipX+18,40);ctx.lineTo(shipX,46);ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle="#ccecff";
+  ctx.font="11px Arial";
+  ctx.fillText("Earth",earthX-15,70);
+  ctx.fillText("Mars",marsX-15,70);
+
+  ctx.strokeStyle="rgba(150,100,255,.55)";
+  for(let k=0;k<6;k++){
+    ctx.beginPath();
+    const amp=20+k*8;
+    for(let x=95;x<710;x+=8){
+      const y=centerY + Math.sin((x+t*12)/35+k)*amp/5;
+      if(x===95)ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+  }
+}
+
+function update(){
+  if(running) t += 0.08;
+  updateClocks();
+  updateMission();
+  updateCompartments();
+  drawShip();
+  requestAnimationFrame(update);
+}
+update();
+</script>
+
+</body>
+</html>
