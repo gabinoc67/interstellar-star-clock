@@ -129,7 +129,8 @@ th{color:#66cfff;background:#071525}
     <canvas id="shipCanvas" width="800" height="420"></canvas>
     <p class="small">
       Each blue-purple sphere represents a local Temporal Equilibrium Bell Sphere under a ship section.
-      The system adjusts field pressure, timing phase, and artificial acceleration to maintain Earth gravity:
+      The system adjusts field pressure, timing phase, artificial acceleration, Voyager reference correction,
+      and corridor movement correction to maintain Earth gravity:
       <b>g₀ = 9.80665 m/s²</b>.
     </p>
   </div>
@@ -160,8 +161,10 @@ th{color:#66cfff;background:#071525}
     <p>aCorrection = g₀ − gMeasured</p>
     <p><b>CST Timing Error:</b></p>
     <p>ΔT = Tcompartment − Tref</p>
+    <p><b>Corridor Correction:</b></p>
+    <p>ΔC = EarthRef + VoyagerRef − ShipPath</p>
     <p><b>Stability Cost:</b></p>
-    <p>C = Σ wi(ΔTi)² + α(g₀ − gi)²</p>
+    <p>C = Σ wi(ΔTi)² + α(g₀ − gi)² + β(ΔC)²</p>
   </div>
 
   <div class="panel">
@@ -186,6 +189,20 @@ th{color:#66cfff;background:#071525}
   </div>
 
   <div class="panel">
+    <h3>Earth / Voyager CST Navigation Triangle</h3>
+    <div class="reading">
+      <div class="box">Earth Reference<br><b id="earthRef">--</b></div>
+      <div class="box">Voyager 1 Reference<br><b id="voyager1Ref">--</b></div>
+      <div class="box">Voyager 2 Reference<br><b id="voyager2Ref">--</b></div>
+      <div class="box">Triangle Stability<br><b id="triangleStability">--</b></div>
+      <div class="box">Corridor Drift<br><b id="corridorDrift">--</b></div>
+      <div class="box">Correction Thrust<br><b id="correctionThrust">--</b></div>
+      <div class="box">Outer-Space Gravity<br><b id="spaceGravity">--</b></div>
+      <div class="box">Navigation Status<br><b id="navStatus">--</b></div>
+    </div>
+  </div>
+
+  <div class="panel">
     <h3>Purpose and Theory Explanation</h3>
     <p>
       This program is a theoretical CST Bell Sphere control demo. It shows how separate ship sections could use
@@ -193,31 +210,61 @@ th{color:#66cfff;background:#071525}
       to Mars.
     </p>
     <p>
-      In this model, each compartment has its own sensor loop. If measured gravity drops, the sphere increases
-      acceleration support. If gravity rises too high, the sphere reduces support. The goal is not time travel.
-      The goal is stable crew weight, stable timing, stable navigation, and safer field balance.
+      The added CST navigation triangle uses Earth, Voyager 1, and Voyager 2 as long-distance timing references.
+      The ship compares its corridor position against the reference triangle and applies small movement corrections
+      to keep itself stable along the Earth-to-Mars curvature path.
+    </p>
+    <p>
+      Gravity also fluctuates during the trip because the ship moves away from Earth and through changing solar-space
+      gravity conditions. Even though deep-space gravity is very small, the simulator includes it as a correction input
+      so the Bell Spheres can adjust the artificial gravity field.
     </p>
     <p class="small">
       Disclaimer: This is a conceptual educational simulator. It does not prove artificial gravity, warp drive,
       or faster-than-light propulsion. It is a logic model based on field equilibrium, Newton’s second law,
-      timing synchronization, and control feedback.
+      timing synchronization, Voyager reference tracking, and feedback correction.
     </p>
   </div>
 
 </div>
 
 <div class="footer">
-  CST Bell Sphere Principle: keep every ship section synchronized, balanced, and returned to Earth-gravity equilibrium.
+  CST Bell Sphere Principle: keep every ship section synchronized, balanced, corrected, and returned to Earth-gravity equilibrium.
 </div>
-
 <script>
 const c = 299792458;
 const g0 = 9.80665;
 const marsDistance = 225000000000;
+const AU = 149597870700;
+const G = 6.67430e-11;
+const earthMass = 5.972e24;
+const sunMass = 1.989e30;
+
 let running = false;
 let t = 0;
 let speedFrac = 0.40;
 let progress = 0;
+
+let corridorDrift = 0;
+let correctionThrust = 0;
+let triangleStability = 100;
+let spaceGravity = 0;
+
+// Approximate 2026 Voyager reference distances.
+// These are used as stable CST deep-space timing anchors in the simulator.
+const voyager1 = {
+  name:"Voyager 1",
+  distanceAU:172.6,
+  speedKMS:17.0,
+  phase:0.55
+};
+
+const voyager2 = {
+  name:"Voyager 2",
+  distanceAU:143.0,
+  speedKMS:15.3,
+  phase:1.15
+};
 
 const sections = [
   {name:"Crew Quarters", mass:80, g:9.80665, power:50, phase:0},
@@ -233,7 +280,13 @@ const ctx = shipCanvas.getContext("2d");
 function startSim(){running=true}
 function pauseSim(){running=false}
 function resetSim(){
-  running=false;t=0;progress=0;
+  running=false;
+  t=0;
+  progress=0;
+  corridorDrift=0;
+  correctionThrust=0;
+  triangleStability=100;
+  spaceGravity=0;
   sections.forEach(s=>{s.g=g0;s.power=50});
   update();
 }
@@ -248,7 +301,7 @@ function updateClocks(){
   const atomic = new Date(now.getTime()+atomicOffset*1000);
   document.getElementById("atomic").textContent = atomic.toUTCString().split(" ")[4] + " TAI";
 
-  const cstOffset = Math.sin(t/40)*0.004;
+  const cstOffset = Math.sin(t/40)*0.004 + corridorDrift*0.00002;
   document.getElementById("cst").textContent = now.toUTCString().split(" ")[4] + " Δ" + cstOffset.toFixed(4)+"s";
 
   const istDays = t/86400;
@@ -259,6 +312,7 @@ function updateMission(){
   const v = speedFrac*c;
   const beta = speedFrac;
   const gamma = 1/Math.sqrt(1-beta*beta);
+
   if(running){
     progress += v*0.04;
     if(progress>marsDistance) progress=marsDistance;
@@ -271,25 +325,84 @@ function updateMission(){
   document.getElementById("progress").textContent = fmt((progress/marsDistance)*100,2)+"%";
 }
 
+function calculateSpaceGravity(){
+  const distanceFromEarth = Math.max(6371000, progress + 6371000);
+  const distanceFromSun = AU + progress*0.18;
+
+  const earthG = G * earthMass / (distanceFromEarth * distanceFromEarth);
+  const sunG = G * sunMass / (distanceFromSun * distanceFromSun);
+
+  const solarWave = Math.sin(t/31)*0.00000012;
+  const marsApproachFactor = progress / marsDistance;
+  const marsSpaceGradient = marsApproachFactor * 0.0000015;
+
+  spaceGravity = earthG + sunG + solarWave + marsSpaceGradient;
+  return spaceGravity;
+}
+
+function updateVoyagerTriangle(){
+  const shipPathRatio = progress / marsDistance;
+
+  const v1SignalHours = (voyager1.distanceAU * AU) / c / 3600;
+  const v2SignalHours = (voyager2.distanceAU * AU) / c / 3600;
+
+  const earthReference = Math.sin(t/18) * 0.08;
+  const voyager1Reference = Math.sin(t/27 + voyager1.phase) * 0.06 + shipPathRatio * 0.02;
+  const voyager2Reference = Math.sin(t/33 + voyager2.phase) * 0.06 - shipPathRatio * 0.015;
+
+  const expectedCorridor = (earthReference + voyager1Reference + voyager2Reference) / 3;
+  const shipPathNoise = Math.sin(t/14)*0.11 + Math.sin(t/41)*0.06 + (speedFrac-0.40)*0.12;
+
+  corridorDrift = shipPathNoise - expectedCorridor;
+
+  correctionThrust = -corridorDrift * 4.8;
+  triangleStability = Math.max(0,100 - Math.abs(corridorDrift)*420);
+
+  const status =
+    triangleStability > 85 ? "Stable Triangle Lock" :
+    triangleStability > 65 ? "Correcting Corridor" :
+    "Warning: Drift High";
+
+  const cls =
+    triangleStability > 85 ? "good" :
+    triangleStability > 65 ? "warn" : "bad";
+
+  document.getElementById("earthRef").textContent = earthReference.toFixed(4)+" CST";
+  document.getElementById("voyager1Ref").textContent = v1SignalHours.toFixed(2)+" light-hours";
+  document.getElementById("voyager2Ref").textContent = v2SignalHours.toFixed(2)+" light-hours";
+  document.getElementById("triangleStability").textContent = triangleStability.toFixed(1)+"%";
+  document.getElementById("corridorDrift").textContent = corridorDrift.toFixed(4)+" corridor units";
+  document.getElementById("correctionThrust").textContent = correctionThrust.toFixed(3)+" trim units";
+  document.getElementById("spaceGravity").textContent = spaceGravity.toExponential(4)+" m/s²";
+  document.getElementById("navStatus").innerHTML = `<span class="${cls}">${status}</span>`;
+}
+
 function updateCompartments(){
   const compDiv = document.getElementById("compartments");
   const rows = document.getElementById("sensorRows");
   compDiv.innerHTML="";
   rows.innerHTML="";
 
+  const localSpaceGravity = calculateSpaceGravity();
+
   sections.forEach((s,i)=>{
     const disturbance =
       Math.sin(t/9+s.phase)*0.05 +
       Math.sin(t/23+s.phase)*0.025 +
-      (speedFrac-0.4)*0.03;
+      (speedFrac-0.4)*0.03 +
+      corridorDrift*0.035 -
+      localSpaceGravity*0.002;
 
     const measured = s.g + disturbance;
     const error = g0 - measured;
 
-    s.power += error*12;
+    const voyagerCorrection = -corridorDrift * 0.08;
+    const gravityCorrection = (g0 - measured) * 0.12;
+
+    s.power += error*12 + Math.abs(voyagerCorrection)*6;
     s.power = Math.max(0,Math.min(100,s.power));
 
-    s.g += error*0.12;
+    s.g += gravityCorrection + voyagerCorrection;
 
     const status = Math.abs(error)<0.03 ? "Stable" : Math.abs(error)<0.08 ? "Correcting" : "Warning";
     const cls = status==="Stable" ? "good" : status==="Correcting" ? "warn" : "bad";
@@ -302,6 +415,7 @@ function updateCompartments(){
         Gravity: <span class="${cls}">${s.g.toFixed(4)} m/s²</span><br>
         Crew Weight Force: ${weight.toFixed(1)} N<br>
         Δg Error: ${error.toFixed(4)}<br>
+        Corridor Trim: ${voyagerCorrection.toFixed(4)}<br>
         Sphere Output:
         <div class="bar"><div class="fill" style="width:${s.power.toFixed(1)}%"></div></div>
         ${s.power.toFixed(1)}%
@@ -396,12 +510,45 @@ function drawShip(){
   ctx.fillText("Earth",earthX-15,70);
   ctx.fillText("Mars",marsX-15,70);
 
+  const v1x = 95;
+  const v1y = 115;
+  const v2x = 95;
+  const v2y = 160;
+
+  ctx.fillStyle="#ffd36a";
+  ctx.beginPath();ctx.arc(v1x,v1y,6,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.arc(v2x,v2y,6,0,Math.PI*2);ctx.fill();
+
+  ctx.fillStyle="#ffd36a";
+  ctx.font="10px Arial";
+  ctx.fillText("Voyager 1 CST Ref",v1x+10,v1y+4);
+  ctx.fillText("Voyager 2 CST Ref",v2x+10,v2y+4);
+
+  ctx.strokeStyle="rgba(255,211,106,.35)";
+  ctx.beginPath();
+  ctx.moveTo(v1x,v1y);
+  ctx.lineTo(shipX,40);
+  ctx.lineTo(v2x,v2y);
+  ctx.stroke();
+
+  ctx.strokeStyle = triangleStability > 85 ? "rgba(125,255,155,.75)" :
+                    triangleStability > 65 ? "rgba(255,211,106,.75)" :
+                    "rgba(255,100,100,.75)";
+  ctx.beginPath();
+  ctx.moveTo(shipX,40);
+  ctx.lineTo(shipX + correctionThrust*7, 40 + corridorDrift*80);
+  ctx.stroke();
+
+  ctx.fillStyle="#eaf7ff";
+  ctx.font="10px Arial";
+  ctx.fillText("Correction Vector",shipX+10,28);
+
   ctx.strokeStyle="rgba(150,100,255,.55)";
   for(let k=0;k<6;k++){
     ctx.beginPath();
     const amp=20+k*8;
     for(let x=95;x<710;x+=8){
-      const y=centerY + Math.sin((x+t*12)/35+k)*amp/5;
+      const y=centerY + Math.sin((x+t*12)/35+k)*amp/5 + corridorDrift*25;
       if(x===95)ctx.moveTo(x,y); else ctx.lineTo(x,y);
     }
     ctx.stroke();
@@ -412,6 +559,8 @@ function update(){
   if(running) t += 0.08;
   updateClocks();
   updateMission();
+  calculateSpaceGravity();
+  updateVoyagerTriangle();
   updateCompartments();
   drawShip();
   requestAnimationFrame(update);
