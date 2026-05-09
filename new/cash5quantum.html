@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Cash 5 Best 40 Outcomes Engine - NDV + DCI</title>
+<title>Cash 5 Best 40 Outcomes Engine - Strict Cap NDV + DCI</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
 *{box-sizing:border-box}
@@ -37,8 +37,8 @@ button,textarea,input{display:none}
 
 <body>
 <header>
-<h1>Cash 5 Best 40 Outcomes Engine - NDV + DCI</h1>
-<p>Analyze Data First • Build 20 Pool • Generate Candidates • Score Combinations • Apply DCI Balance • Apply Number Caps • Select Best 40</p>
+<h1>Cash 5 Best 40 Outcomes Engine - Strict Cap NDV + DCI</h1>
+<p>Analyze Data First • Build 20 Pool • Score Candidates • Force 10/20/10 DCI Balance • Apply Strict Number Caps • Select Best 40</p>
 </header>
 
 <main>
@@ -85,7 +85,7 @@ button,textarea,input{display:none}
 
 <section class="panel">
 <h2>6. Run Full Engine</h2>
-<p class="small">Runs all steps in order before creating the best 40 outcomes.</p>
+<p class="small">Runs all steps in order before creating the strict-capped best 40 outcomes.</p>
 <button onclick="runFullEngine()">Run Full Engine</button>
 <div id="engineOutput" class="output"></div>
 </section>
@@ -99,14 +99,14 @@ button,textarea,input{display:none}
 
 <section class="panel">
 <h2>8. Build Best 40 Outcomes</h2>
-<p class="small">No fixed 20/20 split. Scores many candidates, applies DCI shape balance and number caps, then selects the best 40.</p>
+<p class="small">No fixed 20/20 split. Scores many candidates, forces DCI balance, applies strict caps, then selects best 40.</p>
 <button onclick="buildBestFortyOutcomes()">Build Best 40 Outcomes</button>
 <div id="pickOutput" class="output"></div>
 </section>
 
 <section class="panel">
 <h2>9. Best 40 Logic Panel</h2>
-<p class="small">Shows selection method, number caps, and DCI distribution.</p>
+<p class="small">Shows selection method, number caps, triple caps, and DCI distribution.</p>
 <button onclick="showAdaptivePanel()">Show Best 40 Logic</button>
 <div id="adaptiveOutput" class="output"></div>
 </section>
@@ -145,7 +145,7 @@ button,textarea,input{display:none}
 
 <section class="panel">
 <h2>14. CSV / Excel Records</h2>
-<p class="small">Exports full report including NDV, DCI, candidate scores, caps, and best 40 outcomes.</p>
+<p class="small">Exports full report including NDV, DCI, candidate scores, caps, triple groups, and best 40 outcomes.</p>
 <button onclick="exportFullCSV()">Export Full CSV / Excel Report</button>
 <button onclick="exportDrawRecordsCSV()">Export Saved Draw Records CSV</button>
 <button onclick="clearDrawRecords()">Clear Saved Draw Records</button>
@@ -153,17 +153,19 @@ button,textarea,input{display:none}
 </section>
 
 <section class="panel">
-<h2>Best 40 Formula Logic</h2>
+<h2>Strict Cap Formula Logic</h2>
 <div class="note">
 Step 1: Analyze all data first.<br>
 Step 2: Build 20-number pool.<br>
 Step 3: Generate candidate combinations.<br>
 Step 4: Score every combination.<br>
-Step 5: Apply DCI shape balance.<br>
-Step 6: Apply number-frequency caps.<br>
-Step 7: Select best 40 outcomes.<br><br>
-NDV = number behavior.<br>
-DCI = ticket shape behavior.
+Step 5: Force DCI balance: 10 compressed, 20 hybrid, 10 spread.<br>
+Step 6: Apply strict number caps.<br>
+Step 7: Apply triple-group cap.<br>
+Step 8: Select best 40 outcomes.<br><br>
+Default number cap = 12.<br>
+Strong NDV anchor cap = 14.<br>
+Triple group cap = 5.
 </div>
 </section>
 
@@ -191,9 +193,16 @@ let twentyPool=[],balancedPicks=[],balancedMeta=[],candidateModel=[];
 let drawResultRecords=[],lastDrawComparison=null;
 
 const TOTAL_OUTCOMES=40;
-const NUMBER_CAP_DEFAULT=16;
-const NUMBER_CAP_STRONG_ANCHOR=18;
-const GROUP_CAP_124=12;
+const NUMBER_CAP_DEFAULT=12;
+const NUMBER_CAP_STRONG_ANCHOR=14;
+const GROUP_CAP_124=10;
+const TRIPLE_GROUP_CAP=5;
+
+const DCI_TARGETS={
+  COMPRESSED:10,
+  HYBRID:20,
+  SPREAD:10
+};
 
 function parseNumbers(text){
   return (text.match(/\d+/g)||[]).map(Number).filter(n=>n>=1&&n<=35);
@@ -322,8 +331,7 @@ function longestSequenceRun(draw){
   }
   return maxRun;
 }
-
-function sequencePairs(draw){
+  function sequencePairs(draw){
   const d=[...draw].sort((a,b)=>a-b),pairs=[];
   for(let i=1;i<d.length;i++){
     if(d[i]===d[i-1]+1)pairs.push(`${d[i-1]}-${d[i]}`);
@@ -386,7 +394,8 @@ function dciShapeScore(draw,mode){
   const diff=Math.abs(dci-target);
   return Math.max(0,22-(diff*4));
 }
-  function buildGeometryModel(draws){
+
+function buildGeometryModel(draws){
   const dciList=[];
   const dciByDraw=[];
   const ndvByPosition=[[],[],[],[],[]];
@@ -412,12 +421,12 @@ function dciShapeScore(draw,mode){
       if(Math.abs(ndv)<=1)numberAnchor[curr[p]]+=3;
       else if(Math.abs(ndv)<=4)numberAnchor[curr[p]]+=1;
 
-      numberDrift[curr[p]]+=Math.max(0,7-Math.abs(ndv));
+      numberDrift[curr[p]]+=Math.max(0,6-Math.abs(ndv));
 
       const projected=curr[p]+ndv;
-      if(projected>=1&&projected<=35)numberDrift[projected]+=2;
-      if(projected-1>=1&&projected-1<=35)numberDrift[projected-1]+=1;
-      if(projected+1>=1&&projected+1<=35)numberDrift[projected+1]+=1;
+      if(projected>=1&&projected<=35)numberDrift[projected]+=1.5;
+      if(projected-1>=1&&projected-1<=35)numberDrift[projected-1]+=0.75;
+      if(projected+1>=1&&projected+1<=35)numberDrift[projected+1]+=0.75;
     }
   }
 
@@ -604,8 +613,7 @@ function buildPrizeClusterModel(records){
     rankedPrizePairs,rankedNoPrizePairs,rankedPrizeClusters,rankedNoPrizeClusters
   };
 }
-
-function analyzeOfficialDraws(){
+  function analyzeOfficialDraws(){
   const allRecords=parseDrawRecords(document.getElementById("officialDraws").value);
   const records=allRecords.slice(-100);
   const draws=records.map(r=>r.draw);
@@ -625,7 +633,7 @@ function analyzeOfficialDraws(){
   officialModel={allRecords,records,draws,last20,last10,freq100,freq20,freq10,gaps,oe100};
 
   document.getElementById("officialOutput").textContent=
-`DRAW + PRIZE + NDV/DCI ANALYSIS COMPLETE
+`DRAW + PRIZE + STRICT NDV/DCI ANALYSIS COMPLETE
 
 Valid draw lines read: ${allRecords.length}
 Using last: ${records.length}
@@ -660,8 +668,11 @@ ${Object.entries(geometryModel.numberAnchor).sort((a,b)=>b[1]-a[1]).slice(0,10).
 Top NDV drift numbers:
 ${Object.entries(geometryModel.numberDrift).sort((a,b)=>b[1]-a[1]).slice(0,10).map(x=>`${x[0]}(${x[1]})`).join(", ")}
 
-Best 40 mode:
-Fixed 20 no-pair / 20 mix-pair has been removed.`;
+Strict-cap update:
+Default cap = ${NUMBER_CAP_DEFAULT}
+Strong anchor cap = ${NUMBER_CAP_STRONG_ANCHOR}
+Triple group cap = ${TRIPLE_GROUP_CAP}
+DCI target = 10 compressed / 20 hybrid / 10 spread`;
 
   updateTable();
 }
@@ -710,7 +721,8 @@ ${Object.entries(geometryModel.numberDrift).sort((a,b)=>b[1]-a[1]).slice(0,15).m
 
 Program decision:
 NDV is kept for number behavior.
-DCI is kept for combination-shape behavior.`;
+DCI is kept for combination-shape behavior.
+The final selector now forces 10 compressed, 20 hybrid, and 10 spread outcomes when enough candidates exist.`;
 }
 
 function showPrizeClusterPanel(){
@@ -747,7 +759,8 @@ ${prizeClusterModel.rankedNoPrizePairs.slice(0,15).map(x=>`${x.key}: no-prize ${
 Clusters mostly showing in no-prize draws:
 ${prizeClusterModel.rankedNoPrizeClusters.slice(0,15).map(x=>`${x.key}: no-prize ${x.p0} | prize score ${x.score}`).join("\n") || "none"}`;
 }
-  function analyzePretests(){
+
+function analyzePretests(){
   const text=document.getElementById("pretestData").value;
   const lines=text.trim().split(/\n+/).filter(x=>x.trim());
   const pretestDraws=[],allPretestNums=[];
@@ -927,7 +940,7 @@ function calculatePressureScores(){
     const prizePairStrength=maxPrizePair>0?normalize(prizePair,maxPrizePair)*14:0;
     const prizeClusterStrength=maxPrizeCluster>0?normalize(prizeCluster,maxPrizeCluster)*13:0;
     const ndvAnchorStrength=maxAnchor>0?normalize(ndvAnchor,maxAnchor)*15:0;
-    const ndvDriftStrength=maxDrift>0?normalize(ndvDrift,maxDrift)*9:0;
+    const ndvDriftStrength=maxDrift>0?normalize(ndvDrift,maxDrift)*8:0;
     const dciFitStrength=maxDCI>0?normalize(dciFitScore,maxDCI)*9:0;
 
     const balanceScore=
@@ -1053,9 +1066,10 @@ Step-by-step order completed:
 2. Build 20-number pool
 3. Generate candidate combinations
 4. Score each combination
-5. Apply DCI shape balance
-6. Apply number-frequency cap
-7. Select best 40 outcomes
+5. Force DCI shape balance
+6. Apply strict number-frequency cap
+7. Apply triple-group cap
+8. Select best 40 outcomes
 
 Removed:
 Fixed 20 no-pair / 20 mix-pair split.
@@ -1063,8 +1077,15 @@ Fixed 20 no-pair / 20 mix-pair split.
 Kept:
 NDV + DCI.
 
-Active DCI mode:
-${geometryModel?.nextMode || "HYBRID"}
+Strict cap update:
+Default number cap = ${NUMBER_CAP_DEFAULT}
+Strong NDV anchor cap = ${NUMBER_CAP_STRONG_ANCHOR}
+Triple group cap = ${TRIPLE_GROUP_CAP}
+
+Target DCI distribution:
+Compressed ${DCI_TARGETS.COMPRESSED}
+Hybrid ${DCI_TARGETS.HYBRID}
+Spread ${DCI_TARGETS.SPREAD}
 
 Best 40 outcomes created:
 ${balancedPicks.length}`;
@@ -1151,10 +1172,9 @@ Prize-cluster supported:
 ${twentyPool.filter(n=>scoreModel[n].prizeCluster>0).join(" - ") || "none"}
 
 Next step:
-The program will generate many candidate combinations from this pool, score them, apply DCI shape balance, apply number caps, and select the best 40.`;
+The program will score candidate combinations, force 10/20/10 DCI balance, apply strict caps, and select the best 40.`;
 }
-
-function pairPrizeScoreForPick(pick){
+  function pairPrizeScoreForPick(pick){
   let score=0;
   combinations(pick,2).forEach(pair=>{
     const key=comboKey(pair);
@@ -1191,24 +1211,31 @@ function rangeBalanceScore(pick){
   if(low>=1)score+=5;
   if(mid>=1)score+=5;
   if(high>=1)score+=5;
-  if(low>=1&&mid>=1&&high>=1)score+=8;
-  if(low>=4||mid>=4||high>=4)score-=10;
+  if(low>=1&&mid>=1&&high>=1)score+=10;
+  if(low>=4||mid>=4||high>=4)score-=14;
   return score;
+}
+
+function tripleKeyList(pick){
+  return combinations(pick,3).map(comboKey);
 }
 
 function groupOverloadPenalty(pick){
   let penalty=0;
+
   const group124=[1,2,4].filter(n=>pick.includes(n)).length;
-  if(group124>=3)penalty+=28;
-  if(group124===2)penalty+=8;
+  if(group124>=3)penalty+=40;
+  if(group124===2)penalty+=12;
 
   const lowCount=pick.filter(n=>n<=8).length;
-  if(lowCount>=4)penalty+=18;
+  if(lowCount>=4)penalty+=24;
 
-  if(hasThreeSequence(pick))penalty+=22;
+  if(hasThreeSequence(pick))penalty+=30;
+
   return penalty;
 }
-  function scoreCandidatePick(pick){
+
+function scoreCandidatePick(pick){
   const numberScore=pick.reduce((sum,n)=>sum+(scoreModel[n]?.finalScore||0),0);
   const ndvScore=pick.reduce((sum,n)=>sum+(scoreModel[n]?.ndvAnchorStrength||0)+(scoreModel[n]?.ndvDriftStrength||0),0);
   const dciScore=dciShapeScore(pick,geometryModel?.nextMode||"HYBRID");
@@ -1224,7 +1251,10 @@ function groupOverloadPenalty(pick){
   if(adjacentPairs===0)sequenceScore+=6;
   if(adjacentPairs===1)sequenceScore+=8;
   if(adjacentPairs===2)sequenceScore+=2;
-  if(adjacentPairs>=3)sequenceScore-=8;
+  if(adjacentPairs>=3)sequenceScore-=12;
+
+  const dci=calculateDCI(pick);
+  const dciClass=classifyDCI(dci);
 
   const total=
     numberScore+
@@ -1252,9 +1282,10 @@ function groupOverloadPenalty(pick){
     sequenceScore,
     noPrizePenalty,
     overloadPenalty,
-    dci:calculateDCI(pick),
-    dciClass:classifyDCI(calculateDCI(pick)),
-    pairs:sequencePairs(pick)
+    dci,
+    dciClass,
+    pairs:sequencePairs(pick),
+    triples:tripleKeyList(pick)
   };
 }
 
@@ -1277,7 +1308,7 @@ function maxCapForNumber(n){
   return NUMBER_CAP_DEFAULT;
 }
 
-function canAddCandidate(candidate,numberUse,dciUse,totalSelected){
+function canAddCandidateStrict(candidate,numberUse,dciUse,tripleUse){
   for(const n of candidate.pick){
     if((numberUse[n]||0)>=maxCapForNumber(n))return false;
   }
@@ -1288,18 +1319,21 @@ function canAddCandidate(candidate,numberUse,dciUse,totalSelected){
     if(currentGroupUse>=GROUP_CAP_124)return false;
   }
 
-  const dciClass=candidate.dciClass;
-  const target={
-    COMPRESSED:12,
-    HYBRID:18,
-    SPREAD:12
-  };
-
-  if(dciUse[dciClass]>=target[dciClass] && totalSelected<34){
-    return false;
+  for(const t of candidate.triples){
+    if((tripleUse[t]||0)>=TRIPLE_GROUP_CAP)return false;
   }
 
+  if(dciUse[candidate.dciClass]>=DCI_TARGETS[candidate.dciClass])return false;
+
   return true;
+}
+
+function addSelectedCandidate(c,selected,used,numberUse,dciUse,tripleUse){
+  selected.push(c);
+  used.add(c.key);
+  c.pick.forEach(n=>numberUse[n]++);
+  dciUse[c.dciClass]++;
+  c.triples.forEach(t=>tripleUse[t]=(tripleUse[t]||0)+1);
 }
 
 function buildBestFortyOutcomes(){
@@ -1312,17 +1346,20 @@ function buildBestFortyOutcomes(){
   const used=new Set();
   const numberUse=blankFreq();
   const dciUse={COMPRESSED:0,HYBRID:0,SPREAD:0};
+  const tripleUse={};
 
-  for(const c of candidates){
-    if(selected.length>=TOTAL_OUTCOMES)break;
-    if(used.has(c.key))continue;
-    if(!canAddCandidate(c,numberUse,dciUse,selected.length))continue;
+  const dciOrder=["SPREAD","HYBRID","COMPRESSED"];
 
-    selected.push(c);
-    used.add(c.key);
-    c.pick.forEach(n=>numberUse[n]++);
-    dciUse[c.dciClass]++;
-  }
+  dciOrder.forEach(cls=>{
+    const group=candidates.filter(c=>c.dciClass===cls);
+    for(const c of group){
+      if(dciUse[cls]>=DCI_TARGETS[cls])break;
+      if(selected.length>=TOTAL_OUTCOMES)break;
+      if(used.has(c.key))continue;
+      if(!canAddCandidateStrict(c,numberUse,dciUse,tripleUse))continue;
+      addSelectedCandidate(c,selected,used,numberUse,dciUse,tripleUse);
+    }
+  });
 
   if(selected.length<TOTAL_OUTCOMES){
     for(const c of candidates){
@@ -1331,19 +1368,20 @@ function buildBestFortyOutcomes(){
 
       let hardBlock=false;
       for(const n of c.pick){
-        if((numberUse[n]||0)>=maxCapForNumber(n)+2)hardBlock=true;
+        if((numberUse[n]||0)>=maxCapForNumber(n))hardBlock=true;
+      }
+
+      for(const t of c.triples){
+        if((tripleUse[t]||0)>=TRIPLE_GROUP_CAP)hardBlock=true;
       }
 
       const group124=c.pick.filter(n=>[1,2,4].includes(n)).length;
       const currentGroupUse=(numberUse[1]||0)+(numberUse[2]||0)+(numberUse[4]||0);
-      if(group124>=2 && currentGroupUse>=GROUP_CAP_124+4)hardBlock=true;
+      if(group124>=2 && currentGroupUse>=GROUP_CAP_124)hardBlock=true;
 
       if(hardBlock)continue;
 
-      selected.push(c);
-      used.add(c.key);
-      c.pick.forEach(n=>numberUse[n]++);
-      dciUse[c.dciClass]++;
+      addSelectedCandidate(c,selected,used,numberUse,dciUse,tripleUse);
     }
   }
 
@@ -1356,8 +1394,15 @@ function buildBestFortyOutcomes(){
     .map(([n,c])=>`${n}:${c}`)
     .join(", ");
 
+  const tripleUseList=Object.entries(tripleUse)
+    .filter(([k,c])=>c>1)
+    .sort((a,b)=>b[1]-a[1])
+    .slice(0,15)
+    .map(([k,c])=>`${k}:${c}`)
+    .join(", ") || "none";
+
   document.getElementById("pickOutput").textContent=
-`BEST 40 CASH 5 OUTCOMES
+`BEST 40 CASH 5 OUTCOMES — STRICT CAP VERSION
 
 Fixed 20 no-pair / 20 mix-pair was removed.
 
@@ -1366,9 +1411,10 @@ Step order completed:
 2. Build 20-number pool
 3. Generate candidate combinations
 4. Score each combination
-5. Apply DCI shape balance
-6. Apply number-frequency cap
-7. Select best 40 outcomes
+5. Force DCI shape balance
+6. Apply strict number-frequency cap
+7. Apply triple-group cap
+8. Select best 40 outcomes
 
 Candidate combinations scored:
 ${candidateModel.length}
@@ -1379,7 +1425,12 @@ ${balancedPicks.length}
 Active DCI mode:
 ${geometryModel?.nextMode || "HYBRID"}
 
-DCI distribution:
+Target DCI distribution:
+Compressed: ${DCI_TARGETS.COMPRESSED}
+Hybrid: ${DCI_TARGETS.HYBRID}
+Spread: ${DCI_TARGETS.SPREAD}
+
+Actual DCI distribution:
 Compressed: ${dciUse.COMPRESSED}
 Hybrid: ${dciUse.HYBRID}
 Spread: ${dciUse.SPREAD}
@@ -1388,9 +1439,13 @@ Number-use cap:
 Default cap: ${NUMBER_CAP_DEFAULT}
 Strong NDV anchor cap: ${NUMBER_CAP_STRONG_ANCHOR}
 1-2-4 group cap: ${GROUP_CAP_124}
+Triple group cap: ${TRIPLE_GROUP_CAP}
 
 Final number-use count:
 ${numberUseList}
+
+Repeated triple groups:
+${tripleUseList}
 
 ${selected.map((c,i)=>{
   const ndvText=c.pick.filter(n=>scoreModel[n].ndvAnchor>0||scoreModel[n].ndvDrift>0).join("-");
@@ -1399,7 +1454,7 @@ ${selected.map((c,i)=>{
 }).join("\n")}
 
 Rule:
-These are the best 40 balanced outcomes after DCI shape balance and number-frequency caps. This is statistical filtering only and cannot guarantee lottery results.`;
+This version blocks number overuse, blocks repeated triple groups above ${TRIPLE_GROUP_CAP}, and forces spread outcomes when enough spread candidates exist. This is statistical filtering only and cannot guarantee lottery results.`;
 }
 
 function buildBalancedPicks(){
@@ -1413,7 +1468,7 @@ function showAdaptivePanel(){
   });
 
   document.getElementById("adaptiveOutput").textContent=
-`BEST 40 LOGIC PANEL
+`STRICT BEST 40 LOGIC PANEL
 
 Removed:
 Fixed 20 no-pair / 20 mix-pair split.
@@ -1421,10 +1476,11 @@ Fixed 20 no-pair / 20 mix-pair split.
 Current method:
 Analyze data first.
 Build the 20-number pool.
-Generate all 5-number candidate combinations from the pool.
+Generate all 5-number candidate combinations.
 Score every combination.
-Apply DCI shape balance.
-Apply number-frequency caps.
+Force DCI distribution.
+Apply strict number-frequency caps.
+Apply triple-group cap.
 Select the best 40 outcomes.
 
 Why NDV and DCI both remain:
@@ -1442,6 +1498,12 @@ Caps:
 Default number cap: ${NUMBER_CAP_DEFAULT}
 Strong NDV anchor cap: ${NUMBER_CAP_STRONG_ANCHOR}
 1-2-4 group cap: ${GROUP_CAP_124}
+Triple group cap: ${TRIPLE_GROUP_CAP}
+
+Target DCI distribution:
+Compressed: ${DCI_TARGETS.COMPRESSED}
+Hybrid: ${DCI_TARGETS.HYBRID}
+Spread: ${DCI_TARGETS.SPREAD}
 
 Current selected DCI distribution:
 Compressed: ${dciCounts.COMPRESSED}
@@ -1643,7 +1705,7 @@ function currentDateStamp(){
 
 function getSavedDrawRecords(){
   try{
-    const raw=localStorage.getItem("cash5Best40NDVDCIRecords");
+    const raw=localStorage.getItem("cash5StrictBest40NDVDCIRecords");
     drawResultRecords=raw?JSON.parse(raw):[];
   }catch(e){drawResultRecords=[]}
   return drawResultRecords;
@@ -1651,7 +1713,7 @@ function getSavedDrawRecords(){
 
 function setSavedDrawRecords(records){
   drawResultRecords=records;
-  localStorage.setItem("cash5Best40NDVDCIRecords",JSON.stringify(records));
+  localStorage.setItem("cash5StrictBest40NDVDCIRecords",JSON.stringify(records));
 }
 
 function saveDrawResultRecord(){
@@ -1690,7 +1752,7 @@ function exportDrawRecordsCSV(){
 
   const rows=[["Saved At","Draw Date","Winning Draw","DCI Mode","Tickets 2+","Tickets 3+","Tickets 4+","Tickets 5","Best Hits","Best Tickets","Drawn Number Coverage","Drawn Pair Coverage"]];
   records.forEach(r=>rows.push([r.savedAt,r.date,r.draw,r.dciMode,r.ticketsWith2Plus,r.ticketsWith3Plus,r.ticketsWith4Plus,r.ticketsWith5,r.bestHits,r.bestTickets,r.repeatedNumbers,r.pairCoverage]));
-  downloadCSV(`cash5_best40_ndv_dci_saved_draw_records_${currentDateStamp()}.csv`,rows);
+  downloadCSV(`cash5_strict_best40_ndv_dci_saved_draw_records_${currentDateStamp()}.csv`,rows);
   document.getElementById("csvOutput").textContent=`Exported saved draw records CSV. Records: ${records.length}`;
 }
 
@@ -1706,12 +1768,13 @@ function exportFullCSV(){
   if(balancedPicks.length<1)buildBestFortyOutcomes();
 
   const rows=[];
-  rows.push(["CASH 5 BEST 40 NDV + DCI ENGINE FULL CSV REPORT"]);
+  rows.push(["CASH 5 STRICT BEST 40 NDV + DCI ENGINE FULL CSV REPORT"]);
   rows.push(["Generated",new Date().toLocaleString()]);
   rows.push(["Theory-only note","This report is for recordkeeping and statistical comparison only. It cannot predict or guarantee lottery results."]);
   rows.push(["Active DCI Mode",geometryModel?.nextMode || "HYBRID"]);
-  rows.push(["Last DCI",geometryModel?.last?.toFixed(2) || ""]);
-  rows.push(["Recent DCI Average",geometryModel?.recentAvg?.toFixed(2) || ""]);
+  rows.push(["Default Cap",NUMBER_CAP_DEFAULT]);
+  rows.push(["Strong Anchor Cap",NUMBER_CAP_STRONG_ANCHOR]);
+  rows.push(["Triple Group Cap",TRIPLE_GROUP_CAP]);
   rows.push([]);
 
   rows.push(["SECTION","20-NUMBER POOL"]);
@@ -1722,7 +1785,7 @@ function exportFullCSV(){
   });
   rows.push([]);
 
-  rows.push(["SECTION","BEST 40 OUTCOMES"]);
+  rows.push(["SECTION","STRICT BEST 40 OUTCOMES"]);
   rows.push(["Ticket","N1","N2","N3","N4","N5","Score","DCI","DCI Class","Pattern","Pairs"]);
   balancedMeta.forEach((c,i)=>{
     rows.push([i+1,c.pick[0],c.pick[1],c.pick[2],c.pick[3],c.pick[4],c.total.toFixed(1),c.dci.toFixed(2),c.dciClass,oddEvenKey(c.pick),c.pairs.join(" | ")||"none"]);
@@ -1733,18 +1796,9 @@ function exportFullCSV(){
   rows.push(["Draw Index","Draw","DCI","DCI Class"]);
   geometryModel.dciByDraw.forEach(x=>rows.push([x.index,x.draw.join("-"),x.dci.toFixed(2),classifyDCI(x.dci)]));
   rows.push([]);
+
   rows.push(["Lane","Average Drift","Last Drift"]);
   geometryModel.laneSummary.forEach(x=>rows.push([x.position,x.avg.toFixed(2),x.last]));
-  rows.push([]);
-
-  rows.push(["SECTION","PRIZE PAIRS"]);
-  rows.push(["Pair","Prize 0","Prize 1","Prize 2","Score"]);
-  prizeClusterModel.rankedPrizePairs.forEach(x=>rows.push([x.key,x.p0,x.p1,x.p2,x.score]));
-  rows.push([]);
-
-  rows.push(["SECTION","PRIZE CLUSTERS"]);
-  rows.push(["Cluster","Prize 0","Prize 1","Prize 2","Score"]);
-  prizeClusterModel.rankedPrizeClusters.forEach(x=>rows.push([x.key,x.p0,x.p1,x.p2,x.score]));
   rows.push([]);
 
   rows.push(["SECTION","PRESSURE TABLE"]);
@@ -1754,7 +1808,7 @@ function exportFullCSV(){
     rows.push([n,s.oddEven,s.count100,s.count20,s.gap===9999?"Never":s.gap,s.pre,s.pair,s.prize0,s.prize1,s.prize2,s.prizePair.toFixed(1),s.prizeCluster.toFixed(1),s.ndvAnchor.toFixed(1),s.ndvDrift.toFixed(1),s.dciFitScore.toFixed(1),s.today?"Yes":"No",s.finalScore.toFixed(1),s.reason]);
   }
 
-  downloadCSV(`cash5_best40_ndv_dci_report_${currentDateStamp()}.csv`,rows);
+  downloadCSV(`cash5_strict_best40_ndv_dci_report_${currentDateStamp()}.csv`,rows);
   document.getElementById("csvOutput").textContent="Exported full CSV / Excel report.";
 }
 
