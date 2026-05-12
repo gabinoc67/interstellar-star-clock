@@ -15,6 +15,7 @@
       --accent: #174ea6;
       --accent2: #0b6e4f;
       --danger: #9b1c1c;
+      --gold: #9a6a00;
       --shadow: 0 8px 22px rgba(20, 40, 80, 0.12);
     }
 
@@ -253,6 +254,12 @@
       font-size: 16px;
     }
 
+    .ball.bridge {
+      border-color: var(--gold);
+      color: var(--gold);
+      background: #fffaf0;
+    }
+
     .why {
       font-size: 13px;
       color: #35445e;
@@ -292,22 +299,32 @@
       .tickets { grid-template-columns: repeat(2, 1fr); gap: 8px; }
       .ticket { box-shadow: none; border: 1px solid #000; page-break-inside: avoid; }
       .ball { border-color: #000; color: #000; }
+      .ball.bridge { border-color: #000; color: #000; background: #fff; }
       .buy-title { color: #000; }
       .draw-line { border-bottom: 2px solid #000; }
     }
   </style>
 </head>
+
 <body>
   <header>
     <h1>Cash 5 Balanced Coverage Generator</h1>
-    <p class="subtitle">This program does not predict the lottery. It analyzes draw history, builds balanced number zones, avoids cloned tickets, adds controlled randomness, and generates 40 coverage tickets with explanations.</p>
+    <p class="subtitle">
+      This program does not predict the lottery. It analyzes draw history, builds balanced number zones,
+      avoids cloned tickets, adds controlled randomness, and now includes Zone Rotation,
+      Missing Number Insurance, and Neighbor Bridge logic.
+    </p>
   </header>
 
   <main>
     <section class="grid">
       <div class="panel input-panel">
         <h2>Draw History Input</h2>
-        <p class="small">Paste at least 50 to 100 past Cash 5 draws. One draw per line. Use spaces, commas, tabs, or dashes. Example: 13 14 23 24 28</p>
+        <p class="small">
+          Paste at least 50 to 100 past Cash 5 draws. One draw per line.
+          Use spaces, commas, tabs, or dashes. Example: 13 14 23 24 28
+        </p>
+
         <textarea id="historyInput" spellcheck="false" placeholder="Paste draw history here..."></textarea>
 
         <div class="button-row">
@@ -318,25 +335,31 @@
         </div>
 
         <div class="notice">
-          <strong>Important:</strong> This is a coverage and distribution tool, not a guaranteed prediction tool. The purpose is to reduce repeated combinations, avoid narrow number traps, and cover more possible draw shapes.
+          <strong>Important:</strong>
+          This is a coverage and distribution tool, not a guaranteed prediction tool.
+          The new upgrade forces wider number rotation so numbers like 11 and 12 are less likely to be absent.
         </div>
       </div>
 
       <div class="panel settings-panel">
         <h2>Algorithm Settings</h2>
+
         <div class="controls">
           <div>
             <label for="ticketCount">Tickets</label>
             <input id="ticketCount" type="number" min="1" max="100" value="40" />
           </div>
+
           <div>
             <label for="candidateCount">Candidates</label>
-            <input id="candidateCount" type="number" min="500" max="50000" value="12000" />
+            <input id="candidateCount" type="number" min="500" max="50000" value="14000" />
           </div>
+
           <div>
             <label for="entropyRate">Entropy %</label>
-            <input id="entropyRate" type="number" min="0" max="80" value="35" />
+            <input id="entropyRate" type="number" min="0" max="80" value="45" />
           </div>
+
           <div>
             <label for="cloneLimit">Clone Limit</label>
             <input id="cloneLimit" type="number" min="0" max="4" value="2" />
@@ -346,10 +369,10 @@
         <h3>Program Equations Used Before Ticket Output</h3>
         <p class="small"><strong>Frequency Score:</strong> how often each number appeared in the uploaded history.</p>
         <p class="small"><strong>Recency Score:</strong> newer draws receive a small weight so the program can detect recent movement without overfitting.</p>
-        <p class="small"><strong>Zone Balance:</strong> numbers are grouped into 1–7, 8–14, 15–21, 22–28, and 29–35.</p>
-        <p class="small"><strong>Spread Score:</strong> the ticket is rewarded when it avoids being too compressed or too stretched.</p>
-        <p class="small"><strong>Anti-Clone Rule:</strong> a new ticket is rejected if it shares more than the clone limit with too many selected tickets.</p>
-        <p class="small"><strong>Entropy Rule:</strong> some numbers must come from outside the hottest numbers to avoid historical echo traps.</p>
+        <p class="small"><strong>Zone Rotation:</strong> forces all zones to rotate numbers so no zone becomes too narrow.</p>
+        <p class="small"><strong>Missing Number Insurance:</strong> after selection, the program repairs coverage gaps by injecting absent or low-use numbers.</p>
+        <p class="small"><strong>Neighbor Bridge:</strong> numbers near active numbers receive a small bridge boost. Example: 9 can help 10 or 11 enter the pool.</p>
+        <p class="small"><strong>Anti-Clone Rule:</strong> a new ticket is rejected if it shares more than the clone limit with selected tickets.</p>
       </div>
     </section>
 
@@ -361,7 +384,12 @@
 
     <section class="panel ticket-section" id="ticketPanel">
       <h2 class="buy-title">Buy These 40 Tickets</h2>
-      <p class="buy-note">Why these tickets? They were selected after frequency analysis, zone balancing, spread control, anti-clone filtering, and controlled entropy. They are not guaranteed winners; they are coverage-optimized tickets designed to avoid the narrow repeated-pattern problem.</p>
+      <p class="buy-note">
+        These tickets were selected after frequency analysis, zone balancing, spread control,
+        anti-clone filtering, controlled entropy, Zone Rotation, Missing Number Insurance,
+        and Neighbor Bridge logic. They are not guaranteed winners.
+      </p>
+
       <div id="ticketsOutput" class="tickets"></div>
       <div id="plainOutput" class="footer-output"></div>
     </section>
@@ -371,6 +399,7 @@
     const MIN_NUM = 1;
     const MAX_NUM = 35;
     const PICK = 5;
+
     const ZONES = [
       { name: "Z1", label: "1–7", min: 1, max: 7 },
       { name: "Z2", label: "8–14", min: 8, max: 14 },
@@ -382,11 +411,16 @@
     function parseDraws(text) {
       const lines = text.split(/\n+/).map(x => x.trim()).filter(Boolean);
       const draws = [];
+
       for (const line of lines) {
         const nums = line.match(/\d+/g)?.map(Number) || [];
-        const clean = [...new Set(nums)].filter(n => n >= MIN_NUM && n <= MAX_NUM).sort((a, b) => a - b);
+        const clean = [...new Set(nums)]
+          .filter(n => n >= MIN_NUM && n <= MAX_NUM)
+          .sort((a, b) => a - b);
+
         if (clean.length === PICK) draws.push(clean);
       }
+
       return draws;
     }
 
@@ -400,6 +434,19 @@
       return counts;
     }
 
+    function neighborBridgeNumbers(numberScores) {
+      const bridge = new Set();
+
+      numberScores.slice(0, 12).forEach(x => {
+        if (x.n - 2 >= MIN_NUM) bridge.add(x.n - 2);
+        if (x.n - 1 >= MIN_NUM) bridge.add(x.n - 1);
+        if (x.n + 1 <= MAX_NUM) bridge.add(x.n + 1);
+        if (x.n + 2 <= MAX_NUM) bridge.add(x.n + 2);
+      });
+
+      return bridge;
+    }
+
     function buildAnalysis(draws) {
       const freq = Array(MAX_NUM + 1).fill(0);
       const recency = Array(MAX_NUM + 1).fill(0);
@@ -408,11 +455,13 @@
 
       draws.forEach((draw, index) => {
         const ageWeight = (index + 1) / draws.length;
+
         draw.forEach(n => {
           freq[n]++;
           recency[n] += ageWeight;
           zoneFreq[getZone(n)]++;
         });
+
         for (let i = 0; i < draw.length; i++) {
           for (let j = i + 1; j < draw.length; j++) {
             const key = `${draw[i]}-${draw[j]}`;
@@ -423,34 +472,65 @@
 
       const maxFreq = Math.max(...freq);
       const maxRecency = Math.max(...recency);
-      const numberScores = [];
+      const preScores = [];
+
       for (let n = MIN_NUM; n <= MAX_NUM; n++) {
         const f = maxFreq ? freq[n] / maxFreq : 0;
         const r = maxRecency ? recency[n] / maxRecency : 0;
         const zonePenalty = zoneFreq[getZone(n)] / Math.max(1, draws.length * PICK);
-        const score = (0.52 * f) + (0.28 * r) + (0.20 * (1 - zonePenalty));
-        numberScores.push({ n, freq: freq[n], recency: recency[n], score });
+
+        const score = (0.42 * f) + (0.22 * r) + (0.36 * (1 - zonePenalty));
+
+        preScores.push({
+          n,
+          freq: freq[n],
+          recency: recency[n],
+          score
+        });
       }
 
-      numberScores.sort((a, b) => b.score - a.score || a.n - b.n);
+      preScores.sort((a, b) => b.score - a.score || a.n - b.n);
+
+      const bridgeSet = neighborBridgeNumbers(preScores);
+
+      const numberScores = preScores.map(x => {
+        const bridgeBoost = bridgeSet.has(x.n) ? 0.08 : 0;
+        return {
+          ...x,
+          bridge: bridgeSet.has(x.n),
+          score: x.score + bridgeBoost
+        };
+      }).sort((a, b) => b.score - a.score || a.n - b.n);
+
       const hotSet = new Set(numberScores.slice(0, 14).map(x => x.n));
       const coldSet = new Set(numberScores.slice(-14).map(x => x.n));
       const midSet = new Set(numberScores.slice(14, 25).map(x => x.n));
 
-      return { freq, recency, pairFreq, zoneFreq, numberScores, hotSet, coldSet, midSet };
+      return {
+        freq,
+        recency,
+        pairFreq,
+        zoneFreq,
+        numberScores,
+        hotSet,
+        coldSet,
+        midSet,
+        bridgeSet
+      };
     }
-
-    function randomChoice(arr) {
+        function randomChoice(arr) {
       return arr[Math.floor(Math.random() * arr.length)];
     }
 
     function weightedChoice(items) {
       const total = items.reduce((s, x) => s + Math.max(0.0001, x.weight), 0);
       let roll = Math.random() * total;
+
       for (const item of items) {
         roll -= Math.max(0.0001, item.weight);
         if (roll <= 0) return item.value;
       }
+
       return items[items.length - 1].value;
     }
 
@@ -464,9 +544,23 @@
         [2, 1, 1, 1, 0],
         [0, 1, 1, 1, 2],
         [1, 2, 1, 1, 0],
-        [0, 1, 1, 2, 1]
+        [0, 1, 1, 2, 1],
+        [1, 2, 1, 0, 1],
+        [1, 1, 0, 1, 2]
       ];
+
       return randomChoice(patterns).slice();
+    }
+
+    function getZoneNumbers(zoneIndex) {
+      const z = ZONES[zoneIndex];
+      const nums = [];
+
+      for (let n = z.min; n <= z.max; n++) {
+        nums.push(n);
+      }
+
+      return nums;
     }
 
     function generateCandidate(analysis, entropyRate) {
@@ -477,10 +571,17 @@
       for (let zi = 0; zi < ZONES.length; zi++) {
         const zone = ZONES[zi];
         const available = sortedScores.filter(x => x.n >= zone.min && x.n <= zone.max);
+
         for (let k = 0; k < pattern[zi]; k++) {
-          let poolType = Math.random() * 100 < entropyRate ? "entropy" : "weighted";
+          const useBridge = Math.random() < 0.22;
+          const useEntropy = Math.random() * 100 < entropyRate;
+
           let options;
-          if (poolType === "entropy") {
+
+          if (useBridge) {
+            options = available.filter(x => x.bridge);
+            if (options.length === 0) options = available;
+          } else if (useEntropy) {
             options = available.filter(x => !analysis.hotSet.has(x.n));
             if (options.length === 0) options = available;
           } else {
@@ -488,9 +589,16 @@
           }
 
           let tries = 0;
+
           while (tries < 50) {
             tries++;
-            const picked = weightedChoice(options.map(x => ({ value: x.n, weight: x.score + 0.05 })));
+            const picked = weightedChoice(
+              options.map(x => ({
+                value: x.n,
+                weight: x.score + (x.bridge ? 0.12 : 0.05)
+              }))
+            );
+
             if (!ticket.has(picked)) {
               ticket.add(picked);
               break;
@@ -500,10 +608,25 @@
       }
 
       while (ticket.size < PICK) {
+        const useBridge = Math.random() < 0.25;
         const fromEntropy = Math.random() * 100 < entropyRate;
+
         let pool = sortedScores;
-        if (fromEntropy) pool = sortedScores.filter(x => !analysis.hotSet.has(x.n));
-        const picked = weightedChoice(pool.map(x => ({ value: x.n, weight: x.score + 0.05 })));
+
+        if (useBridge) {
+          const bridgePool = sortedScores.filter(x => x.bridge);
+          if (bridgePool.length > 0) pool = bridgePool;
+        } else if (fromEntropy) {
+          pool = sortedScores.filter(x => !analysis.hotSet.has(x.n));
+        }
+
+        const picked = weightedChoice(
+          pool.map(x => ({
+            value: x.n,
+            weight: x.score + (x.bridge ? 0.12 : 0.05)
+          }))
+        );
+
         ticket.add(picked);
       }
 
@@ -518,8 +641,12 @@
       const counts = zoneCounts(ticket);
       const sum = ticket.reduce((a, b) => a + b, 0);
       const range = ticket[ticket.length - 1] - ticket[0];
+
       const gaps = [];
-      for (let i = 1; i < ticket.length; i++) gaps.push(ticket[i] - ticket[i - 1]);
+      for (let i = 1; i < ticket.length; i++) {
+        gaps.push(ticket[i] - ticket[i - 1]);
+      }
+
       const avgGap = gaps.reduce((a, b) => a + b, 0) / gaps.length;
       const gapVariance = gaps.reduce((s, g) => s + Math.pow(g - avgGap, 2), 0) / gaps.length;
 
@@ -529,6 +656,7 @@
       }, 0);
 
       let pairScore = 0;
+
       for (let i = 0; i < ticket.length; i++) {
         for (let j = i + 1; j < ticket.length; j++) {
           pairScore += analysis.pairFreq.get(pairKey(ticket[i], ticket[j])) || 0;
@@ -543,9 +671,20 @@
       const zoneReward = activeZones >= 4 ? 12 : activeZones === 3 ? 4 : -10;
       const entropyCount = ticket.filter(n => !analysis.hotSet.has(n)).length;
       const entropyReward = entropyCount >= 2 ? 9 : entropyCount === 1 ? 2 : -9;
+      const bridgeCount = ticket.filter(n => analysis.bridgeSet.has(n)).length;
+      const bridgeReward = bridgeCount >= 1 ? 5 : -2;
       const pairPenalty = pairScore > 8 ? -8 : pairScore > 4 ? -3 : 2;
 
-      const total = numberScore * 12 + spreadReward + sumReward + gapReward + zoneReward + entropyReward + pairPenalty - zonePenalty;
+      const total =
+        numberScore * 12 +
+        spreadReward +
+        sumReward +
+        gapReward +
+        zoneReward +
+        entropyReward +
+        bridgeReward +
+        pairPenalty -
+        zonePenalty;
 
       return {
         total,
@@ -554,6 +693,7 @@
         counts,
         activeZones,
         entropyCount,
+        bridgeCount,
         pairScore,
         gapVariance
       };
@@ -568,14 +708,149 @@
       return selected.some(existing => sharedCount(ticket, existing.ticket) > cloneLimit);
     }
 
+    function makeTicketWithForcedNumber(forcedNumber, analysis) {
+      const ticket = new Set([forcedNumber]);
+      const forcedZone = getZone(forcedNumber);
+      const sortedScores = analysis.numberScores;
+
+      while (ticket.size < PICK) {
+        let pool = sortedScores.filter(x => !ticket.has(x.n));
+
+        if (ticket.size === 1) {
+          pool = pool.filter(x => getZone(x.n) !== forcedZone || Math.random() < 0.25);
+          if (pool.length === 0) pool = sortedScores.filter(x => !ticket.has(x.n));
+        }
+
+        const picked = weightedChoice(
+          pool.map(x => ({
+            value: x.n,
+            weight: x.score + (x.bridge ? 0.10 : 0.05)
+          }))
+        );
+
+        ticket.add(picked);
+      }
+
+      return [...ticket].sort((a, b) => a - b);
+    }
+
+    function repairMissingCoverage(selected, analysis, targetCount, cloneLimit) {
+      const useCount = Array(MAX_NUM + 1).fill(0);
+
+      selected.forEach(item => {
+        item.ticket.forEach(n => useCount[n]++);
+      });
+
+      const missing = [];
+
+      for (let n = MIN_NUM; n <= MAX_NUM; n++) {
+        if (useCount[n] === 0) missing.push(n);
+      }
+
+      const zoneTwoPriority = [8, 9, 10, 11, 12, 13, 14].filter(n => useCount[n] === 0);
+
+      const repairList = [...zoneTwoPriority, ...missing.filter(n => !zoneTwoPriority.includes(n))];
+
+      for (const forced of repairList) {
+        if (selected.length >= targetCount) break;
+
+        let added = false;
+
+        for (let tries = 0; tries < 80; tries++) {
+          const t = makeTicketWithForcedNumber(forced, analysis);
+          const key = t.join("-");
+
+          if (selected.some(x => x.ticket.join("-") === key)) continue;
+          if (isClone(t, selected, Math.min(4, cloneLimit + 1))) continue;
+
+          const score = scoreTicket(t, analysis);
+          selected.push({
+            ticket: t,
+            score,
+            forcedNumber: forced,
+            repairReason: `Missing Number Insurance forced ${forced} into coverage.`
+          });
+
+          t.forEach(n => useCount[n]++);
+          added = true;
+          break;
+        }
+
+        if (!added) {
+          const t = makeTicketWithForcedNumber(forced, analysis);
+          const score = scoreTicket(t, analysis);
+
+          selected.push({
+            ticket: t,
+            score,
+            forcedNumber: forced,
+            repairReason: `Missing Number Insurance forced ${forced} into coverage with relaxed anti-clone rule.`
+          });
+
+          t.forEach(n => useCount[n]++);
+        }
+      }
+
+      return selected;
+    }
+
+    function strengthenZoneRotation(selected, analysis, targetCount, cloneLimit) {
+      const useCount = Array(MAX_NUM + 1).fill(0);
+
+      selected.forEach(item => {
+        item.ticket.forEach(n => useCount[n]++);
+      });
+
+      const zoneRotationTargets = [];
+
+      for (let zi = 0; zi < ZONES.length; zi++) {
+        getZoneNumbers(zi).forEach(n => {
+          if (useCount[n] < 1) zoneRotationTargets.push(n);
+        });
+      }
+
+      const priority = [11, 12, 8, 9, 10, 13, 14];
+      zoneRotationTargets.sort((a, b) => {
+        const ai = priority.includes(a) ? priority.indexOf(a) : 99 + a;
+        const bi = priority.includes(b) ? priority.indexOf(b) : 99 + b;
+        return ai - bi;
+      });
+
+      for (const n of zoneRotationTargets) {
+        if (selected.length >= targetCount) break;
+
+        for (let tries = 0; tries < 60; tries++) {
+          const t = makeTicketWithForcedNumber(n, analysis);
+          const key = t.join("-");
+
+          if (selected.some(x => x.ticket.join("-") === key)) continue;
+          if (isClone(t, selected, Math.min(4, cloneLimit + 1))) continue;
+
+          selected.push({
+            ticket: t,
+            score: scoreTicket(t, analysis),
+            forcedNumber: n,
+            repairReason: `Zone Rotation forced ${n} so every zone number gets coverage.`
+          });
+
+          break;
+        }
+      }
+
+      return selected;
+    }
+
     function generateTickets(draws, count, candidateCount, entropyRate, cloneLimit) {
       const analysis = buildAnalysis(draws);
       const candidates = new Map();
 
       for (let i = 0; i < candidateCount; i++) {
         const t = generateCandidate(analysis, entropyRate);
+
         if (t.length !== PICK) continue;
+
         const key = t.join("-");
+
         if (!candidates.has(key)) {
           const score = scoreTicket(t, analysis);
           candidates.set(key, { ticket: t, score });
@@ -583,74 +858,142 @@
       }
 
       const ranked = [...candidates.values()].sort((a, b) => b.score.total - a.score.total);
-      const selected = [];
+      let selected = [];
       const numberCaps = Array(MAX_NUM + 1).fill(0);
       const maxUse = Math.ceil((count * PICK) / MAX_NUM) + 3;
 
       for (const candidate of ranked) {
         if (selected.length >= count) break;
         if (isClone(candidate.ticket, selected, cloneLimit)) continue;
+
         const overCap = candidate.ticket.some(n => numberCaps[n] >= maxUse);
         if (overCap) continue;
+
         selected.push(candidate);
         candidate.ticket.forEach(n => numberCaps[n]++);
       }
+
+      selected = repairMissingCoverage(selected, analysis, count, cloneLimit);
+      selected = strengthenZoneRotation(selected, analysis, count, cloneLimit);
 
       for (const candidate of ranked) {
         if (selected.length >= count) break;
         if (selected.some(x => x.ticket.join("-") === candidate.ticket.join("-"))) continue;
         if (isClone(candidate.ticket, selected, Math.min(4, cloneLimit + 1))) continue;
+
         selected.push(candidate);
       }
 
-      return { analysis, selected: selected.slice(0, count) };
+      selected = selected
+        .slice(0, count)
+        .map(item => ({
+          ...item,
+          score: scoreTicket(item.ticket, analysis)
+        }));
+
+      return {
+        analysis,
+        selected
+      };
     }
 
     function ticketReason(item, analysis) {
       const t = item.ticket;
       const s = item.score;
-      const zones = s.counts.map((c, i) => c ? `${ZONES[i].label}:${c}` : null).filter(Boolean).join(", ");
+
+      const zones = s.counts
+        .map((c, i) => c ? `${ZONES[i].label}:${c}` : null)
+        .filter(Boolean)
+        .join(", ");
+
       const entropyNums = t.filter(n => !analysis.hotSet.has(n));
-      return `Selected for zone coverage (${zones}), spread range ${s.range}, sum ${s.sum}, and ${s.entropyCount} entropy number(s): ${entropyNums.join(", ") || "none"}. Anti-clone filtering keeps it different from other tickets.`;
+      const bridgeNums = t.filter(n => analysis.bridgeSet.has(n));
+      const repair = item.repairReason ? ` ${item.repairReason}` : "";
+
+      return `Selected for zone coverage (${zones}), spread range ${s.range}, sum ${s.sum}, ${s.entropyCount} entropy number(s): ${entropyNums.join(", ") || "none"}, and ${s.bridgeCount} bridge number(s): ${bridgeNums.join(", ") || "none"}.${repair} Anti-clone filtering keeps it different from other tickets.`;
     }
 
     function renderSummary(draws, analysis) {
       const box = document.getElementById("analysisSummary");
+
       const hot = analysis.numberScores.slice(0, 10).map(x => x.n).join(", ");
       const cold = analysis.numberScores.slice(-10).map(x => x.n).join(", ");
+      const bridge = [...analysis.bridgeSet].sort((a, b) => a - b).join(", ");
       const zoneText = ZONES.map((z, i) => `${z.label}: ${analysis.zoneFreq[i]}`).join("<br>");
       const lastDraw = draws[draws.length - 1]?.join(" ") || "None";
 
       box.innerHTML = `
-        <div class="stat-card"><strong>Valid Draws</strong><span>${draws.length}</span><div class="small">Uploaded and accepted</div></div>
-        <div class="stat-card"><strong>Last Draw</strong><span>${lastDraw}</span><div class="small">Most recent line entered</div></div>
-        <div class="stat-card"><strong>Top 10 Weighted</strong><span>${hot}</span><div class="small">Frequency + recency</div></div>
-        <div class="stat-card"><strong>Entropy Numbers</strong><span>${cold}</span><div class="small">Used to avoid hot-number trap</div></div>
-        <div class="stat-card"><strong>Zone Counts</strong><span>${zoneText}</span></div>
+        <div class="stat-card">
+          <strong>Valid Draws</strong>
+          <span>${draws.length}</span>
+          <div class="small">Uploaded and accepted</div>
+        </div>
+
+        <div class="stat-card">
+          <strong>Last Draw</strong>
+          <span>${lastDraw}</span>
+          <div class="small">Most recent line entered</div>
+        </div>
+
+        <div class="stat-card">
+          <strong>Top 10 Weighted</strong>
+          <span>${hot}</span>
+          <div class="small">Frequency + recency + bridge</div>
+        </div>
+
+        <div class="stat-card">
+          <strong>Entropy Numbers</strong>
+          <span>${cold}</span>
+          <div class="small">Used to avoid hot-number trap</div>
+        </div>
+
+        <div class="stat-card">
+          <strong>Bridge Numbers</strong>
+          <span>${bridge}</span>
+          <div class="small">Neighbors near active numbers</div>
+        </div>
+
+        <div class="stat-card">
+          <strong>Zone Counts</strong>
+          <span>${zoneText}</span>
+        </div>
       `;
     }
 
     function renderTickets(selected, analysis) {
       const output = document.getElementById("ticketsOutput");
       const plain = document.getElementById("plainOutput");
+
       output.innerHTML = "";
-      let plainText = "BUY THESE 40 TICKETS\nReason: Coverage-optimized after history analysis, zone balance, spread control, anti-clone filtering, and controlled entropy. Not guaranteed.\n\n";
+
+      let plainText =
+        "BUY THESE 40 TICKETS\n" +
+        "Reason: Coverage-optimized after history analysis, zone balance, spread control, anti-clone filtering, controlled entropy, Zone Rotation, Missing Number Insurance, and Neighbor Bridge logic. Not guaranteed.\n\n";
 
       selected.forEach((item, index) => {
         const div = document.createElement("div");
         div.className = "ticket";
-        const balls = item.ticket.map(n => `<span class="ball">${n}</span>`).join("");
+
+        const balls = item.ticket.map(n => {
+          const bridgeClass = analysis.bridgeSet.has(n) ? " bridge" : "";
+          return `<span class="ball${bridgeClass}">${n}</span>`;
+        }).join("");
+
         const reason = ticketReason(item, analysis);
+
         div.innerHTML = `
           <div class="ticket-header">
             <div class="ticket-name">Ticket ${String(index + 1).padStart(2, "0")}</div>
             <div class="score">Score ${item.score.total.toFixed(2)}</div>
           </div>
+
           <div class="balls">${balls}</div>
           <div class="why"><strong>Why buy this ticket:</strong> ${reason}</div>
           <div class="draw-line"></div>
         `;
+
         output.appendChild(div);
+
         plainText += `Ticket ${String(index + 1).padStart(2, "0")}: ${item.ticket.join("\t")}\n`;
         plainText += `Why: ${reason}\n`;
         plainText += "----------------------------------------\n";
@@ -673,11 +1016,13 @@
 
     function runGenerator() {
       hideError();
+
       const text = document.getElementById("historyInput").value;
       const draws = parseDraws(text);
+
       const ticketCount = Number(document.getElementById("ticketCount").value) || 40;
-      const candidateCount = Number(document.getElementById("candidateCount").value) || 12000;
-      const entropyRate = Number(document.getElementById("entropyRate").value) || 35;
+      const candidateCount = Number(document.getElementById("candidateCount").value) || 14000;
+      const entropyRate = Number(document.getElementById("entropyRate").value) || 45;
       const cloneLimit = Number(document.getElementById("cloneLimit").value) || 2;
 
       if (draws.length < 20) {
@@ -685,12 +1030,19 @@
         return;
       }
 
-      const { analysis, selected } = generateTickets(draws, ticketCount, candidateCount, entropyRate, cloneLimit);
+      const { analysis, selected } = generateTickets(
+        draws,
+        ticketCount,
+        candidateCount,
+        entropyRate,
+        cloneLimit
+      );
+
       renderSummary(draws, analysis);
       renderTickets(selected, analysis);
 
       if (selected.length < ticketCount) {
-        showError(`Only ${selected.length} unique tickets were generated after anti-clone filtering. Increase candidates or raise clone limit to 3.`);
+        showError(`Only ${selected.length} unique tickets were generated after filtering. Increase candidates or raise clone limit to 3.`);
       }
     }
 
@@ -748,6 +1100,7 @@
 1 8 11 18 26
 7 8 11 18 31
 13 14 23 24 28`;
+
       document.getElementById("historyInput").value = sample;
     }
   </script>
