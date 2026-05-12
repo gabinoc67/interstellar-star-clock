@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Earth-Frequency Forward Weather Corridor Flight Simulator</title>
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0;
+  font-family:Arial,sans-serif;
+  background:#07111f;
+  color:#eef5ff;
+}
+header{
+  padding:22px;
+  text-align:center;
+  background:linear-gradient(90deg,#08172a,#12345a,#08172a);
+  border-bottom:1px solid rgba(255,255,255,.18);
+}
+h1{margin:0;font-size:26px}
+.subtitle{color:#b8c7dd;margin-top:8px}
+.wrap{
+  display:grid;
+  grid-template-columns:1.4fr .9fr;
+  gap:16px;
+  padding:16px;
+}
+.panel{
+  background:#101d33;
+  border:1px solid rgba(255,255,255,.14);
+  border-radius:14px;
+  padding:14px;
+  box-shadow:0 10px 24px rgba(0,0,0,.25);
+}
+canvas{
+  width:100%;
+  height:430px;
+  background:linear-gradient(#071a30,#0d2744);
+  border-radius:12px;
+  border:1px solid rgba(255,255,255,.15);
+}
+.controls{
+  display:grid;
+  grid-template-columns:repeat(2,1fr);
+  gap:10px;
+}
+label{
+  display:block;
+  font-size:13px;
+  color:#b8c7dd;
+  margin-bottom:5px;
+}
+input[type=range]{width:100%}
+button{
+  padding:11px 14px;
+  border:none;
+  border-radius:10px;
+  background:#2c7be5;
+  color:white;
+  font-weight:bold;
+  cursor:pointer;
+}
+button:hover{background:#3b8cff}
+.readings{
+  display:grid;
+  grid-template-columns:repeat(2,1fr);
+  gap:10px;
+}
+.box{
+  background:#162844;
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:10px;
+  padding:10px;
+}
+.box b{display:block;color:#7fd3ff;margin-bottom:4px}
+.good{color:#9dffb0}
+.warn{color:#ffe08a}
+.bad{color:#ff8a8a}
+.full{grid-column:1/-1}
+.explain{
+  line-height:1.5;
+  color:#d9e6f8;
+}
+@media(max-width:900px){
+  .wrap{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Earth-Frequency Forward Weather Corridor Flight Simulator</h1>
+  <div class="subtitle">
+    Forward radar/lidar weather sensing + atmospheric pocket prediction + timing synchronization + adaptive aircraft correction
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="panel">
+    <canvas id="sim" width="1000" height="430"></canvas>
+    <br><br>
+    <button onclick="toggleRun()">Start / Pause</button>
+    <button onclick="resetSim()">Reset</button>
+  </div>
+
+  <div class="panel">
+    <h2>Flight Controls</h2>
+
+    <div class="controls">
+      <div>
+        <label>Aircraft Speed Mach: <span id="machVal">10</span></label>
+        <input id="mach" type="range" min="1" max="10" value="6" step="0.1">
+      </div>
+
+      <div>
+        <label>Forward Sensor Range: <span id="rangeVal">70</span> km</label>
+        <input id="range" type="range" min="20" max="150" value="70">
+      </div>
+
+      <div>
+        <label>Weather Chaos Level: <span id="chaosVal">45</span>%</label>
+        <input id="chaos" type="range" min="0" max="100" value="45">
+      </div>
+
+      <div>
+        <label>Earth-Frequency Sync: <span id="syncVal">75</span>%</label>
+        <input id="sync" type="range" min="0" max="100" value="75">
+      </div>
+
+      <div>
+        <label>Gas / Density Variation: <span id="gasVal">40</span>%</label>
+        <input id="gas" type="range" min="0" max="100" value="40">
+      </div>
+
+      <div>
+        <label>Control Response Speed: <span id="responseVal">70</span>%</label>
+        <input id="response" type="range" min="1" max="100" value="70">
+      </div>
+    </div>
+
+    <h2>Live Readings</h2>
+    <div class="readings">
+      <div class="box"><b>Detected Air Ahead</b><span id="airAhead">Scanning</span></div>
+      <div class="box"><b>Time to Pocket</b><span id="ttp">--</span></div>
+      <div class="box"><b>Recommended Action</b><span id="action">Hold course</span></div>
+      <div class="box"><b>Stability</b><span id="stability" class="good">Stable</span></div>
+      <div class="box"><b>Shock / Gust Risk</b><span id="risk">Low</span></div>
+      <div class="box"><b>Synchronization Error</b><span id="syncErr">0.00</span></div>
+    </div>
+  </div>
+
+  <div class="panel full explain">
+    <h2>Simulation Purpose</h2>
+    <p>
+      This simulator demonstrates your concept: the aircraft uses forward radar/lidar-style sensing to detect dense air,
+      updrafts, downdrafts, gas variation, and turbulence before impact. The Earth-frequency synchronization layer does
+      not lift the aircraft; it acts as a timing reference that helps the aircraft compare expected atmospheric corridor
+      data with measured forward conditions.
+    </p>
+    <p>
+      The aircraft then adjusts speed, pitch, and stability response before reaching the unstable air pocket. This does
+      not remove chaos, but it reduces delay between detection and correction.
+    </p>
+  </div>
+
+</div>
+
+<script>
+const canvas=document.getElementById("sim");
+const ctx=canvas.getContext("2d");
+
+let running=false;
+let t=0;
+let planeX=160;
+let planeY=215;
+let pitch=0;
+let stabilityScore=92;
+
+const sliders=["mach","range","chaos","sync","gas","response"];
+sliders.forEach(id=>{
+  document.getElementById(id).addEventListener("input",updateLabels);
+});
+
+function updateLabels(){
+  document.getElementById("machVal").textContent=document.getElementById("mach").value;
+  document.getElementById("rangeVal").textContent=document.getElementById("range").value;
+  document.getElementById("chaosVal").textContent=document.getElementById("chaos").value;
+  document.getElementById("syncVal").textContent=document.getElementById("sync").value;
+  document.getElementById("gasVal").textContent=document.getElementById("gas").value;
+  document.getElementById("responseVal").textContent=document.getElementById("response").value;
+}
+updateLabels();
+
+function toggleRun(){running=!running}
+function resetSim(){
+  t=0;
+  pitch=0;
+  stabilityScore=92;
+}
+
+function pocketAt(x,i,chaos,gas){
+  const wave=Math.sin((x*.012)+(t*.035)+(i*1.7));
+  const density=Math.sin((x*.018)+(t*.02)+i)*gas/100;
+  const gust=Math.cos((x*.021)-(t*.03)+i*2)*chaos/100;
+  return wave*.45+density*.35+gust*.55;
+}
+
+function classify(v){
+  if(v>.65)return "Dense air / downdraft pocket";
+  if(v>.35)return "Pressure rise / rough air";
+  if(v<-.65)return "Thin air / updraft pocket";
+  if(v<-.35)return "Temperature / density drop";
+  return "Normal corridor";
+}
+
+function actionFor(v,sync,response){
+  if(Math.abs(v)<.35)return "Hold course";
+  if(v>.65)return "Pre-trim nose, reduce shock load";
+  if(v>.35)return "Smooth speed and pitch correction";
+  if(v<-.65)return "Prepare lift correction";
+  return "Minor altitude and inlet correction";
+}
+
+function drawAircraft(){
+  ctx.save();
+  ctx.translate(planeX,planeY);
+  ctx.rotate(pitch);
+  ctx.fillStyle="#d9f3ff";
+  ctx.beginPath();
+  ctx.moveTo(55,0);
+  ctx.lineTo(-45,-18);
+  ctx.lineTo(-28,0);
+  ctx.lineTo(-45,18);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle="#7fd3ff";
+  ctx.fillRect(-10,-6,25,12);
+  ctx.strokeStyle="#ffffff";
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawEarthFrequency(sync){
+  const baseY=360;
+  ctx.strokeStyle=`rgba(127,211,255,${0.2+sync/140})`;
+  ctx.lineWidth=2;
+  ctx.beginPath();
+  for(let x=0;x<1000;x++){
+    const y=baseY+Math.sin((x*.045)+(t*.04))*18*(sync/100);
+    if(x===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+  }
+  ctx.stroke();
+
+  ctx.fillStyle="#9ff7d7";
+  ctx.font="14px Arial";
+  ctx.fillText("Earth-frequency timing reference layer",24,390);
+}
+
+function drawWeatherField(chaos,gas,range){
+  for(let i=0;i<65;i++){
+    const x=(i*18+(t*1.5))%1000;
+    const y=70+Math.sin(i*1.4+t*.03)*110+Math.cos(i*.7)*40;
+    const v=pocketAt(x,i,chaos,gas);
+    let color="rgba(150,220,255,.35)";
+    if(v>.65)color="rgba(255,130,90,.65)";
+    else if(v>.35)color="rgba(255,220,120,.55)";
+    else if(v<-.65)color="rgba(130,180,255,.7)";
+    ctx.fillStyle=color;
+    ctx.beginPath();
+    ctx.arc(x,y,8+Math.abs(v)*16,0,Math.PI*2);
+    ctx.fill();
+  }
+
+  ctx.strokeStyle="rgba(255,255,255,.2)";
+  ctx.setLineDash([8,8]);
+  ctx.beginPath();
+  ctx.moveTo(planeX,planeY);
+  ctx.lineTo(planeX+range*5,planeY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.fillStyle="#ffffff";
+  ctx.font="14px Arial";
+  ctx.fillText("Forward weather sensing corridor",planeX+40,planeY-18);
+}
+
+function drawForwardSensor(range){
+  ctx.strokeStyle="rgba(127,211,255,.55)";
+  ctx.lineWidth=2;
+  ctx.beginPath();
+  ctx.moveTo(planeX+55,planeY);
+  ctx.lineTo(planeX+range*5,planeY-95);
+  ctx.lineTo(planeX+range*5,planeY+95);
+  ctx.closePath();
+  ctx.stroke();
+
+  ctx.fillStyle="#7fd3ff";
+  ctx.fillText("radar / lidar / gas sensing",planeX+190,planeY+115);
+}
+
+function drawAltitudeLayers(){
+  ctx.strokeStyle="rgba(255,255,255,.08)";
+  ctx.fillStyle="rgba(255,255,255,.35)";
+  ctx.font="12px Arial";
+  for(let y=70;y<350;y+=55){
+    ctx.beginPath();
+    ctx.moveTo(0,y);
+    ctx.lineTo(1000,y);
+    ctx.stroke();
+    ctx.fillText("altitude layer",8,y-5);
+  }
+}
+
+function updateReadings(){
+  const mach=parseFloat(document.getElementById("mach").value);
+  const range=parseFloat(document.getElementById("range").value);
+  const chaos=parseFloat(document.getElementById("chaos").value);
+  const sync=parseFloat(document.getElementById("sync").value);
+  const gas=parseFloat(document.getElementById("gas").value);
+  const response=parseFloat(document.getElementById("response").value);
+
+  let scanX=planeX+range*5;
+  let v=pocketAt(scanX,3,chaos,gas);
+
+  const air=classify(v);
+  const action=actionFor(v,sync,response);
+  const seconds=(range/(mach*3.43)).toFixed(1);
+
+  const syncError=(Math.abs(v)*(100-sync)/40).toFixed(2);
+  const riskVal=Math.abs(v)*chaos*(100-response)/100;
+
+  stabilityScore+=((100-riskVal)-(stabilityScore))*0.035;
+  if(Math.abs(v)>.35){
+    pitch+=(v*.018*(response/100)-pitch)*0.08;
+  }else{
+    pitch+=(0-pitch)*0.05;
+  }
+
+  document.getElementById("airAhead").textContent=air;
+  document.getElementById("ttp").textContent=seconds+" sec simulated";
+  document.getElementById("action").textContent=action;
+  document.getElementById("syncErr").textContent=syncError;
+
+  let riskText="Low";
+  if(riskVal>25)riskText="Medium";
+  if(riskVal>50)riskText="High";
+  document.getElementById("risk").textContent=riskText;
+
+  const st=document.getElementById("stability");
+  if(stabilityScore>75){
+    st.textContent="Stable";
+    st.className="good";
+  }else if(stabilityScore>50){
+    st.textContent="Correcting";
+    st.className="warn";
+  }else{
+    st.textContent="Unstable";
+    st.className="bad";
+  }
+}
+
+function draw(){
+  const mach=parseFloat(document.getElementById("mach").value);
+  const range=parseFloat(document.getElementById("range").value);
+  const chaos=parseFloat(document.getElementById("chaos").value);
+  const sync=parseFloat(document.getElementById("sync").value);
+  const gas=parseFloat(document.getElementById("gas").value);
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  drawAltitudeLayers();
+  drawWeatherField(chaos,gas,range);
+  drawForwardSensor(range);
+  drawEarthFrequency(sync);
+  drawAircraft();
+
+  ctx.fillStyle="#eef5ff";
+  ctx.font="15px Arial";
+  ctx.fillText("Mach "+mach+" adaptive aircraft",95,185);
+
+  ctx.fillStyle="rgba(255,255,255,.75)";
+  ctx.fillText("Red/yellow pockets = denser or unstable air ahead",650,28);
+  ctx.fillText("Blue pockets = thinner/updraft-shifted air ahead",650,48);
+
+  updateReadings();
+
+  if(running)t+=1;
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+
+</body>
+</html>
