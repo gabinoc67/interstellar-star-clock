@@ -16,10 +16,6 @@
   --accent:#174ea6;
   --accent2:#0b6e4f;
   --danger:#9b1c1c;
-  --gold:#9a6a00;
-  --purple:#5034a3;
-  --sky:#dff4ff;
-  --sea:#bfe9ff;
   --land:#d6c6a2;
   --landStroke:#ad9368;
   --shadow:0 8px 22px rgba(20,40,80,.12);
@@ -45,7 +41,6 @@ header{
 h1{
   margin:0;
   font-size:28px;
-  line-height:1.25;
   color:#0d1b2a;
 }
 
@@ -155,6 +150,27 @@ button.calculate{background:var(--accent2)}
   inset:0;
 }
 
+.gridLine{
+  position:absolute;
+  left:8%;
+  top:18%;
+  width:84%;
+  height:70%;
+  border:1px dashed rgba(23,78,166,.22);
+  border-radius:14px;
+  pointer-events:none;
+}
+
+.gridLine:before{
+  content:"";
+  position:absolute;
+  inset:0;
+  background:
+    linear-gradient(90deg, rgba(23,78,166,.12) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(23,78,166,.12) 1px, transparent 1px);
+  background-size:10% 16.6%;
+}
+
 .continent{
   position:absolute;
   background:var(--land);
@@ -236,7 +252,6 @@ button.calculate{background:var(--accent2)}
     #174ea6 0 14px,
     transparent 14px 24px
   );
-  transform-origin:left center;
 }
 
 .routeArc{
@@ -283,8 +298,7 @@ button.calculate{background:var(--accent2)}
   top:49%;
   width:90px;
   height:60px;
-  transform:translateX(0);
-  transition:transform .2s linear;
+  transition:all .2s linear;
   z-index:8;
 }
 
@@ -310,6 +324,7 @@ button.calculate{background:var(--accent2)}
 .planet{
   position:absolute;
   font-size:17px;
+  color:#c24cff;
   text-shadow:0 0 6px #fff, 0 0 10px rgba(0,0,0,.35);
 }
 
@@ -472,8 +487,8 @@ button.calculate{background:var(--accent2)}
 <header>
   <h1>Ancient-to-Modern World Navigation Simulator</h1>
   <div class="subtitle">
-    Live sailing simulation with always-running Atomic Time, CST Ship Time, Cosmic Star Phase,
-    sky marks, ocean marks, planetary references, and modern GNSS-style timing.
+    Live sailing simulation with Atomic Time, CST Ship Time, Cosmic Star Phase,
+    stars, planets, wind, current drift, route grid correction, and world-crossing calculations.
   </div>
 </header>
 
@@ -521,6 +536,8 @@ button.calculate{background:var(--accent2)}
 
     <div class="mapWrap">
       <div class="world">
+        <div class="gridLine"></div>
+
         <div class="continent northAmerica"></div>
         <div class="continent southAmerica"></div>
         <div class="continent europeAfrica"></div>
@@ -602,9 +619,7 @@ button.calculate{background:var(--accent2)}
   <aside class="sideStack">
     <div class="panel">
       <h2>Selected Navigation System</h2>
-      <div class="explain" id="systemExplain">
-        Viking steering used Sun shadow, Polaris height, ocean swell, wind, birds, and memorized route marks.
-      </div>
+      <div class="explain" id="systemExplain"></div>
     </div>
 
     <div class="panel">
@@ -619,19 +634,34 @@ button.calculate{background:var(--accent2)}
         <tr><td>Selected stars</td><td id="starsOut">Polaris, Vega, Deneb</td></tr>
         <tr><td>Selected planets</td><td id="planetsOut">Venus, Jupiter, Mars</td></tr>
         <tr><td>Live route progress</td><td id="progressOut">0.0%</td></tr>
+        <tr><td>Elapsed sailing time</td><td id="elapsedOut">0.0 hours</td></tr>
+        <tr><td>Remaining distance</td><td id="remainingOut">1,800 nautical miles</td></tr>
+      </table>
+    </div>
+
+    <div class="panel">
+      <h2>Live Wind, Star, Planet, and Grid Calculations</h2>
+      <table class="dataTable">
+        <tr><th>Calculation</th><th>Live Value</th></tr>
+        <tr><td>Wind condition</td><td id="windOut">Waiting for start</td></tr>
+        <tr><td>Current drift</td><td id="currentOut">Waiting for start</td></tr>
+        <tr><td>Star alignment score</td><td id="starAlignOut">0%</td></tr>
+        <tr><td>Planet alignment score</td><td id="planetAlignOut">0%</td></tr>
+        <tr><td>Grid-line correction</td><td id="gridCorrectionOut">0.00°</td></tr>
+        <tr><td>Corrected heading</td><td id="correctedHeadingOut">West corridor</td></tr>
+        <tr><td>Time-frame window</td><td id="timeFrameOut">0.0% of route window</td></tr>
       </table>
     </div>
 
     <div class="panel">
       <h2>Triangle Reference Logic</h2>
-      <div class="explain" id="triangleExplain">
-        Ship position + sky mark + planet mark + ocean mark creates a moving triangle corridor.
-      </div>
+      <div class="explain" id="triangleExplain"></div>
     </div>
   </aside>
 </section>
+
 <div class="footerNote">
-  Educational simulator only. Ancient navigation values and planet references are approximate teaching references.
+  Educational simulator only. Ancient navigation, planet references, wind, and current values are simplified teaching models.
 </div>
 
 </main>
@@ -753,7 +783,6 @@ let running=false;
 let progress=0;
 let timer=null;
 let simMs=0;
-let liveClock=null;
 
 const periodSelect=document.getElementById("periodSelect");
 const routeSelect=document.getElementById("routeSelect");
@@ -774,6 +803,16 @@ const accuracyOut=document.getElementById("accuracyOut");
 const starsOut=document.getElementById("starsOut");
 const planetsOut=document.getElementById("planetsOut");
 const progressOut=document.getElementById("progressOut");
+const elapsedOut=document.getElementById("elapsedOut");
+const remainingOut=document.getElementById("remainingOut");
+
+const windOut=document.getElementById("windOut");
+const currentOut=document.getElementById("currentOut");
+const starAlignOut=document.getElementById("starAlignOut");
+const planetAlignOut=document.getElementById("planetAlignOut");
+const gridCorrectionOut=document.getElementById("gridCorrectionOut");
+const correctedHeadingOut=document.getElementById("correctedHeadingOut");
+const timeFrameOut=document.getElementById("timeFrameOut");
 
 const systemExplain=document.getElementById("systemExplain");
 const triangleExplain=document.getElementById("triangleExplain");
@@ -798,6 +837,10 @@ function formatTime(ms){
   const s=total%60;
   const milli=Math.floor(ms%1000);
   return `${pad(h)}:${pad(m)}:${pad(s)}.${pad(milli,3)}`;
+}
+
+function getDistance(){
+  return Number(distanceInput.value) || routeData[routeSelect.value].distance;
 }
 
 function drawStarsAndPlanets(){
@@ -851,15 +894,10 @@ function drawStarsAndPlanets(){
   });
 }
 
-function calculate(){
+function calculateStatic(){
   const data=periodData[periodSelect.value];
   const route=routeData[routeSelect.value];
-
-  if(document.activeElement !== distanceInput){
-    distanceInput.value=route.distance;
-  }
-
-  const distance=Number(distanceInput.value);
+  const distance=getDistance();
   const hours=distance/data.speed;
   const days=hours/24;
 
@@ -870,7 +908,6 @@ function calculate(){
   accuracyOut.textContent=data.accuracy;
   starsOut.textContent=data.stars.join(", ");
   planetsOut.textContent=route.planets.join(", ");
-  progressOut.textContent=(progress*100).toFixed(1)+"%";
 
   systemExplain.textContent=data.explain;
   skyMark.textContent=data.sky;
@@ -883,11 +920,11 @@ function calculate(){
   endLabel.textContent="Destination: " + route.label.split("→").pop().trim();
 
   triangleExplain.textContent=
-    `${route.label}: ship position + ${data.stars[0]} reference + ${route.planets[0]} planet mark + ocean/ship mark forms a moving navigation triangle. `+
-    `Ancient systems used visible sky and ocean marks. Modern systems use satellite time marks and atomic-clock correction.`;
+    `${route.label}: ship position + ${data.stars[0]} reference + ${route.planets[0]} planet mark + ocean/ship mark forms a moving navigation triangle. The grid line acts like a planned corridor. Wind and current push the ship away from the grid, while stars, planets, and time marks correct it.`;
 
   drawStarsAndPlanets();
   updateShip();
+  updateLiveTables(false);
 }
 
 function updateShip(){
@@ -902,78 +939,140 @@ function updateShip(){
 
   const angle=(end>=start)?86:-86;
   needle.style.transform=`rotate(${angle + Math.sin(progress*Math.PI*2)*6}deg)`;
+}
 
-  if(progressOut){
-    progressOut.textContent=(progress*100).toFixed(1)+"%";
+function updateLiveTables(active){
+  const data=periodData[periodSelect.value];
+  const distance=getDistance();
+  const remaining=distance*(1-progress);
+  const baseHours=distance/data.speed;
+  const elapsedHours=baseHours*progress;
+
+  progressOut.textContent=(progress*100).toFixed(1)+"%";
+  elapsedOut.textContent=elapsedHours.toFixed(1)+" hours";
+  remainingOut.textContent=`${Math.max(0,remaining).toFixed(1)} nautical miles`;
+
+  if(!active && progress === 0){
+    windOut.textContent="Waiting for start";
+    currentOut.textContent="Waiting for start";
+    starAlignOut.textContent="0%";
+    planetAlignOut.textContent="0%";
+    gridCorrectionOut.textContent="0.00°";
+    correctedHeadingOut.textContent=data.heading;
+    timeFrameOut.textContent="0.0% of route window";
+    return;
+  }
+
+  const windKnots=8 + Math.sin(progress*Math.PI*2 + simMs/4000)*5;
+  const currentKnots=1.2 + Math.cos(progress*Math.PI*2 + simMs/5300)*0.8;
+  const starAlign=82 + Math.sin(progress*Math.PI + simMs/3200)*12;
+  const planetAlign=76 + Math.cos(progress*Math.PI + simMs/4100)*14;
+  const gridCorrection=Math.sin(progress*Math.PI*2 + simMs/3000)*3.5;
+  const timeWindow=progress*100;
+
+  windOut.textContent=`${windKnots.toFixed(1)} knots ${windKnots>=8 ? "favorable" : "light"}`;
+  currentOut.textContent=`${currentKnots.toFixed(2)} knots lateral drift`;
+  starAlignOut.textContent=`${Math.max(0,Math.min(100,starAlign)).toFixed(1)}%`;
+  planetAlignOut.textContent=`${Math.max(0,Math.min(100,planetAlign)).toFixed(1)}%`;
+  gridCorrectionOut.textContent=`${gridCorrection.toFixed(2)}°`;
+  correctedHeadingOut.textContent=`${data.heading} / correction ${gridCorrection.toFixed(2)}°`;
+  timeFrameOut.textContent=`${timeWindow.toFixed(1)}% of route window`;
+
+  if(progress>=1){
+    windOut.textContent="Arrived / stopped";
+    currentOut.textContent="Arrived / stopped";
+    starAlignOut.textContent="100.0%";
+    planetAlignOut.textContent="100.0%";
+    gridCorrectionOut.textContent="0.00°";
+    correctedHeadingOut.textContent="Destination reached";
+    timeFrameOut.textContent="100.0% complete";
   }
 }
 
-function updateAlwaysLiveReadings(){
-  simMs+=137;
-
-  atomicTime.textContent=formatTime(simMs);
-  cstTime.textContent=formatTime(simMs*0.997 + Math.sin(progress*Math.PI)*45);
-  cosmicTime.textContent=((progress*360 + simMs/9000)%360).toFixed(2)+"°";
-
-  calculateLiveOnly();
-}
-
-function calculateLiveOnly(){
-  const data=periodData[periodSelect.value];
-  const distance=Number(distanceInput.value);
-  const hours=distance/data.speed;
-  const days=hours/24;
-
-  speedOut.textContent=`${data.speed} knots`;
-  distanceOut.textContent=`${distance.toLocaleString()} nautical miles`;
-  travelOut.textContent=`${hours.toFixed(1)} hours / ${days.toFixed(1)} days`;
-  progressOut.textContent=(progress*100).toFixed(1)+"%";
-}
-
-function tickShip(){
+function tick(){
   if(!running)return;
 
   const data=periodData[periodSelect.value];
+  const distance=getDistance();
+  const totalHours=distance/data.speed;
+
+  simMs+=137;
   progress+=0.0035*(data.speed/6);
 
   if(progress>=1){
     progress=1;
     running=false;
     clearInterval(timer);
+    timer=null;
   }
 
+  atomicTime.textContent=formatTime(simMs);
+  cstTime.textContent=formatTime(simMs*0.997 + Math.sin(progress*Math.PI)*45);
+  cosmicTime.textContent=((progress*360 + simMs/9000)%360).toFixed(2)+"°";
+
   updateShip();
+  updateLiveTables(true);
+
+  if(progress>=1){
+    elapsedOut.textContent=totalHours.toFixed(1)+" hours";
+    remainingOut.textContent="0.0 nautical miles";
+  }
 }
 
 document.getElementById("startBtn").addEventListener("click",()=>{
-  if(running)return;
+  if(running || progress>=1)return;
   running=true;
-  timer=setInterval(tickShip,40);
+  timer=setInterval(tick,40);
 });
 
 document.getElementById("resetBtn").addEventListener("click",()=>{
   running=false;
   clearInterval(timer);
+  timer=null;
   progress=0;
-  updateShip();
-  calculate();
+  simMs=0;
+
+  atomicTime.textContent="00:00:00.000";
+  cstTime.textContent="00:00:00.000";
+  cosmicTime.textContent="000.00°";
+
+  calculateStatic();
 });
 
-document.getElementById("calcBtn").addEventListener("click",calculate);
+document.getElementById("calcBtn").addEventListener("click",()=>{
+  calculateStatic();
+});
 
-periodSelect.addEventListener("change",calculate);
+periodSelect.addEventListener("change",()=>{
+  running=false;
+  clearInterval(timer);
+  timer=null;
+  progress=0;
+  simMs=0;
+  atomicTime.textContent="00:00:00.000";
+  cstTime.textContent="00:00:00.000";
+  cosmicTime.textContent="000.00°";
+  calculateStatic();
+});
 
 routeSelect.addEventListener("change",()=>{
-  distanceInput.value=routeData[routeSelect.value].distance;
+  running=false;
+  clearInterval(timer);
+  timer=null;
   progress=0;
-  calculate();
+  simMs=0;
+  distanceInput.value=routeData[routeSelect.value].distance;
+  atomicTime.textContent="00:00:00.000";
+  cstTime.textContent="00:00:00.000";
+  cosmicTime.textContent="000.00°";
+  calculateStatic();
 });
 
-distanceInput.addEventListener("input",calculate);
+distanceInput.addEventListener("input",()=>{
+  calculateStatic();
+});
 
-calculate();
-
-liveClock=setInterval(updateAlwaysLiveReadings,40);
+calculateStatic();
 </script>
 
 </body>
