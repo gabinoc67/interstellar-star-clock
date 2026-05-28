@@ -1,0 +1,499 @@
+# Continuous RH/Zeta Moving-Space Corridor Simulation
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Continuous RH/Zeta Moving-Space Corridor Simulation</title>
+<style>
+body{
+  margin:0;
+  background:#05070d;
+  color:#eaf2ff;
+  font-family:Arial,Helvetica,sans-serif;
+  overflow:hidden;
+}
+header{
+  background:#09111f;
+  border-bottom:1px solid #29486b;
+  padding:14px 20px;
+}
+h1{
+  margin:0;
+  color:#8ed6ff;
+  font-size:28px;
+}
+.sub{
+  margin-top:6px;
+  color:#b5d6f2;
+  font-size:14px;
+}
+.main{
+  display:grid;
+  grid-template-columns: 2fr 1fr;
+  height:calc(100vh - 88px);
+}
+.left{
+  position:relative;
+  padding:10px;
+}
+.right{
+  border-left:1px solid #29486b;
+  background:#08111e;
+  overflow:auto;
+  padding:12px;
+}
+canvas{
+  width:100%;
+  height:100%;
+  background:#02050a;
+  border:1px solid #264567;
+  border-radius:14px;
+}
+.controls{
+  position:absolute;
+  top:22px;
+  left:22px;
+  z-index:10;
+}
+button{
+  background:#163f68;
+  color:white;
+  border:1px solid #5fb6ff;
+  border-radius:10px;
+  padding:10px 16px;
+  margin-right:6px;
+  cursor:pointer;
+  font-weight:bold;
+}
+button:hover{
+  background:#1f5c97;
+}
+.panel{
+  background:#0c1827;
+  border:1px solid #27496f;
+  border-radius:12px;
+  padding:12px;
+  margin-bottom:12px;
+}
+.panel h2{
+  margin-top:0;
+  color:#9fd7ff;
+  font-size:18px;
+}
+.reading{
+  margin-bottom:8px;
+}
+.label{
+  color:#8cbce6;
+  font-size:12px;
+}
+.value{
+  font-size:17px;
+  margin-top:2px;
+}
+.log{
+  height:300px;
+  overflow:auto;
+  background:#050a12;
+  border:1px solid #233f5d;
+  border-radius:10px;
+  padding:8px;
+  font-size:13px;
+}
+.trueZero{color:#6dff9a;}
+.nearZero{color:#ffe36e;}
+.falseZero{color:#ff7474;}
+.note{
+  color:#c3d9ef;
+  line-height:1.5;
+  font-size:13px;
+}
+.small{
+  font-size:12px;
+  color:#93b5d3;
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Continuous RH/Zeta Moving-Space Corridor Simulation</h1>
+  <div class="sub">
+    Infinite continuous zero finding • continuous re-locking • moving-space corridor updating • Earth ⇄ Mars ⇄ Voyager anchor synchronization
+  </div>
+</header>
+
+<div class="main">
+  <div class="left">
+
+    <div class="controls">
+      <button onclick="startSim()">Start</button>
+      <button onclick="stopSim()">Stop</button>
+      <button onclick="resetSim()">Reset</button>
+      <button onclick="newMission()">New Mission</button>
+    </div>
+
+    <canvas id="canvas" width="1200" height="760"></canvas>
+  </div>
+
+  <div class="right">
+
+    <div class="panel">
+      <h2>Live Corridor Readings</h2>
+
+      <div class="reading">
+        <div class="label">Mission Time</div>
+        <div class="value" id="missionTime">0</div>
+      </div>
+
+      <div class="reading">
+        <div class="label">Current Candidate</div>
+        <div class="value" id="candidate">0</div>
+      </div>
+
+      <div class="reading">
+        <div class="label">Earth → Mars Corridor Angle</div>
+        <div class="value" id="angle">0°</div>
+      </div>
+
+      <div class="reading">
+        <div class="label">Moving-Space Gap Ratio</div>
+        <div class="value" id="gapratio">0</div>
+      </div>
+
+      <div class="reading">
+        <div class="label">Corridor State</div>
+        <div class="value" id="state">SEARCHING</div>
+      </div>
+
+      <div class="reading">
+        <div class="label">True Locks</div>
+        <div class="value trueZero" id="trueCount">0</div>
+      </div>
+
+      <div class="reading">
+        <div class="label">Near Locks</div>
+        <div class="value nearZero" id="nearCount">0</div>
+      </div>
+
+      <div class="reading">
+        <div class="label">Rejected Locks</div>
+        <div class="value falseZero" id="falseCount">0</div>
+      </div>
+
+    </div>
+
+    <div class="panel">
+      <h2>Continuous Zero Printing</h2>
+      <div class="log" id="log"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Framework Rules</h2>
+      <div class="note">
+        <b>True Zero:</b> all synchronization lines balance simultaneously.<br><br>
+
+        <b>Near Zero:</b> partial resonance requiring correction and re-locking.<br><br>
+
+        <b>Reject Zero:</b> corridor instability or off-line failure condition.<br><br>
+
+        The system never stops calculating because Mars, Earth, Voyager 1, Voyager 2, and the ship continue moving through space. The corridor continuously updates and re-locks.
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+let running = false;
+let tick = 0;
+let mission = 1;
+
+let trueLocks = 0;
+let nearLocks = 0;
+let falseLocks = 0;
+
+const log = document.getElementById('log');
+
+const knownZeros = [
+14.134725,
+21.022040,
+25.010858,
+30.424876,
+32.935062,
+37.586178,
+40.918719,
+43.327073,
+48.005151,
+49.773832,
+52.970321,
+56.446248,
+59.347044,
+60.831780,
+65.112544,
+67.079811,
+69.546401,
+72.067158,
+75.704690,
+77.144840
+];
+
+let shipAngle = 0;
+let marsAngle = 0;
+let earthAngle = 0;
+let voyager1Angle = 0;
+let voyager2Angle = 0;
+
+function logPrint(type,text){
+  const div = document.createElement('div');
+  div.className = type;
+  div.innerHTML = text;
+  log.prepend(div);
+
+  while(log.children.length > 300){
+    log.removeChild(log.lastChild);
+  }
+}
+
+function classifyCandidate(t){
+
+  let best = 999999;
+
+  for(let z of knownZeros){
+    const d = Math.abs(t-z);
+    if(d < best) best = d;
+  }
+
+  const corridorDrift = Math.abs(Math.sin(shipAngle*0.4))*0.09;
+  const phaseDrift = Math.abs(Math.cos(marsAngle*0.3))*0.08;
+  const vectorDrift = Math.abs(Math.sin(voyager1Angle*0.2))*0.07;
+
+  const total = best + corridorDrift + phaseDrift + vectorDrift;
+
+  if(total < 0.08){
+    return 'TRUE';
+  }
+
+  if(total < 0.24){
+    return 'NEAR';
+  }
+
+  return 'FALSE';
+}
+
+function updateBodies(){
+
+  earthAngle += 0.004;
+  marsAngle += 0.0021;
+  voyager1Angle += 0.0007;
+  voyager2Angle += 0.0005;
+  shipAngle += 0.0035;
+
+}
+
+function drawBody(x,y,r,color,label){
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(x,y,r,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.fillStyle = '#dcecff';
+  ctx.font = '13px Arial';
+  ctx.fillText(label,x+r+4,y+4);
+}
+
+function drawOrbit(cx,cy,r){
+  ctx.strokeStyle = '#173552';
+  ctx.beginPath();
+  ctx.arc(cx,cy,r,0,Math.PI*2);
+  ctx.stroke();
+}
+
+function draw(){
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  ctx.fillStyle = '#dff3ff';
+  ctx.font = '24px Arial';
+  ctx.fillText('Continuous Moving-Space Corridor',24,40);
+
+  const cx = canvas.width/2;
+  const cy = canvas.height/2;
+
+  drawOrbit(cx,cy,110);
+  drawOrbit(cx,cy,180);
+  drawOrbit(cx,cy,290);
+  drawOrbit(cx,cy,360);
+
+  drawBody(cx,cy,22,'#ffd34f','Sun / Center Lock');
+
+  const earthX = cx + Math.cos(earthAngle)*110;
+  const earthY = cy + Math.sin(earthAngle)*110;
+
+  const marsX = cx + Math.cos(marsAngle)*180;
+  const marsY = cy + Math.sin(marsAngle)*180;
+
+  const voyager1X = cx + Math.cos(voyager1Angle)*290;
+  const voyager1Y = cy + Math.sin(voyager1Angle)*290;
+
+  const voyager2X = cx + Math.cos(voyager2Angle)*360;
+  const voyager2Y = cy + Math.sin(voyager2Angle)*360;
+
+  const shipX = earthX + Math.cos(shipAngle)*70;
+  const shipY = earthY + Math.sin(shipAngle)*70;
+
+  drawBody(earthX,earthY,10,'#58b7ff','Earth');
+  drawBody(marsX,marsY,9,'#ff8269','Mars');
+  drawBody(voyager1X,voyager1Y,7,'#8cffae','Voyager 1');
+  drawBody(voyager2X,voyager2Y,7,'#d38cff','Voyager 2');
+  drawBody(shipX,shipY,8,'#fff','# Ship');
+
+  ctx.strokeStyle = '#6ce2ff';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(shipX,shipY);
+  ctx.lineTo(marsX,marsY);
+  ctx.stroke();
+
+  ctx.strokeStyle = '#ffd84f';
+  ctx.setLineDash([6,6]);
+  ctx.beginPath();
+  ctx.moveTo(earthX,earthY);
+  ctx.lineTo(marsX,marsY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.strokeStyle = '#2f5f8f';
+  ctx.beginPath();
+  ctx.moveTo(voyager1X,voyager1Y);
+  ctx.lineTo(shipX,shipY);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(voyager2X,voyager2Y);
+  ctx.lineTo(shipX,shipY);
+  ctx.stroke();
+
+  const candidate = 10 + Math.abs(Math.sin(tick*0.012))*80;
+
+  const classification = classifyCandidate(candidate);
+
+  document.getElementById('missionTime').innerText = tick;
+  document.getElementById('candidate').innerText = candidate.toFixed(6);
+
+  const ang = Math.atan2(marsY-earthY,marsX-earthX)*180/Math.PI;
+  document.getElementById('angle').innerText = ang.toFixed(2)+'°';
+
+  const gapRatio = Math.abs((marsAngle-earthAngle)/(shipAngle+0.0001));
+  document.getElementById('gapratio').innerText = gapRatio.toFixed(6);
+
+  if(classification === 'TRUE'){
+    document.getElementById('state').innerHTML = '<span class="trueZero">TRUE LOCK</span>';
+  }
+  else if(classification === 'NEAR'){
+    document.getElementById('state').innerHTML = '<span class="nearZero">NEAR LOCK</span>';
+  }
+  else{
+    document.getElementById('state').innerHTML = '<span class="falseZero">REJECT LOCK</span>';
+  }
+
+}
+
+function simulationStep(){
+
+  if(!running) return;
+
+  tick++;
+
+  updateBodies();
+
+  const candidate = 10 + Math.abs(Math.sin(tick*0.012))*80;
+  const classification = classifyCandidate(candidate);
+
+  if(tick % 16 === 0){
+
+    if(classification === 'TRUE'){
+      trueLocks++;
+      document.getElementById('trueCount').innerText = trueLocks;
+
+      logPrint(
+        'trueZero',
+        '[ TRUE ZERO LOCK ] t = '+candidate.toFixed(6)+' • corridor synchronized • moving-space stable'
+      );
+    }
+
+    else if(classification === 'NEAR'){
+      nearLocks++;
+      document.getElementById('nearCount').innerText = nearLocks;
+
+      logPrint(
+        'nearZero',
+        '[ NEAR ZERO ] t = '+candidate.toFixed(6)+' • partial resonance • re-lock required'
+      );
+    }
+
+    else{
+      falseLocks++;
+      document.getElementById('falseCount').innerText = falseLocks;
+
+      logPrint(
+        'falseZero',
+        '[ REJECT ZERO ] t = '+candidate.toFixed(6)+' • corridor instability • off-line failure'
+      );
+    }
+  }
+
+  draw();
+
+  requestAnimationFrame(simulationStep);
+}
+
+function startSim(){
+  if(running) return;
+  running = true;
+  simulationStep();
+}
+
+function stopSim(){
+  running = false;
+}
+
+function resetSim(){
+  running = false;
+  tick = 0;
+  trueLocks = 0;
+  nearLocks = 0;
+  falseLocks = 0;
+
+  document.getElementById('trueCount').innerText = 0;
+  document.getElementById('nearCount').innerText = 0;
+  document.getElementById('falseCount').innerText = 0;
+
+  log.innerHTML = '';
+
+  draw();
+}
+
+function newMission(){
+  mission++;
+
+  earthAngle = Math.random()*6.28;
+  marsAngle = Math.random()*6.28;
+  voyager1Angle = Math.random()*6.28;
+  voyager2Angle = Math.random()*6.28;
+  shipAngle = Math.random()*6.28;
+
+  logPrint('nearZero','=== NEW MISSION PROFILE '+mission+' INITIALIZED ===');
+}
+
+newMission();
+draw();
+</script>
+</body>
+</html>
+```
