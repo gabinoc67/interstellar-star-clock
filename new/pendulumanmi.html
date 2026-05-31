@@ -1,0 +1,987 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CST Pendulum, Earth Rotation, and Atomic Clock Oscillator Simulator</title>
+  <style>
+    :root {
+      --bg: #050914;
+      --panel: rgba(12, 22, 42, 0.92);
+      --panel2: rgba(6, 14, 27, 0.95);
+      --line: rgba(125, 210, 255, 0.35);
+      --text: #eaf7ff;
+      --muted: #9eb8c9;
+      --blue: #62c7ff;
+      --cyan: #6fffe9;
+      --green: #7cff9d;
+      --yellow: #ffe66d;
+      --orange: #ffae5c;
+      --red: #ff6b6b;
+      --purple: #c78cff;
+      --shadow: 0 0 24px rgba(98, 199, 255, 0.2);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 20% 10%, rgba(88, 183, 255, 0.18), transparent 28%),
+        radial-gradient(circle at 80% 25%, rgba(199, 140, 255, 0.14), transparent 24%),
+        radial-gradient(circle at 50% 90%, rgba(111, 255, 233, 0.08), transparent 28%),
+        var(--bg);
+      color: var(--text);
+      font-family: Arial, Helvetica, sans-serif;
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background-image:
+        radial-gradient(circle, rgba(255,255,255,0.75) 1px, transparent 1px),
+        radial-gradient(circle, rgba(111,255,233,0.45) 1px, transparent 1px);
+      background-size: 90px 90px, 140px 140px;
+      background-position: 0 0, 30px 60px;
+      opacity: 0.18;
+      pointer-events: none;
+      animation: stars 60s linear infinite;
+    }
+
+    @keyframes stars {
+      from { transform: translateY(0); }
+      to { transform: translateY(160px); }
+    }
+
+    header {
+      padding: 28px 18px 10px;
+      text-align: center;
+      position: relative;
+      z-index: 1;
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: clamp(1.6rem, 3vw, 3rem);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--cyan);
+      text-shadow: 0 0 18px rgba(111, 255, 233, 0.55);
+    }
+
+    header p {
+      max-width: 1100px;
+      margin: 12px auto 0;
+      color: var(--muted);
+      line-height: 1.5;
+      font-size: 1rem;
+    }
+
+    .dashboard {
+      width: min(1600px, calc(100% - 24px));
+      margin: 20px auto 34px;
+      display: grid;
+      grid-template-columns: 1.2fr 1fr 1.2fr;
+      gap: 16px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .panel {
+      background: linear-gradient(180deg, var(--panel), var(--panel2));
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+      padding: 16px;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .panel h2 {
+      margin: 0 0 12px;
+      color: var(--blue);
+      font-size: 1.05rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 12px var(--green);
+      display: inline-block;
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.55; transform: scale(0.9); }
+      50% { opacity: 1; transform: scale(1.25); }
+    }
+
+    .main-stage {
+      min-height: 620px;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 12px;
+    }
+
+    .stage-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      min-height: 490px;
+    }
+
+    .pendulum-box, .earth-box {
+      position: relative;
+      border-radius: 16px;
+      border: 1px solid rgba(111, 255, 233, 0.24);
+      background: rgba(2, 8, 18, 0.62);
+      overflow: hidden;
+      min-height: 490px;
+    }
+
+    .pendulum-box::before {
+      content: "Foucault Plane Reference";
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      color: var(--muted);
+      font-size: 0.75rem;
+      letter-spacing: 0.08em;
+      z-index: 3;
+    }
+
+    .pivot {
+      position: absolute;
+      top: 52px;
+      left: 50%;
+      width: 18px;
+      height: 18px;
+      margin-left: -9px;
+      border-radius: 50%;
+      background: var(--yellow);
+      box-shadow: 0 0 16px rgba(255, 230, 109, 0.8);
+      z-index: 4;
+    }
+
+    .pendulum-arm {
+      position: absolute;
+      top: 60px;
+      left: 50%;
+      width: 3px;
+      height: 330px;
+      background: linear-gradient(var(--cyan), rgba(111, 255, 233, 0.25));
+      transform-origin: top center;
+      box-shadow: 0 0 8px rgba(111, 255, 233, 0.8);
+      z-index: 3;
+    }
+
+    .bob {
+      position: absolute;
+      left: 50%;
+      bottom: -26px;
+      width: 52px;
+      height: 52px;
+      margin-left: -26px;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 35% 30%, #ffffff, #7ee8ff 18%, #1470a8 55%, #071c3a 100%);
+      box-shadow: 0 0 28px rgba(98, 199, 255, 0.8);
+    }
+
+    .floor-disc {
+      position: absolute;
+      bottom: 34px;
+      left: 50%;
+      width: 300px;
+      height: 90px;
+      margin-left: -150px;
+      border-radius: 50%;
+      border: 1px solid rgba(255,255,255,0.2);
+      background: radial-gradient(ellipse, rgba(98,199,255,0.22), rgba(98,199,255,0.04) 60%, transparent 70%);
+      transform: rotateX(62deg);
+      z-index: 1;
+    }
+
+    .floor-line {
+      position: absolute;
+      bottom: 78px;
+      left: 50%;
+      width: 280px;
+      height: 2px;
+      margin-left: -140px;
+      background: linear-gradient(90deg, transparent, var(--orange), transparent);
+      transform-origin: center;
+      z-index: 2;
+      opacity: 0.9;
+      box-shadow: 0 0 12px rgba(255, 174, 92, 0.8);
+    }
+
+    .pendulum-label {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      right: 12px;
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.35;
+      background: rgba(0,0,0,0.25);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      padding: 10px;
+      z-index: 5;
+    }
+
+    .earth-box {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .earth-title {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      color: var(--muted);
+      font-size: 0.75rem;
+      letter-spacing: 0.08em;
+      z-index: 3;
+    }
+
+    .earth {
+      width: min(320px, 80%);
+      aspect-ratio: 1 / 1;
+      border-radius: 50%;
+      position: relative;
+      background:
+        radial-gradient(circle at 30% 26%, rgba(255,255,255,0.85), transparent 8%),
+        radial-gradient(circle at 68% 72%, rgba(255,255,255,0.4), transparent 9%),
+        linear-gradient(90deg, transparent 0 8%, rgba(19, 98, 57, 0.9) 8% 16%, transparent 16% 24%, rgba(16, 122, 64, 0.95) 24% 36%, transparent 36% 44%, rgba(38, 156, 81, 0.9) 44% 55%, transparent 55% 65%, rgba(41, 129, 71, 0.95) 65% 74%, transparent 74% 100%),
+        linear-gradient(120deg, #0c51b8, #071d61 55%, #030a24);
+      box-shadow:
+        inset -32px -24px 48px rgba(0,0,0,0.55),
+        inset 18px 12px 28px rgba(255,255,255,0.18),
+        0 0 45px rgba(98, 199, 255, 0.35);
+      overflow: hidden;
+    }
+
+    .earth::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse at 20% 40%, rgba(33, 168, 78, 0.9) 0 12%, transparent 13%),
+        radial-gradient(ellipse at 68% 28%, rgba(49, 172, 91, 0.9) 0 14%, transparent 15%),
+        radial-gradient(ellipse at 55% 68%, rgba(45, 153, 82, 0.9) 0 13%, transparent 14%),
+        repeating-linear-gradient(90deg, rgba(255,255,255,0.16) 0 2px, transparent 2px 34px);
+      animation: earthSurface 14s linear infinite;
+    }
+
+    .earth::after {
+      content: "";
+      position: absolute;
+      inset: -8%;
+      border-radius: 50%;
+      background: radial-gradient(circle at 28% 22%, transparent 0 35%, rgba(0,0,0,0.14) 48%, rgba(0,0,0,0.62) 82%);
+    }
+
+    @keyframes earthSurface {
+      from { transform: translateX(-12%); }
+      to { transform: translateX(12%); }
+    }
+
+    .axis {
+      position: absolute;
+      height: 120%;
+      width: 2px;
+      background: rgba(255, 230, 109, 0.7);
+      left: 50%;
+      top: -10%;
+      transform: rotate(23.5deg);
+      box-shadow: 0 0 12px rgba(255, 230, 109, 0.55);
+      z-index: 2;
+    }
+
+    .orbit-ring {
+      width: min(370px, 90%);
+      height: 86px;
+      border: 1px solid rgba(111,255,233,0.3);
+      border-radius: 50%;
+      transform: rotateX(68deg);
+      box-shadow: 0 0 20px rgba(111,255,233,0.12);
+    }
+
+    .earth-note {
+      width: 100%;
+      padding: 0 8px;
+      color: var(--muted);
+      text-align: center;
+      font-size: 0.86rem;
+      line-height: 1.35;
+    }
+
+    .clock-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .clock-card {
+      border: 1px solid rgba(98,199,255,0.28);
+      background: rgba(1, 7, 16, 0.58);
+      border-radius: 16px;
+      padding: 14px;
+      min-width: 0;
+    }
+
+    .clock-title {
+      color: var(--cyan);
+      font-weight: bold;
+      letter-spacing: 0.08em;
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .dial {
+      width: 160px;
+      height: 160px;
+      max-width: 100%;
+      margin: 0 auto 12px;
+      border: 2px solid rgba(234,247,255,0.36);
+      border-radius: 50%;
+      position: relative;
+      background:
+        radial-gradient(circle, rgba(111,255,233,0.18), transparent 58%),
+        rgba(5, 14, 29, 0.85);
+      box-shadow: inset 0 0 18px rgba(98,199,255,0.16), 0 0 14px rgba(98,199,255,0.12);
+    }
+
+    .dial .center {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 10px;
+      height: 10px;
+      margin: -5px 0 0 -5px;
+      border-radius: 50%;
+      background: var(--yellow);
+      z-index: 4;
+      box-shadow: 0 0 10px rgba(255,230,109,0.8);
+    }
+
+    .hand {
+      position: absolute;
+      left: 50%;
+      bottom: 50%;
+      transform-origin: bottom center;
+      border-radius: 8px;
+      z-index: 3;
+    }
+
+    .hour { width: 5px; height: 42px; margin-left: -2.5px; background: var(--yellow); }
+    .minute { width: 3px; height: 58px; margin-left: -1.5px; background: var(--cyan); }
+    .second { width: 2px; height: 68px; margin-left: -1px; background: var(--red); box-shadow: 0 0 8px rgba(255,107,107,0.85); }
+
+    .tick {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 2px;
+      height: 8px;
+      margin-left: -1px;
+      margin-top: -76px;
+      transform-origin: 1px 76px;
+      background: rgba(234,247,255,0.55);
+    }
+
+    .time-readout {
+      font-size: 1.15rem;
+      color: var(--text);
+      text-align: center;
+      font-weight: bold;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .time-sub {
+      text-align: center;
+      color: var(--muted);
+      margin-top: 5px;
+      font-size: 0.78rem;
+      min-height: 18px;
+    }
+
+    .data-list {
+      display: grid;
+      gap: 9px;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 10px;
+      align-items: center;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      padding: 8px 0;
+      min-width: 0;
+    }
+
+    .row span:first-child {
+      color: var(--muted);
+      font-size: 0.88rem;
+    }
+
+    .value {
+      color: var(--cyan);
+      font-weight: bold;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      overflow-wrap: anywhere;
+    }
+
+    .control-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .control {
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 14px;
+      padding: 12px;
+      background: rgba(0,0,0,0.25);
+    }
+
+    .control label {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 0.84rem;
+      margin-bottom: 9px;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--cyan);
+    }
+
+    button {
+      border: 1px solid rgba(111,255,233,0.45);
+      color: var(--text);
+      background: rgba(111,255,233,0.1);
+      padding: 11px 14px;
+      border-radius: 12px;
+      cursor: pointer;
+      font-weight: bold;
+      letter-spacing: 0.04em;
+      transition: 0.2s;
+    }
+
+    button:hover {
+      background: rgba(111,255,233,0.2);
+      box-shadow: 0 0 14px rgba(111,255,233,0.24);
+    }
+
+    .button-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    .oscillator-bars {
+      display: grid;
+      gap: 12px;
+      margin-top: 8px;
+    }
+
+    .bar-row {
+      display: grid;
+      grid-template-columns: 120px 1fr 74px;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .bar-name {
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .bar-track {
+      height: 12px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .bar-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--blue), var(--cyan));
+      box-shadow: 0 0 12px rgba(111,255,233,0.45);
+    }
+
+    .bar-value {
+      color: var(--cyan);
+      font-size: 0.78rem;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .wave-panel {
+      height: 190px;
+      width: 100%;
+      border-radius: 14px;
+      background: rgba(0,0,0,0.35);
+      border: 1px solid rgba(111,255,233,0.18);
+    }
+
+    .legend {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      color: var(--muted);
+      font-size: 0.78rem;
+      margin-top: 10px;
+    }
+
+    .legend b { color: var(--cyan); }
+
+    .footer-note {
+      width: min(1600px, calc(100% - 24px));
+      margin: 0 auto 30px;
+      color: var(--muted);
+      line-height: 1.45;
+      background: rgba(0,0,0,0.22);
+      border: 1px solid rgba(255,255,255,0.09);
+      border-radius: 16px;
+      padding: 14px 16px;
+      position: relative;
+      z-index: 1;
+    }
+
+    @media (max-width: 1200px) {
+      .dashboard { grid-template-columns: 1fr; }
+      .stage-grid { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (max-width: 760px) {
+      .stage-grid, .clock-grid, .control-grid { grid-template-columns: 1fr; }
+      .bar-row { grid-template-columns: 90px 1fr 62px; }
+      .pendulum-box, .earth-box { min-height: 420px; }
+      .pendulum-arm { height: 270px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>CST Pendulum and Clock Oscillator Simulator</h1>
+    <p>
+      Live browser-time demonstration for the Interstellar Star Clock portal: pendulum rhythm, Earth rotation, sundial reference, quartz oscillator, atomic-clock reference, and CST-style oscillator comparison.
+    </p>
+  </header>
+
+  <main class="dashboard">
+    <section class="panel">
+      <h2>Live Clock Dials <span class="status-dot"></span></h2>
+      <div class="clock-grid">
+        <div class="clock-card">
+          <div class="clock-title">Local Time <span id="localZone">Browser</span></div>
+          <div class="dial" data-clock="local"><div class="center"></div></div>
+          <div class="time-readout" id="localTime">--:--:--</div>
+          <div class="time-sub">Civil time from this device</div>
+        </div>
+        <div class="clock-card">
+          <div class="clock-title">UTC Time <span>Earth Reference</span></div>
+          <div class="dial" data-clock="utc"><div class="center"></div></div>
+          <div class="time-readout" id="utcTime">--:--:--</div>
+          <div class="time-sub">Coordinated Universal Time</div>
+        </div>
+        <div class="clock-card">
+          <div class="clock-title">Atomic Reference <span>Cesium</span></div>
+          <div class="dial" data-clock="atomic"><div class="center"></div></div>
+          <div class="time-readout" id="atomicTime">9,192,631,770 Hz</div>
+          <div class="time-sub">One second defined by Cs-133 cycles</div>
+        </div>
+        <div class="clock-card">
+          <div class="clock-title">CST Sync Clock <span>Model</span></div>
+          <div class="dial" data-clock="cst"><div class="center"></div></div>
+          <div class="time-readout" id="cstTime">--:--:--</div>
+          <div class="time-sub">Model display: UTC plus adjustable correction</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel main-stage">
+      <h2>Foucault Pendulum and Rotating Earth <span id="runState">RUNNING</span></h2>
+      <div class="stage-grid">
+        <div class="pendulum-box">
+          <div class="pivot"></div>
+          <div class="pendulum-arm" id="pendulumArm"><div class="bob"></div></div>
+          <div class="floor-disc"></div>
+          <div class="floor-line" id="floorLine"></div>
+          <div class="pendulum-label">
+            The pendulum swing plane is treated as stable while the ground reference rotates below it, showing the same idea behind Foucault's Earth-rotation demonstration.
+          </div>
+        </div>
+        <div class="earth-box">
+          <div class="earth-title">Earth Rotation Reference</div>
+          <div class="earth"><div class="axis"></div></div>
+          <div class="orbit-ring"></div>
+          <div class="earth-note">
+            Earth rotates once per sidereal day. The visual is accelerated so the motion can be seen in real time.
+          </div>
+        </div>
+      </div>
+      <div class="button-row">
+        <button id="startBtn">START</button>
+        <button id="stopBtn">STOP</button>
+        <button id="resetBtn">RESET</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Oscillator Data Panel <span class="status-dot"></span></h2>
+      <div class="data-list">
+        <div class="row"><span>Earth Rotation Cycle</span><span class="value">24 h solar / 23 h 56 m sidereal</span></div>
+        <div class="row"><span>Pendulum Period</span><span class="value" id="pendulumPeriod">2.01 s</span></div>
+        <div class="row"><span>Quartz Watch Oscillation</span><span class="value">32,768 Hz</span></div>
+        <div class="row"><span>Atomic Clock Oscillation</span><span class="value">9,192,631,770 Hz</span></div>
+        <div class="row"><span>Current Unix Time</span><span class="value" id="unixTime">--</span></div>
+        <div class="row"><span>CST Correction</span><span class="value" id="cstCorrectionReadout">+0.750 s</span></div>
+        <div class="row"><span>Foucault Floor Rotation</span><span class="value" id="floorAngleReadout">0.00°</span></div>
+        <div class="row"><span>RH/Zeta Demo Phase</span><span class="value" id="zetaPhaseReadout">0.000</span></div>
+      </div>
+
+      <div class="control-grid" style="margin-top:14px;">
+        <div class="control">
+          <label>Pendulum Length <span id="lengthValue">1.00 m</span></label>
+          <input id="lengthSlider" type="range" min="0.25" max="5" value="1" step="0.01" />
+        </div>
+        <div class="control">
+          <label>Visual Speed <span id="speedValue">1.0x</span></label>
+          <input id="speedSlider" type="range" min="0.1" max="10" value="1" step="0.1" />
+        </div>
+        <div class="control">
+          <label>CST Correction <span id="cstValue">+0.750 s</span></label>
+          <input id="cstSlider" type="range" min="-5" max="5" value="0.75" step="0.001" />
+        </div>
+        <div class="control">
+          <label>Earth Visual Rotation <span id="earthValue">120x</span></label>
+          <input id="earthSlider" type="range" min="1" max="720" value="120" step="1" />
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Scale of Oscillations</h2>
+      <div class="oscillator-bars">
+        <div class="bar-row"><div class="bar-name">Earth</div><div class="bar-track"><div class="bar-fill" id="barEarth"></div></div><div class="bar-value">1/day</div></div>
+        <div class="bar-row"><div class="bar-name">Pendulum</div><div class="bar-track"><div class="bar-fill" id="barPendulum"></div></div><div class="bar-value" id="pendulumHz">0.498 Hz</div></div>
+        <div class="bar-row"><div class="bar-name">Quartz</div><div class="bar-track"><div class="bar-fill" id="barQuartz"></div></div><div class="bar-value">32.768 kHz</div></div>
+        <div class="bar-row"><div class="bar-name">Atomic</div><div class="bar-track"><div class="bar-fill" id="barAtomic"></div></div><div class="bar-value">9.19 GHz</div></div>
+        <div class="bar-row"><div class="bar-name">Zeta Demo</div><div class="bar-track"><div class="bar-fill" id="barZeta"></div></div><div class="bar-value" id="zetaHz">Model</div></div>
+      </div>
+      <div class="legend">
+        <span><b>Earth:</b> slow planetary oscillator</span>
+        <span><b>Pendulum:</b> gravity oscillator</span>
+        <span><b>Quartz:</b> crystal oscillator</span>
+        <span><b>Atomic:</b> quantum oscillator</span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Live Wave / Phase Monitor</h2>
+      <canvas id="waveCanvas" class="wave-panel"></canvas>
+      <div class="data-list" style="margin-top:12px;">
+        <div class="row"><span>Pendulum Phase</span><span class="value" id="pendulumPhase">0.000</span></div>
+        <div class="row"><span>Earth Phase</span><span class="value" id="earthPhase">0.000</span></div>
+        <div class="row"><span>Atomic Counter Demo</span><span class="value" id="atomicCounter">0</span></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>CST / RH-Zeta Interpretation Panel</h2>
+      <div class="data-list">
+        <div class="row"><span>Core Idea</span><span class="value">Compare oscillators by phase</span></div>
+        <div class="row"><span>Human Scale</span><span class="value">Pendulum swing</span></div>
+        <div class="row"><span>Planetary Scale</span><span class="value">Earth rotation</span></div>
+        <div class="row"><span>Quantum Scale</span><span class="value">Atomic transition</span></div>
+        <div class="row"><span>Mathematical Scale</span><span class="value">Zeta wave model</span></div>
+        <div class="row"><span>Synchronization Goal</span><span class="value">Align cycle, phase, and drift</span></div>
+      </div>
+      <p style="color:var(--muted); line-height:1.45; margin:14px 0 0;">
+        This simulator does not prove RH or a physical CST field. It shows the shared timing concept: clocks become useful when regular oscillations can be counted, compared, corrected, and synchronized across scales.
+      </p>
+    </section>
+  </main>
+
+  <div class="footer-note">
+    <b>Scientific note:</b> The browser clock comes from the device system time. The atomic-clock panel uses the official cesium-133 frequency as a reference display, not a direct connection to an atomic laboratory. The Foucault effect is accelerated visually so the ground rotation can be observed immediately.
+  </div>
+
+  <script>
+    const G = 9.80665;
+    let running = true;
+    let startMs = performance.now();
+    let pausedAt = 0;
+    let pauseAccum = 0;
+    let baseFloorAngle = 0;
+
+    const pendulumArm = document.getElementById('pendulumArm');
+    const floorLine = document.getElementById('floorLine');
+    const runState = document.getElementById('runState');
+
+    const lengthSlider = document.getElementById('lengthSlider');
+    const speedSlider = document.getElementById('speedSlider');
+    const cstSlider = document.getElementById('cstSlider');
+    const earthSlider = document.getElementById('earthSlider');
+
+    const lengthValue = document.getElementById('lengthValue');
+    const speedValue = document.getElementById('speedValue');
+    const cstValue = document.getElementById('cstValue');
+    const earthValue = document.getElementById('earthValue');
+
+    const waveCanvas = document.getElementById('waveCanvas');
+    const ctx = waveCanvas.getContext('2d');
+
+    function pad(n, len = 2) {
+      return String(n).padStart(len, '0');
+    }
+
+    function buildDials() {
+      document.querySelectorAll('.dial').forEach(dial => {
+        for (let i = 0; i < 60; i++) {
+          const tick = document.createElement('div');
+          tick.className = 'tick';
+          tick.style.transform = `rotate(${i * 6}deg)`;
+          tick.style.height = i % 5 === 0 ? '12px' : '6px';
+          tick.style.opacity = i % 5 === 0 ? '0.9' : '0.45';
+          dial.appendChild(tick);
+        }
+        ['hour', 'minute', 'second'].forEach(type => {
+          const hand = document.createElement('div');
+          hand.className = `hand ${type}`;
+          dial.appendChild(hand);
+        });
+      });
+    }
+
+    function setDial(name, date) {
+      const dial = document.querySelector(`[data-clock="${name}"]`);
+      const h = dial.querySelector('.hour');
+      const m = dial.querySelector('.minute');
+      const s = dial.querySelector('.second');
+
+      const hours = date.getHours() % 12;
+      const minutes = date.getMinutes();
+      const seconds = date.getSeconds();
+      const ms = date.getMilliseconds();
+
+      const secondAngle = (seconds + ms / 1000) * 6;
+      const minuteAngle = (minutes + seconds / 60) * 6;
+      const hourAngle = (hours + minutes / 60) * 30;
+
+      h.style.transform = `rotate(${hourAngle}deg)`;
+      m.style.transform = `rotate(${minuteAngle}deg)`;
+      s.style.transform = `rotate(${secondAngle}deg)`;
+    }
+
+    function setDialUTC(name, date) {
+      const proxy = new Date(date.getTime());
+      proxy.getHours = () => date.getUTCHours();
+      proxy.getMinutes = () => date.getUTCMinutes();
+      proxy.getSeconds = () => date.getUTCSeconds();
+      proxy.getMilliseconds = () => date.getUTCMilliseconds();
+      setDial(name, proxy);
+    }
+
+    function timeString(date) {
+      return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+    }
+
+    function utcString(date) {
+      return `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())} UTC`;
+    }
+
+    function resizeCanvas() {
+      const rect = waveCanvas.getBoundingClientRect();
+      waveCanvas.width = Math.max(300, Math.floor(rect.width * devicePixelRatio));
+      waveCanvas.height = Math.max(160, Math.floor(rect.height * devicePixelRatio));
+      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    }
+
+    function drawWave(t, pendulumPhase, earthPhase, zetaPhase) {
+      const w = waveCanvas.clientWidth;
+      const h = waveCanvas.clientHeight;
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.fillRect(0, 0, w, h);
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+      ctx.lineWidth = 1;
+      for (let y = 20; y < h; y += 30) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+
+      function line(color, amp, freq, phase, offset) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (let x = 0; x <= w; x++) {
+          const y = offset + Math.sin((x / w) * Math.PI * 2 * freq + phase) * amp;
+          if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+
+      line('rgba(111,255,233,0.95)', 22, 2, pendulumPhase, h * 0.30);
+      line('rgba(255,230,109,0.90)', 17, 1, earthPhase, h * 0.55);
+      line('rgba(199,140,255,0.95)', 20, 3, zetaPhase, h * 0.78);
+
+      ctx.fillStyle = 'rgba(234,247,255,0.78)';
+      ctx.font = '12px Arial';
+      ctx.fillText('Pendulum', 10, h * 0.30 - 28);
+      ctx.fillText('Earth', 10, h * 0.55 - 23);
+      ctx.fillText('RH/Zeta demo wave', 10, h * 0.78 - 25);
+    }
+
+    function updateBars(pendulumHz, zetaPhase) {
+      document.getElementById('barEarth').style.width = '6%';
+      document.getElementById('barPendulum').style.width = `${Math.min(28, 8 + pendulumHz * 26)}%`;
+      document.getElementById('barQuartz').style.width = '66%';
+      document.getElementById('barAtomic').style.width = '100%';
+      document.getElementById('barZeta').style.width = `${35 + 25 * (0.5 + 0.5 * Math.sin(zetaPhase))}%`;
+    }
+
+    function syncReadouts() {
+      const length = parseFloat(lengthSlider.value);
+      const speed = parseFloat(speedSlider.value);
+      const cst = parseFloat(cstSlider.value);
+      const earthVisual = parseFloat(earthSlider.value);
+      const period = 2 * Math.PI * Math.sqrt(length / G);
+      const hz = 1 / period;
+
+      lengthValue.textContent = `${length.toFixed(2)} m`;
+      speedValue.textContent = `${speed.toFixed(1)}x`;
+      cstValue.textContent = `${cst >= 0 ? '+' : ''}${cst.toFixed(3)} s`;
+      earthValue.textContent = `${earthVisual.toFixed(0)}x`;
+      document.getElementById('pendulumPeriod').textContent = `${period.toFixed(3)} s`;
+      document.getElementById('pendulumHz').textContent = `${hz.toFixed(3)} Hz`;
+      document.getElementById('cstCorrectionReadout').textContent = `${cst >= 0 ? '+' : ''}${cst.toFixed(3)} s`;
+    }
+
+    function frame(now) {
+      const activeNow = running ? now : pausedAt;
+      const tReal = (activeNow - startMs - pauseAccum) / 1000;
+
+      const length = parseFloat(lengthSlider.value);
+      const speed = parseFloat(speedSlider.value);
+      const cst = parseFloat(cstSlider.value);
+      const earthVisual = parseFloat(earthSlider.value);
+      const period = 2 * Math.PI * Math.sqrt(length / G);
+      const hz = 1 / period;
+      const t = tReal * speed;
+
+      const angleMax = 20;
+      const pendulumPhase = (2 * Math.PI * t) / period;
+      const angle = angleMax * Math.sin(pendulumPhase);
+      pendulumArm.style.transform = `rotate(${angle}deg)`;
+
+      const siderealSeconds = 86164.0905;
+      const earthPhase = (2 * Math.PI * t * earthVisual) / siderealSeconds;
+      const floorAngle = baseFloorAngle + earthPhase * 180 / Math.PI;
+      floorLine.style.transform = `rotate(${floorAngle}deg)`;
+
+      const zetaPhase = Math.sin(t * 0.7) + 0.5 * Math.sin(t * 1.31) + 0.25 * Math.sin(t * 2.7);
+      const zetaPhaseWrapped = ((zetaPhase + 2) / 4);
+
+      const date = new Date();
+      const utcMs = date.getTime();
+      const cstDate = new Date(utcMs + cst * 1000);
+
+      document.getElementById('localZone').textContent = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Browser';
+      document.getElementById('localTime').textContent = timeString(date);
+      document.getElementById('utcTime').textContent = utcString(date);
+      document.getElementById('cstTime').textContent = utcString(cstDate).replace(' UTC', ' CST Model');
+      document.getElementById('unixTime').textContent = Math.floor(utcMs / 1000).toString();
+      document.getElementById('floorAngleReadout').textContent = `${((floorAngle % 360 + 360) % 360).toFixed(2)}°`;
+      document.getElementById('zetaPhaseReadout').textContent = zetaPhaseWrapped.toFixed(3);
+      document.getElementById('pendulumPhase').textContent = ((pendulumPhase / (2 * Math.PI)) % 1).toFixed(3);
+      document.getElementById('earthPhase').textContent = ((earthPhase / (2 * Math.PI)) % 1).toFixed(6);
+      document.getElementById('atomicCounter').textContent = Math.floor((utcMs % 1000) / 1000 * 9192631770).toLocaleString();
+      document.getElementById('zetaHz').textContent = zetaPhaseWrapped.toFixed(3);
+
+      setDial('local', date);
+      setDialUTC('utc', date);
+      setDialUTC('atomic', date);
+      setDialUTC('cst', cstDate);
+      updateBars(hz, zetaPhase);
+      drawWave(t, pendulumPhase, earthPhase, zetaPhase);
+      syncReadouts();
+
+      requestAnimationFrame(frame);
+    }
+
+    document.getElementById('startBtn').addEventListener('click', () => {
+      if (!running) {
+        running = true;
+        pauseAccum += performance.now() - pausedAt;
+        runState.textContent = 'RUNNING';
+      }
+    });
+
+    document.getElementById('stopBtn').addEventListener('click', () => {
+      if (running) {
+        running = false;
+        pausedAt = performance.now();
+        runState.textContent = 'STOPPED';
+      }
+    });
+
+    document.getElementById('resetBtn').addEventListener('click', () => {
+      startMs = performance.now();
+      pausedAt = startMs;
+      pauseAccum = 0;
+      baseFloorAngle = 0;
+      running = true;
+      runState.textContent = 'RUNNING';
+    });
+
+    [lengthSlider, speedSlider, cstSlider, earthSlider].forEach(slider => {
+      slider.addEventListener('input', syncReadouts);
+    });
+
+    window.addEventListener('resize', resizeCanvas);
+
+    buildDials();
+    resizeCanvas();
+    syncReadouts();
+    requestAnimationFrame(frame);
+  </script>
+</body>
+</html>
