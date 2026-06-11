@@ -1,5 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Cash 5 Simple 40 Ticket Engine</title>
+
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#07111f;color:#eaf2ff}
+header{text-align:center;padding:16px;background:#10213a;border-bottom:1px solid #34577f}
+h1{margin:0;font-size:24px}
+.sub{font-size:13px;color:#bdd0ee;margin-top:6px}
+main{max-width:1400px;margin:auto;padding:12px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.panel{background:#10233e;border:1px solid #31577f;border-radius:12px;padding:12px}
+h2{font-size:17px;margin:0 0 8px;color:#d8e8ff}
+textarea,input,select{width:100%;border-radius:8px;border:1px solid #456b9c;background:#071222;color:white;padding:8px;font-size:13px;margin-bottom:8px}
+textarea{min-height:260px;resize:vertical;font-family:Consolas,monospace}
+button{padding:9px 12px;border:0;border-radius:8px;background:#2b74ff;color:white;font-weight:bold;cursor:pointer;margin:4px}
+button:hover{background:#1d5ed1}
+button.good{background:#0b8a5a}
+button.warn{background:#9b1c1c}
+.note{font-size:12px;color:#c9dcf6;background:#071222;border:1px solid #31577f;border-radius:8px;padding:8px}
+.output{white-space:pre-wrap;background:#071222;border:1px solid #31577f;border-radius:8px;padding:10px;font-family:Consolas,monospace;font-size:12px;margin-top:8px}
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:8px}
+.card{background:#071222;border:1px solid #31577f;border-radius:8px;padding:8px;font-size:12px}
+.card strong{display:block;color:#9fc4ff;margin-bottom:4px}
+.tickets{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:12px}
+.ticket{background:#071222;border:1px solid #31577f;border-radius:10px;padding:10px}
+.ticketTitle{display:flex;justify-content:space-between;gap:6px;font-size:13px;margin-bottom:8px}
+.tag{background:#18375f;border-radius:999px;padding:3px 7px;font-size:11px}
+.balls{display:flex;flex-wrap:wrap;gap:7px}
+.ball{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#eaf2ff;color:#10213a;font-weight:bold}
+.why{font-size:12px;color:#c9dcf6;margin-top:8px;line-height:1.35}
+table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+th,td{border:1px solid #355c88;padding:5px;text-align:center}
+th{background:#18375f}
+.full{grid-column:1/-1}
+@media(max-width:900px){.grid,.tickets{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+
+<body>
+<header>
+<h1>Cash 5 Simple 40 Ticket Engine</h1>
+<div class="sub">Balanced 40-ticket coverage generator. Dates are allowed in history lines.</div>
+</header>
+
+<main>
+
+<section class="grid">
+<div class="panel">
+<h2>1. Latest Draw</h2>
+<input id="latestDraw" placeholder="Example: 19 3 35 9 18">
+
+<h2>2. Draw History</h2>
+<textarea id="history" placeholder="Paste one draw per line:
+05/30/2026 19 3 35 9 18
+05/29/2026 14 21 23 26 29
+05/28/2026 7 8 17 18 35"></textarea>
+
+<button class="good" onclick="runEngine()">Generate 40 Tickets</button>
+<button onclick="copyTickets()">Copy Tickets</button>
+<button onclick="downloadCSV()">Export CSV</button>
+<button onclick="window.print()">Print</button>
+<button class="warn" onclick="clearAll()">Clear</button>
+
+<div class="note">
+This is a coverage tool only. It cannot predict or guarantee lottery results.
+</div>
+</div>
+
+<div class="panel">
+<h2>3. Settings</h2>
+
+<label>Tickets</label>
+<input id="ticketCount" type="number" value="40">
+
+<label>Recent Window</label>
+<input id="recentWindow" type="number" value="100">
+
+<label>Candidate Attempts</label>
+<input id="candidateAttempts" type="number" value="50000">
+
+<label>Pool Size</label>
+<input id="poolSize" type="number" value="22">
+
+<label>Clone Limit</label>
+<input id="cloneLimit" type="number" value="2">
+
+<label>Max Use Per Number</label>
+<input id="numberCap" type="number" value="12">
+
+<label>Sum Min</label>
+<input id="sumMin" type="number" value="45">
+
+<label>Sum Max</label>
+<input id="sumMax" type="number" value="135">
+
+<label>Style</label>
+<select id="styleMode">
+<option value="balanced">Balanced</option>
+<option value="wide">More Spread</option>
+<option value="hot">More Hot</option>
+<option value="gap">More Gap</option>
+</select>
+</div>
+</section>
+
+<section class="panel full">
+<h2>4. Summary</h2>
+<div id="summary" class="stats"></div>
+<div id="analysisOut" class="output"></div>
+</section>
+
+<section class="panel full">
+<h2>5. Buy These Tickets</h2>
+<div id="ticketOut" class="tickets"></div>
+<div id="plainOut" class="output"></div>
+</section>
+
+<section class="panel full">
+<h2>6. Number Score Table</h2>
+<div id="tableOut"></div>
+</section>
+
+<script>
+const MIN=1, MAX=35;
+let MODEL=null, TICKETS=[], PLAIN_TEXT="";
+const ZONES=[[1,7],[8,14],[15,21],[22,28],[29,35]];
+
+function id(x){return document.getElementById(x);}
+
+function settings(){
+ return{
+  ticketCount:+id("ticketCount").value||40,
+  recentWindow:+id("recentWindow").value||100,
+  candidateAttempts:+id("candidateAttempts").value||50000,
+  poolSize:+id("poolSize").value||22,
+  cloneLimit:+id("cloneLimit").value||2,
+  numberCap:+id("numberCap").value||12,
+  sumMin:+id("sumMin").value||45,
+  sumMax:+id("sumMax").value||135,
+  styleMode:id("styleMode").value||"balanced"
+ };
+}
+
+function numsFromLine(line){
+ const all=(line.match(/\d+/g)||[]).map(Number);
+ const valid=all.filter(n=>n>=MIN&&n<=MAX);
+ const lastFive=valid.slice(-5);
+ const clean=[];
+ for(const n of lastFive){
+  if(!clean.includes(n))clean.push(n);
+ }
+ return clean.length===5?clean:[];
+}
+
+function parseHistory(text){
+ return text.split(/\n+/)
+ .map(x=>x.trim())
+ .filter(Boolean)
+ .map((line,i)=>{
+  const nums=numsFromLine(line);
+  return nums.length===5?{index:i+1,line,numbers:nums}:null;
+ })
+ .filter(Boolean);
+}
+
+function blank35(){return Array(36).fill(0);}
+
+function zone(n){
+ for(let i=0;i<ZONES.length;i++){
+  if(n>=ZONES[i][0]&&n<=ZONES[i][1])return i;
+ }
+ return 0;
+}
+
+function zoneCounts(nums){
+ const z=[0,0,0,0,0];
+ nums.forEach(n=>z[zone(n)]++);
+ return z;
+}
+
+function oddEven(nums){
+ const odd=nums.filter(n=>n%2).length;
+ return{odd,even:nums.length-odd};
+}
+
+function comboKey(nums){
+ return nums.slice().sort((a,b)=>a-b).join("-");
+}
+
+function shared(a,b){
+ const s=new Set(b);
+ return a.filter(n=>s.has(n)).length;
+}
+
+function cloneBlocked(nums,selected,limit){
+ return selected.some(t=>shared(nums,t.nums)>limit);
+}
+
+function calculateDCI(nums){
+ const s=nums.slice().sort((a,b)=>a-b);
+ let total=0;
+ for(let i=1;i<s.length;i++)total+=s[i]-s[i-1];
+ return total/(s.length-1);
+}
+
+function dciClass(dci){
+ if(dci<=6.5)return"Compressed";
+ if(dci>=8.0)return"Spread";
+ return"Hybrid";
+}
+
+function frequency(draws){
+ const f=blank35();
+ draws.forEach(d=>d.numbers.forEach(n=>f[n]++));
+ return f;
+}
+
+function gaps(draws){
+ const g=Array(36).fill(999);
+ for(let n=1;n<=35;n++){
+  for(let i=draws.length-1;i>=0;i--){
+   if(draws[i].numbers.includes(n)){
+    g[n]=draws.length-1-i;
+    break;
+   }
+  }
+ }
+ return g;
+}
+
+function psiAnalysis(draws,recentWindow){
+ const recent=draws.slice(Math.max(0,draws.length-recentWindow));
+ const pos=Array.from({length:36},()=>Array(5).fill(0));
+ const total=blank35();
+
+ recent.forEach(d=>{
+  d.numbers.forEach((n,p)=>{
+   pos[n][p]++;
+   total[n]++;
+  });
+ });
+
+ const out=Array(36).fill(null);
+
+ for(let n=1;n<=35;n++){
+  let bestPos=1,bestCount=pos[n][0];
+  for(let p=1;p<5;p++){
+   if(pos[n][p]>bestCount){
+    bestCount=pos[n][p];
+    bestPos=p+1;
+   }
+  }
+  out[n]={n,bestPos,psi:total[n]?bestCount/total[n]:0};
+ }
+ return out;
+}
+
+function transitionAnalysis(draws,latest){
+ const latestSet=new Set(latest);
+ const nextFreq=blank35();
+
+ for(let i=0;i<draws.length-1;i++){
+  const cur=draws[i].numbers;
+  const hasTrigger=cur.some(n=>latestSet.has(n));
+  if(!hasTrigger)continue;
+  draws[i+1].numbers.forEach(n=>nextFreq[n]++);
+ }
+
+ const rows=Array(36).fill(null);
+ for(let n=1;n<=35;n++){
+  rows[n]={n,next:nextFreq[n]};
+ }
+ return rows;
+}
+
+function analyze(draws,latest,s){
+ const recent=draws.slice(Math.max(0,draws.length-s.recentWindow));
+ const freqAll=frequency(draws);
+ const freqRecent=frequency(recent);
+ const gap=gaps(draws);
+ const psi=psiAnalysis(draws,s.recentWindow);
+ const trans=transitionAnalysis(draws,latest);
+
+ const maxAll=Math.max(...freqAll);
+ const maxRecent=Math.max(...freqRecent);
+ const maxTrans=Math.max(...trans.map(x=>x?x.next:0));
+
+ const scores=Array(36).fill(null);
+
+ for(let n=1;n<=35;n++){
+  const historyScore=maxAll?freqAll[n]/maxAll*25:0;
+  const recentScore=maxRecent?freqRecent[n]/maxRecent*25:0;
+  const gapScore=gap[n]>=10&&gap[n]<999?20:gap[n]>=6?12:gap[n]>=3?6:0;
+  const psiScore=psi[n].psi*20;
+  const transScore=maxTrans?trans[n].next/maxTrans*20:0;
+  const latestPenalty=latest.includes(n)?18:0;
+
+  let styleBonus=0;
+  if(s.styleMode==="hot")styleBonus=recentScore*.7;
+  if(s.styleMode==="gap")styleBonus=gapScore*.8;
+  if(s.styleMode==="wide"){
+   if(n<=7||n>=29)styleBonus+=8;
+   if(n>=15&&n<=21)styleBonus+=4;
+  }
+
+  const total=historyScore+recentScore+gapScore+psiScore+transScore+styleBonus-latestPenalty;
+
+  const reason=[];
+  if(freqAll[n])reason.push("history "+freqAll[n]);
+  if(freqRecent[n])reason.push("recent "+freqRecent[n]);
+  if(gap[n]>=6&&gap[n]<999)reason.push("gap "+gap[n]);
+  if(psi[n].psi>=.35)reason.push("PSI P"+psi[n].bestPos+" "+Math.round(psi[n].psi*100)+"%");
+  if(trans[n].next>0)reason.push("transition "+trans[n].next);
+  if(latest.includes(n))reason.push("latest penalty");
+
+  scores[n]={
+   n,total:Math.max(0,total),
+   freqAll:freqAll[n],
+   freqRecent:freqRecent[n],
+   gap:gap[n],
+   psi:psi[n].psi,
+   bestPos:psi[n].bestPos,
+   trans:trans[n].next,
+   latest:latest.includes(n),
+   reason:reason.join(", ")||"low signal"
+  };
+ }
+
+ const pool=scores.slice(1)
+ .sort((a,b)=>b.total-a.total||a.n-b.n)
+ .slice(0,s.poolSize)
+ .map(x=>x.n)
+ .sort((a,b)=>a-b);
+
+ return{draws,latest,scores,pool};
+}
+
 function passTicket(nums,s){
- const sorted=[...nums].sort((a,b)=>a-b);
+ const sorted=nums.slice().sort((a,b)=>a-b);
  const sum=sorted.reduce((a,b)=>a+b,0);
  const range=sorted[4]-sorted[0];
  const zc=zoneCounts(sorted);
@@ -8,46 +350,49 @@ function passTicket(nums,s){
 
  if(sum<s.sumMin||sum>s.sumMax)return false;
  if(range<8||range>34)return false;
- if(zc.some(x=>x>s.maxSameZone))return false;
- if(activeZones<s.minActiveZones)return false;
+ if(zc.some(x=>x>3))return false;
+ if(activeZones<3)return false;
  if(oe.odd===0||oe.even===0)return false;
  return true;
 }
 
 function randomWeighted(pool,weights){
- const list=pool.map(n=>({n,w:Math.max(.001,weights[n]||1)}));
- let total=list.reduce((s,x)=>s+x.w,0);
+ let total=0;
+ pool.forEach(n=>total+=Math.max(1,weights[n]||1));
  let r=Math.random()*total;
- for(const x of list){
-  r-=x.w;
-  if(r<=0)return x.n;
+
+ for(const n of pool){
+  r-=Math.max(1,weights[n]||1);
+  if(r<=0)return n;
  }
- return list[list.length-1].n;
+ return pool[pool.length-1];
 }
 
 function makeCandidate(model){
  const nums=[];
  const weights={};
+
  model.pool.forEach(n=>{
-  const s=model.scores[n];
-  weights[n]=s.total+5;
+  weights[n]=model.scores[n].total+5;
  });
 
  let guard=0;
- while(nums.length<5&&guard++<100){
+ while(nums.length<5&&guard<100){
   const n=randomWeighted(model.pool,weights);
   if(!nums.includes(n))nums.push(n);
+  guard++;
  }
- if(nums.length!==5)return null;
- return nums.sort((a,b)=>a-b);
+
+ return nums.length===5?nums.sort((a,b)=>a-b):null;
 }
 
 function ticketScore(nums,model,use){
  let score=0;
+
  nums.forEach((n,i)=>{
   const s=model.scores[n];
   score+=s.total;
-  if(s.bestPos===i+1)score+=8;
+  if(s.bestPos===i+1)score+=6;
   score+=Math.max(0,10-(use[n]||0))*2;
  });
 
@@ -64,7 +409,7 @@ function ticketScore(nums,model,use){
  if(active===5)score+=10;
  if(oe.odd===2||oe.odd===3)score+=12;
 
- return{score,dci,cls,active,pattern:`${oe.odd}/${oe.even}`};
+ return{score,dci,cls,pattern:oe.odd+"/"+oe.even};
 }
 
 function generateTickets(model,s){
@@ -75,153 +420,129 @@ function generateTickets(model,s){
   const nums=makeCandidate(model);
   if(!nums)continue;
   if(!passTicket(nums,s))continue;
+
   const key=comboKey(nums);
   if(map.has(key))continue;
+
   const meta=ticketScore(nums,model,use);
   map.set(key,{nums,key,...meta});
  }
 
- const ranked=[...map.values()].sort((a,b)=>b.score-a.score);
+ const ranked=Array.from(map.values()).sort((a,b)=>b.score-a.score);
  const selected=[];
 
  for(const t of ranked){
   if(selected.length>=s.ticketCount)break;
   if(cloneBlocked(t.nums,selected,s.cloneLimit))continue;
 
-  let capBlock=false;
+  let blocked=false;
   for(const n of t.nums){
-   if((use[n]||0)>=s.numberCap)capBlock=true;
+   if((use[n]||0)>=s.numberCap)blocked=true;
   }
-  if(capBlock)continue;
+
+  if(blocked)continue;
 
   selected.push(t);
   t.nums.forEach(n=>use[n]++);
- }
-
- let guard=0;
- while(selected.length<s.ticketCount&&guard++<50000){
-  const nums=makeCandidate(model);
-  if(!nums||!passTicket(nums,s))continue;
-  const key=comboKey(nums);
-  if(selected.some(x=>x.key===key))continue;
-  if(cloneBlocked(nums,selected,s.cloneLimit))continue;
-
-  let capBlock=false;
-  for(const n of nums){
-   if((use[n]||0)>=s.numberCap)capBlock=true;
-  }
-  if(capBlock)continue;
-
-  const meta=ticketScore(nums,model,use);
-  const t={nums,key,...meta,fallback:true};
-  selected.push(t);
-  nums.forEach(n=>use[n]++);
  }
 
  return{selected,use};
 }
 
 function render(model,result,s){
- const draws=model.draws.length;
  const latest=model.latest.join(" ");
  const top=model.scores.slice(1).sort((a,b)=>b.total-a.total).slice(0,10);
 
- summary.innerHTML=`
- <div class="card"><strong>Draws Loaded</strong>${draws}</div>
- <div class="card"><strong>Latest Draw</strong>${latest}</div>
- <div class="card"><strong>Pool Size</strong>${model.pool.length}</div>
- <div class="card"><strong>Tickets Built</strong>${result.selected.length}</div>
- <div class="card"><strong>Style</strong>${s.styleMode}</div>
- `;
+ id("summary").innerHTML=
+ '<div class="card"><strong>Draws Loaded</strong>'+model.draws.length+'</div>'+
+ '<div class="card"><strong>Latest Draw</strong>'+latest+'</div>'+
+ '<div class="card"><strong>Pool Size</strong>'+model.pool.length+'</div>'+
+ '<div class="card"><strong>Tickets Built</strong>'+result.selected.length+'</div>'+
+ '<div class="card"><strong>Style</strong>'+s.styleMode+'</div>';
 
  const dciCount={Compressed:0,Hybrid:0,Spread:0};
  result.selected.forEach(t=>dciCount[t.cls]++);
 
- analysisOut.textContent=
-`TOP 10 NUMBERS BY SCORE:
-${top.map((x,i)=>`${i+1}. ${x.n} | score ${x.total.toFixed(1)} | ${x.reason}`).join("\n")}
+ id("analysisOut").textContent=
+"TOP 10 NUMBERS BY SCORE:\n"+
+top.map((x,i)=>(i+1)+". "+x.n+" | score "+x.total.toFixed(1)+" | "+x.reason).join("\n")+
+"\n\nWORKING POOL:\n"+model.pool.join(" - ")+
+"\n\nDCI DISTRIBUTION:\nCompressed: "+dciCount.Compressed+
+"\nHybrid: "+dciCount.Hybrid+
+"\nSpread: "+dciCount.Spread+
+"\n\nNUMBER USE:\n"+
+result.use.map((c,n)=>c>0?n+":"+c:"").filter(Boolean).join(", ");
 
-20–30 NUMBER WORKING POOL:
-${model.pool.join(" - ")}
-
-DCI DISTRIBUTION:
-Compressed: ${dciCount.Compressed}
-Hybrid: ${dciCount.Hybrid}
-Spread: ${dciCount.Spread}
-
-NUMBER USE:
-${Object.entries(result.use).filter(([n,c])=>c>0).map(([n,c])=>`${n}:${c}`).join(", ")}
-
-NOTE:
-This engine combines the strongest useful ideas from both older programs:
-history frequency, recent pressure, gap pressure, PSI position strength, transition triggers, DCI spread balance, zone balance, clone control, and number-use caps.`;
-
- ticketOut.innerHTML="";
- PLAIN_TEXT=`CASH 5 SIMPLE 40 TICKETS\nLatest Draw: ${latest}\nPool: ${model.pool.join(" ")}\n\n`;
+ id("ticketOut").innerHTML="";
+ PLAIN_TEXT="CASH 5 SIMPLE 40 TICKETS\nLatest Draw: "+latest+"\nPool: "+model.pool.join(" ")+"\n\n";
 
  result.selected.forEach((t,i)=>{
   const div=document.createElement("div");
   div.className="ticket";
-  div.innerHTML=`
-   <div class="ticketTitle">
-    <strong>Ticket ${String(i+1).padStart(2,"0")}</strong>
-    <span class="tag">${t.cls} | DCI ${t.dci.toFixed(2)}</span>
-    <span class="tag">Score ${t.score.toFixed(1)}</span>
-   </div>
-   <div class="balls">
-    ${t.nums.map(n=>`<span class="ball">${n}</span>`).join("")}
-   </div>
-   <div class="why">
-    Pattern: ${t.pattern} | Zones: ${zoneCounts(t.nums).join("-")}<br>
-    Why: ${t.nums.map(n=>`${n}: ${model.scores[n].reason}`).join(" | ")}
-   </div>
-  `;
-  ticketOut.appendChild(div);
-  PLAIN_TEXT+=`Ticket ${String(i+1).padStart(2,"0")}: ${t.nums.join(" ")} | ${t.cls} | DCI ${t.dci.toFixed(2)} | Score ${t.score.toFixed(1)}\n`;
+  div.innerHTML=
+  '<div class="ticketTitle">'+
+  '<strong>Ticket '+String(i+1).padStart(2,"0")+'</strong>'+
+  '<span class="tag">'+t.cls+' | DCI '+t.dci.toFixed(2)+'</span>'+
+  '<span class="tag">Score '+t.score.toFixed(1)+'</span>'+
+  '</div>'+
+  '<div class="balls">'+t.nums.map(n=>'<span class="ball">'+n+'</span>').join("")+'</div>'+
+  '<div class="why">Pattern: '+t.pattern+' | Zones: '+zoneCounts(t.nums).join("-")+'<br>'+
+  'Why: '+t.nums.map(n=>n+": "+model.scores[n].reason).join(" | ")+'</div>';
+
+  id("ticketOut").appendChild(div);
+
+  PLAIN_TEXT+="Ticket "+String(i+1).padStart(2,"0")+": "+t.nums.join(" ")+
+  " | "+t.cls+" | DCI "+t.dci.toFixed(2)+" | Score "+t.score.toFixed(1)+"\n";
  });
 
- plainOut.textContent=PLAIN_TEXT;
+ id("plainOut").textContent=PLAIN_TEXT;
 
- let html=`<table><tr>
- <th>#</th><th>Score</th><th>All</th><th>Recent</th><th>Gap</th><th>PSI</th><th>Best Pos</th><th>Trans 3</th><th>Trans 5</th><th>Trans 10</th><th>Latest?</th><th>Reason</th>
- </tr>`;
+ let html='<table><tr><th>#</th><th>Score</th><th>All</th><th>Recent</th><th>Gap</th><th>PSI</th><th>Best Pos</th><th>Transition</th><th>Latest?</th><th>Reason</th></tr>';
+
  for(let n=1;n<=35;n++){
   const x=model.scores[n];
-  html+=`<tr>
-   <td><strong>${n}</strong></td>
-   <td>${x.total.toFixed(1)}</td>
-   <td>${x.freqAll}</td>
-   <td>${x.freqRecent}</td>
-   <td>${x.gap===999?"Never":x.gap}</td>
-   <td>${(x.psi*100).toFixed(1)}%</td>
-   <td>P${x.bestPos}</td>
-   <td>${x.trans3}</td>
-   <td>${x.trans5}</td>
-   <td>${x.trans10}</td>
-   <td>${x.latest?"Yes":"No"}</td>
-   <td>${x.reason}</td>
-  </tr>`;
+  html+='<tr>'+
+  '<td><strong>'+n+'</strong></td>'+
+  '<td>'+x.total.toFixed(1)+'</td>'+
+  '<td>'+x.freqAll+'</td>'+
+  '<td>'+x.freqRecent+'</td>'+
+  '<td>'+(x.gap===999?"Never":x.gap)+'</td>'+
+  '<td>'+(x.psi*100).toFixed(1)+'%</td>'+
+  '<td>P'+x.bestPos+'</td>'+
+  '<td>'+x.trans+'</td>'+
+  '<td>'+(x.latest?"Yes":"No")+'</td>'+
+  '<td>'+x.reason+'</td>'+
+  '</tr>';
  }
- html+=`</table>`;
- tableOut.innerHTML=html;
+
+ html+='</table>';
+ id("tableOut").innerHTML=html;
 }
 
 function runEngine(){
  const s=settings();
- const latest=numsFromLine(latestDraw.value);
+ const latest=numsFromLine(id("latestDraw").value);
+
  if(latest.length!==5){
   alert("Enter exactly 5 latest draw numbers.");
   return;
  }
 
- const draws=parseHistory(history.value);
+ const draws=parseHistory(id("history").value);
+
  if(draws.length<30){
-  alert("Paste at least 30 valid draws. More history is better.");
+  alert("Paste at least 30 valid draw lines.");
   return;
  }
 
  MODEL=analyze(draws,latest,s);
  const result=generateTickets(MODEL,s);
+
+ if(result.selected.length===0){
+  alert("No tickets created. Increase pool size, candidate attempts, or number cap.");
+  return;
+ }
+
  TICKETS=result.selected;
  render(MODEL,result,s);
 }
@@ -241,22 +562,15 @@ function downloadCSV(){
   return;
  }
 
- const rows=[];
- rows.push(["Ticket","N1","N2","N3","N4","N5","Score","DCI","Class","Pattern"]);
+ const rows=[["Ticket","N1","N2","N3","N4","N5","Score","DCI","Class","Pattern"]];
+
  TICKETS.forEach((t,i)=>{
   rows.push([i+1,t.nums[0],t.nums[1],t.nums[2],t.nums[3],t.nums[4],t.score.toFixed(1),t.dci.toFixed(2),t.cls,t.pattern]);
  });
 
- rows.push([]);
- rows.push(["Number","Score","All Count","Recent Count","Gap","PSI","Best Position","Transition 3","Transition 5","Transition 10","Reason"]);
- for(let n=1;n<=35;n++){
-  const x=MODEL.scores[n];
-  rows.push([n,x.total.toFixed(1),x.freqAll,x.freqRecent,x.gap===999?"Never":x.gap,(x.psi*100).toFixed(1)+"%","P"+x.bestPos,x.trans3,x.trans5,x.trans10,x.reason]);
- }
-
  const csv=rows.map(r=>r.map(v=>{
   const text=String(v??"");
-  return /[",\n]/.test(text)?`"${text.replace(/"/g,'""')}"`:text;
+  return /[",\n]/.test(text)?'"'+text.replace(/"/g,'""')+'"':text;
  }).join(",")).join("\n");
 
  const blob=new Blob([csv],{type:"text/csv;charset=utf-8"});
@@ -271,18 +585,19 @@ function downloadCSV(){
 }
 
 function clearAll(){
- latestDraw.value="";
- history.value="";
- summary.innerHTML="";
- analysisOut.textContent="";
- ticketOut.innerHTML="";
- plainOut.textContent="";
- tableOut.innerHTML="";
+ id("latestDraw").value="";
+ id("history").value="";
+ id("summary").innerHTML="";
+ id("analysisOut").textContent="";
+ id("ticketOut").innerHTML="";
+ id("plainOut").textContent="";
+ id("tableOut").innerHTML="";
  MODEL=null;
  TICKETS=[];
  PLAIN_TEXT="";
 }
 </script>
+
 </main>
 </body>
 </html>
