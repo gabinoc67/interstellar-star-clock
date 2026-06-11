@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Cash 5 Simple 40 Ticket Engine</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#07111f;color:#eaf2ff}
+header{text-align:center;padding:16px;background:#10213a;border-bottom:1px solid #34577f}
+h1{margin:0;font-size:24px}
+.sub{font-size:13px;color:#bdd0ee;margin-top:6px}
+main{max-width:1500px;margin:auto;padding:12px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.panel{background:#10233e;border:1px solid #31577f;border-radius:12px;padding:12px}
+h2{font-size:17px;margin:0 0 8px;color:#d8e8ff}
+textarea,input,select{width:100%;border-radius:8px;border:1px solid #456b9c;background:#071222;color:white;padding:8px;font-size:13px;margin-bottom:8px}
+textarea{min-height:260px;resize:vertical;font-family:Consolas,monospace}
+button{padding:9px 12px;border:0;border-radius:8px;background:#2b74ff;color:white;font-weight:bold;cursor:pointer;margin:4px}
+button:hover{background:#1d5ed1}
+button.good{background:#0b8a5a}
+button.warn{background:#9b1c1c}
+.note{font-size:12px;color:#c9dcf6;background:#071222;border:1px solid #31577f;border-radius:8px;padding:8px}
+.output{white-space:pre-wrap;background:#071222;border:1px solid #31577f;border-radius:8px;padding:10px;font-family:Consolas,monospace;font-size:12px;margin-top:8px}
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:8px}
+.card{background:#071222;border:1px solid #31577f;border-radius:8px;padding:8px;font-size:12px}
+.card strong{display:block;color:#9fc4ff;margin-bottom:4px}
+.tickets{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:12px}
+.ticket{background:#071222;border:1px solid #31577f;border-radius:10px;padding:10px}
+.ticketTitle{display:flex;justify-content:space-between;gap:6px;font-size:13px;margin-bottom:8px}
+.tag{background:#18375f;border-radius:999px;padding:3px 7px;font-size:11px}
+.balls{display:flex;flex-wrap:wrap;gap:7px}
+.ball{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#eaf2ff;color:#10213a;font-weight:bold}
+.why{font-size:12px;color:#c9dcf6;margin-top:8px;line-height:1.35}
+table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+th,td{border:1px solid #355c88;padding:5px;text-align:center}
+th{background:#18375f}
+.full{grid-column:1/-1}
+@media(max-width:900px){.grid,.tickets{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}}
+@media print{
+body{background:white;color:black}
+header,.inputPanel,.settingsPanel,.buttons,.note{display:none!important}
+.panel,.ticket,.output{background:white;color:black;border:1px solid #999}
+.ball{background:white;color:black;border:1px solid #000}
+}
+</style>
+</head>
+
+<body>
+<header>
+<h1>Cash 5 Simple 40 Ticket Engine</h1>
+<div class="sub">Simple 40-ticket generator using history count, recent pressure, gap, PSI position, transition triggers, zones, clone limit, and number caps.</div>
+</header>
+
+<main>
+<section class="grid">
+
+<div class="panel inputPanel">
+<h2>1. Latest Draw</h2>
+<input id="latestDraw" placeholder="Example: 19 3 35 9 18">
+
+<h2>2. Draw History</h2>
+<textarea id="history" spellcheck="false" placeholder="Paste one draw per line. Dates are allowed:
+05/30/2026 19 3 35 9 18
+05/29/2026 14 21 23 26 29
+05/28/2026 7 8 17 18 35"></textarea>
+
+<div class="buttons">
+<button class="good" onclick="runEngine()">Generate 40 Tickets</button>
+<button onclick="copyTickets()">Copy Tickets</button>
+<button onclick="downloadCSV()">Export CSV</button>
+<button onclick="window.print()">Print</button>
+<button class="warn" onclick="clearAll()">Clear</button>
+</div>
+
+<div class="note">
+This is a statistical coverage tool only. It cannot predict or guarantee lottery results.
+Use actual draw order when possible. If the history is sorted, PSI position logic becomes weaker.
+</div>
+</div>
+
+<div class="panel settingsPanel">
+<h2>3. Simple Settings</h2>
+
+<label>Number of Tickets</label>
+<input id="ticketCount" type="number" value="40" min="10" max="100">
+
+<label>Recent Window</label>
+<input id="recentWindow" type="number" value="100" min="20" max="500">
+
+<label>Medium Window</label>
+<input id="mediumWindow" type="number" value="300" min="50" max="1000">
+
+<label>Candidate Attempts</label>
+<input id="candidateAttempts" type="number" value="70000" min="5000" max="300000">
+
+<label>Pool Size</label>
+<input id="poolSize" type="number" value="22" min="10" max="30">
+
+<label>Clone Limit</label>
+<input id="cloneLimit" type="number" value="2" min="0" max="4">
+
+<label>Max Use Per Number</label>
+<input id="numberCap" type="number" value="12" min="5" max="25">
+
+<label>Max Same Zone</label>
+<input id="maxSameZone" type="number" value="3" min="1" max="5">
+
+<label>Min Active Zones</label>
+<input id="minActiveZones" type="number" value="3" min="1" max="5">
+
+<label>Sum Range</label>
+<input id="sumMin" type="number" value="45" min="15" max="175">
+<input id="sumMax" type="number" value="135" min="15" max="175">
+
+<label>Generation Style</label>
+<select id="styleMode">
+<option value="balanced" selected>Balanced 40</option>
+<option value="wide">More Spread</option>
+<option value="hot">More Hot/Recent</option>
+<option value="gap">More Gap/Cold Pressure</option>
+</select>
+</div>
+
+</section>
+
+<section class="panel full">
+<h2>4. Summary</h2>
+<div id="summary" class="stats"></div>
+<div id="analysisOut" class="output"></div>
+</section>
+
+<section class="panel full">
+<h2>5. Buy These 40 Tickets</h2>
+<div id="ticketOut" class="tickets"></div>
+<div id="plainOut" class="output"></div>
+</section>
+
+<section class="panel full">
+<h2>6. Number Score Table</h2>
+<div id="tableOut"></div>
+</section>
+
+<script>
+const MIN=1;
+const MAX=35;
+const PICK=5;
+
+let MODEL=null;
+let TICKETS=[];
+let PLAIN_TEXT="";
+
+const ZONES=[
+ [1,7],
+ [8,14],
+ [15,21],
+ [22,28],
+ [29,35]
+];
+function settings(){
+ return{
+  ticketCount:+ticketCount.value||40,
+  recentWindow:+recentWindow.value||100,
+  mediumWindow:+mediumWindow.value||300,
+  candidateAttempts:+candidateAttempts.value||70000,
+  poolSize:+poolSize.value||22,
+  cloneLimit:+cloneLimit.value||2,
+  numberCap:+numberCap.value||12,
+  maxSameZone:+maxSameZone.value||3,
+  minActiveZones:+minActiveZones.value||3,
+  sumMin:+sumMin.value||45,
+  sumMax:+sumMax.value||135,
+  styleMode:styleMode.value||"balanced"
+ };
+}
+
+function numsFromLine(line){
+ const all=(line.match(/\d+/g)||[]).map(Number);
+ const valid=all.filter(n=>n>=MIN&&n<=MAX);
+ const clean=[];
+ for(const n of valid){
+  if(!clean.includes(n)&&clean.length<5)clean.push(n);
+ }
+ return clean;
+}
+
+function parseHistory(text){
+ return text.split(/\n+/)
+  .map(x=>x.trim())
+  .filter(Boolean)
+  .map((line,i)=>{
+   const nums=numsFromLine(line);
+   return nums.length===5?{index:i+1,line,numbers:nums}:null;
+  })
+  .filter(Boolean);
+}
+
+function blank35(){
+ const a=Array(36).fill(0);
+ return a;
+}
+
+function zone(n){
+ return ZONES.findIndex(z=>n>=z[0]&&n<=z[1]);
+}
+
+function zoneCounts(nums){
+ const z=[0,0,0,0,0];
+ nums.forEach(n=>z[zone(n)]++);
+ return z;
+}
+
+function oddEven(nums){
+ const odd=nums.filter(n=>n%2).length;
+ return {odd,even:nums.length-odd};
+}
+
+function comboKey(nums){
+ return [...nums].sort((a,b)=>a-b).join("-");
+}
+
+function shared(a,b){
+ const s=new Set(b);
+ return a.filter(n=>s.has(n)).length;
+}
+
+function cloneBlocked(nums,selected,limit){
+ return selected.some(t=>shared(nums,t.nums)>limit);
+}
+
+function calculateDCI(nums){
+ const s=[...nums].sort((a,b)=>a-b);
+ let total=0;
+ for(let i=1;i<s.length;i++)total+=s[i]-s[i-1];
+ return total/(s.length-1);
+}
+
+function dciClass(dci){
+ if(dci<=6.5)return "Compressed";
+ if(dci>=8.0)return "Spread";
+ return "Hybrid";
+}
+
+function gaps(draws){
+ const g=Array(36).fill(999);
+ for(let n=1;n<=35;n++){
+  for(let i=draws.length-1;i>=0;i--){
+   if(draws[i].numbers.includes(n)){
+    g[n]=draws.length-1-i;
+    break;
+   }
+  }
+ }
+ return g;
+}
+
+function frequency(draws){
+ const f=blank35();
+ draws.forEach(d=>d.numbers.forEach(n=>f[n]++));
+ return f;
+}
+
+function psiAnalysis(draws,recentN,mediumN){
+ const recent=draws.slice(Math.max(0,draws.length-recentN));
+ const medium=draws.slice(Math.max(0,draws.length-mediumN));
+
+ function layer(list){
+  const pos=Array.from({length:36},()=>Array(5).fill(0));
+  const total=blank35();
+  list.forEach(d=>{
+   d.numbers.forEach((n,p)=>{
+    pos[n][p]++;
+    total[n]++;
+   });
+  });
+  const rows=Array(36).fill(null);
+  for(let n=1;n<=35;n++){
+   let best=0,bestCount=pos[n][0];
+   for(let p=1;p<5;p++){
+    if(pos[n][p]>bestCount){best=p;bestCount=pos[n][p];}
+   }
+   rows[n]={bestPos:best+1,psi:total[n]?bestCount/total[n]:0,pos:pos[n],total:total[n]};
+  }
+  return rows;
+ }
+
+ const r=layer(recent);
+ const m=layer(medium);
+ const a=layer(draws);
+
+ const out=Array(36).fill(null);
+ for(let n=1;n<=35;n++){
+  const psi=(r[n].psi*.60)+(m[n].psi*.30)+(a[n].psi*.10);
+  const best=[r[n],m[n],a[n]].sort((x,y)=>y.psi-x.psi)[0].bestPos;
+  out[n]={n,psi,bestPos:best,recent:r[n],medium:m[n],all:a[n]};
+ }
+ return out;
+}
+
+function transitionAnalysis(draws,latest,windowSize,psi){
+ const latestSet=new Set(latest);
+ const nextFreq=blank35();
+ const posFreq=Array.from({length:5},()=>blank35());
+ const support=Array.from({length:36},()=>new Set());
+
+ for(let i=0;i<draws.length;i++){
+  const cur=draws[i].numbers;
+  const triggers=cur.filter(n=>latestSet.has(n));
+  if(!triggers.length)continue;
+
+  for(let k=1;k<=windowSize;k++){
+   const future=draws[i+k];
+   if(!future)continue;
+   future.numbers.forEach((n,p)=>{
+    nextFreq[n]+=triggers.length;
+    posFreq[p][n]+=triggers.length;
+    triggers.forEach(t=>support[n].add(t));
+   });
+  }
+ }
+
+ const rows=Array(36).fill(null);
+ for(let n=1;n<=35;n++){
+  const bestPos=psi[n]?.bestPos||1;
+  const posScore=posFreq[bestPos-1][n]||0;
+  rows[n]={
+   n,
+   next:nextFreq[n],
+   support:support[n].size,
+   posScore,
+   bestPos
+  };
+ }
+ return rows;
+}
+
+function analyze(draws,latest,s){
+ const recent=draws.slice(Math.max(0,draws.length-s.recentWindow));
+ const medium=draws.slice(Math.max(0,draws.length-s.mediumWindow));
+
+ const freqAll=frequency(draws);
+ const freqRecent=frequency(recent);
+ const freqMedium=frequency(medium);
+ const gap=gaps(draws);
+ const psi=psiAnalysis(draws,s.recentWindow,s.mediumWindow);
+ const trans3=transitionAnalysis(draws,latest,3,psi);
+ const trans5=transitionAnalysis(draws,latest,5,psi);
+ const trans10=transitionAnalysis(draws,latest,10,psi);
+
+ const maxAll=Math.max(...freqAll);
+ const maxRecent=Math.max(...freqRecent);
+ const maxMedium=Math.max(...freqMedium);
+ const maxTrans5=Math.max(...trans5.map(x=>x?x.next:0));
+ const maxGap=Math.max(...gap.filter(x=>x<999));
+
+ const scores=Array(36).fill(null);
+
+ for(let n=1;n<=35;n++){
+  const hotScore=maxAll?freqAll[n]/maxAll*20:0;
+  const recentScore=maxRecent?freqRecent[n]/maxRecent*18:0;
+  const mediumScore=maxMedium?freqMedium[n]/maxMedium*10:0;
+  const gapScore=gap[n]>=10&&gap[n]<999?18:gap[n]>=6?12:gap[n]>=3?6:0;
+  const psiScore=(psi[n]?.psi||0)*20;
+  const transScore=maxTrans5?trans5[n].next/maxTrans5*28:0;
+  const supportScore=trans5[n].support*5;
+  const latestPenalty=latest.includes(n)?18:0;
+
+  let styleBonus=0;
+  if(s.styleMode==="hot")styleBonus=recentScore*.6;
+  if(s.styleMode==="gap")styleBonus=gapScore*.7;
+  if(s.styleMode==="wide"){
+   if(n<=7||n>=29)styleBonus=7;
+   if(n>=15&&n<=21)styleBonus+=4;
+  }
+
+  const total=hotScore+recentScore+mediumScore+gapScore+psiScore+transScore+supportScore+styleBonus-latestPenalty;
+
+  const reason=[];
+  if(freqAll[n])reason.push(`history ${freqAll[n]}`);
+  if(freqRecent[n])reason.push(`recent ${freqRecent[n]}`);
+  if(gap[n]>=6&&gap[n]<999)reason.push(`gap ${gap[n]}`);
+  if(psi[n]?.psi>=.35)reason.push(`PSI P${psi[n].bestPos} ${(psi[n].psi*100).toFixed(0)}%`);
+  if(trans5[n].next>0)reason.push(`transition ${trans5[n].next}`);
+  if(latest.includes(n))reason.push("latest draw penalty");
+
+  scores[n]={
+   n,
+   total:Math.max(0,total),
+   freqAll:freqAll[n],
+   freqRecent:freqRecent[n],
+   freqMedium:freqMedium[n],
+   gap:gap[n],
+   psi:psi[n]?.psi||0,
+   bestPos:psi[n]?.bestPos||1,
+   trans3:trans3[n].next,
+   trans5:trans5[n].next,
+   trans10:trans10[n].next,
+   support:trans5[n].support,
+   latest:latest.includes(n),
+   reason:reason.join(", ")||"low signal"
+  };
+ }
+
+ const pool=scores.slice(1)
+  .sort((a,b)=>b.total-a.total||a.n-b.n)
+  .slice(0,s.poolSize)
+  .map(x=>x.n)
+  .sort((a,b)=>a-b);
+
+ return{draws,latest,recent,medium,freqAll,freqRecent,gap,psi,trans3,trans5,trans10,scores,pool};
+}
+function passTicket(nums,s){
+ const sorted=[...nums].sort((a,b)=>a-b);
+ const sum=sorted.reduce((a,b)=>a+b,0);
+ const range=sorted[4]-sorted[0];
+ const zc=zoneCounts(sorted);
+ const activeZones=zc.filter(x=>x>0).length;
+ const oe=oddEven(sorted);
+
+ if(sum<s.sumMin||sum>s.sumMax)return false;
+ if(range<8||range>34)return false;
+ if(zc.some(x=>x>s.maxSameZone))return false;
+ if(activeZones<s.minActiveZones)return false;
+ if(oe.odd===0||oe.even===0)return false;
+ return true;
+}
+
+function randomWeighted(pool,weights){
+ const list=pool.map(n=>({n,w:Math.max(.001,weights[n]||1)}));
+ let total=list.reduce((s,x)=>s+x.w,0);
+ let r=Math.random()*total;
+ for(const x of list){
+  r-=x.w;
+  if(r<=0)return x.n;
+ }
+ return list[list.length-1].n;
+}
+
+function makeCandidate(model){
+ const nums=[];
+ const weights={};
+ model.pool.forEach(n=>{
+  const s=model.scores[n];
+  weights[n]=s.total+5;
+ });
+
+ let guard=0;
+ while(nums.length<5&&guard++<100){
+  const n=randomWeighted(model.pool,weights);
+  if(!nums.includes(n))nums.push(n);
+ }
+ if(nums.length!==5)return null;
+ return nums.sort((a,b)=>a-b);
+}
+
+function ticketScore(nums,model,use){
+ let score=0;
+ nums.forEach((n,i)=>{
+  const s=model.scores[n];
+  score+=s.total;
+  if(s.bestPos===i+1)score+=8;
+  score+=Math.max(0,10-(use[n]||0))*2;
+ });
+
+ const dci=calculateDCI(nums);
+ const cls=dciClass(dci);
+ const zc=zoneCounts(nums);
+ const active=zc.filter(x=>x>0).length;
+ const oe=oddEven(nums);
+
+ if(cls==="Hybrid")score+=18;
+ if(cls==="Spread")score+=14;
+ if(cls==="Compressed")score+=6;
+ if(active>=4)score+=18;
+ if(active===5)score+=10;
+ if(oe.odd===2||oe.odd===3)score+=12;
+
+ return{score,dci,cls,active,pattern:`${oe.odd}/${oe.even}`};
+}
+
+function generateTickets(model,s){
+ const map=new Map();
+ const use=blank35();
+
+ for(let i=0;i<s.candidateAttempts;i++){
+  const nums=makeCandidate(model);
+  if(!nums)continue;
+  if(!passTicket(nums,s))continue;
+  const key=comboKey(nums);
+  if(map.has(key))continue;
+  const meta=ticketScore(nums,model,use);
+  map.set(key,{nums,key,...meta});
+ }
+
+ const ranked=[...map.values()].sort((a,b)=>b.score-a.score);
+ const selected=[];
+
+ for(const t of ranked){
+  if(selected.length>=s.ticketCount)break;
+  if(cloneBlocked(t.nums,selected,s.cloneLimit))continue;
+
+  let capBlock=false;
+  for(const n of t.nums){
+   if((use[n]||0)>=s.numberCap)capBlock=true;
+  }
+  if(capBlock)continue;
+
+  selected.push(t);
+  t.nums.forEach(n=>use[n]++);
+ }
+
+ let guard=0;
+ while(selected.length<s.ticketCount&&guard++<50000){
+  const nums=makeCandidate(model);
+  if(!nums||!passTicket(nums,s))continue;
+  const key=comboKey(nums);
+  if(selected.some(x=>x.key===key))continue;
+  if(cloneBlocked(nums,selected,s.cloneLimit))continue;
+
+  let capBlock=false;
+  for(const n of nums){
+   if((use[n]||0)>=s.numberCap)capBlock=true;
+  }
+  if(capBlock)continue;
+
+  const meta=ticketScore(nums,model,use);
+  const t={nums,key,...meta,fallback:true};
+  selected.push(t);
+  nums.forEach(n=>use[n]++);
+ }
+
+ return{selected,use};
+}
+
+function render(model,result,s){
+ const draws=model.draws.length;
+ const latest=model.latest.join(" ");
+ const top=model.scores.slice(1).sort((a,b)=>b.total-a.total).slice(0,10);
+
+ summary.innerHTML=`
+ <div class="card"><strong>Draws Loaded</strong>${draws}</div>
+ <div class="card"><strong>Latest Draw</strong>${latest}</div>
+ <div class="card"><strong>Pool Size</strong>${model.pool.length}</div>
+ <div class="card"><strong>Tickets Built</strong>${result.selected.length}</div>
+ <div class="card"><strong>Style</strong>${s.styleMode}</div>
+ `;
+
+ const dciCount={Compressed:0,Hybrid:0,Spread:0};
+ result.selected.forEach(t=>dciCount[t.cls]++);
+
+ analysisOut.textContent=
+`TOP 10 NUMBERS BY SCORE:
+${top.map((x,i)=>`${i+1}. ${x.n} | score ${x.total.toFixed(1)} | ${x.reason}`).join("\n")}
+
+20–30 NUMBER WORKING POOL:
+${model.pool.join(" - ")}
+
+DCI DISTRIBUTION:
+Compressed: ${dciCount.Compressed}
+Hybrid: ${dciCount.Hybrid}
+Spread: ${dciCount.Spread}
+
+NUMBER USE:
+${Object.entries(result.use).filter(([n,c])=>c>0).map(([n,c])=>`${n}:${c}`).join(", ")}
+
+NOTE:
+This engine combines the strongest useful ideas from both older programs:
+history frequency, recent pressure, gap pressure, PSI position strength, transition triggers, DCI spread balance, zone balance, clone control, and number-use caps.`;
+
+ ticketOut.innerHTML="";
+ PLAIN_TEXT=`CASH 5 SIMPLE 40 TICKETS\nLatest Draw: ${latest}\nPool: ${model.pool.join(" ")}\n\n`;
+
+ result.selected.forEach((t,i)=>{
+  const div=document.createElement("div");
+  div.className="ticket";
+  div.innerHTML=`
+   <div class="ticketTitle">
+    <strong>Ticket ${String(i+1).padStart(2,"0")}</strong>
+    <span class="tag">${t.cls} | DCI ${t.dci.toFixed(2)}</span>
+    <span class="tag">Score ${t.score.toFixed(1)}</span>
+   </div>
+   <div class="balls">
+    ${t.nums.map(n=>`<span class="ball">${n}</span>`).join("")}
+   </div>
+   <div class="why">
+    Pattern: ${t.pattern} | Zones: ${zoneCounts(t.nums).join("-")}<br>
+    Why: ${t.nums.map(n=>`${n}: ${model.scores[n].reason}`).join(" | ")}
+   </div>
+  `;
+  ticketOut.appendChild(div);
+  PLAIN_TEXT+=`Ticket ${String(i+1).padStart(2,"0")}: ${t.nums.join(" ")} | ${t.cls} | DCI ${t.dci.toFixed(2)} | Score ${t.score.toFixed(1)}\n`;
+ });
+
+ plainOut.textContent=PLAIN_TEXT;
+
+ let html=`<table><tr>
+ <th>#</th><th>Score</th><th>All</th><th>Recent</th><th>Gap</th><th>PSI</th><th>Best Pos</th><th>Trans 3</th><th>Trans 5</th><th>Trans 10</th><th>Latest?</th><th>Reason</th>
+ </tr>`;
+ for(let n=1;n<=35;n++){
+  const x=model.scores[n];
+  html+=`<tr>
+   <td><strong>${n}</strong></td>
+   <td>${x.total.toFixed(1)}</td>
+   <td>${x.freqAll}</td>
+   <td>${x.freqRecent}</td>
+   <td>${x.gap===999?"Never":x.gap}</td>
+   <td>${(x.psi*100).toFixed(1)}%</td>
+   <td>P${x.bestPos}</td>
+   <td>${x.trans3}</td>
+   <td>${x.trans5}</td>
+   <td>${x.trans10}</td>
+   <td>${x.latest?"Yes":"No"}</td>
+   <td>${x.reason}</td>
+  </tr>`;
+ }
+ html+=`</table>`;
+ tableOut.innerHTML=html;
+}
+
+function runEngine(){
+ const s=settings();
+ const latest=numsFromLine(latestDraw.value);
+ if(latest.length!==5){
+  alert("Enter exactly 5 latest draw numbers.");
+  return;
+ }
+
+ const draws=parseHistory(history.value);
+ if(draws.length<30){
+  alert("Paste at least 30 valid draws. More history is better.");
+  return;
+ }
+
+ MODEL=analyze(draws,latest,s);
+ const result=generateTickets(MODEL,s);
+ TICKETS=result.selected;
+ render(MODEL,result,s);
+}
+
+function copyTickets(){
+ if(!PLAIN_TEXT.trim()){
+  alert("Generate tickets first.");
+  return;
+ }
+ navigator.clipboard.writeText(PLAIN_TEXT);
+ alert("Tickets copied.");
+}
+
+function downloadCSV(){
+ if(!TICKETS.length){
+  alert("Generate tickets first.");
+  return;
+ }
+
+ const rows=[];
+ rows.push(["Ticket","N1","N2","N3","N4","N5","Score","DCI","Class","Pattern"]);
+ TICKETS.forEach((t,i)=>{
+  rows.push([i+1,t.nums[0],t.nums[1],t.nums[2],t.nums[3],t.nums[4],t.score.toFixed(1),t.dci.toFixed(2),t.cls,t.pattern]);
+ });
+
+ rows.push([]);
+ rows.push(["Number","Score","All Count","Recent Count","Gap","PSI","Best Position","Transition 3","Transition 5","Transition 10","Reason"]);
+ for(let n=1;n<=35;n++){
+  const x=MODEL.scores[n];
+  rows.push([n,x.total.toFixed(1),x.freqAll,x.freqRecent,x.gap===999?"Never":x.gap,(x.psi*100).toFixed(1)+"%","P"+x.bestPos,x.trans3,x.trans5,x.trans10,x.reason]);
+ }
+
+ const csv=rows.map(r=>r.map(v=>{
+  const text=String(v??"");
+  return /[",\n]/.test(text)?`"${text.replace(/"/g,'""')}"`:text;
+ }).join(",")).join("\n");
+
+ const blob=new Blob([csv],{type:"text/csv;charset=utf-8"});
+ const url=URL.createObjectURL(blob);
+ const a=document.createElement("a");
+ a.href=url;
+ a.download="cash5_simple_40_ticket_engine.csv";
+ document.body.appendChild(a);
+ a.click();
+ a.remove();
+ URL.revokeObjectURL(url);
+}
+
+function clearAll(){
+ latestDraw.value="";
+ history.value="";
+ summary.innerHTML="";
+ analysisOut.textContent="";
+ ticketOut.innerHTML="";
+ plainOut.textContent="";
+ tableOut.innerHTML="";
+ MODEL=null;
+ TICKETS=[];
+ PLAIN_TEXT="";
+}
+</script>
+</main>
+</body>
+</html>
