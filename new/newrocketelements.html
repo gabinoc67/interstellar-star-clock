@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CST Atomic-Order Hybrid Propulsion Simulator</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+:root{
+ --bg:#ffffff;--panel:#f7f9ff;--ink:#111827;--blue:#174ea6;--red:#b91c1c;
+ --green:#166534;--orange:#c2410c;--purple:#6d28d9;--gray:#4b5563;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--ink)}
+header{padding:14px;text-align:center;border-bottom:2px solid #1d4ed8}
+h1{margin:0;font-size:26px}
+.sub{font-size:12px;color:#1d4ed8;font-weight:bold;letter-spacing:1px}
+.warning{margin:10px auto;padding:10px;max-width:1200px;border:1px solid #b91c1c;background:#fff5f5;color:#7f1d1d;border-radius:8px;font-size:13px}
+main{display:grid;grid-template-columns:320px 1fr 360px;gap:10px;padding:10px}
+.panel{border:1px solid #93c5fd;background:var(--panel);border-radius:10px;padding:10px;box-shadow:0 3px 10px #0001}
+.panel h2{margin:0 0 8px;font-size:16px;color:#1d4ed8}
+button,input,select{padding:8px;border:1px solid #93c5fd;border-radius:6px;background:white}
+button{cursor:pointer;background:#1d4ed8;color:white;font-weight:bold}
+button.alt{background:#374151}
+button.red{background:#b91c1c}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.reading{font-size:12px;padding:5px;border-bottom:1px solid #dbeafe}
+.label{font-weight:bold;color:#111827}
+.stageCard{border:1px solid #c7d2fe;background:#fff;border-radius:8px;padding:8px;margin-bottom:8px}
+.stageTitle{font-weight:bold;font-size:14px}
+.status{font-weight:bold}
+.stable{color:green}.unstable{color:red}.hot{color:#c2410c}.cool{color:#0369a1}
+#canvasWrap{background:white;border:1px solid #93c5fd;border-radius:10px;padding:6px}
+canvas{width:100%;height:360px;border:1px solid #dbeafe;background:#fff}
+table{width:100%;border-collapse:collapse;font-size:11px;background:#fff}
+th,td{border:1px solid #cbd5e1;padding:4px;text-align:center}
+th{background:#dbeafe;color:#1e3a8a}
+.scroll{max-height:360px;overflow:auto}
+.blink{animation:blink 0.7s infinite}
+@keyframes blink{50%{opacity:.25}}
+.shapeLegend span{display:inline-block;margin:3px 6px 3px 0;font-size:12px}
+.dot{width:12px;height:12px;border-radius:50%;display:inline-block;background:#2563eb}
+.square{width:12px;height:12px;display:inline-block;background:#dc2626}
+.diamond{width:12px;height:12px;display:inline-block;background:#16a34a;transform:rotate(45deg)}
+.eq{font-family:"Times New Roman",serif;font-size:13px;background:#fff;padding:6px;border-radius:6px;border:1px solid #ddd;margin:5px 0}
+footer{padding:10px;text-align:center;font-size:12px;color:#374151}
+</style>
+</head>
+
+<body>
+<header>
+<h1>ATOMIC-ORDER, SIPHON, PARKER PROBE PROPULSION CONCEPT SIMULATOR</h1>
+<div class="sub">THEORETICAL CST TIMING CONTROL • PARTICLE SEPARATION • MAGNETIC SIPHON VORTEX • ELEMENT 115 PULSE TEST</div>
+</header>
+
+<div class="warning">
+<b>Scientific Disclaimer:</b> This simulator is a theoretical educational model. It does not prove that a hybrid rocket, warp drive, antimatter pulse system, or Element 115/Moscovium gravity core can physically work. Current public science shows Moscovium is synthetic and extremely radioactive with very short-lived isotopes. The “speed gain” in this program is a speculative tuning value, not verified propulsion physics.
+</div>
+
+<main>
+<section class="panel">
+<h2>Controls</h2>
+<div class="grid2">
+<button onclick="startSim()">Start</button>
+<button class="red" onclick="stopSim()">Stop</button>
+<button class="alt" onclick="stepSim()">Step</button>
+<button class="alt" onclick="resetSim()">Reset</button>
+</div>
+<br>
+<label>Power Input MW</label>
+<input id="powerMW" type="number" value="120" min="1" max="5000" style="width:100%">
+<label>CST Correction</label>
+<input id="cstFactor" type="number" value="0.75" step="0.01" min="0" max="2" style="width:100%">
+<label>Magnetic Field Tesla</label>
+<input id="magT" type="number" value="12" step="0.1" min="0" max="100" style="width:100%">
+<label>Element 115 Pulse</label>
+<select id="mcMode" style="width:100%">
+<option value="off">OFF - verified-material mode</option>
+<option value="theory">ON - theoretical decay pulse only</option>
+</select>
+<br><br>
+<button onclick="downloadCSV()">Download Excel CSV Printout</button>
+<button onclick="window.print()">Print Simulator</button>
+
+<h2 style="margin-top:14px">Live Clocks</h2>
+<div id="clockBox"></div>
+
+<h2 style="margin-top:14px">Shape Legend</h2>
+<div class="shapeLegend">
+<span><i class="dot"></i> plasma / ion flow</span>
+<span><i class="square"></i> heat / fission / pulse</span>
+<span><i class="diamond"></i> stable structure / magnetic control</span>
+</div>
+</section>
+<section class="panel">
+<h2>Live Atomic Flow Visualization</h2>
+<div id="canvasWrap">
+<canvas id="simCanvas" width="1000" height="360"></canvas>
+</div>
+
+<h2 style="margin-top:10px">Current Stage Reading</h2>
+<div id="currentStage" class="stageCard"></div>
+
+<h2>Equations Used</h2>
+<div class="eq"><b>Energy:</b> E = mc²</div>
+<div class="eq"><b>Power:</b> P = ΔE / Δt</div>
+<div class="eq"><b>Lorentz Force:</b> F = q(E + v × B)</div>
+<div class="eq"><b>Cyclotron Frequency:</b> ωc = qB / m</div>
+<div class="eq"><b>Decay Law:</b> N(t) = N₀ e^(-λt), λ = ln(2) / T½</div>
+<div class="eq"><b>Thermal Balance:</b> dT/dt = (Qin - Qout) / C</div>
+<div class="eq"><b>Rocket Estimate:</b> F ≈ ṁ ve + (Pe - Pa)Ae</div>
+<div class="eq"><b>CST Timing:</b> CST = UTC + correction × drift</div>
+</section>
+
+<section class="panel">
+<h2>Stage-by-Stage Atomic Order</h2>
+<div id="stageList" class="scroll"></div>
+
+<h2 style="margin-top:10px">Excel-Style Printout</h2>
+<div class="scroll">
+<table id="dataTable">
+<thead>
+<tr>
+<th>Step</th><th>Element</th><th>Symbol</th><th>Role</th><th>Heat</th><th>Cooling</th>
+<th>Breakdown</th><th>Decay</th><th>Stability</th><th>CST</th><th>Atomic Time</th><th>Speed Effect</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+</div>
+</section>
+</main>
+
+<footer>
+Core principle: Atomic order + CST timing + magnetic stability = coherent theoretical flow. Verified physics controls heat, charge, plasma, and materials. Element 115 remains speculative and non-proven for propulsion speed increase.
+</footer>
+
+<script>
+const elements = [
+{step:1,name:"Uranium",sym:"U",role:"Fission base power",stage:"Fission",heat:95,cool:60,breakdown:18,decay:70,stable:35,shape:"square",color:"#f97316"},
+{step:2,name:"Thorium",sym:"Th",role:"Secondary nuclear fuel / stabilizer",stage:"Fission",heat:80,cool:64,breakdown:12,decay:35,stable:55,shape:"square",color:"#fb923c"},
+{step:3,name:"Zirconium",sym:"Zr",role:"Cladding / thermal barrier",stage:"Shielding",heat:55,cool:82,breakdown:8,decay:0,stable:88,shape:"diamond",color:"#64748b"},
+{step:4,name:"Boron",sym:"B",role:"Neutron absorber",stage:"Control",heat:45,cool:80,breakdown:5,decay:0,stable:90,shape:"diamond",color:"#16a34a"},
+{step:5,name:"Deuterium",sym:"D",role:"Fusion fuel input",stage:"Fusion",heat:92,cool:50,breakdown:15,decay:0,stable:64,shape:"circle",color:"#facc15"},
+{step:6,name:"Tritium",sym:"T",role:"Fusion isotope fuel",stage:"Fusion",heat:94,cool:45,breakdown:20,decay:40,stable:45,shape:"circle",color:"#eab308"},
+{step:7,name:"Beryllium",sym:"Be",role:"Neutron multiplier",stage:"Fusion support",heat:65,cool:55,breakdown:14,decay:0,stable:70,shape:"diamond",color:"#84cc16"},
+{step:8,name:"Lithium",sym:"Li",role:"Blanket / propellant / tritium support",stage:"Propellant",heat:62,cool:58,breakdown:15,decay:0,stable:68,shape:"circle",color:"#22c55e"},
+{step:9,name:"Xenon",sym:"Xe",role:"Ion propellant",stage:"Ionization",heat:70,cool:52,breakdown:22,decay:0,stable:62,shape:"circle",color:"#2563eb"},
+{step:10,name:"Argon",sym:"Ar",role:"Ionization buffer gas",stage:"Ionization",heat:58,cool:62,breakdown:18,decay:0,stable:70,shape:"circle",color:"#3b82f6"},
+{step:11,name:"Tungsten",sym:"W",role:"Electrode / nozzle heat shield",stage:"High heat",heat:88,cool:76,breakdown:10,decay:0,stable:85,shape:"diamond",color:"#475569"},
+{step:12,name:"Rhenium",sym:"Re",role:"Nozzle high-temperature alloy",stage:"Nozzle",heat:84,cool:78,breakdown:9,decay:0,stable:86,shape:"diamond",color:"#334155"},
+{step:13,name:"Barium",sym:"Ba",role:"Plasma diagnostic / charged flow marker",stage:"Separation",heat:50,cool:55,breakdown:18,decay:0,stable:60,shape:"circle",color:"#10b981"},
+{step:14,name:"Copper",sym:"Cu",role:"Conductors / coil stabilizer",stage:"Magnetic",heat:62,cool:70,breakdown:12,decay:0,stable:82,shape:"diamond",color:"#b45309"},
+{step:15,name:"Oxygen",sym:"O",role:"Reaction support / oxide layer formation",stage:"Chemistry",heat:60,cool:50,breakdown:16,decay:0,stable:65,shape:"circle",color:"#06b6d4"},
+{step:16,name:"Niobium",sym:"Nb",role:"Superconducting support",stage:"Magnetic siphon",heat:42,cool:90,breakdown:7,decay:0,stable:90,shape:"diamond",color:"#7c3aed"},
+{step:17,name:"Titanium",sym:"Ti",role:"Structural frame",stage:"Structure",heat:52,cool:75,breakdown:6,decay:0,stable:88,shape:"diamond",color:"#6b7280"},
+{step:18,name:"Carbon",sym:"C",role:"Graphene / carbon composite / DLC",stage:"Structure",heat:50,cool:88,breakdown:5,decay:0,stable:92,shape:"diamond",color:"#111827"},
+{step:19,name:"Silicon",sym:"Si",role:"SiC ceramic / electronics",stage:"Structure",heat:48,cool:84,breakdown:6,decay:0,stable:90,shape:"diamond",color:"#78716c"},
+{step:20,name:"Aluminum",sym:"Al",role:"Alumina ceramic / thermal shell",stage:"Structure",heat:44,cool:82,breakdown:7,decay:0,stable:86,shape:"diamond",color:"#94a3b8"},
+{step:21,name:"Hafnium",sym:"Hf",role:"Carbide liner / thermal neutron control",stage:"Nozzle protection",heat:72,cool:80,breakdown:8,decay:0,stable:86,shape:"diamond",color:"#52525b"},
+{step:22,name:"Helium",sym:"He",role:"Cooling / fusion product / purge gas",stage:"Cooling",heat:30,cool:95,breakdown:3,decay:0,stable:95,shape:"circle",color:"#38bdf8"},
+{step:23,name:"Moscovium",sym:"Mc",role:"Element 115 theoretical pulse / decay module",stage:"Speculative curvature test",heat:98,cool:20,breakdown:95,decay:99,stable:1,shape:"square",color:"#ec4899"}
+];
+
+let index = 0;
+let running = false;
+let timer = null;
+let simStart = Date.now();
+let csvRows = [];
+
+function nowClocks(){
+ const now = new Date();
+ const utc = now.toISOString();
+ const elapsed = (Date.now() - simStart)/1000;
+ const cstFactor = parseFloat(document.getElementById("cstFactor").value || 0.75);
+ const cstMs = now.getTime() + elapsed * 0.000038 * 1000 * cstFactor;
+ const interstellarMs = now.getTime() + 24000*1000;
+ const voyager1Ms = now.getTime() - 86900*1000;
+ const voyager2Ms = now.getTime() - 72000*1000;
+ const atomic = (performance.now()/1000).toFixed(6) + " τ";
+ return {
+  utc,
+  cst:new Date(cstMs).toISOString(),
+  interstellar:new Date(interstellarMs).toISOString(),
+  atomic,
+  voyager1:new Date(voyager1Ms).toISOString(),
+  voyager2:new Date(voyager2Ms).toISOString()
+ };
+}
+
+function updateClockBox(){
+ const c = nowClocks();
+ document.getElementById("clockBox").innerHTML = `
+ <div class="reading"><span class="label">UTC:</span> ${c.utc}</div>
+ <div class="reading"><span class="label">CST:</span> ${c.cst}</div>
+ <div class="reading"><span class="label">Atomic Time:</span> ${c.atomic}</div>
+ <div class="reading"><span class="label">Interstellar:</span> ${c.interstellar}</div>
+ <div class="reading"><span class="label">Voyager 1:</span> ${c.voyager1}</div>
+ <div class="reading"><span class="label">Voyager 2:</span> ${c.voyager2}</div>`;
+}
+function stabilityText(e){
+ if(e.stable >= 80) return "Stable";
+ if(e.stable >= 50) return "Controlled";
+ if(e.sym === "Mc") return "Non-stable / theoretical";
+ return "Unstable";
+}
+
+function speedEffect(e){
+ const power = parseFloat(document.getElementById("powerMW").value || 120);
+ const B = parseFloat(document.getElementById("magT").value || 12);
+ const mcMode = document.getElementById("mcMode").value;
+ let base = (power * 0.0008) + (B * 0.02) + (e.stable * 0.01) - (e.breakdown * 0.008);
+ if(e.sym === "Mc"){
+   if(mcMode === "theory") base += 0.75;
+   else base -= 0.5;
+ }
+ return Math.max(0,base).toFixed(3) + " theoretical thrust-index";
+}
+
+function stageExplanation(e){
+ let between = "";
+ if(e.step === 1) between = "Nuclear heat begins the power chain.";
+ else if(e.step < 5) between = "Heat is moderated by shielding and neutron control.";
+ else if(e.step < 9) between = "Fusion support raises energy while blankets absorb and regulate particles.";
+ else if(e.step < 13) between = "Neutral gas becomes ionized plasma and is prepared for separation.";
+ else if(e.step < 16) between = "Charged and neutral particles are sorted by electromagnetic fields.";
+ else if(e.step < 22) between = "Superconductors, conductors, ceramics, and composites keep the engine stable.";
+ else if(e.step === 22) between = "Helium removes heat and clears the channel.";
+ else between = "Moscovium is treated only as a theoretical short pulse; it decays too fast for verified storage.";
+ return between;
+}
+
+function drawSim(){
+ const canvas = document.getElementById("simCanvas");
+ const ctx = canvas.getContext("2d");
+ ctx.clearRect(0,0,canvas.width,canvas.height);
+
+ ctx.strokeStyle="#1d4ed8";
+ ctx.lineWidth=3;
+ ctx.beginPath();
+ ctx.moveTo(40,180);
+ ctx.bezierCurveTo(180,40,780,40,960,180);
+ ctx.bezierCurveTo(780,320,180,320,40,180);
+ ctx.stroke();
+
+ for(let i=0;i<elements.length;i++){
+  const e = elements[i];
+  const x = 70 + i*(860/(elements.length-1));
+  const y = 180 + Math.sin((Date.now()/300)+i)*24;
+  const active = i === index;
+  ctx.fillStyle = e.color;
+  ctx.strokeStyle = active ? "#000" : "#64748b";
+  ctx.lineWidth = active ? 4 : 1;
+
+  if(e.shape==="circle"){
+   ctx.beginPath();ctx.arc(x,y, active?18:11,0,Math.PI*2);ctx.fill();ctx.stroke();
+  }else if(e.shape==="square"){
+   ctx.beginPath();ctx.rect(x-(active?16:10),y-(active?16:10),active?32:20,active?32:20);ctx.fill();ctx.stroke();
+  }else{
+   ctx.save();ctx.translate(x,y);ctx.rotate(Math.PI/4);
+   ctx.beginPath();ctx.rect(-(active?14:9),-(active?14:9),active?28:18,active?28:18);ctx.fill();ctx.stroke();
+   ctx.restore();
+  }
+
+  ctx.fillStyle="#111827";
+  ctx.font= active ? "bold 14px Arial" : "10px Arial";
+  ctx.fillText(e.sym,x-8,y+38);
+ }
+
+ const e = elements[index];
+ ctx.fillStyle="#111827";
+ ctx.font="bold 18px Arial";
+ ctx.fillText(`ACTIVE STEP ${e.step}: ${e.name} (${e.sym}) - ${e.stage}`,30,30);
+
+ ctx.fillStyle="#dc2626";
+ for(let p=0;p<18;p++){
+  const px = 120 + ((Date.now()/8 + p*47) % 760);
+  const py = 180 + Math.sin((Date.now()/180)+p)*55;
+  ctx.beginPath();ctx.arc(px,py,3,0,Math.PI*2);ctx.fill();
+ }
+
+ if(e.sym === "Mc"){
+  ctx.strokeStyle="#ec4899";
+  ctx.lineWidth=4;
+  ctx.beginPath();
+  ctx.arc(880,180,50+Math.sin(Date.now()/100)*10,0,Math.PI*2);
+  ctx.stroke();
+ }
+}
+
+function updateStage(){
+ const e = elements[index];
+ const c = nowClocks();
+ const stab = stabilityText(e);
+ const blinkClass = (e.sym==="Mc" || e.breakdown>80 || e.decay>80) ? "blink" : "";
+ document.getElementById("currentStage").innerHTML = `
+ <div class="stageTitle ${blinkClass}">Step ${e.step}: ${e.name} (${e.sym})</div>
+ <div><b>Stage:</b> ${e.stage}</div>
+ <div><b>Role:</b> ${e.role}</div>
+ <div><b>Between-step action:</b> ${stageExplanation(e)}</div>
+ <div><b>Heat:</b> ${e.heat}% | <b>Cooling:</b> ${e.cool}%</div>
+ <div><b>Breakdown:</b> ${e.breakdown}% | <b>Decay:</b> ${e.decay}%</div>
+ <div><b>Stability:</b> <span class="${stab.includes('Stable')?'stable':stab.includes('Non')?'unstable':'hot'}">${stab}</span></div>
+ <div><b>Current CST:</b> ${c.cst}</div>
+ <div><b>Atomic Time:</b> ${c.atomic}</div>
+ <div><b>Speed Effect:</b> ${speedEffect(e)}</div>`;
+}
+
+function buildStageList(){
+ const box = document.getElementById("stageList");
+ box.innerHTML = elements.map(e=>`
+ <div class="stageCard">
+  <div class="stageTitle">Step ${e.step}: ${e.name} (${e.sym})</div>
+  <div><b>Role:</b> ${e.role}</div>
+  <div><b>What happens next:</b> ${stageExplanation(e)}</div>
+  <div><b>Stability support:</b> ${stabilityText(e)}</div>
+ </div>`).join("");
+}
+
+function addTableRow(){
+ const e = elements[index];
+ const c = nowClocks();
+ const row = [
+  e.step,e.name,e.sym,e.role,e.heat+"%",e.cool+"%",e.breakdown+"%",
+  e.decay+"%",stabilityText(e),c.cst,c.atomic,speedEffect(e)
+ ];
+ csvRows.push(row);
+ const tr = document.createElement("tr");
+ tr.innerHTML = row.map(x=>`<td>${x}</td>`).join("");
+ document.querySelector("#dataTable tbody").appendChild(tr);
+}
+
+function stepSim(){
+ updateClockBox();
+ updateStage();
+ drawSim();
+ addTableRow();
+ index = (index + 1) % elements.length;
+}
+
+function startSim(){
+ if(running) return;
+ running = true;
+ timer = setInterval(stepSim,900);
+}
+
+function stopSim(){
+ running = false;
+ clearInterval(timer);
+ timer = null;
+}
+
+function resetSim(){
+ stopSim();
+ index = 0;
+ csvRows = [];
+ document.querySelector("#dataTable tbody").innerHTML = "";
+ simStart = Date.now();
+ updateClockBox();
+ updateStage();
+ drawSim();
+}
+
+function downloadCSV(){
+ const header = ["Step","Element","Symbol","Role","Heat","Cooling","Breakdown","Decay","Stability","CST","Atomic Time","Speed Effect"];
+ const rows = [header,...csvRows];
+ const csv = rows.map(r=>r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(",")).join("\n");
+ const blob = new Blob([csv],{type:"text/csv"});
+ const a = document.createElement("a");
+ a.href = URL.createObjectURL(blob);
+ a.download = "CST_Atomic_Order_Propulsion_Printout.csv";
+ a.click();
+}
+
+setInterval(()=>{updateClockBox();drawSim();},250);
+buildStageList();
+resetSim();
+</script>
+</body>
+</html>
