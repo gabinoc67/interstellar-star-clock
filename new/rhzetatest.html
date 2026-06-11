@@ -1,0 +1,288 @@
+function passTicket(nums,s){
+ const sorted=[...nums].sort((a,b)=>a-b);
+ const sum=sorted.reduce((a,b)=>a+b,0);
+ const range=sorted[4]-sorted[0];
+ const zc=zoneCounts(sorted);
+ const activeZones=zc.filter(x=>x>0).length;
+ const oe=oddEven(sorted);
+
+ if(sum<s.sumMin||sum>s.sumMax)return false;
+ if(range<8||range>34)return false;
+ if(zc.some(x=>x>s.maxSameZone))return false;
+ if(activeZones<s.minActiveZones)return false;
+ if(oe.odd===0||oe.even===0)return false;
+ return true;
+}
+
+function randomWeighted(pool,weights){
+ const list=pool.map(n=>({n,w:Math.max(.001,weights[n]||1)}));
+ let total=list.reduce((s,x)=>s+x.w,0);
+ let r=Math.random()*total;
+ for(const x of list){
+  r-=x.w;
+  if(r<=0)return x.n;
+ }
+ return list[list.length-1].n;
+}
+
+function makeCandidate(model){
+ const nums=[];
+ const weights={};
+ model.pool.forEach(n=>{
+  const s=model.scores[n];
+  weights[n]=s.total+5;
+ });
+
+ let guard=0;
+ while(nums.length<5&&guard++<100){
+  const n=randomWeighted(model.pool,weights);
+  if(!nums.includes(n))nums.push(n);
+ }
+ if(nums.length!==5)return null;
+ return nums.sort((a,b)=>a-b);
+}
+
+function ticketScore(nums,model,use){
+ let score=0;
+ nums.forEach((n,i)=>{
+  const s=model.scores[n];
+  score+=s.total;
+  if(s.bestPos===i+1)score+=8;
+  score+=Math.max(0,10-(use[n]||0))*2;
+ });
+
+ const dci=calculateDCI(nums);
+ const cls=dciClass(dci);
+ const zc=zoneCounts(nums);
+ const active=zc.filter(x=>x>0).length;
+ const oe=oddEven(nums);
+
+ if(cls==="Hybrid")score+=18;
+ if(cls==="Spread")score+=14;
+ if(cls==="Compressed")score+=6;
+ if(active>=4)score+=18;
+ if(active===5)score+=10;
+ if(oe.odd===2||oe.odd===3)score+=12;
+
+ return{score,dci,cls,active,pattern:`${oe.odd}/${oe.even}`};
+}
+
+function generateTickets(model,s){
+ const map=new Map();
+ const use=blank35();
+
+ for(let i=0;i<s.candidateAttempts;i++){
+  const nums=makeCandidate(model);
+  if(!nums)continue;
+  if(!passTicket(nums,s))continue;
+  const key=comboKey(nums);
+  if(map.has(key))continue;
+  const meta=ticketScore(nums,model,use);
+  map.set(key,{nums,key,...meta});
+ }
+
+ const ranked=[...map.values()].sort((a,b)=>b.score-a.score);
+ const selected=[];
+
+ for(const t of ranked){
+  if(selected.length>=s.ticketCount)break;
+  if(cloneBlocked(t.nums,selected,s.cloneLimit))continue;
+
+  let capBlock=false;
+  for(const n of t.nums){
+   if((use[n]||0)>=s.numberCap)capBlock=true;
+  }
+  if(capBlock)continue;
+
+  selected.push(t);
+  t.nums.forEach(n=>use[n]++);
+ }
+
+ let guard=0;
+ while(selected.length<s.ticketCount&&guard++<50000){
+  const nums=makeCandidate(model);
+  if(!nums||!passTicket(nums,s))continue;
+  const key=comboKey(nums);
+  if(selected.some(x=>x.key===key))continue;
+  if(cloneBlocked(nums,selected,s.cloneLimit))continue;
+
+  let capBlock=false;
+  for(const n of nums){
+   if((use[n]||0)>=s.numberCap)capBlock=true;
+  }
+  if(capBlock)continue;
+
+  const meta=ticketScore(nums,model,use);
+  const t={nums,key,...meta,fallback:true};
+  selected.push(t);
+  nums.forEach(n=>use[n]++);
+ }
+
+ return{selected,use};
+}
+
+function render(model,result,s){
+ const draws=model.draws.length;
+ const latest=model.latest.join(" ");
+ const top=model.scores.slice(1).sort((a,b)=>b.total-a.total).slice(0,10);
+
+ summary.innerHTML=`
+ <div class="card"><strong>Draws Loaded</strong>${draws}</div>
+ <div class="card"><strong>Latest Draw</strong>${latest}</div>
+ <div class="card"><strong>Pool Size</strong>${model.pool.length}</div>
+ <div class="card"><strong>Tickets Built</strong>${result.selected.length}</div>
+ <div class="card"><strong>Style</strong>${s.styleMode}</div>
+ `;
+
+ const dciCount={Compressed:0,Hybrid:0,Spread:0};
+ result.selected.forEach(t=>dciCount[t.cls]++);
+
+ analysisOut.textContent=
+`TOP 10 NUMBERS BY SCORE:
+${top.map((x,i)=>`${i+1}. ${x.n} | score ${x.total.toFixed(1)} | ${x.reason}`).join("\n")}
+
+20–30 NUMBER WORKING POOL:
+${model.pool.join(" - ")}
+
+DCI DISTRIBUTION:
+Compressed: ${dciCount.Compressed}
+Hybrid: ${dciCount.Hybrid}
+Spread: ${dciCount.Spread}
+
+NUMBER USE:
+${Object.entries(result.use).filter(([n,c])=>c>0).map(([n,c])=>`${n}:${c}`).join(", ")}
+
+NOTE:
+This engine combines the strongest useful ideas from both older programs:
+history frequency, recent pressure, gap pressure, PSI position strength, transition triggers, DCI spread balance, zone balance, clone control, and number-use caps.`;
+
+ ticketOut.innerHTML="";
+ PLAIN_TEXT=`CASH 5 SIMPLE 40 TICKETS\nLatest Draw: ${latest}\nPool: ${model.pool.join(" ")}\n\n`;
+
+ result.selected.forEach((t,i)=>{
+  const div=document.createElement("div");
+  div.className="ticket";
+  div.innerHTML=`
+   <div class="ticketTitle">
+    <strong>Ticket ${String(i+1).padStart(2,"0")}</strong>
+    <span class="tag">${t.cls} | DCI ${t.dci.toFixed(2)}</span>
+    <span class="tag">Score ${t.score.toFixed(1)}</span>
+   </div>
+   <div class="balls">
+    ${t.nums.map(n=>`<span class="ball">${n}</span>`).join("")}
+   </div>
+   <div class="why">
+    Pattern: ${t.pattern} | Zones: ${zoneCounts(t.nums).join("-")}<br>
+    Why: ${t.nums.map(n=>`${n}: ${model.scores[n].reason}`).join(" | ")}
+   </div>
+  `;
+  ticketOut.appendChild(div);
+  PLAIN_TEXT+=`Ticket ${String(i+1).padStart(2,"0")}: ${t.nums.join(" ")} | ${t.cls} | DCI ${t.dci.toFixed(2)} | Score ${t.score.toFixed(1)}\n`;
+ });
+
+ plainOut.textContent=PLAIN_TEXT;
+
+ let html=`<table><tr>
+ <th>#</th><th>Score</th><th>All</th><th>Recent</th><th>Gap</th><th>PSI</th><th>Best Pos</th><th>Trans 3</th><th>Trans 5</th><th>Trans 10</th><th>Latest?</th><th>Reason</th>
+ </tr>`;
+ for(let n=1;n<=35;n++){
+  const x=model.scores[n];
+  html+=`<tr>
+   <td><strong>${n}</strong></td>
+   <td>${x.total.toFixed(1)}</td>
+   <td>${x.freqAll}</td>
+   <td>${x.freqRecent}</td>
+   <td>${x.gap===999?"Never":x.gap}</td>
+   <td>${(x.psi*100).toFixed(1)}%</td>
+   <td>P${x.bestPos}</td>
+   <td>${x.trans3}</td>
+   <td>${x.trans5}</td>
+   <td>${x.trans10}</td>
+   <td>${x.latest?"Yes":"No"}</td>
+   <td>${x.reason}</td>
+  </tr>`;
+ }
+ html+=`</table>`;
+ tableOut.innerHTML=html;
+}
+
+function runEngine(){
+ const s=settings();
+ const latest=numsFromLine(latestDraw.value);
+ if(latest.length!==5){
+  alert("Enter exactly 5 latest draw numbers.");
+  return;
+ }
+
+ const draws=parseHistory(history.value);
+ if(draws.length<30){
+  alert("Paste at least 30 valid draws. More history is better.");
+  return;
+ }
+
+ MODEL=analyze(draws,latest,s);
+ const result=generateTickets(MODEL,s);
+ TICKETS=result.selected;
+ render(MODEL,result,s);
+}
+
+function copyTickets(){
+ if(!PLAIN_TEXT.trim()){
+  alert("Generate tickets first.");
+  return;
+ }
+ navigator.clipboard.writeText(PLAIN_TEXT);
+ alert("Tickets copied.");
+}
+
+function downloadCSV(){
+ if(!TICKETS.length){
+  alert("Generate tickets first.");
+  return;
+ }
+
+ const rows=[];
+ rows.push(["Ticket","N1","N2","N3","N4","N5","Score","DCI","Class","Pattern"]);
+ TICKETS.forEach((t,i)=>{
+  rows.push([i+1,t.nums[0],t.nums[1],t.nums[2],t.nums[3],t.nums[4],t.score.toFixed(1),t.dci.toFixed(2),t.cls,t.pattern]);
+ });
+
+ rows.push([]);
+ rows.push(["Number","Score","All Count","Recent Count","Gap","PSI","Best Position","Transition 3","Transition 5","Transition 10","Reason"]);
+ for(let n=1;n<=35;n++){
+  const x=MODEL.scores[n];
+  rows.push([n,x.total.toFixed(1),x.freqAll,x.freqRecent,x.gap===999?"Never":x.gap,(x.psi*100).toFixed(1)+"%","P"+x.bestPos,x.trans3,x.trans5,x.trans10,x.reason]);
+ }
+
+ const csv=rows.map(r=>r.map(v=>{
+  const text=String(v??"");
+  return /[",\n]/.test(text)?`"${text.replace(/"/g,'""')}"`:text;
+ }).join(",")).join("\n");
+
+ const blob=new Blob([csv],{type:"text/csv;charset=utf-8"});
+ const url=URL.createObjectURL(blob);
+ const a=document.createElement("a");
+ a.href=url;
+ a.download="cash5_simple_40_ticket_engine.csv";
+ document.body.appendChild(a);
+ a.click();
+ a.remove();
+ URL.revokeObjectURL(url);
+}
+
+function clearAll(){
+ latestDraw.value="";
+ history.value="";
+ summary.innerHTML="";
+ analysisOut.textContent="";
+ ticketOut.innerHTML="";
+ plainOut.textContent="";
+ tableOut.innerHTML="";
+ MODEL=null;
+ TICKETS=[];
+ PLAIN_TEXT="";
+}
+</script>
+</main>
+</body>
+</html>
