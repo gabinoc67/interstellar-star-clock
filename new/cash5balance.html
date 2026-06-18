@@ -74,7 +74,7 @@ main{max-width:none;padding:0}.panel{box-shadow:none;border:0}
 <header>
 <h1>Cash 5 Adaptive Pair Gap Cooling Engine</h1>
 <p class="sub">
-Closest rebuilt version: 100-draw frequency, row independence, pair strength, gap pressure, cooling penalty, and 40-ticket wheel.
+Best setup: paste 150 draws, use last 100 draws, recent window 20, pool size 20, tickets 40.
 </p>
 </header>
 
@@ -84,12 +84,17 @@ Closest rebuilt version: 100-draw frequency, row independence, pair strength, ga
 <div class="panel input">
 <h2>Step 1: Paste Cash 5 History</h2>
 
-<textarea id="hist" spellcheck="false" placeholder="Paste full Cash 5 CSV/history here.
-Example:
-Cash Five,10,13,1995,26,1,22,23,35
-Cash Five,10,17,1995,9,18,30,20,6
+<textarea id="hist" spellcheck="false" placeholder="Paste at least 100 past Cash 5 draws.
 
-The program will read the last 5 numbers on every line."></textarea>
+Best:
+Paste 150 draws.
+
+Each line can be plain numbers:
+10 30 22 3 18
+29 35 10 32 23
+19 9 6 32 23
+
+CSV also works because the program reads the last 5 numbers on each line."></textarea>
 
 <div class="row">
 <button class="good" onclick="run()">Generate 40 Tickets</button>
@@ -98,7 +103,12 @@ The program will read the last 5 numbers on every line."></textarea>
 </div>
 
 <div class="note">
-<strong>Important:</strong> This does not predict or guarantee lottery results. It only rebuilds your strongest pattern engine: pair strength + gap pressure + cooling + row balance.
+<strong>Selection order:</strong><br>
+1. Pair-strength numbers<br>
+2. Gap-pressure numbers<br>
+3. Natural stability numbers<br>
+4. Hot numbers<br>
+5. Backup score numbers
 </div>
 </div>
 
@@ -114,7 +124,7 @@ The program will read the last 5 numbers on every line."></textarea>
 <div><label>Hot Count</label><input id="hotN" type="number" value="10" min="3" max="20"></div>
 <div><label>Cold Count</label><input id="coldN" type="number" value="10" min="3" max="20"></div>
 <div><label>Pool Size</label><input id="poolSize" type="number" value="20" min="10" max="30"></div>
-<div><label>Unique Attempts</label><input id="attempts" type="number" value="50000" min="1000" max="200000"></div>
+<div><label>Unique Attempts</label><input id="attempts" type="number" value="80000" min="1000" max="200000"></div>
 
 <div><label>Frequency Weight</label><input id="freqW" type="number" value="8" min="0" max="50"></div>
 <div><label>Recent Weight</label><input id="recentW" type="number" value="5" min="0" max="50"></div>
@@ -172,7 +182,7 @@ Formula: Score = Frequency + Recent Trend + Gap Pressure + Pair Strength + Row S
 <section class="panel" style="margin-top:18px">
 <h2 class="buy">Step 4: Buy These 40 Tickets</h2>
 <p class="sub" style="text-align:center;margin-bottom:16px">
-Generated from the 20-number adaptive pool using pair-gap-cooling balance.
+Generated from the adaptive pool using pair strength, gap pressure, natural stability, hot numbers, and backup scoring.
 </p>
 <div id="ticketOut" class="tickets"></div>
 <div id="plainOut" class="out"></div>
@@ -191,7 +201,7 @@ function settings(){
   hot:+hotN.value||10,
   cold:+coldN.value||10,
   poolSize:+poolSize.value||20,
-  attempts:+attempts.value||50000,
+  attempts:+attempts.value||80000,
   freqW:+freqW.value||8,
   recentW:+recentW.value||5,
   gapW:+gapW.value||4,
@@ -260,6 +270,7 @@ function oddEvenOK(ticket,s){
  if(s.oeMode==="any")return true;
  if(s.oeMode==="23")return odd===2&&even===3;
  if(s.oeMode==="32")return odd===3&&even===2;
+
  return (odd===2&&even===3)||(odd===3&&even===2);
 }
 
@@ -348,15 +359,14 @@ function buildModel(allDraws,s){
 
  const scores=[];
  for(let n=1;n<=s.max;n++){
-  const rowTotal=rowFreq.reduce((a,r)=>a+(r[n]||0),0);
   const rowBest=Math.max(...rowFreq.map(r=>r[n]||0));
+
   const pairStrength=Object.entries(pairFreq)
    .filter(([k,v])=>k.split("-").map(Number).includes(n))
    .reduce((a,[k,v])=>a+v,0);
 
   const gap=lastSeen[n]===999 ? draws.length : lastSeen[n];
   const cooling=overuse[n]>=s.overLimit;
-
   const g=globalMap[n]||{group:"Warm",count:0};
 
   const score =
@@ -377,7 +387,8 @@ function buildModel(allDraws,s){
    rowBest,
    group:g.group,
    cooling,
-   score
+   score,
+   source:""
   });
  }
 
@@ -386,8 +397,14 @@ function buildModel(allDraws,s){
  return{draws,recent,freq,recentFreq,rowFreq,pairFreq,lastSeen,overuse,globalRows,scores};
 }
 
+function markSource(model,n,source){
+ const item=model.scores.find(x=>x.n===n);
+ if(item && !item.source)item.source=source;
+}
+
 function buildPool(model,s){
  const sorted=model.scores;
+
  const pairNums=sorted.filter(x=>x.pairStrength>0&&!x.cooling).map(x=>x.n);
  const pressure=sorted.filter(x=>x.gap>=8&&!x.cooling).map(x=>x.n);
  const natural=sorted.filter(x=>x.freq>0&&!x.cooling).map(x=>x.n);
@@ -396,28 +413,46 @@ function buildPool(model,s){
 
  const selected=[];
 
- function add(list,limit){
+ function add(list,limit,source){
   for(const n of list){
    if(selected.length>=limit)break;
-   if(!selected.includes(n))selected.push(n);
+   if(!selected.includes(n)){
+    selected.push(n);
+    markSource(model,n,source);
+   }
   }
  }
 
- add(pairNums,8);
- add(pressure,12);
- add(natural,16);
- add(hot,18);
- add(backup,s.poolSize);
+ add(pairNums,8,"1 Pair Strength");
+ add(pressure,12,"2 Gap Pressure");
+ add(natural,16,"3 Natural Stability");
+ add(hot,18,"4 Hot Number");
+ add(backup,s.poolSize,"5 Backup Score");
 
  return selected.slice(0,s.poolSize).sort((a,b)=>a-b);
 }
 
 function getScore(model,n){
- return model.scores.find(x=>x.n===n)||{score:1,group:"Warm",cooling:false};
+ return model.scores.find(x=>x.n===n)||{score:1,group:"Warm",cooling:false,source:"Backup"};
+}
+
+function weightedFromList(list,weightFn){
+ if(!list.length)return null;
+ let total=list.reduce((a,x)=>a+Math.max(1,weightFn(x)),0);
+ let r=Math.random()*total;
+
+ for(const x of list){
+  r-=Math.max(1,weightFn(x));
+  if(r<=0)return x;
+ }
+
+ return list[list.length-1];
 }
 
 function weightedPick(pool,model,used,preferPairWith=null){
  let list=pool.filter(n=>!used.has(n));
+ if(!list.length)return null;
+
  if(preferPairWith){
   list=list.sort((a,b)=>{
    const pa=model.pairFreq[pairKey(a,preferPairWith)]||0;
@@ -427,43 +462,41 @@ function weightedPick(pool,model,used,preferPairWith=null){
  }
 
  const top=list.slice(0,18);
- if(!top.length)return null;
-
- let total=top.reduce((sum,n)=>sum+Math.max(1,getScore(model,n).score),0);
- let r=Math.random()*total;
-
- for(const n of top){
-  r-=Math.max(1,getScore(model,n).score);
-  if(r<=0)return n;
- }
-
- return top[top.length-1];
+ return weightedFromList(top,n=>getScore(model,n).score);
 }
 
-function bestPairSeed(pool,model){
- let best=null;
- let bestVal=-1;
+function choosePairSeed(pool,model){
+ const pairs=[];
 
  for(let i=0;i<pool.length;i++){
   for(let j=i+1;j<pool.length;j++){
    const a=pool[i],b=pool[j];
-   const val=model.pairFreq[pairKey(a,b)]||0;
-   if(val>bestVal){
-    bestVal=val;
-    best=[a,b];
-   }
+   const pf=model.pairFreq[pairKey(a,b)]||0;
+   const score=getScore(model,a).score+getScore(model,b).score+(pf*20);
+   pairs.push({a,b,pf,score});
   }
  }
 
- return best||[pool[0],pool[1]];
+ pairs.sort((x,y)=>y.score-x.score);
+ const top=pairs.slice(0,30);
+
+ const picked=weightedFromList(top,x=>x.score);
+ if(!picked)return [pool[0],pool[1]];
+
+ return [picked.a,picked.b];
 }
  function makeTicket(pool,model,s,mode){
  const used=new Set();
  let ticket=[];
 
  if(mode==="pair"){
-  const seed=bestPairSeed(pool,model);
-  seed.forEach(n=>{used.add(n);ticket.push(n)});
+  const seed=choosePairSeed(pool,model);
+  seed.forEach(n=>{
+   if(!used.has(n)){
+    used.add(n);
+    ticket.push(n);
+   }
+  });
  }
 
  while(ticket.length<5){
@@ -529,7 +562,7 @@ function run(){
  const parsed=parseHistory(hist.value,s.max);
 
  if(parsed.all.length<20){
-  showErr("Paste at least 20 valid Cash 5 draw rows.");
+  showErr("Paste at least 20 valid Cash 5 draw rows. Best is 150 rows.");
   return;
  }
 
@@ -538,7 +571,7 @@ function run(){
  const selected=generateTickets(pool,model,s);
 
  if(!selected.length){
-  showErr("No tickets generated. Try Odd/Even Target = Any or increase attempts.");
+  showErr("No tickets generated. Try Odd/Even Target = Any, increase attempts, or lower Max Same Zone.");
   return;
  }
 
@@ -558,7 +591,6 @@ function cls(group,cooling){
 }
 
 function renderSummary(r){
- const s=r.settings;
  const model=r.model;
  const pool=r.pool;
 
@@ -569,14 +601,19 @@ function renderSummary(r){
 
  summary.innerHTML=`
  <div class="card"><strong>Draw Rows Loaded</strong>${r.parsed.all.length}<div class="small">Using last ${model.draws.length}</div></div>
- <div class="card"><strong>20-Number Pool</strong>${pool.join(" - ")}<div class="small">Pair + gap + cooling</div></div>
- <div class="card"><strong>Top Hot</strong>${hot}<div class="small">Highest frequency</div></div>
- <div class="card"><strong>Top Gap</strong>${gap}<div class="small">Overdue pressure</div></div>
+ <div class="card"><strong>20-Number Pool</strong>${pool.join(" - ")}<div class="small">Selection order applied</div></div>
+ <div class="card"><strong>Top Pair Strength</strong>${pair}<div class="small">Strong pair numbers</div></div>
+ <div class="card"><strong>Top Gap Pressure</strong>${gap}<div class="small">Overdue pressure</div></div>
  <div class="card"><strong>Cooling</strong>${cooling}<div class="small">Recent overuse penalty</div></div>`;
 }
 
 function renderPool(r){
  poolOut.classList.remove("hidden");
+ const lines=r.pool.map(n=>{
+  const s=getScore(r.model,n);
+  return `${n}: ${s.source || "5 Backup Score"} | score ${s.score.toFixed(1)} | freq ${s.freq} | recent ${s.recent} | gap ${s.gap} | pair ${s.pairStrength}`;
+ }).join("\n");
+
  poolOut.textContent=`ADAPTIVE 20-NUMBER POOL
 
 ${r.pool.join(" - ")}
@@ -588,7 +625,8 @@ Selection order:
 4. Hot numbers
 5. Backup score numbers
 
-Cooling penalty removes or lowers overused recent numbers.`;
+Pool details:
+${lines}`;
 }
 
 function renderScores(r){
@@ -596,7 +634,7 @@ function renderScores(r){
 
  let html=`<table>
  <tr>
- <th>Rank</th><th>Number</th><th>Score</th><th>100 Freq</th><th>Recent</th><th>Gap</th>
+ <th>Rank</th><th>Number</th><th>Pool Source</th><th>Score</th><th>100 Freq</th><th>Recent</th><th>Gap</th>
  <th>Pair Strength</th><th>Row Best</th><th>Group</th><th>Cooling</th>
  </tr>`;
 
@@ -604,6 +642,7 @@ function renderScores(r){
   html+=`<tr>
   <td>${i+1}</td>
   <td><strong>${x.n}</strong></td>
+  <td>${x.source||""}</td>
   <td>${x.score.toFixed(1)}</td>
   <td>${x.freq}</td>
   <td>${x.recent}</td>
@@ -623,6 +662,13 @@ function renderMath(r){
  mathOut.classList.remove("hidden");
  mathOut.textContent=`CALCULATION / EQUATION / ALGORITHM
 
+Recommended setup:
+Paste 150 draws.
+Use Last Draws = 100
+Recent Window = 20
+Pool Size = 20
+Tickets = 40
+
 Main score:
 Score = Frequency + Recent Trend + Gap Pressure + Pair Strength + Row Stability - Cooling Penalty
 
@@ -636,24 +682,27 @@ Score =
 + Hot/Warm/Cold Bonus
 - Cooling Penalty
 
-Group bonus:
-Hot = 30
-Warm = 15
-Cold = 5
-
-Cooling:
-If a number appears too much in the recent window, it receives a penalty.
+Selection order:
+1. Pair-strength numbers up to 8
+2. Gap-pressure numbers up to 12
+3. Natural stability numbers up to 16
+4. Hot numbers up to 18
+5. Backup score numbers until pool size is complete
 
 Ticket generation:
+Hybrid mode creates:
 First half = No-Pair Mode
 Second half = Pair-Mix Mode
 
-Blocked patterns:
+Blocked:
 - Duplicate tickets
 - Tickets sharing 4 of 5 numbers
 - 3-number consecutive runs
 - Too many numbers in one zone
-- Wrong odd/even balance`;
+- Wrong odd/even balance
+
+Theory note:
+This program does not guarantee winning results. It only creates structured coverage based on past draw frequency, pair pressure, gap pressure, and cooling.`;
 }
 
 function renderTickets(r){
@@ -674,7 +723,7 @@ function renderTickets(r){
 
   const details=display.map(n=>{
    const s=getScore(r.model,n);
-   return `${n}: score=${s.score.toFixed(1)}, freq=${s.freq}, recent=${s.recent}, gap=${s.gap}, pair=${s.pairStrength}, ${s.group}${s.cooling?" COOLING":""}`;
+   return `${n}: ${s.source || "Backup"} | score=${s.score.toFixed(1)}, freq=${s.freq}, recent=${s.recent}, gap=${s.gap}, pair=${s.pairStrength}, ${s.group}${s.cooling?" COOLING":""}`;
   }).join("<br>");
 
   const div=document.createElement("div");
@@ -712,7 +761,7 @@ function downloadXls(){
   const display=REPORT.settings.sortLine==="yes"?sorted:x.ticket;
   const details=display.map(n=>{
    const s=getScore(REPORT.model,n);
-   return `${n}:score=${s.score.toFixed(1)} freq=${s.freq} recent=${s.recent} gap=${s.gap} pair=${s.pairStrength} ${s.group}${s.cooling?" cooling":""}`;
+   return `${n}:${s.source||"Backup"} score=${s.score.toFixed(1)} freq=${s.freq} recent=${s.recent} gap=${s.gap} pair=${s.pairStrength} ${s.group}${s.cooling?" cooling":""}`;
   }).join(" | ");
 
   html+=`<tr>
@@ -726,11 +775,11 @@ function downloadXls(){
  });
 
  html+=`</table><br><table border="1">
- <tr><th>Rank</th><th>Number</th><th>Score</th><th>Freq</th><th>Recent</th><th>Gap</th><th>Pair</th><th>Row Best</th><th>Group</th><th>Cooling</th></tr>`;
+ <tr><th>Rank</th><th>Number</th><th>Pool Source</th><th>Score</th><th>Freq</th><th>Recent</th><th>Gap</th><th>Pair</th><th>Row Best</th><th>Group</th><th>Cooling</th></tr>`;
 
  REPORT.model.scores.forEach((x,i)=>{
   html+=`<tr>
-  <td>${i+1}</td><td>${x.n}</td><td>${x.score.toFixed(1)}</td><td>${x.freq}</td><td>${x.recent}</td><td>${x.gap}</td><td>${x.pairStrength}</td><td>${x.rowBest}</td><td>${x.group}</td><td>${x.cooling?"YES":"NO"}</td>
+  <td>${i+1}</td><td>${x.n}</td><td>${x.source||""}</td><td>${x.score.toFixed(1)}</td><td>${x.freq}</td><td>${x.recent}</td><td>${x.gap}</td><td>${x.pairStrength}</td><td>${x.rowBest}</td><td>${x.group}</td><td>${x.cooling?"YES":"NO"}</td>
   </tr>`;
  });
 
