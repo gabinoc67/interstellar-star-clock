@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Cash 5 MBI Matrix Engine Lite</title>
+<style>
+:root{
+--bg:#fff;--p:#f7f9fc;--p2:#eef3f9;--t:#172033;--m:#5c6b82;
+--b:#cfd8e6;--a:#174ea6;--g:#0b6e4f;--v:#403899;--r:#9b1c1c;
+--sh:0 8px 22px rgba(20,40,80,.12)
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--t);font-family:Arial,Helvetica,sans-serif;line-height:1.45}
+header{padding:22px 18px;text-align:center;border-bottom:1px solid var(--b)}
+h1{margin:0;font-size:clamp(22px,3vw,34px)}
+header p{margin:8px auto 0;max-width:1000px;color:var(--m)}
+main{max-width:1200px;margin:0 auto;padding:18px}
+.card{background:#fff;border:1px solid var(--b);border-radius:14px;box-shadow:var(--sh);padding:16px;margin:0 0 16px}
+textarea{width:100%;resize:vertical;border:1px solid var(--b);border-radius:12px;padding:12px;font-family:Consolas,monospace;font-size:14px}
+#dataInput{min-height:260px}
+#testInput{min-height:95px}
+.button-row{display:flex;gap:12px;flex-wrap:wrap;margin-top:12px}
+button{border:0;border-radius:12px;padding:13px 18px;font-weight:bold;cursor:pointer;color:#fff;background:var(--a)}
+button:nth-child(2){background:var(--g)}
+button:nth-child(3){background:var(--v)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+.stat{background:var(--p);border:1px solid var(--b);border-radius:12px;padding:12px}
+.small{font-size:13px;color:var(--m)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{border:1px solid var(--b);padding:6px;text-align:center}
+th{background:var(--p2)}
+.section-title{margin:0 0 10px;font-size:20px}
+.ticket-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:10px}
+.ticket{border:1px solid var(--b);border-radius:12px;background:var(--p);padding:10px}
+.nums{font-size:20px;font-weight:bold;letter-spacing:1px}
+.tag{display:inline-block;margin-top:5px;padding:3px 7px;border-radius:999px;background:#e7eefc;color:#174ea6;font-size:12px}
+.warning{background:#fff8e6;border:1px solid #ecd28a;color:#5e4200}
+.good{background:#eaf8f1;border:1px solid #b7e3cc;color:#0b6e4f}
+.bad{background:#fff0f0;border:1px solid #efb6b6;color:#9b1c1c}
+.scroll{overflow:auto;max-height:380px;border:1px solid var(--b);border-radius:12px}
+#printArea{display:none}
+@media print{
+body *{visibility:hidden}
+#printArea,#printArea *{visibility:visible}
+#printArea{display:block;position:absolute;left:0;top:0;width:100%;padding:20px}
+.no-print{display:none!important}
+}
+</style>
+</head>
+<body>
+<header>
+<h1>Cash 5 MBI Matrix Engine Lite</h1>
+<p>Cash 5 numbers 1–35. Uses matrix counts, delay/time ratio, entropy, Machine Bias Index, 3 test draws, pair memory, and mixed ticket generation.</p>
+</header>
+
+<main>
+<section class="card no-print">
+<h2 class="section-title">Paste Cash 5 Draw History</h2>
+<p class="small">Paste one draw per line. Dates are okay. The program extracts the last five valid numbers 1–35.</p>
+<textarea id="dataInput" placeholder="09/20/2018, 3, 9, 18, 19, 35"></textarea>
+
+<h2 class="section-title">Optional: Paste 3 Machine Test Draws</h2>
+<textarea id="testInput" placeholder="Test 1: 2, 7, 14, 23, 30
+Test 2: 1, 9, 18, 21, 35
+Test 3: 4, 10, 19, 24, 34"></textarea>
+
+<div class="button-row">
+<button onclick="analyzeMatrix()">1. Analyze Matrix</button>
+<button onclick="generateTickets()">2. Generate Next Possible 40 Tickets</button>
+<button onclick="printTickets()">3. Print Generated Numbers</button>
+</div>
+</section>
+
+<section id="messageBox" class="card warning no-print">Paste your draw history, then click <b>Analyze Matrix</b>.</section>
+<section id="summaryBox" class="card no-print"></section>
+<section id="matrixBox" class="card no-print"></section>
+<section id="ticketBox" class="card no-print"></section>
+<section id="printArea"></section>
+</main>
+
+<script>
+const MIN=1,MAX=35,TICKET_COUNT=40;
+let ENGINE={draws:[],tests:[],analysis:null,tickets:[]};
+
+function factorial(n){let v=1;for(let i=2;i<=n;i++)v*=i;return v}
+function combination(n,k){return factorial(n)/(factorial(k)*factorial(n-k))}
+const TOTAL_COMBINATIONS=combination(35,5);
+
+function avg(a){return a.length?a.reduce((x,y)=>x+y,0)/a.length:0}
+function variance(a){if(a.length<2)return 0;let m=avg(a);return avg(a.map(x=>(x-m)*(x-m)))}
+function clamp(x,a,b){return Math.max(a,Math.min(b,x))}
+function norm(v,min,max){return max===min?0:clamp((v-min)/(max-min),0,1)}
+function pairKey(a,b){return a<b?a+"-"+b:b+"-"+a}
+function triKey(a,b,c){let x=[a,b,c].sort((p,q)=>p-q);return x.join("-")}
+function setMsg(t,type="warning"){let b=document.getElementById("messageBox");b.className="card no-print "+type;b.innerHTML=t}
+function parseBox(id){
+const raw=document.getElementById(id).value.trim();
+if(!raw)return [];
+const lines=raw.split(/\n+/).map(x=>x.trim()).filter(Boolean);
+const draws=[];
+for(const line of lines){
+let nums=line.split(/[^0-9]+/).filter(Boolean).map(Number).filter(n=>n>=MIN&&n<=MAX);
+if(nums.length>=5){
+let d=[...new Set(nums.slice(-5))];
+if(d.length===5)draws.push(d.sort((a,b)=>a-b));
+}
+}
+return draws;
+}
+
+function analyzeMatrix(){
+const draws=parseBox("dataInput");
+let tests=parseBox("testInput");
+if(draws.length<20){setMsg("Need at least 20 valid Cash 5 drawings.","bad");return}
+if(!tests.length)tests=draws.slice(-3);
+tests=tests.slice(-3);
+
+const total=draws.length;
+const recentWindow=Math.min(60,total);
+const freq=Array(36).fill(0);
+const recent=Array(36).fill(0);
+const lastSeen=Array(36).fill(-1);
+const gaps=Array.from({length:36},()=>[]);
+const pos=Array.from({length:36},()=>[0,0,0,0,0]);
+const pairMatrix=Array.from({length:36},()=>Array(36).fill(0));
+const transition=Array.from({length:36},()=>Array(36).fill(0));
+const pairCounts={};
+const tripleCounts={};
+
+for(let i=0;i<total;i++){
+const d=draws[i];
+
+for(let p=0;p<5;p++){
+const n=d[p];
+freq[n]++;
+if(i>=total-recentWindow)recent[n]++;
+pos[n][p]++;
+if(lastSeen[n]>=0)gaps[n].push(i-lastSeen[n]);
+lastSeen[n]=i;
+}
+
+for(let a=0;a<5;a++){
+for(let b=a+1;b<5;b++){
+const x=d[a],y=d[b],k=pairKey(x,y);
+pairMatrix[x][y]++;pairMatrix[y][x]++;
+pairCounts[k]=(pairCounts[k]||0)+1;
+}
+}
+
+for(let a=0;a<5;a++){
+for(let b=a+1;b<5;b++){
+for(let c=b+1;c<5;c++){
+const k=triKey(d[a],d[b],d[c]);
+tripleCounts[k]=(tripleCounts[k]||0)+1;
+}
+}
+}
+
+if(i>0){
+const prev=draws[i-1];
+for(const a of prev)for(const b of d)transition[a][b]++;
+}
+}
+
+const testFreq=Array(36).fill(0);
+const testPair={};
+const testTriple={};
+
+for(const d of tests){
+for(const n of d)testFreq[n]++;
+for(let a=0;a<5;a++){
+for(let b=a+1;b<5;b++)testPair[pairKey(d[a],d[b])]=1;
+}
+for(let a=0;a<5;a++){
+for(let b=a+1;b<5;b++){
+for(let c=b+1;c<5;c++)testTriple[triKey(d[a],d[b],d[c])]=1;
+}
+}
+}
+
+const avgFreq=(total*5)/35;
+const lastDraw=draws[total-1];
+const rows=[];
+const byNum={};
+
+for(let n=1;n<=35;n++){
+const delay=lastSeen[n]===-1?total:total-1-lastSeen[n];
+const averageGap=gaps[n].length?avg(gaps[n]):total;
+const gapStd=Math.sqrt(variance(gaps[n]));
+const entropy=calcEntropy(gaps[n],averageGap);
+const chaosRatio=norm(gapStd/(averageGap+1),0,1.8);
+const stabilityRatio=1-chaosRatio;
+const chaosLabel=chaosRatio<.33?"Stable":chaosRatio<.66?"Mixed":"Chaotic";
+
+const hotRatio=freq[n]/avgFreq;
+const recentRatio=(recent[n]/recentWindow)/(5/35);
+const timeRatio=(delay+1)/(averageGap+1);
+const testRatio=Math.min(testFreq[n]/3,1);
+const pairStrength=Math.min(calcPairStrength(n,pairMatrix,total),.75);
+const tripleStrength=Math.min(calcTripleStrength(n,tripleCounts,total),.55);
+const transitionRatio=Math.min(calcTransitionRatio(n,lastDraw,transition,total),.45);
+
+const posMax=Math.max(...pos[n]);
+const posRatio=freq[n]?posMax/freq[n]:0;
+const factorialWeight=(freq[n]/(total*5))/(1/35);
+
+const mbi=
+.28*(hotRatio-1)+
+.18*(recentRatio-1)+
+.20*(timeRatio-1)+
+.12*(pairStrength-.18)+
+.08*(tripleStrength-.10)+
+.08*(transitionRatio-.05)+
+.06*(testRatio-.14);
+
+const mbiLabel=mbi>.16?"Positive MBI":mbi<-.10?"Negative MBI":"Near-Zero MBI";
+
+const score=
+.15*norm(hotRatio,0,2.2)+
+.10*norm(recentRatio,0,2.4)+
+.14*norm(timeRatio,0,3.5)+
+.10*norm(pairStrength,0,.75)+
+.06*norm(tripleStrength,0,.55)+
+.06*norm(transitionRatio,0,.45)+
+.07*norm(posRatio,.15,.45)+
+.06*norm(factorialWeight,0,2.2)+
+.08*stabilityRatio+
+.08*chaosRatio+
+.10*norm(testRatio,0,1);
+
+const row={n,A:pos[n][0],B:pos[n][1],C:pos[n][2],D:pos[n][3],E:pos[n][4],
+total:freq[n],recent:recent[n],delay,averageGap,entropy,chaosRatio,chaosLabel,
+hotRatio,recentRatio,timeRatio,pairStrength,tripleStrength,transitionRatio,testRatio,
+factorialWeight,mbi,mbiLabel,score,finalProb:0,rank:0};
+rows.push(row);
+byNum[n]=row;
+}
+
+rows.sort((a,b)=>b.score-a.score);
+const sum=rows.reduce((s,r)=>s+r.score,0);
+rows.forEach((r,i)=>{r.rank=i+1;r.finalProb=sum?r.score/sum:0});
+
+const positive=rows.filter(x=>x.mbiLabel==="Positive MBI");
+const zero=rows.filter(x=>x.mbiLabel==="Near-Zero MBI");
+const negative=rows.filter(x=>x.mbiLabel==="Negative MBI");
+const hot=rows.slice(0,15);
+const hotTop=hot.slice(0,8);
+const hotBottom=hot.slice(8,15);
+const warm=rows.slice(15,27);
+const cold=rows.slice(27);
+const recovery=[...rows].sort((a,b)=>b.timeRatio-a.timeRatio).slice(0,12);
+const stable=rows.filter(x=>x.chaosLabel==="Stable");
+const chaotic=rows.filter(x=>x.chaosLabel==="Chaotic");
+
+const topPairs=Object.entries(pairCounts)
+.map(([key,count])=>{
+const parts=key.split("-").map(Number);
+const boost=testPair[key]?0.12:0;
+return{key,a:parts[0],b:parts[1],count,score:Math.min(count/total+boost,.75)};
+})
+.sort((a,b)=>b.score-a.score).slice(0,40);
+
+const topTriples=Object.entries(tripleCounts)
+.map(([key,count])=>{
+const nums=key.split("-").map(Number);
+const boost=testTriple[key]?0.10:0;
+return{key,nums,count,score:Math.min(count/total+boost,.55)};
+})
+.sort((a,b)=>b.score-a.score).slice(0,25);
+
+ENGINE={draws,tests,analysis:{total,rows,byNum,positive,zero,negative,hotTop,hotBottom,warm,cold,recovery,stable,chaotic,topPairs,topTriples,pairCounts,tripleCounts},tickets:[]};
+
+renderAnalysis();
+setMsg("Matrix analyzed without heavy rendering. Now generate tickets.","good");
+}
+
+function calcEntropy(gaps,averageGap){
+if(gaps.length<2)return 0;
+let short=0,normal=0,long=0;
+for(const g of gaps){
+if(g<averageGap*.7)short++;
+else if(g>averageGap*1.3)long++;
+else normal++;
+}
+const total=gaps.length;
+let e=0;
+for(const x of [short,normal,long]){
+const p=x/total;
+if(p>0)e-=p*Math.log2(p);
+}
+return e/Math.log2(3);
+}
+
+function calcPairStrength(n,matrix,total){
+let s=0,c=0;
+for(let m=1;m<=35;m++){
+if(m!==n&&matrix[n][m]>0){s+=matrix[n][m]/total;c++}
+}
+return c?(s/c)*10:0;
+}
+
+function calcTripleStrength(n,triples,total){
+let s=0,c=0;
+for(const k in triples){
+const parts=k.split("-").map(Number);
+if(parts.includes(n)){s+=triples[k]/total;c++}
+}
+return c?(s/c)*30:0;
+}
+
+function calcTransitionRatio(n,lastDraw,tm,total){
+let s=0;
+for(const p of lastDraw)s+=tm[p][n]||0;
+return s/(total*5);
+}
+  function renderAnalysis(){
+const a=ENGINE.analysis;
+const topRows=a.rows.slice(0,20);
+
+document.getElementById("summaryBox").innerHTML=`
+<h2 class="section-title">Matrix Summary</h2>
+<div class="grid">
+<div class="stat"><b>${a.total}</b><br><span class="small">Historical drawings</span></div>
+<div class="stat"><b>${TOTAL_COMBINATIONS.toLocaleString()}</b><br><span class="small">35 choose 5 combinations</span></div>
+<div class="stat"><b>${ENGINE.tests.map(x=>x.join("-")).join(" | ")}</b><br><span class="small">3 test draws used</span></div>
+<div class="stat"><b>${a.positive.map(x=>x.n).join(", ")||"none"}</b><br><span class="small">Positive MBI</span></div>
+<div class="stat"><b>${a.zero.map(x=>x.n).join(", ")||"none"}</b><br><span class="small">Near-Zero MBI</span></div>
+<div class="stat"><b>${a.negative.map(x=>x.n).join(", ")||"none"}</b><br><span class="small">Negative MBI</span></div>
+</div>
+<p class="small"><b>Disclaimer:</b> Cash 5 is random. This is historical machine-behavior analysis only.</p>
+`;
+
+document.getElementById("matrixBox").innerHTML=`
+<h2 class="section-title">Top 20 Matrix Numbers</h2>
+<div class="scroll">
+<table>
+<thead>
+<tr><th>Rank</th><th>#</th><th>A</th><th>B</th><th>C</th><th>D</th><th>E</th><th>Total</th><th>Delay</th><th>Time</th><th>Entropy</th><th>MBI</th><th>Type</th><th>Final %</th></tr>
+</thead>
+<tbody>
+${topRows.map(r=>`
+<tr>
+<td>${r.rank}</td><td><b>${r.n}</b></td>
+<td>${r.A}</td><td>${r.B}</td><td>${r.C}</td><td>${r.D}</td><td>${r.E}</td>
+<td>${r.total}</td><td>${r.delay}</td><td>${r.timeRatio.toFixed(2)}</td><td>${r.entropy.toFixed(2)}</td>
+<td>${r.mbi.toFixed(3)}</td><td>${r.mbiLabel}</td><td>${(r.finalProb*100).toFixed(2)}%</td>
+</tr>`).join("")}
+</tbody>
+</table>
+</div>
+<h3>Strong Pairs</h3>
+<p>${a.topPairs.slice(0,20).map(p=>p.key+"("+p.count+")").join(", ")}</p>
+<h3>Strong Triples</h3>
+<p>${a.topTriples.slice(0,12).map(t=>t.key+"("+t.count+")").join(", ")}</p>
+`;
+}
+
+function generateTickets(){
+if(!ENGINE.analysis){setMsg("Click Analyze Matrix first.","bad");return}
+const a=ENGINE.analysis;
+const tickets=[],used=new Set(),usage=Array(36).fill(0);
+
+const patterns=[
+{name:"MBI Balanced",groups:[["positive",2],["zero",2],["negative",1]],pair:0,triple:0},
+{name:"Positive Pair",groups:[["positive",1],["zero",1],["warm",1]],pair:1,triple:0},
+{name:"Near-Zero Control",groups:[["zero",3],["positive",1],["negative",1]],pair:0,triple:0},
+{name:"Negative Recovery",groups:[["negative",2],["recovery",1],["positive",1],["zero",1]],pair:0,triple:0},
+{name:"Test Echo",groups:[["hotBottom",1],["zero",2],["recovery",2]],pair:0,triple:0},
+{name:"Triple Network",groups:[["positive",1],["negative",1]],pair:0,triple:1},
+{name:"Stable Chaos Mix",groups:[["stable",2],["chaotic",2],["zero",1]],pair:0,triple:0},
+{name:"Top Bottom Mix",groups:[["hotTop",2],["hotBottom",2],["negative",1]],pair:0,triple:0}
+];
+
+let guard=0;
+while(tickets.length<TICKET_COUNT&&guard<4000){
+guard++;
+const pat=patterns[tickets.length%patterns.length];
+let ticket=[];
+
+if(pat.pair){
+const p=pickPair(a.topPairs,usage);
+if(p)ticket.push(p.a,p.b);
+}
+if(pat.triple){
+const t=pickTriple(a.topTriples,usage);
+if(t)ticket.push(...t.nums);
+}
+
+for(const item of pat.groups)addGroup(ticket,a[item[0]],item[1],usage);
+
+while(ticket.length<5){
+const pool=[...a.positive,...a.zero,...a.negative,...a.warm,...a.recovery];
+const x=pickNumber(pool,usage);
+if(x&&!ticket.includes(x.n))ticket.push(x.n);else break;
+}
+
+ticket=[...new Set(ticket)].filter(n=>n>=1&&n<=35).sort((x,y)=>x-y);
+if(ticket.length!==5)continue;
+if(!passesBalance(ticket))continue;
+
+const key=ticket.join("-");
+if(used.has(key))continue;
+
+used.add(key);
+ticket.forEach(n=>usage[n]++);
+tickets.push({nums:ticket,type:pat.name,score:scoreTicket(ticket,a),profile:ticketProfile(ticket,a)});
+}
+
+ENGINE.tickets=tickets.sort((x,y)=>y.score-x.score).slice(0,TICKET_COUNT);
+renderTickets();
+setMsg("Generated "+ENGINE.tickets.length+" tickets.","good");
+}
+
+function addGroup(ticket,group,count,usage){
+if(!group||!group.length)return;
+for(let i=0;i<count;i++){
+const x=pickNumber(group,usage);
+if(x&&!ticket.includes(x.n))ticket.push(x.n);
+}
+}
+
+function pickNumber(group,usage){
+if(!group||!group.length)return null;
+let pool=group.filter(x=>usage[x.n]<8);
+if(!pool.length)pool=group;
+let total=0;
+const weights=pool.map((x,idx)=>{
+const usePenalty=1/(1+usage[x.n]);
+const rankMix=.65+((pool.length-idx)/pool.length)*.35;
+const mbiMix=x.mbiLabel==="Near-Zero MBI"?1.08:1;
+const w=Math.max(.0001,(x.score+.04)*usePenalty*rankMix*mbiMix);
+total+=w;
+return w;
+});
+let r=Math.random()*total;
+for(let i=0;i<pool.length;i++){r-=weights[i];if(r<=0)return pool[i]}
+return pool[pool.length-1];
+}
+
+function pickPair(pairs,usage){
+if(!pairs.length)return null;
+let pool=pairs.filter(p=>usage[p.a]<8&&usage[p.b]<8);
+if(!pool.length)pool=pairs;
+return pool[Math.floor(Math.random()*Math.min(pool.length,18))];
+}
+
+function pickTriple(triples,usage){
+if(!triples.length)return null;
+let pool=triples.filter(t=>t.nums.every(n=>usage[n]<8));
+if(!pool.length)pool=triples;
+return pool[Math.floor(Math.random()*Math.min(pool.length,12))];
+}
+
+function passesBalance(t){
+const sum=t.reduce((a,b)=>a+b,0);
+const low=t.filter(n=>n<=17).length;
+const odd=t.filter(n=>n%2).length;
+return !(sum<45||sum>135||low===0||low===5||odd===0||odd===5);
+}
+
+function scoreTicket(t,a){
+let s=0;
+for(const n of t){if(a.byNum[n])s+=a.byNum[n].finalProb}
+for(let i=0;i<5;i++){
+for(let j=i+1;j<5;j++){
+const k=pairKey(t[i],t[j]);
+if(a.pairCounts[k])s+=Math.min((a.pairCounts[k]/a.total)*.20,.04);
+}
+}
+for(let i=0;i<5;i++){
+for(let j=i+1;j<5;j++){
+for(let k=j+1;k<5;k++){
+const key=triKey(t[i],t[j],t[k]);
+if(a.tripleCounts[key])s+=Math.min((a.tripleCounts[key]/a.total)*.25,.035);
+}
+}
+}
+return s;
+}
+
+function ticketProfile(t,a){
+let pos=0,zero=0,neg=0;
+for(const n of t){
+const r=a.byNum[n];
+if(!r)continue;
+if(r.mbiLabel==="Positive MBI")pos++;
+else if(r.mbiLabel==="Negative MBI")neg++;
+else zero++;
+}
+return `Positive ${pos}, Near-Zero ${zero}, Negative ${neg}`;
+}
+
+function renderTickets(){
+const tickets=ENGINE.tickets;
+document.getElementById("ticketBox").innerHTML=`
+<h2 class="section-title">Next Possible 40 Machine-Behavior Tickets</h2>
+<div class="ticket-grid">
+${tickets.map((t,i)=>`
+<div class="ticket">
+<strong>Ticket ${i+1}</strong>
+<div class="nums">${t.nums.map(n=>String(n).padStart(2,"0")).join(" - ")}</div>
+<span class="tag">${t.type}</span>
+<div class="small">${t.profile}</div>
+<div class="small">Score: ${t.score.toFixed(4)}</div>
+</div>`).join("")}
+</div>`;
+
+document.getElementById("printArea").innerHTML=`
+<h1>Cash 5 MBI Matrix Tickets</h1>
+<table>
+<thead><tr><th>#</th><th>Numbers</th><th>Type</th><th>MBI Profile</th></tr></thead>
+<tbody>
+${tickets.map((t,i)=>`
+<tr><td>${i+1}</td><td><b>${t.nums.map(n=>String(n).padStart(2,"0")).join(" - ")}</b></td><td>${t.type}</td><td>${t.profile}</td></tr>`).join("")}
+</tbody>
+</table>
+<p>Disclaimer: Cash 5 is random. Historical matrix analysis only.</p>`;
+}
+
+function printTickets(){
+if(!ENGINE.tickets.length){setMsg("Generate the 40 tickets first.","bad");return}
+window.print();
+}
+</script>
+</body>
+</html>
