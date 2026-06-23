@@ -42,7 +42,7 @@ th{background:var(--p2)}
 @media print{
 body *{visibility:hidden}
 #printArea,#printArea *{visibility:visible}
-#printArea{display:block;position:absolute;left:0;top:0;width:100%;padding:20px}
+#printArea{display:block!important;position:absolute;left:0;top:0;width:100%;padding:20px;background:#fff}
 .no-print{display:none!important}
 }
 </style>
@@ -97,6 +97,8 @@ function clamp(x,a,b){return Math.max(a,Math.min(b,x))}
 function norm(v,min,max){return max===min?0:clamp((v-min)/(max-min),0,1)}
 function pairKey(a,b){return a<b?a+"-"+b:b+"-"+a}
 function triKey(a,b,c){return [a,b,c].sort((x,y)=>x-y).join("-")}
+function formatNums(nums){return nums.map(n=>String(n).padStart(2,"0")).join(" - ")}
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
 function setMsg(t,type){let b=document.getElementById("messageBox");b.className="card no-print "+(type||"warning");b.innerHTML=t}
 
 function parseBox(id){
@@ -280,7 +282,7 @@ function analyzeMatrix(){
   },tickets:[],dailyTickets:[]};
 
   renderAnalysis();
-  setMsg("Matrix analyzed with Triple Decay Factor. Generate 40 tickets and 31 daily tickets.","good");
+  setMsg("Matrix analyzed. Triple Decay Factor is active. Now generate 40 tickets or 31 daily tickets.","good");
 }
 
 function calcEntropy(gaps,averageGap){
@@ -367,123 +369,57 @@ function generateTickets(){
 
   const a=ENGINE.analysis;
   const tickets=[],used=new Set(),usage=Array(36).fill(0);
-
-  const patterns=[
-    {name:"Watch Triple 30%",mode:"watch"},
-    {name:"Time Recovery 40%",mode:"recovery"},
-    {name:"Time Recovery 40%",mode:"recovery"},
-    {name:"Strong Pair/Triple Explore 30%",mode:"explore"},
-    {name:"MBI Balanced",mode:"balanced"},
-    {name:"Watch Triple 30%",mode:"watch"},
-    {name:"Time Recovery 40%",mode:"recovery"},
-    {name:"Strong Pair/Triple Explore 30%",mode:"explore"},
-    {name:"Time Recovery 40%",mode:"recovery"},
-    {name:"Strong Pair/Triple Explore 30%",mode:"explore"}
-  ];
+  const modes=["watch","recovery","recovery","explore","watch","recovery","explore","recovery","explore","balanced"];
 
   let guard=0;
-  while(tickets.length<TICKET_COUNT && guard<8000){
+  while(tickets.length<TICKET_COUNT && guard<12000){
     guard++;
-    const pat=patterns[tickets.length%patterns.length];
-    let ticket=buildTicketByMode(pat.mode,a,usage);
-    ticket=[...new Set(ticket)].filter(n=>n>=1&&n<=35).sort((x,y)=>x-y);
+    const mode=modes[tickets.length%modes.length];
+    let ticket=buildTicket(mode,a,usage);
+    ticket=cleanTicket(ticket,a,usage);
 
     if(ticket.length!==5)continue;
-    if(!passesBalance(ticket))continue;
-    if(!passesOverusedAnchorRule(ticket,usage))continue;
-
     const key=ticket.join("-");
     if(used.has(key))continue;
 
     used.add(key);
     ticket.forEach(n=>usage[n]++);
-    tickets.push({nums:ticket,type:pat.name,score:scoreTicket(ticket,a),profile:ticketProfile(ticket,a)});
+    tickets.push({nums:ticket,type:typeName(mode),score:scoreTicket(ticket,a),profile:ticketProfile(ticket,a)});
   }
 
   ENGINE.tickets=tickets.sort((x,y)=>y.score-x.score).slice(0,TICKET_COUNT);
   renderTickets();
-  setMsg("Generated 40 tickets using 30% watch triples, 40% time recovery, 30% exploration.","good");
+  setMsg("Generated "+ENGINE.tickets.length+" of 40 tickets.","good");
 }
 
-function buildTicketByMode(mode,a,usage){
-  let ticket=[];
-
-  if(mode==="watch"){
-    const t=pickTriple(a.topLowTriples.length?a.topLowTriples:a.topTriples,usage);
-    if(t)ticket.push(...t.nums);
-    addGroup(ticket,a.recovery,1,usage);
-    addGroup(ticket,a.positive.length?a.positive:a.zero,1,usage);
-  }
-
-  if(mode==="recovery"){
-    addGroup(ticket,a.recovery,2,usage);
-    addGroup(ticket,a.lowPool,2,usage);
-    addGroup(ticket,a.zero.length?a.zero:a.warm,1,usage);
-  }
-
-  if(mode==="explore"){
-    const p=pickPair(a.topPairs,usage);
-    if(p)ticket.push(p.a,p.b);
-    addGroup(ticket,a.hotBottom,1,usage);
-    addGroup(ticket,a.lowPool,1,usage);
-    addGroup(ticket,a.warm,1,usage);
-  }
-
-  if(mode==="balanced"){
-    addGroup(ticket,a.positive,1,usage);
-    addGroup(ticket,a.zero,2,usage);
-    addGroup(ticket,a.negative,1,usage);
-    addGroup(ticket,a.lowPool,1,usage);
-  }
-
-  while(ticket.length<5){
-    const pool=[...a.lowPool,...a.recovery,...a.positive,...a.zero,...a.warm,...a.hotTop,...a.hotBottom];
-    const x=pickNumber(pool,usage);
-    if(x&&!ticket.includes(x.n))ticket.push(x.n);
-    else break;
-  }
-
-  return ticket;
-}
-  function generateDailyTickets(){
+function generateDailyTickets(){
   if(!ENGINE.analysis){setMsg("Click Analyze Matrix first.","bad");return}
 
   const a=ENGINE.analysis;
   const daily=[],used=new Set(),usage=Array(36).fill(0);
-
-  const dailyModes=[
-    "watch","recovery","pair","different","recovery","watch","explore",
-    "recovery","pair","different","watch","recovery","explore","pair",
-    "recovery","different","watch","recovery","pair","explore",
-    "recovery","watch","different","pair","recovery","explore",
-    "watch","recovery","pair","different","balanced"
-  ];
+  const modes=["watch","recovery","pair","different","recovery","watch","explore","recovery","pair","different","watch","recovery","explore","pair","recovery","different","watch","recovery","pair","explore","recovery","watch","different","pair","recovery","explore","watch","recovery","pair","different","balanced"];
 
   let guard=0;
-  while(daily.length<DAILY_COUNT && guard<9000){
+  while(daily.length<DAILY_COUNT && guard<12000){
     guard++;
-    const mode=dailyModes[daily.length%dailyModes.length];
-    let ticket=buildDailyTicket(mode,a,usage);
-    ticket=[...new Set(ticket)].filter(n=>n>=1&&n<=35).sort((x,y)=>x-y);
+    const mode=modes[daily.length%modes.length];
+    let ticket=buildTicket(mode,a,usage);
+    ticket=cleanTicket(ticket,a,usage);
 
     if(ticket.length!==5)continue;
-    if(!passesBalance(ticket))continue;
-    if(!passesOverusedAnchorRule(ticket,usage))continue;
-
     const key=ticket.join("-");
     if(used.has(key))continue;
 
     used.add(key);
     ticket.forEach(n=>usage[n]++);
-    daily.push({day:daily.length+1,nums:ticket,type:dailyTypeName(mode),score:scoreTicket(ticket,a),profile:ticketProfile(ticket,a)});
+    daily.push({day:daily.length+1,nums:ticket,type:typeName(mode),score:scoreTicket(ticket,a),profile:ticketProfile(ticket,a)});
   }
 
   ENGINE.dailyTickets=daily;
   renderDailyTickets();
-  setMsg("Generated 31 daily $1 mixed tickets.","good");
+  setMsg("Generated "+ENGINE.dailyTickets.length+" of 31 daily tickets.","good");
 }
-
-function buildDailyTicket(mode,a,usage){
+  function buildTicket(mode,a,usage){
   let ticket=[];
 
   if(mode==="watch"){
@@ -540,14 +476,31 @@ function buildDailyTicket(mode,a,usage){
   return ticket;
 }
 
-function dailyTypeName(mode){
+function cleanTicket(ticket,a,usage){
+  ticket=[...new Set(ticket)].filter(n=>n>=1&&n<=35).sort((x,y)=>x-y);
+
+  let safety=0;
+  while(ticket.length<5 && safety<100){
+    safety++;
+    const pool=[...a.lowPool,...a.recovery,...a.positive,...a.zero,...a.warm,...a.hotTop,...a.hotBottom,a.rows].flat();
+    const x=pickNumber(pool,usage);
+    if(x&&!ticket.includes(x.n))ticket.push(x.n);
+    ticket.sort((x,y)=>x-y);
+  }
+
+  if(!passesBalance(ticket))return [];
+  if(!passesOverusedAnchorRule(ticket,usage))return [];
+  return ticket;
+}
+
+function typeName(mode){
   const names={
-    watch:"Watch Triple Day",
-    recovery:"Time Recovery Day",
-    pair:"Strong Pair Day",
-    different:"Different Mix Day",
-    explore:"Explore Day",
-    balanced:"MBI Balanced Day"
+    watch:"Watch Triple / Decay",
+    recovery:"Time Recovery",
+    pair:"Strong Pair",
+    different:"Different Mix",
+    explore:"Explore Pair/Triple",
+    balanced:"MBI Balanced"
   };
   return names[mode]||mode;
 }
@@ -562,23 +515,27 @@ function addGroup(ticket,group,count,usage){
 
 function pickNumber(group,usage){
   if(!group||!group.length)return null;
-  let pool=group.filter(x=>{
+  let pool=group.filter(x=>x&&x.n>=1&&x.n<=35);
+  let capped=pool.filter(x=>{
     const cap=OVERUSED_ANCHORS.includes(x.n)?5:10;
     return usage[x.n]<cap;
   });
-  if(!pool.length)pool=group;
+  if(capped.length)pool=capped;
+  if(!pool.length)return null;
+
   let total=0;
   const weights=pool.map((x,idx)=>{
     const capPenalty=OVERUSED_ANCHORS.includes(x.n)?.50:1;
     const usePenalty=1/(1+usage[x.n]);
     const lowBoost=x.n<=15?1.14:1;
-    const timeBoost=1+Math.min(x.timeRatio/8,.35);
+    const timeBoost=1+Math.min((x.timeRatio||0)/8,.35);
     const zeroBoost=x.mbiLabel==="Near-Zero MBI"?1.06:1;
     const rankMix=.65+((pool.length-idx)/pool.length)*.35;
-    const w=Math.max(.0001,(x.score+.04)*usePenalty*lowBoost*timeBoost*zeroBoost*rankMix*capPenalty);
+    const w=Math.max(.0001,((x.score||0)+.04)*usePenalty*lowBoost*timeBoost*zeroBoost*rankMix*capPenalty);
     total+=w;
     return w;
   });
+
   let r=Math.random()*total;
   for(let i=0;i<pool.length;i++){
     r-=weights[i];
@@ -602,11 +559,16 @@ function pickTriple(triples,usage){
 }
 
 function passesBalance(t){
+  if(t.length!==5)return false;
   const sum=t.reduce((a,b)=>a+b,0);
   const low=t.filter(n=>n<=17).length;
   const odd=t.filter(n=>n%2).length;
   const consecutive=countConsecutive(t);
-  return !(sum<45||sum>135||low===0||low===5||odd===0||odd===5||consecutive>=4);
+  if(sum<45||sum>135)return false;
+  if(low===0||low===5)return false;
+  if(odd===0||odd===5)return false;
+  if(consecutive>=4)return false;
+  return true;
 }
 
 function passesOverusedAnchorRule(t,usage){
@@ -650,7 +612,6 @@ function scoreTicket(t,a){
     if(tri)s+=0.03*tri.decay;
     if(lowTri)s+=0.04*lowTri.decay;
   }
-
   return s;
 }
 
@@ -667,31 +628,26 @@ function ticketProfile(t,a){
 }
 
 function renderTickets(){
-  const tickets=ENGINE.tickets;
   let html='<h2 class="section-title">40 Payday Matrix Tickets</h2><div class="ticket-grid">';
-  for(let i=0;i<tickets.length;i++){
-    const t=tickets[i];
+  ENGINE.tickets.forEach((t,i)=>{
     html+='<div class="ticket"><strong>Ticket '+(i+1)+'</strong>'+
       '<div class="nums">'+formatNums(t.nums)+'</div>'+
-      '<span class="tag">'+t.type+'</span>'+
-      '<div class="small">'+t.profile+'</div>'+
+      '<span class="tag">'+esc(t.type)+'</span>'+
+      '<div class="small">'+esc(t.profile)+'</div>'+
       '<div class="small">Score: '+t.score.toFixed(4)+'</div></div>';
-  }
+  });
   html+='</div>';
   document.getElementById("ticketBox").innerHTML=html;
 }
 
 function renderDailyTickets(){
-  const daily=ENGINE.dailyTickets;
   let html='<h2 class="section-title">31 Daily $1 Mixed Tickets</h2><div class="scroll"><table><thead><tr><th>Day</th><th>Ticket</th><th>Type</th><th>Profile</th><th>Score</th></tr></thead><tbody>';
-  for(const t of daily){
-    html+='<tr><td>'+t.day+'</td><td><b>'+formatNums(t.nums)+'</b></td><td>'+t.type+'</td><td>'+t.profile+'</td><td>'+t.score.toFixed(4)+'</td></tr>';
-  }
+  ENGINE.dailyTickets.forEach(t=>{
+    html+='<tr><td>'+t.day+'</td><td><b>'+formatNums(t.nums)+'</b></td><td>'+esc(t.type)+'</td><td>'+esc(t.profile)+'</td><td>'+t.score.toFixed(4)+'</td></tr>';
+  });
   html+='</tbody></table></div>';
   document.getElementById("dailyBox").innerHTML=html;
 }
-
-function formatNums(nums){return nums.map(n=>String(n).padStart(2,"0")).join(" - ")}
 
 function printReport(type){
   if(type==="main"&&!ENGINE.tickets.length){setMsg("Generate the 40 tickets first.","bad");return}
@@ -700,16 +656,16 @@ function printReport(type){
   let print="";
   if(type==="main"){
     print='<h1>Cash 5 - 40 Payday Matrix Tickets</h1><table><thead><tr><th>#</th><th>Numbers</th><th>Type</th><th>Profile</th><th>Score</th></tr></thead><tbody>';
-    ENGINE.tickets.forEach((t,i)=>{print+='<tr><td>'+(i+1)+'</td><td><b>'+formatNums(t.nums)+'</b></td><td>'+t.type+'</td><td>'+t.profile+'</td><td>'+t.score.toFixed(4)+'</td></tr>'});
+    ENGINE.tickets.forEach((t,i)=>{print+='<tr><td>'+(i+1)+'</td><td><b>'+formatNums(t.nums)+'</b></td><td>'+esc(t.type)+'</td><td>'+esc(t.profile)+'</td><td>'+t.score.toFixed(4)+'</td></tr>'});
     print+='</tbody></table><p>Disclaimer: Cash 5 is random. Historical matrix analysis only.</p>';
   }else{
     print='<h1>Cash 5 - 31 Daily $1 Mixed Tickets</h1><table><thead><tr><th>Day</th><th>Numbers</th><th>Type</th><th>Profile</th><th>Score</th></tr></thead><tbody>';
-    ENGINE.dailyTickets.forEach(t=>{print+='<tr><td>'+t.day+'</td><td><b>'+formatNums(t.nums)+'</b></td><td>'+t.type+'</td><td>'+t.profile+'</td><td>'+t.score.toFixed(4)+'</td></tr>'});
+    ENGINE.dailyTickets.forEach(t=>{print+='<tr><td>'+t.day+'</td><td><b>'+formatNums(t.nums)+'</b></td><td>'+esc(t.type)+'</td><td>'+esc(t.profile)+'</td><td>'+t.score.toFixed(4)+'</td></tr>'});
     print+='</tbody></table><p>Daily tickets mix watch triples, time recovery, MBI, and exploration.</p><p>Disclaimer: Cash 5 is random. Historical matrix analysis only.</p>';
   }
 
   document.getElementById("printArea").innerHTML=print;
-  window.print();
+  setTimeout(()=>window.print(),100);
 }
 
 function exportExcel(){
@@ -722,31 +678,31 @@ function exportExcel(){
   html+='<h1>Cash 5 Adaptive MBI Matrix Export</h1>';
 
   html+='<h2>40 Payday Matrix Tickets</h2><table border="1"><tr><th>#</th><th>Numbers</th><th>Type</th><th>Profile</th><th>Score</th></tr>';
-  ENGINE.tickets.forEach((t,i)=>{html+='<tr><td>'+(i+1)+'</td><td>'+formatNums(t.nums)+'</td><td>'+t.type+'</td><td>'+t.profile+'</td><td>'+t.score.toFixed(4)+'</td></tr>'});
+  ENGINE.tickets.forEach((t,i)=>{html+='<tr><td>'+(i+1)+'</td><td>'+formatNums(t.nums)+'</td><td>'+esc(t.type)+'</td><td>'+esc(t.profile)+'</td><td>'+t.score.toFixed(4)+'</td></tr>'});
   html+='</table>';
 
   html+='<h2>31 Daily $1 Mixed Tickets</h2><table border="1"><tr><th>Day</th><th>Numbers</th><th>Type</th><th>Profile</th><th>Score</th></tr>';
-  ENGINE.dailyTickets.forEach(t=>{html+='<tr><td>'+t.day+'</td><td>'+formatNums(t.nums)+'</td><td>'+t.type+'</td><td>'+t.profile+'</td><td>'+t.score.toFixed(4)+'</td></tr>'});
+  ENGINE.dailyTickets.forEach(t=>{html+='<tr><td>'+t.day+'</td><td>'+formatNums(t.nums)+'</td><td>'+esc(t.type)+'</td><td>'+esc(t.profile)+'</td><td>'+t.score.toFixed(4)+'</td></tr>'});
   html+='</table>';
 
   if(ENGINE.analysis){
     html+='<h2>Top 15 Matrix Numbers</h2><table border="1"><tr><th>Rank</th><th>Number</th><th>Total</th><th>Delay</th><th>Time Ratio</th><th>Low Cluster</th><th>MBI</th><th>Type</th><th>Final %</th></tr>';
     ENGINE.analysis.rows.slice(0,15).forEach(r=>{
-      html+='<tr><td>'+r.rank+'</td><td>'+r.n+'</td><td>'+r.total+'</td><td>'+r.delay+'</td><td>'+r.timeRatio.toFixed(2)+'</td><td>'+r.lowClusterStrength.toFixed(2)+'</td><td>'+r.mbi.toFixed(3)+'</td><td>'+r.mbiLabel+'</td><td>'+(r.finalProb*100).toFixed(2)+'%</td></tr>';
+      html+='<tr><td>'+r.rank+'</td><td>'+r.n+'</td><td>'+r.total+'</td><td>'+r.delay+'</td><td>'+r.timeRatio.toFixed(2)+'</td><td>'+r.lowClusterStrength.toFixed(2)+'</td><td>'+r.mbi.toFixed(3)+'</td><td>'+esc(r.mbiLabel)+'</td><td>'+(r.finalProb*100).toFixed(2)+'%</td></tr>';
     });
     html+='</table>';
   }
 
   html+='<p>Disclaimer: Cash 5 is random. Historical matrix analysis only.</p></body></html>';
 
-  const blob=new Blob([html],{type:"application/vnd.ms-excel"});
+  const blob=new Blob([html],{type:"application/vnd.ms-excel;charset=utf-8"});
   const url=URL.createObjectURL(blob);
-  const a=document.createElement("a");
-  a.href=url;
-  a.download="Cash5_MBI_Matrix_Tickets.xls";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  const link=document.createElement("a");
+  link.href=url;
+  link.download="Cash5_MBI_Matrix_Tickets.xls";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
   URL.revokeObjectURL(url);
   setMsg("Excel file saved.","good");
 }
