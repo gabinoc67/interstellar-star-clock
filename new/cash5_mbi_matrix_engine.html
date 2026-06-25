@@ -3,27 +3,26 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Cash 5 Adaptive MBI Matrix Engine - 70/20/10 Recovery Rule</title>
+<title>Cash 5 Adaptive MBI Matrix Engine - Last 10 Cycle Recovery</title>
 <style>
 :root{--bg:#fff;--p:#f7f9fc;--p2:#eef3f9;--t:#172033;--m:#5c6b82;--b:#cfd8e6;--a:#174ea6;--g:#0b6e4f;--v:#403899;--r:#9b1c1c;--y:#9a6a00;--sh:0 8px 22px rgba(20,40,80,.12)}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--t);font-family:Arial,Helvetica,sans-serif;line-height:1.45}
 header{padding:22px 18px;text-align:center;border-bottom:1px solid var(--b)}
 h1{margin:0;font-size:clamp(22px,3vw,34px)}
-header p{margin:8px auto 0;max-width:1000px;color:var(--m)}
+header p{margin:8px auto 0;max-width:1050px;color:var(--m)}
 main{max-width:1200px;margin:0 auto;padding:18px}
 .card{background:#fff;border:1px solid var(--b);border-radius:14px;box-shadow:var(--sh);padding:16px;margin:0 0 16px}
 textarea{width:100%;resize:vertical;border:1px solid var(--b);border-radius:12px;padding:12px;font-family:Consolas,monospace;font-size:14px}
-#dataInput{min-height:250px}
-#testInput,#pastInput{min-height:90px}
+#dataInput{min-height:280px}
+#pastInput{min-height:90px}
 .button-row{display:flex;gap:12px;flex-wrap:wrap;margin-top:12px}
 button{border:0;border-radius:12px;padding:13px 18px;font-weight:bold;cursor:pointer;color:#fff;background:var(--a)}
-button:nth-child(2){background:var(--r)}
-button:nth-child(3){background:var(--g)}
-button:nth-child(4){background:var(--v)}
-button:nth-child(5){background:var(--y)}
-button:nth-child(6){background:#444}
-button:nth-child(7){background:#0b6e4f}
+button:nth-child(2){background:var(--g)}
+button:nth-child(3){background:var(--v)}
+button:nth-child(4){background:var(--y)}
+button:nth-child(5){background:#444}
+button:nth-child(6){background:#0b6e4f}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
 .stat{background:var(--p);border:1px solid var(--b);border-radius:12px;padding:12px}
 .small{font-size:13px;color:var(--m)}
@@ -52,35 +51,31 @@ body *{visibility:hidden}
 <body>
 <header>
 <h1>Cash 5 Adaptive MBI Matrix Engine</h1>
-<p>Rule: Generated tickets = 70% real draw history + 20% delay/recovery + 10% test draw signal. Past generated tickets are penalty only, not prediction base.</p>
+<p>Rule: Generated tickets = 55% full matrix history + 20% delay/recovery + 20% last-10 real draw cycle + 5% last-draw bridge. No 3-test-draw base.</p>
 </header>
 
 <main>
 <section class="card no-print">
 <h2 class="section-title">Paste Cash 5 Draw History</h2>
-<textarea id="dataInput" placeholder="09/18/2018, 3, 9, 18, 19, 35"></textarea>
-
-<h2 class="section-title">Optional: Paste Last 3 Machine Test Draws</h2>
-<textarea id="testInput" placeholder="Optional only. Tests are light signal only, never strong base.
-Test 1: 1, 34, 27, 23, 26
-Test 2: 5, 19, 9, 17, 4
-Test 3: 33, 34, 14, 13, 26"></textarea>
+<textarea id="dataInput" placeholder="Paste full history. Last 10 real draws are automatically detected from the bottom of this box. Example:
+12 34 16 5 4
+24 35 26 20 11
+13 23 12 3 26"></textarea>
 
 <h2 class="section-title">Optional: Paste Past Generated Tickets for Penalty Only</h2>
-<textarea id="pastInput" placeholder="Optional. Paste old generated tickets here. These numbers get a small repeat penalty only."></textarea>
+<textarea id="pastInput" placeholder="Optional. Paste old generated tickets here. These numbers get a small repeat penalty only. They are not used as prediction base."></textarea>
 
 <div class="button-row">
 <button onclick="analyzeMatrix()">1. Analyze Matrix</button>
-<button onclick="clearTests()">2. Remove Test Signal</button>
-<button onclick="generateTickets()">3. Generate 40 Tickets</button>
-<button onclick="generateDailyTickets()">4. Generate 31 Daily Tickets</button>
-<button onclick="printReport('main')">5. Print 40 Tickets</button>
-<button onclick="printReport('daily')">6. Print 31 Tickets</button>
-<button onclick="exportExcel()">7. Save Excel File</button>
+<button onclick="generateTickets()">2. Generate 40 Tickets</button>
+<button onclick="generateDailyTickets()">3. Generate 31 Daily Tickets</button>
+<button onclick="printReport('main')">4. Print 40 Tickets</button>
+<button onclick="printReport('daily')">5. Print 31 Tickets</button>
+<button onclick="exportExcel()">6. Save Excel File</button>
 </div>
 </section>
 
-<section id="messageBox" class="card warning no-print">Paste draw history, then click <b>Analyze Matrix</b>. Test draws are optional and light only.</section>
+<section id="messageBox" class="card warning no-print">Paste draw history, then click <b>Analyze Matrix</b>. The last 10 real draws are used automatically.</section>
 <section id="summaryBox" class="card no-print"></section>
 <section id="matrixBox" class="card no-print"></section>
 <section id="ticketBox" class="card no-print"></section>
@@ -90,11 +85,10 @@ Test 3: 33, 34, 14, 13, 26"></textarea>
 
 <script>
 const MIN=1,MAX=35,TICKET_COUNT=40,DAILY_COUNT=31;
-const OVERUSED_ANCHORS=[30,31,32];
+const OVERUSED_ANCHORS=[30,31];
 const WATCH_TRIPLES=["3-11-12","3-11-13","11-12-13","3-12-13"];
 const BRIDGE_TICKETS_40=4,BRIDGE_TICKETS_31=3;
-const TEST_SIGNAL_WEIGHT=0.10;
-let ENGINE={draws:[],tests:[],pastGenerated:[],analysis:null,tickets:[],dailyTickets:[]};
+let ENGINE={draws:[],pastGenerated:[],analysis:null,tickets:[],dailyTickets:[]};
 
 function factorial(n){let v=1;for(let i=2;i<=n;i++)v*=i;return v}
 function combination(n,k){return factorial(n)/(factorial(k)*factorial(n-k))}
@@ -124,39 +118,44 @@ function parseBox(id){
   return draws;
 }
 
-function clearTests(){
-  document.getElementById("testInput").value="";
-  setMsg("Test signal removed. The engine will use draw history and delay/recovery only.","good");
-}
-
-function weightedPick(weights,exclude){
-  let total=0;
-  for(let n=1;n<=35;n++)if(!exclude.includes(n))total+=weights[n];
-  let r=Math.random()*total;
-  for(let n=1;n<=35;n++){
-    if(exclude.includes(n))continue;
-    r-=weights[n];
-    if(r<=0)return n;
-  }
-  return 35;
-}
-
 function analyzeMatrix(){
   const draws=parseBox("dataInput");
-  let tests=parseBox("testInput").slice(-3);
-  let pastGenerated=parseBox("pastInput");
+  const pastGenerated=parseBox("pastInput");
 
   if(draws.length<20){setMsg("Need at least 20 valid Cash 5 drawings.","bad");return}
 
   const total=draws.length;
   const recentWindow=Math.min(60,total);
   const decayWindow=Math.min(20,total);
+  const last10=draws.slice(-10);
+  const lastDraw=draws[total-1];
+
   const freq=Array(36).fill(0),recent=Array(36).fill(0),lastSeen=Array(36).fill(-1);
+  const last10Freq=Array(36).fill(0),last10Pos=Array.from({length:36},()=>[0,0,0,0,0]);
+  const lastDrawFreq=Array(36).fill(0);
   const gaps=Array.from({length:36},()=>[]);
   const pos=Array.from({length:36},()=>[0,0,0,0,0]);
   const pairCounts={},tripleCounts={},lowTripleCounts={},lowPairCounts={},tripleLastSeen={};
   const transition=Array.from({length:36},()=>Array(36).fill(0));
+  const last10Pair={},last10Triple={};
   const lowClusterDraws=[];
+
+  for(const n of lastDraw)lastDrawFreq[n]=1;
+
+  for(const d of last10){
+    for(let p=0;p<5;p++){
+      last10Freq[d[p]]++;
+      last10Pos[d[p]][p]++;
+    }
+    for(let a=0;a<5;a++)for(let b=a+1;b<5;b++){
+      const k=pairKey(d[a],d[b]);
+      last10Pair[k]=(last10Pair[k]||0)+1;
+    }
+    for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)for(let c=b+1;c<5;c++){
+      const k=triKey(d[a],d[b],d[c]);
+      last10Triple[k]=(last10Triple[k]||0)+1;
+    }
+  }
 
   for(let i=0;i<total;i++){
     const d=draws[i];
@@ -188,18 +187,10 @@ function analyzeMatrix(){
     if(i>0)for(const a of draws[i-1])for(const b of d)transition[a][b]++;
   }
 
-  const testFreq=Array(36).fill(0),testPair={},testTriple={};
-  for(const d of tests){
-    for(const n of d)testFreq[n]++;
-    for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)testPair[pairKey(d[a],d[b])]=1;
-    for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)for(let c=b+1;c<5;c++)testTriple[triKey(d[a],d[b],d[c])]=1;
-  }
-
   const pastUse=Array(36).fill(0);
   for(const d of pastGenerated)for(const n of d)pastUse[n]++;
 
   const avgFreq=(total*5)/35;
-  const lastDraw=draws[total-1];
   const rows=[],byNum={};
 
   for(let n=1;n<=35;n++){
@@ -210,16 +201,20 @@ function analyzeMatrix(){
     const chaosRatio=norm(gapStd/(averageGap+1),0,1.8);
     const stabilityRatio=1-chaosRatio;
     const chaosLabel=chaosRatio<.33?"Stable":chaosRatio<.66?"Mixed":"Chaotic";
+
     const hotRatio=freq[n]/avgFreq;
     const recentRatio=(recent[n]/recentWindow)/(5/35);
     const timeRatio=(delay+1)/(averageGap+1);
-    const testRatio=tests.length?Math.min(testFreq[n]/tests.length,1):0;
+    const last10Ratio=last10Freq[n]/10;
+    const lastDrawBridge=lastDrawFreq[n];
     const pairStrength=Math.min(pairStrengthFor(n,pairCounts,total),.75);
     const tripleStrength=Math.min(tripleStrengthFor(n,tripleCounts,total),.55);
     const lowClusterStrength=n<=15?Math.min(lowClusterStrengthFor(n,lowPairCounts,lowTripleCounts,total),.75):0;
     const transitionRatio=Math.min(transitionRatioFor(n,lastDraw,transition,total),.45);
     const posMax=Math.max(...pos[n]);
     const posRatio=freq[n]?posMax/freq[n]:0;
+    const last10PosMax=Math.max(...last10Pos[n]);
+    const last10PosRatio=last10Freq[n]?last10PosMax/last10Freq[n]:0;
     const factorialWeight=(freq[n]/(total*5))/(1/35);
     const overusedPenalty=OVERUSED_ANCHORS.includes(n)?0.08:0;
     const pastPenalty=Math.min(pastUse[n]*0.012,0.12);
@@ -237,24 +232,33 @@ function analyzeMatrix(){
       .05*chaosRatio;
 
     const recoveryCore=norm(timeRatio,0,3.5);
-    const testCore=norm(testRatio,0,1);
+
+    const last10Core=
+      .55*norm(last10Ratio,0,.35)+
+      .20*norm(last10PosRatio,0,1)+
+      .15*norm(recentRatio,0,2.4)+
+      .10*norm(transitionRatio,0,.45);
+
+    const lastDrawCore=lastDrawBridge?1:0;
 
     const score=
-      .70*historyCore+
+      .55*historyCore+
       .20*recoveryCore+
-      TEST_SIGNAL_WEIGHT*testCore-
+      .20*last10Core+
+      .05*lastDrawCore-
       overusedPenalty-
       pastPenalty;
-
-    const mbi=
-      .28*(hotRatio-1)+
-      .18*(recentRatio-1)+
-      .22*(timeRatio-1)+
-      .11*(pairStrength-.18)+
-      .08*(tripleStrength-.10)+
-      .08*(lowClusterStrength-.10)+
-      .05*(transitionRatio-.05)+
-      .03*(testRatio-.14)-
+        const mbi=
+      .24*(hotRatio-1)+
+      .16*(recentRatio-1)+
+      .20*(timeRatio-1)+
+      .14*(last10Ratio-.14)+
+      .08*(last10PosRatio-.20)+
+      .09*(pairStrength-.18)+
+      .06*(tripleStrength-.10)+
+      .05*(lowClusterStrength-.10)+
+      .04*(transitionRatio-.05)+
+      .03*(lastDrawBridge-.14)-
       overusedPenalty-
       pastPenalty;
 
@@ -262,9 +266,9 @@ function analyzeMatrix(){
 
     const row={n,A:pos[n][0],B:pos[n][1],C:pos[n][2],D:pos[n][3],E:pos[n][4],
       total:freq[n],recent:recent[n],delay,averageGap,entropy,chaosRatio,chaosLabel,
-      hotRatio,recentRatio,timeRatio,pairStrength,tripleStrength,lowClusterStrength,
-      transitionRatio,testRatio,pastUse:pastUse[n],factorialWeight,mbi,mbiLabel,
-      score:Math.max(.0001,score),finalProb:0,rank:0};
+      hotRatio,recentRatio,timeRatio,last10Freq:last10Freq[n],last10Ratio,last10PosRatio,lastDrawBridge,
+      pairStrength,tripleStrength,lowClusterStrength,transitionRatio,pastUse:pastUse[n],
+      factorialWeight,mbi,mbiLabel,score:Math.max(.0001,score),finalProb:0,rank:0};
     rows.push(row);byNum[n]=row;
   }
 
@@ -274,7 +278,7 @@ function analyzeMatrix(){
 
   const topPairs=Object.entries(pairCounts).map(([key,count])=>{
     const p=key.split("-").map(Number);
-    return {key,a:p[0],b:p[1],count,score:Math.min(count/total+(testPair[key]?0.03:0),.80)};
+    return {key,a:p[0],b:p[1],count,last10:last10Pair[key]||0,score:Math.min(count/total+((last10Pair[key]||0)*0.05),.80)};
   }).sort((a,b)=>b.score-a.score).slice(0,60);
 
   const topTriples=Object.entries(tripleCounts).map(([key,count])=>{
@@ -283,12 +287,13 @@ function analyzeMatrix(){
     const age=total-1-last;
     const decay=clamp(1-(age/decayWindow),0.15,1);
     const watch=WATCH_TRIPLES.includes(key)?0.08*decay:0;
-    const score=Math.min((count/total)*decay+(testTriple[key]?0.03:0)+watch,.70);
-    return {key,nums,count,age,decay,score,watch};
+    const score=Math.min((count/total)*decay+((last10Triple[key]||0)*0.04)+watch,.70);
+    return {key,nums,count,last10:last10Triple[key]||0,age,decay,score,watch};
   }).sort((a,b)=>b.score-a.score).slice(0,50);
-    const topLowPairs=Object.entries(lowPairCounts).map(([key,count])=>{
+
+  const topLowPairs=Object.entries(lowPairCounts).map(([key,count])=>{
     const p=key.split("-").map(Number);
-    return {key,a:p[0],b:p[1],count,score:count/total};
+    return {key,a:p[0],b:p[1],count,last10:last10Pair[key]||0,score:count/total+((last10Pair[key]||0)*0.05)};
   }).sort((a,b)=>b.score-a.score).slice(0,35);
 
   const topLowTriples=Object.entries(lowTripleCounts).map(([key,count])=>{
@@ -297,11 +302,14 @@ function analyzeMatrix(){
     const age=total-1-last;
     const decay=clamp(1-(age/decayWindow),0.15,1);
     const watch=WATCH_TRIPLES.includes(key)?0.12*decay:0;
-    return {key,nums,count,age,decay,score:(count/total)*decay+watch,watch};
+    return {key,nums,count,last10:last10Triple[key]||0,age,decay,score:(count/total)*decay+((last10Triple[key]||0)*0.04)+watch,watch};
   }).sort((a,b)=>b.score-a.score).slice(0,35);
 
-  ENGINE={draws,tests,pastGenerated,analysis:{
-    total,rows,byNum,
+  const last10Pool=rows.filter(x=>x.last10Freq>0).sort((a,b)=>b.last10Freq-a.last10Freq||b.score-a.score);
+  const lastDrawPool=lastDraw.map(n=>byNum[n]).filter(Boolean).sort((a,b)=>b.score-a.score);
+
+  ENGINE={draws,pastGenerated,analysis:{
+    total,last10,lastDraw,rows,byNum,
     positive:rows.filter(x=>x.mbiLabel==="Positive MBI"),
     zero:rows.filter(x=>x.mbiLabel==="Near-Zero MBI"),
     negative:rows.filter(x=>x.mbiLabel==="Negative MBI"),
@@ -310,15 +318,17 @@ function analyzeMatrix(){
     warm:rows.slice(15,27),
     recovery:[...rows].sort((a,b)=>b.timeRatio-a.timeRatio).slice(0,18),
     bridgePool:makeBridgePool(rows),
+    last10Pool,
+    lastDrawPool,
     lowPool:rows.filter(x=>x.n<=15).sort((a,b)=>b.lowClusterStrength-a.lowClusterStrength||b.score-a.score),
     stable:rows.filter(x=>x.chaosLabel==="Stable"),
     chaotic:rows.filter(x=>x.chaosLabel==="Chaotic"),
     topPairs,topTriples,topLowPairs,topLowTriples,
-    pairCounts,tripleCounts,lowPairCounts,lowTripleCounts,lowClusterDraws
+    pairCounts,tripleCounts,lowPairCounts,lowTripleCounts,last10Pair,last10Triple,lowClusterDraws
   },tickets:[],dailyTickets:[]};
 
   renderAnalysis();
-  setMsg("Matrix analyzed. Tests are light only. Past generated tickets are penalty only, not prediction base.","good");
+  setMsg("Matrix analyzed. Last 10 real draw cycle is active. No 3-test-draw base is used.","good");
 }
 
 function makeBridgePool(rows){
@@ -326,8 +336,9 @@ function makeBridgePool(rows){
   const byRecovery=[...rows].sort((a,b)=>b.timeRatio-a.timeRatio).slice(0,12);
   const byRecent=[...rows].sort((a,b)=>b.recentRatio-a.recentRatio).slice(0,10);
   const byPairs=[...rows].sort((a,b)=>b.pairStrength-a.pairStrength).slice(0,10);
+  const byLast10=[...rows].sort((a,b)=>b.last10Freq-a.last10Freq||b.score-a.score).slice(0,12);
   const map={};
-  [...byScore,...byRecovery,...byRecent,...byPairs].forEach(r=>map[r.n]=r);
+  [...byScore,...byRecovery,...byRecent,...byPairs,...byLast10].forEach(r=>map[r.n]=r);
   return Object.values(map).sort((a,b)=>b.score-a.score);
 }
 
@@ -391,10 +402,11 @@ function generateTickets(){
   const tickets=[],used=new Set(),usage=Array(36).fill(0);
 
   addBridgeTickets(tickets,used,usage,a,BRIDGE_TICKETS_40);
+  addLast10CycleTickets(tickets,used,usage,a,6);
 
-  const modes=["balanced","watch","recovery","pair","bridge","explore","recovery","different","watch","pair","balanced","coverage"];
+  const modes=["last10","balanced","watch","recovery","pair","bridge","lastdraw","explore","recovery","different","last10","pair","coverage"];
   let guard=0;
-  while(tickets.length<TICKET_COUNT && guard<20000){
+  while(tickets.length<TICKET_COUNT && guard<22000){
     guard++;
     const mode=modes[tickets.length%modes.length];
     let ticket=buildTicket(mode,a,usage);
@@ -411,7 +423,7 @@ function generateTickets(){
 
   ENGINE.tickets=tickets.sort((x,y)=>y.score-x.score).slice(0,TICKET_COUNT);
   renderTickets();
-  setMsg("Generated "+ENGINE.tickets.length+" of 40 tickets using 70/20/10 rule. No strong Test Bridge mode.","good");
+  setMsg("Generated "+ENGINE.tickets.length+" of 40 tickets using 55/20/20/5 Last-10 Cycle Rule.","good");
 }
 
 function generateDailyTickets(){
@@ -420,10 +432,11 @@ function generateDailyTickets(){
   const daily=[],used=new Set(),usage=Array(36).fill(0);
 
   addBridgeTickets(daily,used,usage,a,BRIDGE_TICKETS_31);
+  addLast10CycleTickets(daily,used,usage,a,4);
 
-  const modes=["balanced","watch","recovery","pair","different","bridge","recovery","explore","watch","pair","balanced","coverage"];
+  const modes=["last10","balanced","recovery","pair","different","bridge","lastdraw","explore","watch","pair","balanced","coverage"];
   let guard=0;
-  while(daily.length<DAILY_COUNT && guard<20000){
+  while(daily.length<DAILY_COUNT && guard<22000){
     guard++;
     const mode=modes[daily.length%modes.length];
     let ticket=buildTicket(mode,a,usage);
@@ -441,7 +454,7 @@ function generateDailyTickets(){
   daily.forEach((t,i)=>t.day=i+1);
   ENGINE.dailyTickets=daily.slice(0,DAILY_COUNT);
   renderDailyTickets();
-  setMsg("Generated "+ENGINE.dailyTickets.length+" of 31 daily tickets using light test signal only.","good");
+  setMsg("Generated "+ENGINE.dailyTickets.length+" of 31 daily tickets using Last-10 Cycle Rule.","good");
 }
 
 function forceCoverage(list,used,usage,a,limit){
@@ -452,9 +465,9 @@ function forceCoverage(list,used,usage,a,limit){
   for(const miss of missing){
     if(list.length>=limit)break;
     let ticket=[miss];
+    addGroup(ticket,a.last10Pool,1,usage);
     addGroup(ticket,a.recovery,1,usage);
     addGroup(ticket,a.bridgePool,1,usage);
-    addGroup(ticket,a.lowPool,1,usage);
     addGroup(ticket,a.warm,1,usage);
     ticket=cleanTicket(ticket,a,usage,true);
     if(ticket.length!==5)continue;
@@ -479,10 +492,27 @@ function addBridgeTickets(list,used,usage,a,count){
   }
 }
 
+function addLast10CycleTickets(list,used,usage,a,count){
+  for(let i=0;i<count;i++){
+    let ticket=[];
+    const p=a.topPairs.filter(x=>x.last10>0)[i%Math.max(1,a.topPairs.filter(x=>x.last10>0).length)];
+    if(p)ticket.push(p.a,p.b);
+    addGroup(ticket,a.last10Pool,2,usage);
+    addGroup(ticket,a.recovery,1,usage);
+    ticket=cleanTicket(ticket,a,usage,true);
+    if(ticket.length!==5)continue;
+    const key=ticket.join("-");
+    if(used.has(key))continue;
+    used.add(key);
+    ticket.forEach(n=>usage[n]++);
+    list.push({day:list.length+1,nums:ticket,type:"Last-10 Cycle",score:scoreTicket(ticket,a)+0.05,profile:ticketProfile(ticket,a)});
+  }
+}
+
 function buildBridgeTicket(a,usage,shift){
   let ticket=[];
-  const main=[...a.bridgePool,...a.hotTop,...a.recovery];
-  const topCore=main.filter(x=>usage[x.n]<12).slice(0,14);
+  const main=[...a.last10Pool,...a.bridgePool,...a.hotTop,...a.recovery];
+  const topCore=main.filter(x=>usage[x.n]<12).slice(0,16);
 
   if(shift===0){
     ticket=topCore.slice(0,5).map(x=>x.n);
@@ -495,41 +525,53 @@ function buildBridgeTicket(a,usage,shift){
   }else{
     const p=a.topPairs[shift%a.topPairs.length];
     if(p)ticket.push(p.a,p.b);
-    addGroup(ticket,a.bridgePool,3,usage);
+    addGroup(ticket,a.last10Pool,1,usage);
+    addGroup(ticket,a.bridgePool,2,usage);
   }
 
   while(ticket.length<5){
-    const x=pickNumber([...a.bridgePool,...a.lowPool,...a.recovery,...a.positive],usage);
+    const x=pickNumber([...a.last10Pool,...a.bridgePool,...a.lowPool,...a.recovery,...a.positive],usage);
     if(x&&!ticket.includes(x.n))ticket.push(x.n);
     else break;
   }
   return [...new Set(ticket)].sort((x,y)=>x-y);
 }
-
-function buildTicket(mode,a,usage){
+  function buildTicket(mode,a,usage){
   let ticket=[];
 
   if(mode==="bridge")return buildBridgeTicket(a,usage,Math.floor(Math.random()*5));
 
+  if(mode==="last10"){
+    addGroup(ticket,a.last10Pool,3,usage);
+    addGroup(ticket,a.recovery,1,usage);
+    addGroup(ticket,a.bridgePool,1,usage);
+  }
+
+  if(mode==="lastdraw"){
+    addGroup(ticket,a.lastDrawPool,2,usage);
+    addGroup(ticket,a.last10Pool,2,usage);
+    addGroup(ticket,a.recovery,1,usage);
+  }
+
   if(mode==="watch"){
     const t=pickTriple(a.topLowTriples.length?a.topLowTriples:a.topTriples,usage);
     if(t)ticket.push(...t.nums);
+    addGroup(ticket,a.last10Pool,1,usage);
     addGroup(ticket,a.bridgePool,1,usage);
-    addGroup(ticket,a.recovery,1,usage);
   }
 
   if(mode==="recovery"){
     addGroup(ticket,a.lowPool,2,usage);
     addGroup(ticket,a.recovery,2,usage);
-    addGroup(ticket,a.zero,1,usage);
+    addGroup(ticket,a.last10Pool,1,usage);
   }
 
   if(mode==="pair"){
     const p=pickPair(a.topPairs,usage);
     if(p)ticket.push(p.a,p.b);
+    addGroup(ticket,a.last10Pool,1,usage);
     addGroup(ticket,a.bridgePool,1,usage);
     addGroup(ticket,a.recovery,1,usage);
-    addGroup(ticket,a.warm,1,usage);
   }
 
   if(mode==="different"){
@@ -537,35 +579,35 @@ function buildTicket(mode,a,usage){
     addGroup(ticket,a.chaotic.length?a.chaotic:a.hotBottom,1,usage);
     addGroup(ticket,a.stable.length?a.stable:a.zero,1,usage);
     addGroup(ticket,a.lowPool,1,usage);
-    addGroup(ticket,a.warm,1,usage);
+    addGroup(ticket,a.last10Pool,1,usage);
   }
 
   if(mode==="explore"){
     const t=pickTriple(a.topTriples,usage);
     if(t)ticket.push(...t.nums.slice(0,2));
+    addGroup(ticket,a.last10Pool,1,usage);
     addGroup(ticket,a.lowPool,1,usage);
     addGroup(ticket,a.recovery,1,usage);
-    addGroup(ticket,a.bridgePool,1,usage);
   }
 
   if(mode==="balanced"){
     addGroup(ticket,a.positive,1,usage);
     addGroup(ticket,a.zero,1,usage);
     addGroup(ticket,a.recovery,1,usage);
-    addGroup(ticket,a.lowPool,1,usage);
+    addGroup(ticket,a.last10Pool,1,usage);
     addGroup(ticket,a.bridgePool,1,usage);
   }
 
   if(mode==="coverage"){
     const least=a.rows.slice().sort((x,y)=>usage[x.n]-usage[y.n]||bumpScore(y)-bumpScore(x));
     addGroup(ticket,least,2,usage);
+    addGroup(ticket,a.last10Pool,1,usage);
     addGroup(ticket,a.bridgePool,1,usage);
     addGroup(ticket,a.recovery,1,usage);
-    addGroup(ticket,a.warm,1,usage);
   }
 
   while(ticket.length<5){
-    const pool=[...a.bridgePool,...a.lowPool,...a.recovery,...a.positive,...a.zero,...a.warm,...a.hotTop,...a.hotBottom];
+    const pool=[...a.last10Pool,...a.bridgePool,...a.lowPool,...a.recovery,...a.positive,...a.zero,...a.warm,...a.hotTop,...a.hotBottom];
     const x=pickNumber(pool,usage);
     if(x&&!ticket.includes(x.n))ticket.push(x.n);
     else break;
@@ -575,15 +617,16 @@ function buildTicket(mode,a,usage){
 }
 
 function bumpScore(x){
-  return (x.score||0)+(x.timeRatio||0)*0.03+(x.pairStrength||0)*0.02;
+  return (x.score||0)+(x.timeRatio||0)*0.03+(x.pairStrength||0)*0.02+(x.last10Freq||0)*0.02;
 }
-  function cleanTicket(ticket,a,usage,allowBridge=false){
+
+function cleanTicket(ticket,a,usage,allowBridge=false){
   ticket=[...new Set(ticket)].filter(n=>n>=1&&n<=35).sort((x,y)=>x-y);
 
   let safety=0;
   while(ticket.length<5 && safety<100){
     safety++;
-    const pool=[...a.bridgePool,...a.lowPool,...a.recovery,...a.positive,...a.zero,...a.warm,...a.hotTop,...a.hotBottom,a.rows].flat();
+    const pool=[...a.last10Pool,...a.bridgePool,...a.lowPool,...a.recovery,...a.positive,...a.zero,...a.warm,...a.hotTop,...a.hotBottom,a.rows].flat();
     const x=pickNumber(pool,usage);
     if(x&&!ticket.includes(x.n))ticket.push(x.n);
     ticket.sort((x,y)=>x-y);
@@ -596,6 +639,8 @@ function bumpScore(x){
 
 function typeName(mode){
   const names={
+    last10:"Last-10 Cycle",
+    lastdraw:"Last-Draw Bridge",
     watch:"Watch Triple / Decay",
     recovery:"Time Recovery",
     pair:"Strong Pair",
@@ -628,16 +673,17 @@ function pickNumber(group,usage){
 
   let total=0;
   const weights=pool.map((x,idx)=>{
-    const capPenalty=OVERUSED_ANCHORS.includes(x.n)?.50:1;
+    const capPenalty=OVERUSED_ANCHORS.includes(x.n)?.55:1;
     const usePenalty=1/(1+usage[x.n]*0.60);
-    const lowBoost=x.n<=15?1.10:1;
+    const lowBoost=x.n<=15?1.08:1;
     const timeBoost=1+Math.min((x.timeRatio||0)/8,.35);
-    const testBoost=(x.testRatio||0)>0?1.08:1;
-    const bridgeBoost=x.rank<=12?1.14:1;
+    const last10Boost=(x.last10Freq||0)>0?1+Math.min(x.last10Freq*.10,.35):1;
+    const lastDrawBoost=(x.lastDrawBridge||0)>0?1.08:1;
+    const bridgeBoost=x.rank<=12?1.12:1;
     const zeroBoost=x.mbiLabel==="Near-Zero MBI"?1.03:1;
     const pastPenalty=x.pastUse?1/(1+x.pastUse*.35):1;
     const rankMix=.65+((pool.length-idx)/pool.length)*.35;
-    const w=Math.max(.0001,((x.score||0)+.04)*usePenalty*lowBoost*timeBoost*testBoost*bridgeBoost*zeroBoost*pastPenalty*rankMix*capPenalty);
+    const w=Math.max(.0001,((x.score||0)+.04)*usePenalty*lowBoost*timeBoost*last10Boost*lastDrawBoost*bridgeBoost*zeroBoost*pastPenalty*rankMix*capPenalty);
     total+=w;
     return w;
   });
@@ -653,6 +699,8 @@ function pickNumber(group,usage){
 function pickPair(pairs,usage){
   if(!pairs||!pairs.length)return null;
   let pool=pairs.filter(p=>usage[p.a]<13&&usage[p.b]<13);
+  const last10Pairs=pool.filter(p=>p.last10>0);
+  if(last10Pairs.length)pool=last10Pairs;
   if(!pool.length)pool=pairs;
   return pool[Math.floor(Math.random()*Math.min(pool.length,24))];
 }
@@ -660,6 +708,8 @@ function pickPair(pairs,usage){
 function pickTriple(triples,usage){
   if(!triples||!triples.length)return null;
   let pool=triples.filter(t=>t.nums.every(n=>usage[n]<13));
+  const last10Triples=pool.filter(t=>t.last10>0);
+  if(last10Triples.length)pool=last10Triples;
   if(!pool.length)pool=triples;
   return pool[Math.floor(Math.random()*Math.min(pool.length,18))];
 }
@@ -698,17 +748,28 @@ function countConsecutive(t){
 
 function scoreTicket(t,a){
   let s=0;
+  let last10Count=0,lastDrawCount=0;
+
   for(const n of t){
-    if(a.byNum[n])s+=a.byNum[n].finalProb;
-    if(a.byNum[n] && a.byNum[n].testRatio>0)s+=0.004;
-    if(n<=15)s+=0.005;
+    const r=a.byNum[n];
+    if(r){
+      s+=r.finalProb;
+      if(r.last10Freq>0){s+=0.010;last10Count++}
+      if(r.lastDrawBridge>0){s+=0.006;lastDrawCount++}
+      if(r.pastUse>0)s-=Math.min(r.pastUse*.004,.025);
+    }
+    if(n<=15)s+=0.004;
     if(OVERUSED_ANCHORS.includes(n))s-=0.010;
-    if(a.byNum[n] && a.byNum[n].pastUse>0)s-=Math.min(a.byNum[n].pastUse*.004,.025);
   }
+
+  if(last10Count>=3)s+=0.025;
+  if(last10Count>=4)s+=0.035;
+  if(lastDrawCount>=2)s+=0.010;
 
   for(let i=0;i<5;i++)for(let j=i+1;j<5;j++){
     const k=pairKey(t[i],t[j]);
     if(a.pairCounts[k])s+=Math.min((a.pairCounts[k]/a.total)*.20,.04);
+    if(a.last10Pair[k])s+=Math.min(a.last10Pair[k]*.018,.055);
     if(a.lowPairCounts[k])s+=Math.min((a.lowPairCounts[k]/a.total)*.35,.06);
   }
 
@@ -717,6 +778,7 @@ function scoreTicket(t,a){
     const tri=a.topTriples.find(x=>x.key===key);
     const lowTri=a.topLowTriples.find(x=>x.key===key);
     if(a.tripleCounts[key])s+=Math.min((a.tripleCounts[key]/a.total)*.25,.035);
+    if(a.last10Triple[key])s+=Math.min(a.last10Triple[key]*.020,.060);
     if(a.lowTripleCounts[key])s+=Math.min((a.lowTripleCounts[key]/a.total)*.50,.08);
     if(tri)s+=0.03*tri.decay;
     if(lowTri)s+=0.04*lowTri.decay;
@@ -725,23 +787,24 @@ function scoreTicket(t,a){
 }
 
 function ticketProfile(t,a){
-  let pos=0,zero=0,neg=0,low=t.filter(n=>n<=15).length,over=t.filter(n=>OVERUSED_ANCHORS.includes(n)).length,test=0,past=0;
+  let pos=0,zero=0,neg=0,low=t.filter(n=>n<=15).length,over=t.filter(n=>OVERUSED_ANCHORS.includes(n)).length,last10=0,lastDraw=0,past=0;
   for(const n of t){
     const r=a.byNum[n];
     if(!r)continue;
-    if(r.testRatio>0)test++;
+    if(r.last10Freq>0)last10++;
+    if(r.lastDrawBridge>0)lastDraw++;
     if(r.pastUse>0)past++;
     if(r.mbiLabel==="Positive MBI")pos++;
     else if(r.mbiLabel==="Negative MBI")neg++;
     else zero++;
   }
-  return "Test light: "+test+" | Past penalty: "+past+" | Low 1-15: "+low+" | Positive "+pos+", Near-Zero "+zero+", Negative "+neg+" | 30-32: "+over;
+  return "Last10: "+last10+" | LastDraw: "+lastDraw+" | Past penalty: "+past+" | Low 1-15: "+low+" | Positive "+pos+", Near-Zero "+zero+", Negative "+neg+" | 30-31: "+over;
 }
 
 function renderAnalysis(){
   const a=ENGINE.analysis;
   let topRows=a.rows.slice(0,15).map(r=>
-    '<tr><td>'+r.rank+'</td><td><b>'+r.n+'</b></td><td>'+r.total+'</td><td>'+r.recent+'</td><td>'+r.delay+'</td><td>'+r.timeRatio.toFixed(2)+'</td><td>'+r.testRatio.toFixed(2)+'</td><td>'+r.pastUse+'</td><td>'+r.pairStrength.toFixed(2)+'</td><td>'+r.tripleStrength.toFixed(2)+'</td><td>'+r.mbi.toFixed(3)+'</td><td>'+r.mbiLabel+'</td><td>'+(r.finalProb*100).toFixed(2)+'%</td></tr>'
+    '<tr><td>'+r.rank+'</td><td><b>'+r.n+'</b></td><td>'+r.total+'</td><td>'+r.recent+'</td><td>'+r.delay+'</td><td>'+r.timeRatio.toFixed(2)+'</td><td>'+r.last10Freq+'</td><td>'+r.last10PosRatio.toFixed(2)+'</td><td>'+r.lastDrawBridge+'</td><td>'+r.pastUse+'</td><td>'+r.mbi.toFixed(3)+'</td><td>'+r.mbiLabel+'</td><td>'+(r.finalProb*100).toFixed(2)+'%</td></tr>'
   ).join("");
 
   document.getElementById("summaryBox").innerHTML=
@@ -749,19 +812,20 @@ function renderAnalysis(){
     '<div class="grid">'+
     '<div class="stat"><b>'+a.total+'</b><br><span class="small">Historical drawings</span></div>'+
     '<div class="stat"><b>'+TOTAL_COMBINATIONS.toLocaleString()+'</b><br><span class="small">35 choose 5 combinations</span></div>'+
-    '<div class="stat"><b>70%</b><br><span class="small">Real draw history, pairs, triples, recent trend</span></div>'+
+    '<div class="stat"><b>55%</b><br><span class="small">Full matrix history, pairs, triples, recent trend</span></div>'+
     '<div class="stat"><b>20%</b><br><span class="small">Delay, gap, and recovery pressure</span></div>'+
-    '<div class="stat"><b>10% max</b><br><span class="small">Optional test draw light signal only</span></div>'+
-    '<div class="stat"><b>Penalty only</b><br><span class="small">Past generated tickets are not prediction base</span></div>'+
-    '<div class="stat"><b>'+ENGINE.tests.map(x=>x.join("-")).join(" | ")+'</b><br><span class="small">Optional test draws used</span></div>'+
+    '<div class="stat"><b>20%</b><br><span class="small">Last-10 real draw cycle</span></div>'+
+    '<div class="stat"><b>5%</b><br><span class="small">Last-draw bridge signal</span></div>'+
+    '<div class="stat"><b>'+a.lastDraw.join(" - ")+'</b><br><span class="small">Last real draw bridge</span></div>'+
+    '<div class="stat"><b>'+a.last10Pool.slice(0,12).map(x=>x.n+"("+x.last10Freq+")").join(", ")+'</b><br><span class="small">Last-10 cycle pool</span></div>'+
     '<div class="stat"><b>'+a.bridgePool.slice(0,10).map(x=>x.n).join(", ")+'</b><br><span class="small">Bridge recovery pool</span></div>'+
     '</div><p class="small"><b>Disclaimer:</b> Cash 5 is random. This tool improves ticket construction only. It cannot guarantee 4 hits or 5 hits.</p>';
 
   document.getElementById("matrixBox").innerHTML=
     '<h2 class="section-title">Top 15 Matrix Numbers</h2>'+
-    '<div class="scroll"><table><thead><tr><th>Rank</th><th>#</th><th>Total</th><th>Recent</th><th>Delay</th><th>Time</th><th>Test</th><th>Past</th><th>Pair</th><th>Triple</th><th>MBI</th><th>Type</th><th>Final %</th></tr></thead><tbody>'+topRows+'</tbody></table></div>'+
-    '<h3>Strong Pairs</h3><p>'+a.topPairs.slice(0,18).map(p=>p.key+"("+p.count+")").join(", ")+'</p>'+
-    '<h3>Strong Triples With Decay</h3><p>'+a.topTriples.slice(0,15).map(t=>t.key+"("+t.count+", decay "+t.decay.toFixed(2)+")").join(", ")+'</p>';
+    '<div class="scroll"><table><thead><tr><th>Rank</th><th>#</th><th>Total</th><th>Recent</th><th>Delay</th><th>Time</th><th>Last10</th><th>Pos10</th><th>LastDraw</th><th>Past</th><th>MBI</th><th>Type</th><th>Final %</th></tr></thead><tbody>'+topRows+'</tbody></table></div>'+
+    '<h3>Strong Pairs + Last-10 Pair Signal</h3><p>'+a.topPairs.slice(0,18).map(p=>p.key+"("+p.count+", L10 "+p.last10+")").join(", ")+'</p>'+
+    '<h3>Strong Triples + Last-10 Triple Signal</h3><p>'+a.topTriples.slice(0,15).map(t=>t.key+"("+t.count+", L10 "+t.last10+", decay "+t.decay.toFixed(2)+")").join(", ")+'</p>';
 }
 
 function renderTickets(){
@@ -812,7 +876,7 @@ function exportExcel(){
   }
 
   let html='<html><head><meta charset="UTF-8"></head><body>';
-  html+='<h1>Cash 5 Adaptive MBI Matrix Export - 70/20/10 Recovery Rule</h1>';
+  html+='<h1>Cash 5 Adaptive MBI Matrix Export - Last 10 Cycle Recovery</h1>';
 
   html+='<h2>40 Payday Matrix Tickets</h2><table border="1"><tr><th>#</th><th>Numbers</th><th>Type</th><th>Profile</th><th>Score</th></tr>';
   ENGINE.tickets.forEach((t,i)=>{html+='<tr><td>'+(i+1)+'</td><td>'+formatNums(t.nums)+'</td><td>'+esc(t.type)+'</td><td>'+esc(t.profile)+'</td><td>'+t.score.toFixed(4)+'</td></tr>'});
@@ -823,21 +887,21 @@ function exportExcel(){
   html+='</table>';
 
   if(ENGINE.analysis){
-    html+='<h2>Top 15 Matrix Numbers</h2><table border="1"><tr><th>Rank</th><th>Number</th><th>Total</th><th>Recent</th><th>Delay</th><th>Time Ratio</th><th>Test Ratio</th><th>Past Use</th><th>MBI</th><th>Type</th><th>Final %</th></tr>';
+    html+='<h2>Top 15 Matrix Numbers</h2><table border="1"><tr><th>Rank</th><th>Number</th><th>Total</th><th>Recent</th><th>Delay</th><th>Time Ratio</th><th>Last 10</th><th>Last Draw</th><th>Past Use</th><th>MBI</th><th>Type</th><th>Final %</th></tr>';
     ENGINE.analysis.rows.slice(0,15).forEach(r=>{
-      html+='<tr><td>'+r.rank+'</td><td>'+r.n+'</td><td>'+r.total+'</td><td>'+r.recent+'</td><td>'+r.delay+'</td><td>'+r.timeRatio.toFixed(2)+'</td><td>'+r.testRatio.toFixed(2)+'</td><td>'+r.pastUse+'</td><td>'+r.mbi.toFixed(3)+'</td><td>'+esc(r.mbiLabel)+'</td><td>'+(r.finalProb*100).toFixed(2)+'%</td></tr>';
+      html+='<tr><td>'+r.rank+'</td><td>'+r.n+'</td><td>'+r.total+'</td><td>'+r.recent+'</td><td>'+r.delay+'</td><td>'+r.timeRatio.toFixed(2)+'</td><td>'+r.last10Freq+'</td><td>'+r.lastDrawBridge+'</td><td>'+r.pastUse+'</td><td>'+r.mbi.toFixed(3)+'</td><td>'+esc(r.mbiLabel)+'</td><td>'+(r.finalProb*100).toFixed(2)+'%</td></tr>';
     });
     html+='</table>';
   }
 
-  html+='<p>Rule: Generated tickets = 70% real draw history + 20% delay/recovery + 10% optional test draw signal. Past generated tickets are penalty only.</p>';
+  html+='<p>Rule: Generated tickets = 55% full matrix history + 20% delay/recovery + 20% last-10 real draw cycle + 5% last-draw bridge. Past generated tickets are penalty only.</p>';
   html+='<p>Disclaimer: Cash 5 is random. Historical matrix analysis only.</p></body></html>';
 
   const blob=new Blob([html],{type:"application/vnd.ms-excel;charset=utf-8"});
   const url=URL.createObjectURL(blob);
   const link=document.createElement("a");
   link.href=url;
-  link.download="Cash5_MBI_70_20_10_Recovery_Tickets.xls";
+  link.download="Cash5_MBI_Last10_Cycle_Recovery_Tickets.xls";
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
