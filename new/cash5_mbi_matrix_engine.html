@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Cash 5 Adaptive MBI Matrix Engine - 71 Bridge + Top 40</title>
+<title>Cash 5 Adaptive MBI Matrix Engine - 71 Bridge + Extra Analysis + Top 40</title>
 <style>
 :root{--bg:#fff;--p:#f7f9fc;--p2:#eef3f9;--t:#172033;--m:#5c6b82;--b:#cfd8e6;--a:#174ea6;--g:#0b6e4f;--v:#403899;--r:#9b1c1c;--y:#9a6a00;--sh:0 8px 22px rgba(20,40,80,.12)}
 *{box-sizing:border-box}
@@ -51,39 +51,36 @@ body *{visibility:hidden}
 <header>
 <h1>Cash 5 Adaptive MBI Matrix Engine</h1>
 <p>
-Workflow: Cash 5 Draw History 9-20-2018 to current → Generate 71 Bridge Matrix Tickets → Compare with Pretest Matrix at 5% influence → Generate Top 40 Tickets to Buy.
+Workflow: Cash 5 History → Generate 71 Bridge Tickets → Analyze 71 as New Matrix → Compare with Pretest Matrix → Re-score Every Ticket → Generate Top 40 Tickets to Buy.
 </p>
 </header>
 
 <main>
 <section class="card no-print">
 <h2 class="section-title">1. Paste Cash 5 Draw History 9-20-2018 to Current</h2>
-<textarea id="dataInput" placeholder="Paste official Cash 5 history here with date and numbers.
-Example:
+<textarea id="dataInput" placeholder="Paste official Cash 5 history with date and numbers:
 09/20/2018 01 11 22 24 35
 09/21/2018 06 11 29 32 35"></textarea>
 
 <h2 class="section-title">2. Paste Pretest Drawn Numbers</h2>
-<textarea id="pretestInput" placeholder="Paste machine pretest drawn numbers here with dates if available.
-Example:
+<textarea id="pretestInput" placeholder="Paste machine pretest drawn numbers with dates if available:
 06/25/2026 04 08 11 24 35
 06/25/2026 01 11 22 24 35
 06/25/2026 03 12 18 26 35"></textarea>
 
 <div class="button-row">
 <button onclick="analyzeMatrix()">1. Analyze Matrix</button>
-<button onclick="generate71Tickets()">2. Generate 71 Tickets</button>
+<button onclick="generate71Tickets()">2. Generate 71 Tickets + Analyze 71</button>
 <button onclick="generateTop40Tickets()">3. Top 40 Tickets to Buy</button>
 <button onclick="printTop40()">4. Print the Top 40 Tickets to Buy</button>
 <button onclick="exportExcel()">5. Download Excel Matrix Results</button>
 </div>
 </section>
 
-<section id="messageBox" class="card warning no-print">
-Paste Cash 5 draw history and pretest drawn numbers, then click <b>Analyze Matrix</b>.
-</section>
+<section id="messageBox" class="card warning no-print">Paste Cash 5 draw history and pretest drawn numbers, then click <b>Analyze Matrix</b>.</section>
 <section id="summaryBox" class="card no-print"></section>
 <section id="matrixBox" class="card no-print"></section>
+<section id="analysis71Box" class="card no-print"></section>
 <section id="tickets71Box" class="card no-print"></section>
 <section id="top40Box" class="card no-print"></section>
 <section id="printArea"></section>
@@ -92,7 +89,7 @@ Paste Cash 5 draw history and pretest drawn numbers, then click <b>Analyze Matri
 <script>
 const MIN=1,MAX=35,TOTAL_COMBINATIONS=324632;
 const MATRIX71_COUNT=71,TOP40_COUNT=40;
-let ENGINE={draws:[],pretests:[],analysis:null,tickets71:[],top40:[]};
+let ENGINE={draws:[],pretests:[],analysis:null,tickets71:[],analysis71:null,top40:[]};
 
 function avg(a){return a.length?a.reduce((x,y)=>x+y,0)/a.length:0}
 function variance(a){if(a.length<2)return 0;let m=avg(a);return avg(a.map(x=>(x-m)*(x-m)))}
@@ -121,7 +118,7 @@ function parseBox(id){
 
 function makeMatrix(draws){
   const freq=Array(36).fill(0),lastSeen=Array(36).fill(-1),gaps=Array.from({length:36},()=>[]);
-  const pairCounts={},tripleCounts={},transition=Array.from({length:36},()=>Array(36).fill(0));
+  const pairCounts={},tripleCounts={},quadCounts={};
   const total=draws.length||1;
 
   for(let i=0;i<draws.length;i++){
@@ -133,7 +130,10 @@ function makeMatrix(draws){
     }
     for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)pairCounts[pairKey(d[a],d[b])]=(pairCounts[pairKey(d[a],d[b])]||0)+1;
     for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)for(let c=b+1;c<5;c++)tripleCounts[triKey(d[a],d[b],d[c])]=(tripleCounts[triKey(d[a],d[b],d[c])]||0)+1;
-    if(i>0)for(const p of draws[i-1])for(const n of d)transition[p][n]++;
+    for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)for(let c=b+1;c<5;c++)for(let e=c+1;e<5;e++){
+      const k=[d[a],d[b],d[c],d[e]].join("-");
+      quadCounts[k]=(quadCounts[k]||0)+1;
+    }
   }
 
   const avgFreq=(total*5)/35;
@@ -154,8 +154,7 @@ function makeMatrix(draws){
 
   rows.sort((a,b)=>b.hotRatio-a.hotRatio||b.pairStrength-a.pairStrength||b.timeRatio-a.timeRatio);
   rows.forEach((r,i)=>r.rank=i+1);
-
-  return {total,rows,byNum,pairCounts,tripleCounts,transition};
+  return {total,rows,byNum,pairCounts,tripleCounts,quadCounts};
 }
 
 function pairStrengthFor(n,pairs,total){
@@ -168,6 +167,7 @@ function pairStrengthFor(n,pairs,total){
   }
   return c?(s/c)*10:0;
 }
+
 function tripleStrengthFor(n,triples,total){
   if(!total)return 0;
   let s=0,c=0;
@@ -177,8 +177,7 @@ function tripleStrengthFor(n,triples,total){
   }
   return c?(s/c)*30:0;
 }
-  <script>
-function analyzeMatrix(){
+  function analyzeMatrix(){
   const draws=parseBox("dataInput");
   const pretests=parseBox("pretestInput");
 
@@ -197,9 +196,7 @@ function analyzeMatrix(){
   const recent=Array(36).fill(0),last10Freq=Array(36).fill(0),lastDrawFlag=Array(36).fill(0);
   const preUse=Array(36).fill(0),last10Pair={},last10Triple={},prePair={},preTriple={};
 
-  for(let i=total-recentWindow;i<total;i++){
-    for(const n of draws[i])recent[n]++;
-  }
+  for(let i=total-recentWindow;i<total;i++)for(const n of draws[i])recent[n]++;
   for(const n of lastDraw)lastDrawFlag[n]=1;
 
   for(const d of last10){
@@ -214,7 +211,6 @@ function analyzeMatrix(){
     for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)for(let c=b+1;c<5;c++)preTriple[triKey(d[a],d[b],d[c])]=(preTriple[triKey(d[a],d[b],d[c])]||0)+1;
   }
 
-  const avgFreq=(total*5)/35;
   const preAvg=(Math.max(pretests.length,1)*5)/35;
   const rows=[],byNum={};
 
@@ -231,54 +227,16 @@ function analyzeMatrix(){
     const stabilityRatio=1-base.chaosRatio;
     const lastDrawBridge=lastDrawFlag[n];
 
-    const historyScore=
-      .35*norm(hotRatio,0,2.5)+
-      .20*norm(recentRatio,0,2.5)+
-      .20*norm(pairStrength,0,.75)+
-      .10*norm(tripleStrength,0,.55)+
-      .10*norm(timeRatio,0,3.5)+
-      .05*stabilityRatio;
+    const historyScore=.35*norm(hotRatio,0,2.5)+.20*norm(recentRatio,0,2.5)+.20*norm(pairStrength,0,.75)+.10*norm(tripleStrength,0,.55)+.10*norm(timeRatio,0,3.5)+.05*stabilityRatio;
+    const bridgeScore=.45*norm(pairStrength,0,.75)+.20*norm(tripleStrength,0,.55)+.20*norm(last10Ratio,0,.40)+.15*norm(timeRatio,0,3.5);
+    const pretestScore=pretests.length?(.55*norm(preRatio,0,2.5)+.30*norm(prePairStrength,0,.75)+.15*norm(preMatrix.byNum[n]?.timeRatio||0,0,3.5)):0;
 
-    const bridgeScore=
-      .45*norm(pairStrength,0,.75)+
-      .20*norm(tripleStrength,0,.55)+
-      .20*norm(last10Ratio,0,.40)+
-      .15*norm(timeRatio,0,3.5);
+    const finalScore=.50*historyScore+.25*bridgeScore+.15*norm(timeRatio,0,3.5)+.05*pretestScore+(n<=15?.05:0)+(lastDrawBridge?.04:0);
 
-    const pretestScore=pretests.length?(
-      .55*norm(preRatio,0,2.5)+
-      .30*norm(prePairStrength,0,.75)+
-      .15*norm(preMatrix.byNum[n]?.timeRatio||0,0,3.5)
-    ):0;
-
-    const lowAnchorBoost=n<=15?.05:0;
-    const lastDrawBoost=lastDrawBridge?.04:0;
-
-    const finalScore=
-      .50*historyScore+
-      .25*bridgeScore+
-      .15*norm(timeRatio,0,3.5)+
-      .05*pretestScore+
-      lowAnchorBoost+
-      lastDrawBoost;
-
-    const mbi=
-      .24*(hotRatio-1)+
-      .18*(recentRatio-1)+
-      .18*(timeRatio-1)+
-      .15*(pairStrength-.18)+
-      .10*(tripleStrength-.10)+
-      .10*(last10Ratio-.14)+
-      .05*(preRatio-1);
-
+    const mbi=.24*(hotRatio-1)+.18*(recentRatio-1)+.18*(timeRatio-1)+.15*(pairStrength-.18)+.10*(tripleStrength-.10)+.10*(last10Ratio-.14)+.05*(preRatio-1);
     const mbiLabel=mbi>.16?"Positive MBI":mbi<-.10?"Negative MBI":"Near-Zero MBI";
 
-    const row={
-      n,total:base.total,recent:recent[n],delay:base.delay,averageGap:base.averageGap,
-      timeRatio,hotRatio,recentRatio,pairStrength,tripleStrength,last10Freq:last10Freq[n],
-      last10Ratio,preUse:preUse[n],preRatio,prePairStrength,lastDrawBridge,
-      score:Math.max(.0001,finalScore),finalProb:0,rank:0,mbi,mbiLabel
-    };
+    const row={n,total:base.total,recent:recent[n],delay:base.delay,averageGap:base.averageGap,timeRatio,hotRatio,recentRatio,pairStrength,tripleStrength,last10Freq:last10Freq[n],last10Ratio,preUse:preUse[n],preRatio,prePairStrength,lastDrawBridge,score:Math.max(.0001,finalScore),finalProb:0,rank:0,mbi,mbiLabel};
     rows.push(row);byNum[n]=row;
   }
 
@@ -302,10 +260,10 @@ function analyzeMatrix(){
     positive:rows.filter(x=>x.mbiLabel==="Positive MBI"),
     zero:rows.filter(x=>x.mbiLabel==="Near-Zero MBI"),
     negative:rows.filter(x=>x.mbiLabel==="Negative MBI")
-  },tickets71:[],top40:[]};
+  },tickets71:[],analysis71:null,top40:[]};
 
   renderAnalysis();
-  setMsg("Matrix analyzed: Cash 5 history is the main base, and pretest drawn numbers are included as a 5% influence.","good");
+  setMsg("Matrix analyzed. Cash 5 history is the main base. Pretest numbers are included as 5% influence.","good");
 }
 
 function makePairList(pairs,last10,pre,total,preTotal){
@@ -338,21 +296,23 @@ function makeBridgePool(rows){
 function generate71Tickets(){
   if(!ENGINE.analysis){setMsg("Click Analyze Matrix first.","bad");return}
   ENGINE.tickets71=buildBridge71();
+  ENGINE.analysis71=analyze71TicketMatrix();
   render71Tickets();
-  setMsg("Generated 71 Bridge Matrix tickets from Cash 5 drawn history, with pretest as light 5% influence.","good");
+  render71Analysis();
+  setMsg("Generated 71 Bridge Tickets, then analyzed the 71 tickets as a new matrix layer.","good");
 }
 
 function buildBridge71(){
   const a=ENGINE.analysis;
   const list=[],used=new Set(),usage=Array(36).fill(0);
   const cores=buildCores(a);
-
   let coreIndex=0,guard=0;
-  while(list.length<MATRIX71_COUNT&&guard<20000){
+
+  while(list.length<MATRIX71_COUNT&&guard<30000){
     guard++;
     const core=cores[coreIndex%cores.length];
     const t=buildFromCore(core,a,usage,list.length);
-    pushTicket(list,used,usage,t,"71 Bridge Matrix Source",a,MATRIX71_COUNT,3);
+    pushTicket(list,used,usage,t,"71 Bridge Matrix Source",a,MATRIX71_COUNT,4);
     coreIndex++;
   }
 
@@ -362,7 +322,7 @@ function buildBridge71(){
 
 function buildCores(a){
   const cores=[];
-  for(const tr of a.topTriples.slice(0,18)){
+  for(const tr of a.topTriples.slice(0,20)){
     let core=[...tr.nums];
     for(const p of a.topPairs){
       if(core.includes(p.a)&&!core.includes(p.b))core.push(p.b);
@@ -372,10 +332,8 @@ function buildCores(a){
     if(core.length>=3)cores.push([...new Set(core)].slice(0,4).sort((x,y)=>x-y));
   }
 
-  const top=a.rows.slice(0,12).map(x=>x.n);
-  for(let i=0;i<top.length-3;i++){
-    cores.push([top[i],top[i+1],top[i+2],top[i+3]].sort((x,y)=>x-y));
-  }
+  const top=a.rows.slice(0,14).map(x=>x.n);
+  for(let i=0;i<top.length-3;i++)cores.push([top[i],top[i+1],top[i+2],top[i+3]].sort((x,y)=>x-y));
 
   const unique=[],seen=new Set();
   for(const c of cores){
@@ -387,10 +345,7 @@ function buildCores(a){
 
 function buildFromCore(core,a,usage,shift){
   let t=[...core];
-  const rotation=[
-    a.bridgePool,a.hotTop,a.recovery,a.pretestPool.length?a.pretestPool:a.last10Pool,
-    a.lowPool,a.last10Pool,a.positive,a.zero
-  ];
+  const rotation=[a.bridgePool,a.hotTop,a.recovery,a.pretestPool.length?a.pretestPool:a.last10Pool,a.lowPool,a.last10Pool,a.positive,a.zero];
   while(t.length<5){
     const group=rotation[(shift+t.length)%rotation.length];
     const x=pickNumber(group,a,usage,t);
@@ -399,61 +354,112 @@ function buildFromCore(core,a,usage,shift){
   return cleanTicket(t,a,usage,true);
 }
 
-function generateTop40Tickets(){
+function analyze71TicketMatrix(){
+  const a=ENGINE.analysis;
+  const m71=makeMatrix(ENGINE.tickets71.map(t=>t.nums));
+  const usage=Array(36).fill(0);
+  ENGINE.tickets71.forEach(t=>t.nums.forEach(n=>usage[n]++));
+
+  const overrepresented=m71.rows.filter(r=>r.total>=Math.ceil((MATRIX71_COUNT*5/35)*1.35)).map(r=>r.n);
+  const top71Pairs=Object.entries(m71.pairCounts).map(([key,count])=>{
+    const hist=a.pairCounts[key]||0;
+    const pre=a.prePair[key]||0;
+    const reinforced=(hist>0?1:0)+(pre>0?1:0);
+    return {key,count,hist,pre,reinforced,score:count*.50+hist*.30+pre*.20+reinforced};
+  }).sort((x,y)=>y.score-x.score);
+
+  const top71Quads=Object.entries(m71.quadCounts).map(([key,count])=>{
+    const nums=key.split("-").map(Number);
+    let preHits=0,histPairHits=0;
+    for(let i=0;i<nums.length;i++)for(let j=i+1;j<nums.length;j++){
+      const k=pairKey(nums[i],nums[j]);
+      if(a.prePair[k])preHits++;
+      if(a.pairCounts[k])histPairHits++;
+    }
+    return {key,nums,count,preHits,histPairHits,score:count*2+preHits*.5+histPairHits*.25};
+  }).sort((x,y)=>y.score-x.score);
+
+  const cloneMap={};
+  for(let i=0;i<ENGINE.tickets71.length;i++){
+    for(let j=i+1;j<ENGINE.tickets71.length;j++){
+      const c=ENGINE.tickets71[i].nums.filter(n=>ENGINE.tickets71[j].nums.includes(n)).length;
+      if(c>=4){
+        cloneMap[i]=(cloneMap[i]||0)+1;
+        cloneMap[j]=(cloneMap[j]||0)+1;
+      }
+    }
+  }
+
+  ENGINE.tickets71=ENGINE.tickets71.map((t,i)=>{
+    const base=scoreTicket(t,a);
+    const matrixPairBonus=pairMatrixBonus(t,top71Pairs);
+    const quadBonus=quadCoreBonus(t,top71Quads);
+    const preBonus=pretestReinforcement(t,a);
+    const overPenalty=t.nums.filter(n=>overrepresented.includes(n)).length*.006;
+    const clonePenalty=(cloneMap[i]||0)*.010;
+    const reScore=base+matrixPairBonus+quadBonus+preBonus-overPenalty-clonePenalty;
+    return {...t,reScore,extraProfile:"71-pair bonus "+matrixPairBonus.toFixed(3)+" | 4-core bonus "+quadBonus.toFixed(3)+" | Pretest bridge "+preBonus.toFixed(3)+" | Clone penalty "+clonePenalty.toFixed(3)};
+  }).sort((x,y)=>y.reScore-x.reScore);
+
+  return {matrix:m71,top71Pairs,top71Quads,overrepresented,cloneMap};
+}
+
+function pairMatrixBonus(t,topPairs){
+  let s=0;
+  for(let i=0;i<5;i++)for(let j=i+1;j<5;j++){
+    const k=pairKey(t[i],t[j]);
+    const p=topPairs.find(x=>x.key===k);
+    if(p)s+=Math.min(p.score*.003,.020);
+  }
+  return s;
+}
+
+function quadCoreBonus(t,topQuads){
+  let s=0;
+  for(const q of topQuads.slice(0,25)){
+    const c=q.nums.filter(n=>t.includes(n)).length;
+    if(c>=4)s+=Math.min(q.score*.004,.030);
+  }
+  return s;
+}
+
+function pretestReinforcement(t,a){
+  let s=0;
+  for(let i=0;i<5;i++)for(let j=i+1;j<5;j++){
+    const k=pairKey(t[i],t[j]);
+    if(a.prePair[k])s+=.006;
+  }
+  return Math.min(s,.040);
+}
+  function generateTop40Tickets(){
   if(!ENGINE.analysis){setMsg("Click Analyze Matrix first.","bad");return}
   if(!ENGINE.tickets71.length)generate71Tickets();
 
-  const sourceMatrix=makeMatrix(ENGINE.tickets71.map(t=>t.nums));
-  ENGINE.top40=buildTop40From71(sourceMatrix);
-  renderTop40Tickets();
-  setMsg("Top 40 Tickets to Buy generated after analyzing Cash 5 history, the 71-ticket bridge matrix, and pretest matrix.","good");
-}
-
-function buildTop40From71(sourceMatrix){
   const a=ENGINE.analysis;
+  const ranked71=ENGINE.tickets71.slice().sort((x,y)=>(y.reScore||y.score)-(x.reScore||x.score));
   const list=[],used=new Set(),usage=Array(36).fill(0);
 
-  const sourceRows=sourceMatrix.rows.map(r=>{
-    const base=a.byNum[r.n];
-    return {
-      ...base,
-      sourceUse:r.total,
-      sourcePair:r.pairStrength,
-      sourceScore:(base.score*.65)+norm(r.total,0,15)*.20+norm(r.pairStrength,0,.75)*.10+(base.preUse>0?.05:0)
-    };
-  }).sort((x,y)=>y.sourceScore-x.sourceScore);
-
-  const sourcePool=sourceRows;
-  const sourcePairs=makePairList(sourceMatrix.pairCounts,a.last10Pair,a.prePair,sourceMatrix.total,ENGINE.pretests.length).slice(0,80);
-  const sourceTriples=makeTripleList(sourceMatrix.tripleCounts,a.last10Triple,a.preTriple,sourceMatrix.total,ENGINE.pretests.length).slice(0,60);
-
-  let guard=0;
-  while(list.length<TOP40_COUNT&&guard<25000){
-    guard++;
-    let t=[];
-    const mode=list.length%5;
-    if(mode===0 && sourceTriples.length){
-      t=[...sourceTriples[list.length%sourceTriples.length].nums];
-    }else if(mode===1 && sourcePairs.length){
-      const p=sourcePairs[list.length%sourcePairs.length]; t=[p.a,p.b];
-    }else{
-      t=[];
-    }
-
-    addGroupToTicket(t,sourcePool,2,a,usage);
-    addGroupToTicket(t,a.bridgePool,1,a,usage);
-    addGroupToTicket(t,a.recovery,1,a,usage);
-    addGroupToTicket(t,a.pretestPool.length?a.pretestPool:a.last10Pool,1,a,usage);
-
-    t=cleanTicket(t,a,usage,true);
-    pushTicket(list,used,usage,t,"Top 40 Tickets to Buy",a,TOP40_COUNT,4);
+  for(const source of ranked71){
+    if(list.length>=TOP40_COUNT)break;
+    pushTicket(list,used,usage,source.nums,"Top 40 Tickets to Buy",a,TOP40_COUNT,4,source.reScore||source.score,source.extraProfile||"");
   }
 
-  list.sort((x,y)=>y.score-x.score);
-  return list.slice(0,TOP40_COUNT);
+  let guard=0;
+  while(list.length<TOP40_COUNT&&guard<20000){
+    guard++;
+    const seed=ranked71[guard%ranked71.length]?.nums||[];
+    let t=seed.slice(0,4);
+    addGroupToTicket(t,a.pretestPool.length?a.pretestPool:a.bridgePool,1,a,usage);
+    t=cleanTicket(t,a,usage,true);
+    pushTicket(list,used,usage,t,"Top 40 Backup Bridge",a,TOP40_COUNT,4);
+  }
+
+  ENGINE.top40=list.sort((x,y)=>y.score-x.score).slice(0,TOP40_COUNT);
+  renderTop40Tickets();
+  setMsg("Top 40 Tickets generated after extra analysis stage: 71-ticket matrix, pretest comparison, re-score, clone penalty, overuse penalty, and bridge reinforcement.","good");
 }
-  <script>
-function pushTicket(list,used,usage,t,type,a,limit,maxOverlap){
+
+function pushTicket(list,used,usage,t,type,a,limit,maxOverlap,forcedScore,extraProfile){
   if(list.length>=limit)return;
   t=cleanTicket(t,a,usage,true);
   if(t.length!==5)return;
@@ -462,7 +468,7 @@ function pushTicket(list,used,usage,t,type,a,limit,maxOverlap){
   if(maxOverlap&&hasTooMuchOverlap(t,list,maxOverlap))return;
   used.add(key);
   t.forEach(n=>usage[n]++);
-  list.push({nums:t,type,score:scoreTicket(t,a),profile:ticketProfile(t,a)});
+  list.push({nums:t,type,score:forcedScore||scoreTicket(t,a),profile:ticketProfile(t,a)+(extraProfile?" | "+extraProfile:"")});
 }
 
 function hasTooMuchOverlap(t,list,maxOverlap){
@@ -510,21 +516,10 @@ function passesBalance(t,allowBridge){
   const sum=t.reduce((a,b)=>a+b,0);
   const low=t.filter(n=>n<=17).length;
   const odd=t.filter(n=>n%2).length;
-  const cons=countConsecutive(t);
   if(sum<35||sum>155)return false;
   if(low===0||low===5)return false;
   if(odd===0||odd===5)return false;
-  if(!allowBridge&&cons>=4)return false;
   return true;
-}
-
-function countConsecutive(t){
-  let best=1,cur=1;
-  for(let i=1;i<t.length;i++){
-    if(t[i]===t[i-1]+1){cur++;best=Math.max(best,cur)}
-    else cur=1;
-  }
-  return best;
 }
 
 function scoreTicket(t,a){
@@ -565,41 +560,46 @@ function ticketProfile(t,a){
 
 function renderAnalysis(){
   const a=ENGINE.analysis;
-  const topRows=a.rows.slice(0,35).map(r=>
-    "<tr><td>"+r.rank+"</td><td><b>"+String(r.n).padStart(2,"0")+"</b></td><td>"+r.total+"</td><td>"+r.recent+"</td><td>"+r.delay+"</td><td>"+r.timeRatio.toFixed(2)+"</td><td>"+r.last10Freq+"</td><td>"+r.preUse+"</td><td>"+r.preRatio.toFixed(2)+"</td><td>"+r.pairStrength.toFixed(3)+"</td><td>"+r.prePairStrength.toFixed(3)+"</td><td>"+r.mbi.toFixed(3)+"</td><td>"+r.mbiLabel+"</td><td>"+(r.finalProb*100).toFixed(2)+"%</td></tr>"
-  ).join("");
+  const topRows=a.rows.slice(0,35).map(r=>"<tr><td>"+r.rank+"</td><td><b>"+String(r.n).padStart(2,"0")+"</b></td><td>"+r.total+"</td><td>"+r.recent+"</td><td>"+r.delay+"</td><td>"+r.timeRatio.toFixed(2)+"</td><td>"+r.last10Freq+"</td><td>"+r.preUse+"</td><td>"+r.preRatio.toFixed(2)+"</td><td>"+r.pairStrength.toFixed(3)+"</td><td>"+r.prePairStrength.toFixed(3)+"</td><td>"+r.mbi.toFixed(3)+"</td><td>"+r.mbiLabel+"</td><td>"+(r.finalProb*100).toFixed(2)+"%</td></tr>").join("");
 
-  document.getElementById("summaryBox").innerHTML=
-    '<h2 class="section-title">Matrix Summary</h2><div class="grid">'+
-    '<div class="stat"><b>'+a.total+'</b><br><span class="small">Cash 5 official drawings</span></div>'+
-    '<div class="stat"><b>'+ENGINE.pretests.length+'</b><br><span class="small">Pretest drawn numbers</span></div>'+
-    '<div class="stat"><b>'+TOTAL_COMBINATIONS.toLocaleString()+'</b><br><span class="small">Cash 5 total combinations</span></div>'+
-    '<div class="stat"><b>71</b><br><span class="small">Bridge matrix source tickets</span></div>'+
-    '<div class="stat"><b>40</b><br><span class="small">Top tickets to buy</span></div>'+
-    '<div class="stat"><b>5%</b><br><span class="small">Pretest matrix influence</span></div>'+
-    '</div><p class="small"><b>Disclaimer:</b> Cash 5 is random. This tool improves ticket construction only. It cannot guarantee wins.</p>';
+  document.getElementById("summaryBox").innerHTML='<h2 class="section-title">Matrix Summary</h2><div class="grid">'+
+  '<div class="stat"><b>'+a.total+'</b><br><span class="small">Cash 5 official drawings</span></div>'+
+  '<div class="stat"><b>'+ENGINE.pretests.length+'</b><br><span class="small">Pretest drawn numbers</span></div>'+
+  '<div class="stat"><b>'+TOTAL_COMBINATIONS.toLocaleString()+'</b><br><span class="small">Cash 5 total combinations</span></div>'+
+  '<div class="stat"><b>71</b><br><span class="small">Bridge matrix source tickets</span></div>'+
+  '<div class="stat"><b>40</b><br><span class="small">Top tickets to buy</span></div>'+
+  '<div class="stat"><b>Extra Stage</b><br><span class="small">Analyze 71 as new matrix</span></div>'+
+  '</div><p class="small"><b>Disclaimer:</b> Cash 5 is random. This tool improves ticket construction only. It cannot guarantee wins.</p>';
 
-  document.getElementById("matrixBox").innerHTML=
-    '<h2 class="section-title">Number Matrix Ranking</h2>'+
-    '<div class="scroll"><table><thead><tr><th>Rank</th><th>#</th><th>History</th><th>Recent</th><th>Delay</th><th>Gap Time</th><th>Last10</th><th>Pretest</th><th>Pre Ratio</th><th>Pair</th><th>Pre Pair</th><th>MBI</th><th>Type</th><th>Final %</th></tr></thead><tbody>'+topRows+'</tbody></table></div>'+
-    '<h3>Top Bridge Pairs</h3><p class="small">'+a.topPairs.slice(0,30).map(p=>p.key+"(H "+p.count+", L10 "+p.last10+", P "+p.pretest+")").join(", ")+'</p>'+
-    '<h3>Top Triple Matrix</h3><p class="small">'+a.topTriples.slice(0,20).map(t=>t.key+"(H "+t.count+", L10 "+t.last10+", P "+t.pretest+")").join(", ")+'</p>';
+  document.getElementById("matrixBox").innerHTML='<h2 class="section-title">Number Matrix Ranking</h2>'+
+  '<div class="scroll"><table><thead><tr><th>Rank</th><th>#</th><th>History</th><th>Recent</th><th>Delay</th><th>Gap Time</th><th>Last10</th><th>Pretest</th><th>Pre Ratio</th><th>Pair</th><th>Pre Pair</th><th>MBI</th><th>Type</th><th>Final %</th></tr></thead><tbody>'+topRows+'</tbody></table></div>'+
+  '<h3>Top Bridge Pairs</h3><p class="small">'+a.topPairs.slice(0,30).map(p=>p.key+"(H "+p.count+", L10 "+p.last10+", P "+p.pretest+")").join(", ")+'</p>'+
+  '<h3>Top Triple Matrix</h3><p class="small">'+a.topTriples.slice(0,20).map(t=>t.key+"(H "+t.count+", L10 "+t.last10+", P "+t.pretest+")").join(", ")+'</p>';
+}
+
+function render71Analysis(){
+  if(!ENGINE.analysis71)return;
+  const x=ENGINE.analysis71;
+  document.getElementById("analysis71Box").innerHTML=
+  '<h2 class="section-title">Extra Analysis Stage: 71 Tickets as New Matrix</h2>'+
+  '<div class="grid">'+
+  '<div class="stat"><b>'+x.top71Pairs.slice(0,5).map(p=>p.key).join(", ")+'</b><br><span class="small">Strongest repeated 71-ticket pairs</span></div>'+
+  '<div class="stat"><b>'+x.top71Quads.slice(0,3).map(q=>q.key).join(", ")+'</b><br><span class="small">Strongest 4-number bridge cores</span></div>'+
+  '<div class="stat"><b>'+x.overrepresented.map(n=>String(n).padStart(2,"0")).join(", ")+'</b><br><span class="small">Overrepresented numbers watched by penalty</span></div>'+
+  '</div><h3>Top 71 Matrix Pairs</h3><p class="small">'+x.top71Pairs.slice(0,30).map(p=>p.key+"(71x "+p.count+", Hist "+p.hist+", Pre "+p.pre+")").join(", ")+'</p>'+
+  '<h3>Top 4-Number Bridge Cores</h3><p class="small">'+x.top71Quads.slice(0,20).map(q=>q.key+"(Count "+q.count+", PreBridge "+q.preHits+")").join(", ")+'</p>';
 }
 
 function render71Tickets(){
   let html='<h2 class="section-title">Generated 71 Bridge Matrix Tickets</h2><div class="ticket-grid">';
-  ENGINE.tickets71.forEach((t,i)=>{
-    html+='<div class="ticket"><strong>'+String(i+1).padStart(2,"0")+'.</strong><div class="nums">'+formatNums(t.nums)+'</div><span class="tag">'+esc(t.type)+'</span><div class="small">'+esc(t.profile)+'</div><div class="small">Score: '+t.score.toFixed(4)+'</div></div>';
-  });
+  ENGINE.tickets71.forEach((t,i)=>{html+='<div class="ticket"><strong>'+String(i+1).padStart(2,"0")+'.</strong><div class="nums">'+formatNums(t.nums)+'</div><span class="tag">'+esc(t.type)+'</span><div class="small">'+esc(t.profile)+'</div><div class="small">Re-score: '+(t.reScore||t.score).toFixed(4)+'</div><div class="small">'+esc(t.extraProfile||"")+'</div></div>';});
   html+='</div>';
   document.getElementById("tickets71Box").innerHTML=html;
 }
 
 function renderTop40Tickets(){
   let html='<h2 class="section-title">Top 40 Tickets to Buy</h2><div class="scroll"><table><thead><tr><th>#</th><th>Numbers</th><th>Type</th><th>Profile</th><th>Score</th></tr></thead><tbody>';
-  ENGINE.top40.forEach((t,i)=>{
-    html+='<tr><td>'+String(i+1).padStart(2,"0")+'</td><td><b>'+formatNums(t.nums)+'</b></td><td>'+esc(t.type)+'</td><td>'+esc(t.profile)+'</td><td>'+t.score.toFixed(4)+'</td></tr>';
-  });
+  ENGINE.top40.forEach((t,i)=>{html+='<tr><td>'+String(i+1).padStart(2,"0")+'</td><td><b>'+formatNums(t.nums)+'</b></td><td>'+esc(t.type)+'</td><td>'+esc(t.profile)+'</td><td>'+t.score.toFixed(4)+'</td></tr>';});
   html+='</tbody></table></div>';
   document.getElementById("top40Box").innerHTML=html;
 }
@@ -607,9 +607,7 @@ function renderTop40Tickets(){
 function printTop40(){
   if(!ENGINE.top40.length){setMsg("Generate Top 40 Tickets to Buy first.","bad");return}
   let html='<h1>Cash 5 - Top 40 Tickets to Buy</h1><table><thead><tr><th>#</th><th>Numbers</th><th>Type</th><th>Profile</th><th>Score</th></tr></thead><tbody>';
-  ENGINE.top40.forEach((t,i)=>{
-    html+='<tr><td>'+String(i+1).padStart(2,"0")+'</td><td><b>'+formatNums(t.nums)+'</b></td><td>'+esc(t.type)+'</td><td>'+esc(t.profile)+'</td><td>'+t.score.toFixed(4)+'</td></tr>';
-  });
+  ENGINE.top40.forEach((t,i)=>{html+='<tr><td>'+String(i+1).padStart(2,"0")+'</td><td><b>'+formatNums(t.nums)+'</b></td><td>'+esc(t.type)+'</td><td>'+esc(t.profile)+'</td><td>'+t.score.toFixed(4)+'</td></tr>';});
   html+='</tbody></table><p>Disclaimer: Cash 5 is random. Matrix construction only.</p>';
   document.getElementById("printArea").innerHTML=html;
   setTimeout(()=>window.print(),100);
@@ -617,30 +615,20 @@ function printTop40(){
 
 function exportExcel(){
   if(!ENGINE.analysis){setMsg("Analyze Matrix first.","bad");return}
-
   let html='<html><head><meta charset="UTF-8"></head><body><h1>Cash 5 Matrix Results</h1>';
-  html+='<h2>Matrix Summary</h2><table border="1"><tr><th>Official Drawings</th><th>Pretest Drawings</th><th>71 Tickets Generated</th><th>Top 40 Generated</th><th>Pretest Influence</th></tr>';
-  html+='<tr><td>'+ENGINE.analysis.total+'</td><td>'+ENGINE.pretests.length+'</td><td>'+ENGINE.tickets71.length+'</td><td>'+ENGINE.top40.length+'</td><td>5%</td></tr></table>';
-
-  html+='<h2>Generated 71 Bridge Matrix Tickets</h2><table border="1"><tr><th>#</th><th>Numbers</th><th>Type</th><th>Profile</th><th>Score</th></tr>';
-  ENGINE.tickets71.forEach((t,i)=>html+='<tr><td>'+(i+1)+'</td><td>'+formatNums(t.nums)+'</td><td>'+esc(t.type)+'</td><td>'+esc(t.profile)+'</td><td>'+t.score.toFixed(4)+'</td></tr>');
-  html+='</table>';
-
-  html+='<h2>Top 40 Tickets to Buy</h2><table border="1"><tr><th>#</th><th>Numbers</th><th>Type</th><th>Profile</th><th>Score</th></tr>';
-  ENGINE.top40.forEach((t,i)=>html+='<tr><td>'+(i+1)+'</td><td>'+formatNums(t.nums)+'</td><td>'+esc(t.type)+'</td><td>'+esc(t.profile)+'</td><td>'+t.score.toFixed(4)+'</td></tr>');
-  html+='</table>';
-
-  html+='<h2>Number Matrix Ranking</h2><table border="1"><tr><th>Rank</th><th>#</th><th>History</th><th>Recent</th><th>Delay</th><th>Gap Time</th><th>Last10</th><th>Pretest</th><th>Pre Ratio</th><th>Pair</th><th>Pre Pair</th><th>MBI</th><th>Type</th><th>Final %</th></tr>';
-  ENGINE.analysis.rows.forEach(r=>{
-    html+='<tr><td>'+r.rank+'</td><td>'+r.n+'</td><td>'+r.total+'</td><td>'+r.recent+'</td><td>'+r.delay+'</td><td>'+r.timeRatio.toFixed(2)+'</td><td>'+r.last10Freq+'</td><td>'+r.preUse+'</td><td>'+r.preRatio.toFixed(2)+'</td><td>'+r.pairStrength.toFixed(3)+'</td><td>'+r.prePairStrength.toFixed(3)+'</td><td>'+r.mbi.toFixed(3)+'</td><td>'+esc(r.mbiLabel)+'</td><td>'+(r.finalProb*100).toFixed(2)+'%</td></tr>';
-  });
+  html+='<h2>Generated 71 Bridge Matrix Tickets</h2><table border="1"><tr><th>#</th><th>Numbers</th><th>Profile</th><th>ReScore</th></tr>';
+  ENGINE.tickets71.forEach((t,i)=>html+='<tr><td>'+(i+1)+'</td><td>'+formatNums(t.nums)+'</td><td>'+esc(t.profile+" "+(t.extraProfile||""))+'</td><td>'+(t.reScore||t.score).toFixed(4)+'</td></tr>');
+  html+='</table><h2>Top 40 Tickets to Buy</h2><table border="1"><tr><th>#</th><th>Numbers</th><th>Profile</th><th>Score</th></tr>';
+  ENGINE.top40.forEach((t,i)=>html+='<tr><td>'+(i+1)+'</td><td>'+formatNums(t.nums)+'</td><td>'+esc(t.profile)+'</td><td>'+t.score.toFixed(4)+'</td></tr>');
+  html+='</table><h2>Number Matrix Ranking</h2><table border="1"><tr><th>Rank</th><th>#</th><th>History</th><th>Recent</th><th>Delay</th><th>Last10</th><th>Pretest</th><th>MBI</th><th>Type</th><th>Final %</th></tr>';
+  ENGINE.analysis.rows.forEach(r=>{html+='<tr><td>'+r.rank+'</td><td>'+r.n+'</td><td>'+r.total+'</td><td>'+r.recent+'</td><td>'+r.delay+'</td><td>'+r.last10Freq+'</td><td>'+r.preUse+'</td><td>'+r.mbi.toFixed(3)+'</td><td>'+esc(r.mbiLabel)+'</td><td>'+(r.finalProb*100).toFixed(2)+'%</td></tr>';});
   html+='</table><p>Disclaimer: Cash 5 is random. Matrix construction only.</p></body></html>';
 
   const blob=new Blob([html],{type:"application/vnd.ms-excel;charset=utf-8"});
   const url=URL.createObjectURL(blob);
   const link=document.createElement("a");
   link.href=url;
-  link.download="Cash5_71_Bridge_Top40_Matrix_Results.xls";
+  link.download="Cash5_71_Extra_Analysis_Top40_Results.xls";
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
