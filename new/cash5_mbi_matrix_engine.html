@@ -3,9 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Cash 5 Adaptive MBI Matrix Engine - 71 Bridge + Extra Analysis + Top 40</title>
+<title>Cash 5 Adaptive MBI Matrix Engine - Anchor Exposure Control</title>
 <style>
-:root{--bg:#fff;--p:#f7f9fc;--p2:#eef3f9;--t:#172033;--m:#5c6b82;--b:#cfd8e6;--a:#174ea6;--g:#0b6e4f;--v:#403899;--r:#9b1c1c;--y:#9a6a00;--sh:0 8px 22px rgba(20,40,80,.12)}
+:root{
+--bg:#fff;--p:#f7f9fc;--p2:#eef3f9;--t:#172033;--m:#5c6b82;
+--b:#cfd8e6;--a:#174ea6;--g:#0b6e4f;--v:#403899;
+--r:#9b1c1c;--y:#9a6a00;--sh:0 8px 22px rgba(20,40,80,.12)
+}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--t);font-family:Arial,Helvetica,sans-serif;line-height:1.45}
 header{padding:22px 18px;text-align:center;border-bottom:1px solid var(--b)}
@@ -51,19 +55,19 @@ body *{visibility:hidden}
 <header>
 <h1>Cash 5 Adaptive MBI Matrix Engine</h1>
 <p>
-Workflow: Cash 5 History → Generate 71 Bridge Tickets → Analyze 71 as New Matrix → Compare with Pretest Matrix → Re-score Every Ticket → Generate Top 40 Tickets to Buy.
+Cash 5 History → Generate 71 Bridge Tickets → Analyze 71 Matrix → Apply Anchor Exposure Control → Generate Top 40 Tickets.
 </p>
 </header>
 
 <main>
 <section class="card no-print">
 <h2 class="section-title">1. Paste Cash 5 Draw History 9-20-2018 to Current</h2>
-<textarea id="dataInput" placeholder="Paste official Cash 5 history with date and numbers:
+<textarea id="dataInput" placeholder="Paste official Cash 5 history:
 09/20/2018 01 11 22 24 35
 09/21/2018 06 11 29 32 35"></textarea>
 
 <h2 class="section-title">2. Paste Pretest Drawn Numbers</h2>
-<textarea id="pretestInput" placeholder="Paste machine pretest drawn numbers with dates if available:
+<textarea id="pretestInput" placeholder="Paste pretest drawn numbers:
 06/25/2026 04 08 11 24 35
 06/25/2026 01 11 22 24 35
 06/25/2026 03 12 18 26 35"></textarea>
@@ -72,14 +76,17 @@ Workflow: Cash 5 History → Generate 71 Bridge Tickets → Analyze 71 as New Ma
 <button onclick="analyzeMatrix()">1. Analyze Matrix</button>
 <button onclick="generate71Tickets()">2. Generate 71 Tickets + Analyze 71</button>
 <button onclick="generateTop40Tickets()">3. Top 40 Tickets to Buy</button>
-<button onclick="printTop40()">4. Print the Top 40 Tickets to Buy</button>
+<button onclick="printTop40()">4. Print Top 40 Tickets</button>
 <button onclick="exportExcel()">5. Download Excel Matrix Results</button>
 </div>
 </section>
 
-<section id="messageBox" class="card warning no-print">Paste Cash 5 draw history and pretest drawn numbers, then click <b>Analyze Matrix</b>.</section>
+<section id="messageBox" class="card warning no-print">
+Paste Cash 5 draw history and pretest numbers, then click <b>Analyze Matrix</b>.
+</section>
 <section id="summaryBox" class="card no-print"></section>
 <section id="matrixBox" class="card no-print"></section>
+<section id="anchorBox" class="card no-print"></section>
 <section id="analysis71Box" class="card no-print"></section>
 <section id="tickets71Box" class="card no-print"></section>
 <section id="top40Box" class="card no-print"></section>
@@ -89,7 +96,15 @@ Workflow: Cash 5 History → Generate 71 Bridge Tickets → Analyze 71 as New Ma
 <script>
 const MIN=1,MAX=35,TOTAL_COMBINATIONS=324632;
 const MATRIX71_COUNT=71,TOP40_COUNT=40;
-let ENGINE={draws:[],pretests:[],analysis:null,tickets71:[],analysis71:null,top40:[]};
+
+let ENGINE={
+draws:[],
+pretests:[],
+analysis:null,
+tickets71:[],
+analysis71:null,
+top40:[]
+};
 
 function avg(a){return a.length?a.reduce((x,y)=>x+y,0)/a.length:0}
 function variance(a){if(a.length<2)return 0;let m=avg(a);return avg(a.map(x=>(x-m)*(x-m)))}
@@ -102,538 +117,1117 @@ function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").repl
 function setMsg(t,type){let b=document.getElementById("messageBox");b.className="card no-print "+(type||"warning");b.innerHTML=t}
 
 function parseBox(id){
-  const raw=document.getElementById(id).value.trim();
-  if(!raw)return [];
-  const lines=raw.split(/\n+/).map(x=>x.trim()).filter(Boolean);
-  const out=[];
-  for(const line of lines){
-    const nums=line.split(/[^0-9]+/).filter(Boolean).map(Number).filter(n=>n>=MIN&&n<=MAX);
-    if(nums.length>=5){
-      const d=[...new Set(nums.slice(-5))].sort((a,b)=>a-b);
-      if(d.length===5)out.push(d);
-    }
-  }
-  return out;
+const raw=document.getElementById(id).value.trim();
+if(!raw)return [];
+const lines=raw.split(/\n+/).map(x=>x.trim()).filter(Boolean);
+const out=[];
+for(const line of lines){
+const nums=line.split(/[^0-9]+/).filter(Boolean).map(Number).filter(n=>n>=MIN&&n<=MAX);
+if(nums.length>=5){
+const d=[...new Set(nums.slice(-5))].sort((a,b)=>a-b);
+if(d.length===5)out.push(d);
+}
+}
+return out;
 }
 
 function makeMatrix(draws){
-  const freq=Array(36).fill(0),lastSeen=Array(36).fill(-1),gaps=Array.from({length:36},()=>[]);
-  const pairCounts={},tripleCounts={},quadCounts={};
-  const total=draws.length||1;
+const freq=Array(36).fill(0),lastSeen=Array(36).fill(-1),gaps=Array.from({length:36},()=>[]);
+const pairCounts={},tripleCounts={},quadCounts={};
+const total=draws.length||1;
 
-  for(let i=0;i<draws.length;i++){
-    const d=draws[i].slice().sort((a,b)=>a-b);
-    for(const n of d){
-      freq[n]++;
-      if(lastSeen[n]>=0)gaps[n].push(i-lastSeen[n]);
-      lastSeen[n]=i;
-    }
-    for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)pairCounts[pairKey(d[a],d[b])]=(pairCounts[pairKey(d[a],d[b])]||0)+1;
-    for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)for(let c=b+1;c<5;c++)tripleCounts[triKey(d[a],d[b],d[c])]=(tripleCounts[triKey(d[a],d[b],d[c])]||0)+1;
-    for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)for(let c=b+1;c<5;c++)for(let e=c+1;e<5;e++){
-      const k=[d[a],d[b],d[c],d[e]].join("-");
-      quadCounts[k]=(quadCounts[k]||0)+1;
-    }
-  }
+for(let i=0;i<draws.length;i++){
+const d=draws[i].slice().sort((a,b)=>a-b);
+for(const n of d){
+freq[n]++;
+if(lastSeen[n]>=0)gaps[n].push(i-lastSeen[n]);
+lastSeen[n]=i;
+}
+for(let a=0;a<5;a++)for(let b=a+1;b<5;b++){
+pairCounts[pairKey(d[a],d[b])]=(pairCounts[pairKey(d[a],d[b])]||0)+1;
+}
+for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)for(let c=b+1;c<5;c++){
+tripleCounts[triKey(d[a],d[b],d[c])]=(tripleCounts[triKey(d[a],d[b],d[c])]||0)+1;
+}
+for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)for(let c=b+1;c<5;c++)for(let e=c+1;e<5;e++){
+const k=[d[a],d[b],d[c],d[e]].join("-");
+quadCounts[k]=(quadCounts[k]||0)+1;
+}
+}
 
-  const avgFreq=(total*5)/35;
-  const rows=[],byNum={};
+const avgFreq=(total*5)/35;
+const rows=[],byNum={};
 
-  for(let n=1;n<=35;n++){
-    const delay=lastSeen[n]===-1?total:total-1-lastSeen[n];
-    const averageGap=gaps[n].length?avg(gaps[n]):total;
-    const gapStd=Math.sqrt(variance(gaps[n]));
-    const hotRatio=freq[n]/avgFreq;
-    const timeRatio=(delay+1)/(averageGap+1);
-    const chaosRatio=norm(gapStd/(averageGap+1),0,1.8);
-    const pairStrength=pairStrengthFor(n,pairCounts,total);
-    const tripleStrength=tripleStrengthFor(n,tripleCounts,total);
-    const row={n,total:freq[n],delay,averageGap,timeRatio,hotRatio,chaosRatio,pairStrength,tripleStrength,score:0,rank:0,finalProb:0};
-    rows.push(row);byNum[n]=row;
-  }
+for(let n=1;n<=35;n++){
+const delay=lastSeen[n]===-1?total:total-1-lastSeen[n];
+const averageGap=gaps[n].length?avg(gaps[n]):total;
+const gapStd=Math.sqrt(variance(gaps[n]));
+const hotRatio=freq[n]/avgFreq;
+const timeRatio=(delay+1)/(averageGap+1);
+const chaosRatio=norm(gapStd/(averageGap+1),0,1.8);
+const pairStrength=pairStrengthFor(n,pairCounts,total);
+const tripleStrength=tripleStrengthFor(n,tripleCounts,total);
 
-  rows.sort((a,b)=>b.hotRatio-a.hotRatio||b.pairStrength-a.pairStrength||b.timeRatio-a.timeRatio);
-  rows.forEach((r,i)=>r.rank=i+1);
-  return {total,rows,byNum,pairCounts,tripleCounts,quadCounts};
+const row={
+n,total:freq[n],delay,averageGap,timeRatio,hotRatio,chaosRatio,
+pairStrength,tripleStrength,score:0,rank:0,finalProb:0,
+anchorLevel:"Wildcard",anchorCap:0
+};
+rows.push(row);
+byNum[n]=row;
+}
+
+rows.sort((a,b)=>b.hotRatio-a.hotRatio||b.pairStrength-a.pairStrength||b.timeRatio-a.timeRatio);
+rows.forEach((r,i)=>r.rank=i+1);
+
+return {total,rows,byNum,pairCounts,tripleCounts,quadCounts};
 }
 
 function pairStrengthFor(n,pairs,total){
-  if(!total)return 0;
-  let s=0,c=0;
-  for(let m=1;m<=35;m++){
-    if(m===n)continue;
-    const k=pairKey(n,m);
-    if(pairs[k]){s+=pairs[k]/total;c++}
-  }
-  return c?(s/c)*10:0;
+if(!total)return 0;
+let s=0,c=0;
+for(let m=1;m<=35;m++){
+if(m===n)continue;
+const k=pairKey(n,m);
+if(pairs[k]){s+=pairs[k]/total;c++}
+}
+return c?(s/c)*10:0;
 }
 
 function tripleStrengthFor(n,triples,total){
-  if(!total)return 0;
-  let s=0,c=0;
-  for(const k in triples){
-    const p=k.split("-").map(Number);
-    if(p.includes(n)){s+=triples[k]/total;c++}
-  }
-  return c?(s/c)*30:0;
+if(!total)return 0;
+let s=0,c=0;
+for(const k in triples){
+const p=k.split("-").map(Number);
+if(p.includes(n)){s+=triples[k]/total;c++}
 }
-  function analyzeMatrix(){
-  const draws=parseBox("dataInput");
-  const pretests=parseBox("pretestInput");
+return c?(s/c)*30:0;
+}
 
-  if(draws.length<20){
-    setMsg("Need at least 20 official Cash 5 drawings from 9-20-2018 to current.","bad");
-    return;
-  }
+/* NEW: Anchor Exposure Control
+Level A = maximum 40% of final tickets
+Level B = maximum 30%
+Level C = maximum 20%
+Wildcard = maximum 10%
+*/
+function applyAnchorExposureLevels(rows,ticketCount){
+const sorted=rows.slice().sort((a,b)=>b.score-a.score);
 
-  const official=makeMatrix(draws);
-  const preMatrix=makeMatrix(pretests.length?pretests:[]);
-  const total=draws.length;
-  const recentWindow=Math.min(60,total);
-  const last10=draws.slice(-10);
-  const lastDraw=draws[total-1];
+sorted.forEach((r,i)=>{
+if(i<3){
+r.anchorLevel="Anchor A";
+r.anchorCap=Math.ceil(ticketCount*.40);
+}
+else if(i<8){
+r.anchorLevel="Anchor B";
+r.anchorCap=Math.ceil(ticketCount*.30);
+}
+else if(i<16){
+r.anchorLevel="Anchor C";
+r.anchorCap=Math.ceil(ticketCount*.20);
+}
+else{
+r.anchorLevel="Wildcard";
+r.anchorCap=Math.ceil(ticketCount*.10);
+}
+});
 
-  const recent=Array(36).fill(0),last10Freq=Array(36).fill(0),lastDrawFlag=Array(36).fill(0);
-  const preUse=Array(36).fill(0),last10Pair={},last10Triple={},prePair={},preTriple={};
+return sorted;
+}
 
-  for(let i=total-recentWindow;i<total;i++)for(const n of draws[i])recent[n]++;
-  for(const n of lastDraw)lastDrawFlag[n]=1;
+function getAnchorCap(n,a,ticketCount){
+const r=a.byNum[n];
+if(!r)return Math.ceil(ticketCount*.10);
+return r.anchorCap||Math.ceil(ticketCount*.10);
+}
 
-  for(const d of last10){
-    for(const n of d)last10Freq[n]++;
-    for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)last10Pair[pairKey(d[a],d[b])]=(last10Pair[pairKey(d[a],d[b])]||0)+1;
-    for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)for(let c=b+1;c<5;c++)last10Triple[triKey(d[a],d[b],d[c])]=(last10Triple[triKey(d[a],d[b],d[c])]||0)+1;
-  }
+function anchorAllowed(ticket,usage,a,ticketCount){
+for(const n of ticket){
+const cap=getAnchorCap(n,a,ticketCount);
+if((usage[n]||0)>=cap)return false;
+}
+return true;
+}
 
-  for(const d of pretests){
-    for(const n of d)preUse[n]++;
-    for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)prePair[pairKey(d[a],d[b])]=(prePair[pairKey(d[a],d[b])]||0)+1;
-    for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)for(let c=b+1;c<5;c++)preTriple[triKey(d[a],d[b],d[c])]=(preTriple[triKey(d[a],d[b],d[c])]||0)+1;
-  }
+function anchorExposurePenalty(ticket,usage,a,ticketCount){
+let penalty=0;
+for(const n of ticket){
+const cap=getAnchorCap(n,a,ticketCount);
+const used=usage[n]||0;
+const ratio=cap?used/cap:1;
+if(ratio>.90)penalty+=.030;
+else if(ratio>.75)penalty+=.018;
+else if(ratio>.60)penalty+=.010;
+}
+return penalty;
+}
 
-  const preAvg=(Math.max(pretests.length,1)*5)/35;
-  const rows=[],byNum={};
+function analyzeMatrix(){
+const draws=parseBox("dataInput");
+const pretests=parseBox("pretestInput");
 
-  for(let n=1;n<=35;n++){
-    const base=official.byNum[n];
-    const hotRatio=base.hotRatio;
-    const recentRatio=(recent[n]/recentWindow)/(5/35);
-    const timeRatio=base.timeRatio;
-    const pairStrength=base.pairStrength;
-    const tripleStrength=base.tripleStrength;
-    const last10Ratio=last10Freq[n]/10;
-    const preRatio=pretests.length?(preUse[n]/preAvg):0;
-    const prePairStrength=pretests.length?pairStrengthFor(n,prePair,pretests.length):0;
-    const stabilityRatio=1-base.chaosRatio;
-    const lastDrawBridge=lastDrawFlag[n];
+if(draws.length<20){
+setMsg("Need at least 20 official Cash 5 drawings from 9-20-2018 to current.","bad");
+return;
+}
 
-    const historyScore=.35*norm(hotRatio,0,2.5)+.20*norm(recentRatio,0,2.5)+.20*norm(pairStrength,0,.75)+.10*norm(tripleStrength,0,.55)+.10*norm(timeRatio,0,3.5)+.05*stabilityRatio;
-    const bridgeScore=.45*norm(pairStrength,0,.75)+.20*norm(tripleStrength,0,.55)+.20*norm(last10Ratio,0,.40)+.15*norm(timeRatio,0,3.5);
-    const pretestScore=pretests.length?(.55*norm(preRatio,0,2.5)+.30*norm(prePairStrength,0,.75)+.15*norm(preMatrix.byNum[n]?.timeRatio||0,0,3.5)):0;
+const official=makeMatrix(draws);
+const preMatrix=makeMatrix(pretests.length?pretests:[]);
+const total=draws.length;
+const recentWindow=Math.min(60,total);
+const last10=draws.slice(-10);
+const lastDraw=draws[total-1];
 
-    const finalScore=.50*historyScore+.25*bridgeScore+.15*norm(timeRatio,0,3.5)+.05*pretestScore+(n<=15?.05:0)+(lastDrawBridge?.04:0);
+const recent=Array(36).fill(0),last10Freq=Array(36).fill(0),lastDrawFlag=Array(36).fill(0);
+const preUse=Array(36).fill(0),last10Pair={},last10Triple={},prePair={},preTriple={};
 
-    const mbi=.24*(hotRatio-1)+.18*(recentRatio-1)+.18*(timeRatio-1)+.15*(pairStrength-.18)+.10*(tripleStrength-.10)+.10*(last10Ratio-.14)+.05*(preRatio-1);
-    const mbiLabel=mbi>.16?"Positive MBI":mbi<-.10?"Negative MBI":"Near-Zero MBI";
+for(let i=total-recentWindow;i<total;i++)for(const n of draws[i])recent[n]++;
+for(const n of lastDraw)lastDrawFlag[n]=1;
 
-    const row={n,total:base.total,recent:recent[n],delay:base.delay,averageGap:base.averageGap,timeRatio,hotRatio,recentRatio,pairStrength,tripleStrength,last10Freq:last10Freq[n],last10Ratio,preUse:preUse[n],preRatio,prePairStrength,lastDrawBridge,score:Math.max(.0001,finalScore),finalProb:0,rank:0,mbi,mbiLabel};
-    rows.push(row);byNum[n]=row;
-  }
+for(const d of last10){
+for(const n of d)last10Freq[n]++;
+for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)last10Pair[pairKey(d[a],d[b])]=(last10Pair[pairKey(d[a],d[b])]||0)+1;
+for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)for(let c=b+1;c<5;c++)last10Triple[triKey(d[a],d[b],d[c])]=(last10Triple[triKey(d[a],d[b],d[c])]||0)+1;
+}
 
-  rows.sort((a,b)=>b.score-a.score);
-  const sum=rows.reduce((s,r)=>s+r.score,0);
-  rows.forEach((r,i)=>{r.rank=i+1;r.finalProb=r.score/sum});
+for(const d of pretests){
+for(const n of d)preUse[n]++;
+for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)prePair[pairKey(d[a],d[b])]=(prePair[pairKey(d[a],d[b])]||0)+1;
+for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)for(let c=b+1;c<5;c++)preTriple[triKey(d[a],d[b],d[c])]=(preTriple[triKey(d[a],d[b],d[c])]||0)+1;
+}
 
-  const topPairs=makePairList(official.pairCounts,last10Pair,prePair,total,pretests.length).slice(0,100);
-  const topTriples=makeTripleList(official.tripleCounts,last10Triple,preTriple,total,pretests.length).slice(0,80);
+const preAvg=(Math.max(pretests.length,1)*5)/35;
+const rows=[],byNum={};
 
-  ENGINE={draws,pretests,analysis:{
-    total,last10,lastDraw,official,preMatrix,rows,byNum,topPairs,topTriples,
-    pairCounts:official.pairCounts,tripleCounts:official.tripleCounts,
-    prePair,preTriple,last10Pair,last10Triple,
-    hotTop:rows.slice(0,12),
-    bridgePool:makeBridgePool(rows),
-    recovery:[...rows].sort((a,b)=>b.timeRatio-a.timeRatio).slice(0,16),
-    lowPool:rows.filter(x=>x.n<=15).sort((a,b)=>b.score-a.score),
-    pretestPool:rows.filter(x=>x.preUse>0).sort((a,b)=>b.preRatio-a.preRatio||b.score-a.score),
-    last10Pool:rows.filter(x=>x.last10Freq>0).sort((a,b)=>b.last10Freq-a.last10Freq||b.score-a.score),
-    positive:rows.filter(x=>x.mbiLabel==="Positive MBI"),
-    zero:rows.filter(x=>x.mbiLabel==="Near-Zero MBI"),
-    negative:rows.filter(x=>x.mbiLabel==="Negative MBI")
-  },tickets71:[],analysis71:null,top40:[]};
+for(let n=1;n<=35;n++){
+const base=official.byNum[n];
+const hotRatio=base.hotRatio;
+const recentRatio=(recent[n]/recentWindow)/(5/35);
+const timeRatio=base.timeRatio;
+const pairStrength=base.pairStrength;
+const tripleStrength=base.tripleStrength;
+const last10Ratio=last10Freq[n]/10;
+const preRatio=pretests.length?(preUse[n]/preAvg):0;
+const prePairStrength=pretests.length?pairStrengthFor(n,prePair,pretests.length):0;
+const stabilityRatio=1-base.chaosRatio;
+const lastDrawBridge=lastDrawFlag[n];
 
-  renderAnalysis();
-  setMsg("Matrix analyzed. Cash 5 history is the main base. Pretest numbers are included as 5% influence.","good");
+const historyScore=.35*norm(hotRatio,0,2.5)+.20*norm(recentRatio,0,2.5)+.20*norm(pairStrength,0,.75)+.10*norm(tripleStrength,0,.55)+.10*norm(timeRatio,0,3.5)+.05*stabilityRatio;
+const bridgeScore=.45*norm(pairStrength,0,.75)+.20*norm(tripleStrength,0,.55)+.20*norm(last10Ratio,0,.40)+.15*norm(timeRatio,0,3.5);
+const pretestScore=pretests.length?(.55*norm(preRatio,0,2.5)+.30*norm(prePairStrength,0,.75)+.15*norm(preMatrix.byNum[n]?.timeRatio||0,0,3.5)):0;
+
+const finalScore=.50*historyScore+.25*bridgeScore+.15*norm(timeRatio,0,3.5)+.05*pretestScore+(n<=15?.05:0)+(lastDrawBridge?.04:0);
+
+const mbi=.24*(hotRatio-1)+.18*(recentRatio-1)+.18*(timeRatio-1)+.15*(pairStrength-.18)+.10*(tripleStrength-.10)+.10*(last10Ratio-.14)+.05*(preRatio-1);
+const mbiLabel=mbi>.16?"Positive MBI":mbi<-.10?"Negative MBI":"Near-Zero MBI";
+
+const row={
+n,total:base.total,recent:recent[n],delay:base.delay,averageGap:base.averageGap,
+timeRatio,hotRatio,recentRatio,pairStrength,tripleStrength,
+last10Freq:last10Freq[n],last10Ratio,preUse:preUse[n],preRatio,prePairStrength,
+lastDrawBridge,score:Math.max(.0001,finalScore),finalProb:0,rank:0,
+mbi,mbiLabel,anchorLevel:"Wildcard",anchorCap:0
+};
+
+rows.push(row);
+byNum[n]=row;
+}
+
+rows.sort((a,b)=>b.score-a.score);
+const sum=rows.reduce((s,r)=>s+r.score,0);
+rows.forEach((r,i)=>{
+r.rank=i+1;
+r.finalProb=r.score/sum;
+});
+
+applyAnchorExposureLevels(rows,TOP40_COUNT);
+
+const topPairs=makePairList(official.pairCounts,last10Pair,prePair,total,pretests.length).slice(0,100);
+const topTriples=makeTripleList(official.tripleCounts,last10Triple,preTriple,total,pretests.length).slice(0,80);
+  ENGINE={
+draws,
+pretests,
+analysis:{
+total,last10,lastDraw,official,preMatrix,rows,byNum,topPairs,topTriples,
+pairCounts:official.pairCounts,
+tripleCounts:official.tripleCounts,
+prePair,preTriple,last10Pair,last10Triple,
+hotTop:rows.slice(0,12),
+bridgePool:makeBridgePool(rows),
+recovery:[...rows].sort((a,b)=>b.timeRatio-a.timeRatio).slice(0,16),
+lowPool:rows.filter(x=>x.n<=15).sort((a,b)=>b.score-a.score),
+pretestPool:rows.filter(x=>x.preUse>0).sort((a,b)=>b.preRatio-a.preRatio||b.score-a.score),
+last10Pool:rows.filter(x=>x.last10Freq>0).sort((a,b)=>b.last10Freq-a.last10Freq||b.score-a.score),
+positive:rows.filter(x=>x.mbiLabel==="Positive MBI"),
+zero:rows.filter(x=>x.mbiLabel==="Near-Zero MBI"),
+negative:rows.filter(x=>x.mbiLabel==="Negative MBI")
+},
+tickets71:[],
+analysis71:null,
+top40:[]
+};
+
+renderAnalysis();
+renderAnchorExposure();
+setMsg("Matrix analyzed. Anchor Exposure Control is active: A 40%, B 30%, C 20%, Wildcard 10%.","good");
 }
 
 function makePairList(pairs,last10,pre,total,preTotal){
-  return Object.entries(pairs).map(([key,count])=>{
-    const [a,b]=key.split("-").map(Number);
-    const l10=last10[key]||0,pt=pre[key]||0;
-    const score=(count/total)+(l10*.05)+(preTotal?pt/preTotal*.30:0);
-    return {key,a,b,count,last10:l10,pretest:pt,score};
-  }).sort((a,b)=>b.score-a.score);
+return Object.entries(pairs).map(([key,count])=>{
+const [a,b]=key.split("-").map(Number);
+const l10=last10[key]||0,pt=pre[key]||0;
+const score=(count/total)+(l10*.05)+(preTotal?pt/preTotal*.30:0);
+return {key,a,b,count,last10:l10,pretest:pt,score};
+}).sort((a,b)=>b.score-a.score);
 }
 
 function makeTripleList(triples,last10,pre,total,preTotal){
-  return Object.entries(triples).map(([key,count])=>{
-    const nums=key.split("-").map(Number);
-    const l10=last10[key]||0,pt=pre[key]||0;
-    const score=(count/total)+(l10*.04)+(preTotal?pt/preTotal*.25:0);
-    return {key,nums,count,last10:l10,pretest:pt,score};
-  }).sort((a,b)=>b.score-a.score);
+return Object.entries(triples).map(([key,count])=>{
+const nums=key.split("-").map(Number);
+const l10=last10[key]||0,pt=pre[key]||0;
+const score=(count/total)+(l10*.04)+(preTotal?pt/preTotal*.25:0);
+return {key,nums,count,last10:l10,pretest:pt,score};
+}).sort((a,b)=>b.score-a.score);
 }
 
 function makeBridgePool(rows){
-  const a=rows.slice(0,16);
-  const b=[...rows].sort((x,y)=>y.pairStrength-x.pairStrength).slice(0,14);
-  const c=[...rows].sort((x,y)=>y.timeRatio-x.timeRatio).slice(0,14);
-  const map={};
-  [...a,...b,...c].forEach(r=>map[r.n]=r);
-  return Object.values(map).sort((x,y)=>y.score-x.score);
+const a=rows.slice(0,16);
+const b=[...rows].sort((x,y)=>y.pairStrength-x.pairStrength).slice(0,14);
+const c=[...rows].sort((x,y)=>y.timeRatio-x.timeRatio).slice(0,14);
+const map={};
+[...a,...b,...c].forEach(r=>map[r.n]=r);
+return Object.values(map).sort((x,y)=>y.score-x.score);
 }
 
 function generate71Tickets(){
-  if(!ENGINE.analysis){setMsg("Click Analyze Matrix first.","bad");return}
-  ENGINE.tickets71=buildBridge71();
-  ENGINE.analysis71=analyze71TicketMatrix();
-  render71Tickets();
-  render71Analysis();
-  setMsg("Generated 71 Bridge Tickets, then analyzed the 71 tickets as a new matrix layer.","good");
+if(!ENGINE.analysis){setMsg("Click Analyze Matrix first.","bad");return}
+ENGINE.tickets71=buildBridge71();
+ENGINE.analysis71=analyze71TicketMatrix();
+render71Tickets();
+render71Analysis();
+setMsg("Generated 71 Bridge Tickets, then analyzed the 71 tickets as a new matrix layer.","good");
 }
 
 function buildBridge71(){
-  const a=ENGINE.analysis;
-  const list=[],used=new Set(),usage=Array(36).fill(0);
-  const cores=buildCores(a);
-  let coreIndex=0,guard=0;
+const a=ENGINE.analysis;
+const list=[],used=new Set(),usage=Array(36).fill(0);
+const cores=buildCores(a);
+let coreIndex=0,guard=0;
 
-  while(list.length<MATRIX71_COUNT&&guard<30000){
-    guard++;
-    const core=cores[coreIndex%cores.length];
-    const t=buildFromCore(core,a,usage,list.length);
-    pushTicket(list,used,usage,t,"71 Bridge Matrix Source",a,MATRIX71_COUNT,4);
-    coreIndex++;
-  }
+while(list.length<MATRIX71_COUNT&&guard<30000){
+guard++;
+const core=cores[coreIndex%cores.length];
+const t=buildFromCore(core,a,usage,list.length);
+pushTicket(list,used,usage,t,"71 Bridge Matrix Source",a,MATRIX71_COUNT,4);
+coreIndex++;
+}
 
-  list.sort((x,y)=>y.score-x.score);
-  return list.slice(0,MATRIX71_COUNT);
+list.sort((x,y)=>y.score-x.score);
+return list.slice(0,MATRIX71_COUNT);
 }
 
 function buildCores(a){
-  const cores=[];
-  for(const tr of a.topTriples.slice(0,20)){
-    let core=[...tr.nums];
-    for(const p of a.topPairs){
-      if(core.includes(p.a)&&!core.includes(p.b))core.push(p.b);
-      else if(core.includes(p.b)&&!core.includes(p.a))core.push(p.a);
-      if(core.length>=4)break;
-    }
-    if(core.length>=3)cores.push([...new Set(core)].slice(0,4).sort((x,y)=>x-y));
-  }
+const cores=[];
 
-  const top=a.rows.slice(0,14).map(x=>x.n);
-  for(let i=0;i<top.length-3;i++)cores.push([top[i],top[i+1],top[i+2],top[i+3]].sort((x,y)=>x-y));
+for(const tr of a.topTriples.slice(0,20)){
+let core=[...tr.nums];
 
-  const unique=[],seen=new Set();
-  for(const c of cores){
-    const key=c.join("-");
-    if(!seen.has(key)&&c.length>=3){seen.add(key);unique.push(c)}
-  }
-  return unique.length?unique:[[a.rows[0].n,a.rows[1].n,a.rows[2].n,a.rows[3].n].sort((x,y)=>x-y)];
+for(const p of a.topPairs){
+if(core.includes(p.a)&&!core.includes(p.b))core.push(p.b);
+else if(core.includes(p.b)&&!core.includes(p.a))core.push(p.a);
+if(core.length>=4)break;
+}
+
+if(core.length>=3){
+cores.push([...new Set(core)].slice(0,4).sort((x,y)=>x-y));
+}
+}
+
+const top=a.rows.slice(0,14).map(x=>x.n);
+for(let i=0;i<top.length-3;i++){
+cores.push([top[i],top[i+1],top[i+2],top[i+3]].sort((x,y)=>x-y));
+}
+
+const unique=[],seen=new Set();
+
+for(const c of cores){
+const key=c.join("-");
+if(!seen.has(key)&&c.length>=3){
+seen.add(key);
+unique.push(c);
+}
+}
+
+return unique.length?unique:[[a.rows[0].n,a.rows[1].n,a.rows[2].n,a.rows[3].n].sort((x,y)=>x-y)];
 }
 
 function buildFromCore(core,a,usage,shift){
-  let t=[...core];
-  const rotation=[a.bridgePool,a.hotTop,a.recovery,a.pretestPool.length?a.pretestPool:a.last10Pool,a.lowPool,a.last10Pool,a.positive,a.zero];
-  while(t.length<5){
-    const group=rotation[(shift+t.length)%rotation.length];
-    const x=pickNumber(group,a,usage,t);
-    if(x&&!t.includes(x.n))t.push(x.n); else break;
-  }
-  return cleanTicket(t,a,usage,true);
+let t=[...core];
+
+const rotation=[
+a.bridgePool,
+a.hotTop,
+a.recovery,
+a.pretestPool.length?a.pretestPool:a.last10Pool,
+a.lowPool,
+a.last10Pool,
+a.positive,
+a.zero
+];
+
+while(t.length<5){
+const group=rotation[(shift+t.length)%rotation.length];
+const x=pickNumber(group,a,usage,t);
+if(x&&!t.includes(x.n))t.push(x.n);
+else break;
+}
+
+return cleanTicket(t,a,usage,true,MATRIX71_COUNT);
 }
 
 function analyze71TicketMatrix(){
-  const a=ENGINE.analysis;
-  const m71=makeMatrix(ENGINE.tickets71.map(t=>t.nums));
-  const usage=Array(36).fill(0);
-  ENGINE.tickets71.forEach(t=>t.nums.forEach(n=>usage[n]++));
+const a=ENGINE.analysis;
+const m71=makeMatrix(ENGINE.tickets71.map(t=>t.nums));
+const usage=Array(36).fill(0);
 
-  const overrepresented=m71.rows.filter(r=>r.total>=Math.ceil((MATRIX71_COUNT*5/35)*1.35)).map(r=>r.n);
-  const top71Pairs=Object.entries(m71.pairCounts).map(([key,count])=>{
-    const hist=a.pairCounts[key]||0;
-    const pre=a.prePair[key]||0;
-    const reinforced=(hist>0?1:0)+(pre>0?1:0);
-    return {key,count,hist,pre,reinforced,score:count*.50+hist*.30+pre*.20+reinforced};
-  }).sort((x,y)=>y.score-x.score);
+ENGINE.tickets71.forEach(t=>t.nums.forEach(n=>usage[n]++));
 
-  const top71Quads=Object.entries(m71.quadCounts).map(([key,count])=>{
-    const nums=key.split("-").map(Number);
-    let preHits=0,histPairHits=0;
-    for(let i=0;i<nums.length;i++)for(let j=i+1;j<nums.length;j++){
-      const k=pairKey(nums[i],nums[j]);
-      if(a.prePair[k])preHits++;
-      if(a.pairCounts[k])histPairHits++;
-    }
-    return {key,nums,count,preHits,histPairHits,score:count*2+preHits*.5+histPairHits*.25};
-  }).sort((x,y)=>y.score-x.score);
+const overrepresented=m71.rows
+.filter(r=>r.total>=Math.ceil((MATRIX71_COUNT*5/35)*1.35))
+.map(r=>r.n);
 
-  const cloneMap={};
-  for(let i=0;i<ENGINE.tickets71.length;i++){
-    for(let j=i+1;j<ENGINE.tickets71.length;j++){
-      const c=ENGINE.tickets71[i].nums.filter(n=>ENGINE.tickets71[j].nums.includes(n)).length;
-      if(c>=4){
-        cloneMap[i]=(cloneMap[i]||0)+1;
-        cloneMap[j]=(cloneMap[j]||0)+1;
-      }
-    }
-  }
+const top71Pairs=Object.entries(m71.pairCounts).map(([key,count])=>{
+const hist=a.pairCounts[key]||0;
+const pre=a.prePair[key]||0;
+const reinforced=(hist>0?1:0)+(pre>0?1:0);
+return {key,count,hist,pre,reinforced,score:count*.50+hist*.30+pre*.20+reinforced};
+}).sort((x,y)=>y.score-x.score);
 
-  ENGINE.tickets71=ENGINE.tickets71.map((t,i)=>{
-    const base=scoreTicket(t,a);
-    const matrixPairBonus=pairMatrixBonus(t,top71Pairs);
-    const quadBonus=quadCoreBonus(t,top71Quads);
-    const preBonus=pretestReinforcement(t,a);
-    const overPenalty=t.nums.filter(n=>overrepresented.includes(n)).length*.006;
-    const clonePenalty=(cloneMap[i]||0)*.010;
-    const reScore=base+matrixPairBonus+quadBonus+preBonus-overPenalty-clonePenalty;
-    return {...t,reScore,extraProfile:"71-pair bonus "+matrixPairBonus.toFixed(3)+" | 4-core bonus "+quadBonus.toFixed(3)+" | Pretest bridge "+preBonus.toFixed(3)+" | Clone penalty "+clonePenalty.toFixed(3)};
-  }).sort((x,y)=>y.reScore-x.reScore);
+const top71Quads=Object.entries(m71.quadCounts).map(([key,count])=>{
+const nums=key.split("-").map(Number);
+let preHits=0,histPairHits=0;
 
-  return {matrix:m71,top71Pairs,top71Quads,overrepresented,cloneMap};
+for(let i=0;i<nums.length;i++)for(let j=i+1;j<nums.length;j++){
+const k=pairKey(nums[i],nums[j]);
+if(a.prePair[k])preHits++;
+if(a.pairCounts[k])histPairHits++;
+}
+
+return {key,nums,count,preHits,histPairHits,score:count*2+preHits*.5+histPairHits*.25};
+}).sort((x,y)=>y.score-x.score);
+
+const cloneMap={};
+
+for(let i=0;i<ENGINE.tickets71.length;i++){
+for(let j=i+1;j<ENGINE.tickets71.length;j++){
+const c=ENGINE.tickets71[i].nums.filter(n=>ENGINE.tickets71[j].nums.includes(n)).length;
+if(c>=4){
+cloneMap[i]=(cloneMap[i]||0)+1;
+cloneMap[j]=(cloneMap[j]||0)+1;
+}
+}
+}
+
+ENGINE.tickets71=ENGINE.tickets71.map((t,i)=>{
+const base=scoreTicket(t,a,usage,MATRIX71_COUNT);
+const matrixPairBonus=pairMatrixBonus(t,top71Pairs);
+const quadBonus=quadCoreBonus(t,top71Quads);
+const preBonus=pretestReinforcement(t,a);
+const overPenalty=t.nums.filter(n=>overrepresented.includes(n)).length*.006;
+const clonePenalty=(cloneMap[i]||0)*.010;
+const exposurePenalty=anchorExposurePenalty(t.nums,usage,a,MATRIX71_COUNT);
+
+const reScore=base+matrixPairBonus+quadBonus+preBonus-overPenalty-clonePenalty-exposurePenalty;
+
+return {
+...t,
+reScore,
+extraProfile:
+"71-pair bonus "+matrixPairBonus.toFixed(3)+
+" | 4-core bonus "+quadBonus.toFixed(3)+
+" | Pretest bridge "+preBonus.toFixed(3)+
+" | Anchor exposure penalty "+exposurePenalty.toFixed(3)+
+" | Clone penalty "+clonePenalty.toFixed(3)
+};
+}).sort((x,y)=>y.reScore-x.reScore);
+
+return {matrix:m71,top71Pairs,top71Quads,overrepresented,cloneMap};
 }
 
 function pairMatrixBonus(t,topPairs){
-  let s=0;
-  for(let i=0;i<5;i++)for(let j=i+1;j<5;j++){
-    const k=pairKey(t[i],t[j]);
-    const p=topPairs.find(x=>x.key===k);
-    if(p)s+=Math.min(p.score*.003,.020);
-  }
-  return s;
+let s=0;
+
+for(let i=0;i<5;i++)for(let j=i+1;j<5;j++){
+const k=pairKey(t[i],t[j]);
+const p=topPairs.find(x=>x.key===k);
+if(p)s+=Math.min(p.score*.003,.020);
+}
+
+return s;
 }
 
 function quadCoreBonus(t,topQuads){
-  let s=0;
-  for(const q of topQuads.slice(0,25)){
-    const c=q.nums.filter(n=>t.includes(n)).length;
-    if(c>=4)s+=Math.min(q.score*.004,.030);
-  }
-  return s;
+let s=0;
+
+for(const q of topQuads.slice(0,25)){
+const c=q.nums.filter(n=>t.includes(n)).length;
+if(c>=4)s+=Math.min(q.score*.004,.030);
+}
+
+return s;
 }
 
 function pretestReinforcement(t,a){
-  let s=0;
-  for(let i=0;i<5;i++)for(let j=i+1;j<5;j++){
-    const k=pairKey(t[i],t[j]);
-    if(a.prePair[k])s+=.006;
-  }
-  return Math.min(s,.040);
-}
-  function generateTop40Tickets(){
-  if(!ENGINE.analysis){setMsg("Click Analyze Matrix first.","bad");return}
-  if(!ENGINE.tickets71.length)generate71Tickets();
+let s=0;
 
-  const a=ENGINE.analysis;
-  const ranked71=ENGINE.tickets71.slice().sort((x,y)=>(y.reScore||y.score)-(x.reScore||x.score));
-  const list=[],used=new Set(),usage=Array(36).fill(0);
-
-  for(const source of ranked71){
-    if(list.length>=TOP40_COUNT)break;
-    pushTicket(list,used,usage,source.nums,"Top 40 Tickets to Buy",a,TOP40_COUNT,4,source.reScore||source.score,source.extraProfile||"");
-  }
-
-  let guard=0;
-  while(list.length<TOP40_COUNT&&guard<20000){
-    guard++;
-    const seed=ranked71[guard%ranked71.length]?.nums||[];
-    let t=seed.slice(0,4);
-    addGroupToTicket(t,a.pretestPool.length?a.pretestPool:a.bridgePool,1,a,usage);
-    t=cleanTicket(t,a,usage,true);
-    pushTicket(list,used,usage,t,"Top 40 Backup Bridge",a,TOP40_COUNT,4);
-  }
-
-  ENGINE.top40=list.sort((x,y)=>y.score-x.score).slice(0,TOP40_COUNT);
-  renderTop40Tickets();
-  setMsg("Top 40 Tickets generated after extra analysis stage: 71-ticket matrix, pretest comparison, re-score, clone penalty, overuse penalty, and bridge reinforcement.","good");
+for(let i=0;i<5;i++)for(let j=i+1;j<5;j++){
+const k=pairKey(t[i],t[j]);
+if(a.prePair[k])s+=.006;
 }
 
-function pushTicket(list,used,usage,t,type,a,limit,maxOverlap,forcedScore,extraProfile){
-  if(list.length>=limit)return;
-  t=cleanTicket(t,a,usage,true);
-  if(t.length!==5)return;
-  const key=t.join("-");
-  if(used.has(key))return;
-  if(maxOverlap&&hasTooMuchOverlap(t,list,maxOverlap))return;
-  used.add(key);
-  t.forEach(n=>usage[n]++);
-  list.push({nums:t,type,score:forcedScore||scoreTicket(t,a),profile:ticketProfile(t,a)+(extraProfile?" | "+extraProfile:"")});
+return Math.min(s,.040);
+}
+
+function generateTop40Tickets(){
+if(!ENGINE.analysis){setMsg("Click Analyze Matrix first.","bad");return}
+if(!ENGINE.tickets71.length)generate71Tickets();
+
+const a=ENGINE.analysis;
+const ranked71=ENGINE.tickets71.slice().sort((x,y)=>(y.reScore||y.score)-(x.reScore||x.score));
+const list=[],used=new Set(),usage=Array(36).fill(0);
+
+/* First pass: use best 71 tickets but obey anchor exposure caps */
+for(const source of ranked71){
+if(list.length>=TOP40_COUNT)break;
+
+pushTicket(
+list,
+used,
+usage,
+source.nums,
+"Top 40 Tickets to Buy",
+a,
+TOP40_COUNT,
+4,
+source.reScore||source.score,
+source.extraProfile||"",
+true
+);
+}
+
+/* Second pass: rebuild backups while still obeying caps */
+let guard=0;
+while(list.length<TOP40_COUNT&&guard<25000){
+guard++;
+
+const seed=ranked71[guard%ranked71.length]?.nums||[];
+let t=seed.slice(0,3);
+
+addGroupToTicket(t,a.pretestPool.length?a.pretestPool:a.bridgePool,1,a,usage,TOP40_COUNT);
+addGroupToTicket(t,a.lowPool,1,a,usage,TOP40_COUNT);
+
+t=cleanTicket(t,a,usage,true,TOP40_COUNT);
+
+pushTicket(
+list,
+used,
+usage,
+t,
+"Top 40 Backup Bridge",
+a,
+TOP40_COUNT,
+4,
+null,
+"Anchor cap protected backup",
+true
+);
+}
+
+/* Emergency final fill: relax clone overlap, but not anchor caps */
+guard=0;
+while(list.length<TOP40_COUNT&&guard<30000){
+guard++;
+
+let t=[];
+addGroupToTicket(t,a.bridgePool,2,a,usage,TOP40_COUNT);
+addGroupToTicket(t,a.recovery,1,a,usage,TOP40_COUNT);
+addGroupToTicket(t,a.lowPool,1,a,usage,TOP40_COUNT);
+addGroupToTicket(t,a.zero.length?a.zero:a.rows,1,a,usage,TOP40_COUNT);
+
+t=cleanTicket(t,a,usage,true,TOP40_COUNT);
+
+pushTicket(
+list,
+used,
+usage,
+t,
+"Top 40 Exposure Fill",
+a,
+TOP40_COUNT,
+5,
+null,
+"Final fill with anchor caps",
+true
+);
+}
+
+ENGINE.top40=list.sort((x,y)=>y.score-x.score).slice(0,TOP40_COUNT);
+
+renderTop40Tickets();
+renderAnchorExposure();
+
+setMsg("Top 40 Tickets generated with Anchor Exposure Control. Strong anchors stay active, but no number is allowed to dominate the set.","good");
+}
+
+function pushTicket(list,used,usage,t,type,a,limit,maxOverlap,forcedScore,extraProfile,useCaps){
+if(list.length>=limit)return;
+
+t=cleanTicket(t,a,usage,true,limit);
+if(t.length!==5)return;
+
+if(useCaps && !anchorAllowed(t,usage,a,limit))return;
+
+const key=t.join("-");
+if(used.has(key))return;
+if(maxOverlap&&hasTooMuchOverlap(t,list,maxOverlap))return;
+
+used.add(key);
+const score=(forcedScore||scoreTicket(t,a,usage,limit))-anchorExposurePenalty(t,usage,a,limit);
+
+t.forEach(n=>usage[n]++);
+
+list.push({
+nums:t,
+type,
+score,
+profile:ticketProfile(t,a)+(extraProfile?" | "+extraProfile:"")
+});
 }
 
 function hasTooMuchOverlap(t,list,maxOverlap){
-  for(const old of list){
-    let c=t.filter(n=>old.nums.includes(n)).length;
-    if(c>maxOverlap)return true;
-  }
-  return false;
+for(const old of list){
+let c=t.filter(n=>old.nums.includes(n)).length;
+if(c>maxOverlap)return true;
+}
+return false;
 }
 
-function addGroupToTicket(ticket,group,count,a,usage){
-  for(let i=0;i<count;i++){
-    const x=pickNumber(group,a,usage,ticket);
-    if(x&&!ticket.includes(x.n))ticket.push(x.n);
-  }
+function addGroupToTicket(ticket,group,count,a,usage,limit){
+for(let i=0;i<count;i++){
+const x=pickNumber(group,a,usage,ticket,limit);
+if(x&&!ticket.includes(x.n))ticket.push(x.n);
+}
 }
 
-function pickNumber(group,a,usage,ticket){
-  let pool=(group||[]).filter(x=>x&&x.n>=1&&x.n<=35&&!ticket.includes(x.n));
-  if(!pool.length)return null;
-  pool=pool.slice().sort((x,y)=>{
-    const ux=usage[x.n]||0,uy=usage[y.n]||0;
-    return ux-uy || (y.score||y.sourceScore||0)-(x.score||x.sourceScore||0);
-  });
-  return pool[0];
+function pickNumber(group,a,usage,ticket,limit){
+let pool=(group||[]).filter(x=>x&&x.n>=1&&x.n<=35&&!ticket.includes(x.n));
+
+if(!pool.length)return null;
+
+pool=pool.filter(x=>{
+const cap=getAnchorCap(x.n,a,limit||TOP40_COUNT);
+return (usage[x.n]||0)<cap;
+});
+
+if(!pool.length)return null;
+
+pool=pool.slice().sort((x,y)=>{
+const ux=usage[x.n]||0,uy=usage[y.n]||0;
+const cx=getAnchorCap(x.n,a,limit||TOP40_COUNT);
+const cy=getAnchorCap(y.n,a,limit||TOP40_COUNT);
+const rx=cx?ux/cx:1;
+const ry=cy?uy/cy:1;
+
+return rx-ry || ux-uy || (y.score||y.sourceScore||0)-(x.score||x.sourceScore||0);
+});
+
+return pool[0];
 }
 
-function cleanTicket(ticket,a,usage,allowBridge){
-  ticket=[...new Set(ticket)].filter(n=>n>=1&&n<=35).sort((x,y)=>x-y);
-  const fillPools=[a.bridgePool,a.hotTop,a.recovery,a.pretestPool,a.last10Pool,a.lowPool,a.positive,a.zero,a.rows];
-  let guard=0,pi=0;
-  while(ticket.length<5&&guard<200){
-    guard++;
-    const pool=fillPools[pi%fillPools.length]; pi++;
-    const x=pickNumber(pool,a,usage,ticket);
-    if(x&&!ticket.includes(x.n))ticket.push(x.n);
-    ticket.sort((x,y)=>x-y);
-  }
-  if(ticket.length!==5)return [];
-  if(!passesBalance(ticket,allowBridge))return [];
-  return ticket.sort((x,y)=>x-y);
+function cleanTicket(ticket,a,usage,allowBridge,limit){
+ticket=[...new Set(ticket)].filter(n=>n>=1&&n<=35).sort((x,y)=>x-y);
+
+const fillPools=[
+a.bridgePool,
+a.hotTop,
+a.recovery,
+a.pretestPool,
+a.last10Pool,
+a.lowPool,
+a.positive,
+a.zero,
+a.rows
+];
+
+let guard=0,pi=0;
+
+while(ticket.length<5&&guard<300){
+guard++;
+const pool=fillPools[pi%fillPools.length];
+pi++;
+
+const x=pickNumber(pool,a,usage,ticket,limit||TOP40_COUNT);
+if(x&&!ticket.includes(x.n))ticket.push(x.n);
+ticket.sort((x,y)=>x-y);
+}
+
+if(ticket.length!==5)return [];
+if(!passesBalance(ticket,allowBridge))return [];
+
+return ticket.sort((x,y)=>x-y);
 }
 
 function passesBalance(t,allowBridge){
-  const sum=t.reduce((a,b)=>a+b,0);
-  const low=t.filter(n=>n<=17).length;
-  const odd=t.filter(n=>n%2).length;
-  if(sum<35||sum>155)return false;
-  if(low===0||low===5)return false;
-  if(odd===0||odd===5)return false;
-  return true;
+const sum=t.reduce((a,b)=>a+b,0);
+const low=t.filter(n=>n<=17).length;
+const odd=t.filter(n=>n%2).length;
+
+if(sum<35||sum>155)return false;
+if(low===0||low===5)return false;
+if(odd===0||odd===5)return false;
+
+return true;
 }
 
-function scoreTicket(t,a){
-  let s=0,pre=0,last10=0,lastDraw=0,low=t.filter(n=>n<=15).length;
-  for(const n of t){
-    const r=a.byNum[n]; if(!r)continue;
-    s+=r.finalProb;
-    if(r.preUse>0){s+=.010;pre++}
-    if(r.last10Freq>0){s+=.009;last10++}
-    if(r.lastDrawBridge){s+=.007;lastDraw++}
-    if(n<=15)s+=.004;
-  }
-  if(pre>=2)s+=.015;
-  if(last10>=3)s+=.018;
-  if(low>=2)s+=.010;
-  if(lastDraw>=2)s+=.010;
+function scoreTicket(t,a,usage,limit){
+let s=0,pre=0,last10=0,lastDraw=0,low=t.filter(n=>n<=15).length;
 
-  for(let i=0;i<5;i++)for(let j=i+1;j<5;j++){
-    const k=pairKey(t[i],t[j]);
-    if(a.pairCounts[k])s+=Math.min((a.pairCounts[k]/a.total)*.22,.045);
-    if(a.prePair[k])s+=Math.min(a.prePair[k]*.010,.050);
-    if(a.last10Pair[k])s+=Math.min(a.last10Pair[k]*.016,.050);
-  }
-  return s;
+for(const n of t){
+const r=a.byNum[n];
+if(!r)continue;
+
+s+=r.finalProb;
+
+if(r.preUse>0){s+=.010;pre++}
+if(r.last10Freq>0){s+=.009;last10++}
+if(r.lastDrawBridge){s+=.007;lastDraw++}
+if(n<=15)s+=.004;
 }
 
-function ticketProfile(t,a){
-  let pos=0,zero=0,neg=0,pre=0,last10=0,lastDraw=0,low=t.filter(n=>n<=15).length;
-  for(const n of t){
-    const r=a.byNum[n]; if(!r)continue;
-    if(r.mbiLabel==="Positive MBI")pos++; else if(r.mbiLabel==="Negative MBI")neg++; else zero++;
-    if(r.preUse>0)pre++;
-    if(r.last10Freq>0)last10++;
-    if(r.lastDrawBridge)lastDraw++;
-  }
-  return "Pretest: "+pre+" | Last10: "+last10+" | LastDraw: "+lastDraw+" | Low 1-15: "+low+" | MBI +"+pos+" / 0 "+zero+" / -"+neg;
+if(pre>=2)s+=.015;
+if(last10>=3)s+=.018;
+if(low>=2)s+=.010;
+if(lastDraw>=2)s+=.010;
+
+for(let i=0;i<5;i++)for(let j=i+1;j<5;j++){
+const k=pairKey(t[i],t[j]);
+if(a.pairCounts[k])s+=Math.min((a.pairCounts[k]/a.total)*.22,.045);
+if(a.prePair[k])s+=Math.min(a.prePair[k]*.010,.050);
+if(a.last10Pair[k])s+=Math.min(a.last10Pair[k]*.016,.050);
+}
+
+s-=anchorExposurePenalty(t,usage||Array(36).fill(0),a,limit||TOP40_COUNT);
+
+return s;
+}
+  function ticketProfile(t,a){
+let pos=0,zero=0,neg=0,pre=0,last10=0,lastDraw=0,low=t.filter(n=>n<=15).length;
+
+for(const n of t){
+const r=a.byNum[n];
+if(!r)continue;
+
+if(r.mbiLabel==="Positive MBI")pos++;
+else if(r.mbiLabel==="Negative MBI")neg++;
+else zero++;
+
+if(r.preUse>0)pre++;
+if(r.last10Freq>0)last10++;
+if(r.lastDrawBridge)lastDraw++;
+}
+
+return "Pretest: "+pre+
+" | Last10: "+last10+
+" | LastDraw: "+lastDraw+
+" | Low 1-15: "+low+
+" | MBI +"+pos+" / 0 "+zero+" / -"+neg;
 }
 
 function renderAnalysis(){
-  const a=ENGINE.analysis;
-  const topRows=a.rows.slice(0,35).map(r=>"<tr><td>"+r.rank+"</td><td><b>"+String(r.n).padStart(2,"0")+"</b></td><td>"+r.total+"</td><td>"+r.recent+"</td><td>"+r.delay+"</td><td>"+r.timeRatio.toFixed(2)+"</td><td>"+r.last10Freq+"</td><td>"+r.preUse+"</td><td>"+r.preRatio.toFixed(2)+"</td><td>"+r.pairStrength.toFixed(3)+"</td><td>"+r.prePairStrength.toFixed(3)+"</td><td>"+r.mbi.toFixed(3)+"</td><td>"+r.mbiLabel+"</td><td>"+(r.finalProb*100).toFixed(2)+"%</td></tr>").join("");
+const a=ENGINE.analysis;
 
-  document.getElementById("summaryBox").innerHTML='<h2 class="section-title">Matrix Summary</h2><div class="grid">'+
-  '<div class="stat"><b>'+a.total+'</b><br><span class="small">Cash 5 official drawings</span></div>'+
-  '<div class="stat"><b>'+ENGINE.pretests.length+'</b><br><span class="small">Pretest drawn numbers</span></div>'+
-  '<div class="stat"><b>'+TOTAL_COMBINATIONS.toLocaleString()+'</b><br><span class="small">Cash 5 total combinations</span></div>'+
-  '<div class="stat"><b>71</b><br><span class="small">Bridge matrix source tickets</span></div>'+
-  '<div class="stat"><b>40</b><br><span class="small">Top tickets to buy</span></div>'+
-  '<div class="stat"><b>Extra Stage</b><br><span class="small">Analyze 71 as new matrix</span></div>'+
-  '</div><p class="small"><b>Disclaimer:</b> Cash 5 is random. This tool improves ticket construction only. It cannot guarantee wins.</p>';
+const topRows=a.rows.slice(0,35).map(r=>
+"<tr>"+
+"<td>"+r.rank+"</td>"+
+"<td><b>"+String(r.n).padStart(2,"0")+"</b></td>"+
+"<td>"+r.total+"</td>"+
+"<td>"+r.recent+"</td>"+
+"<td>"+r.delay+"</td>"+
+"<td>"+r.timeRatio.toFixed(2)+"</td>"+
+"<td>"+r.last10Freq+"</td>"+
+"<td>"+r.preUse+"</td>"+
+"<td>"+r.preRatio.toFixed(2)+"</td>"+
+"<td>"+r.pairStrength.toFixed(3)+"</td>"+
+"<td>"+r.prePairStrength.toFixed(3)+"</td>"+
+"<td>"+r.mbi.toFixed(3)+"</td>"+
+"<td>"+r.mbiLabel+"</td>"+
+"<td>"+r.anchorLevel+"</td>"+
+"<td>"+r.anchorCap+"</td>"+
+"<td>"+(r.finalProb*100).toFixed(2)+"%</td>"+
+"</tr>"
+).join("");
 
-  document.getElementById("matrixBox").innerHTML='<h2 class="section-title">Number Matrix Ranking</h2>'+
-  '<div class="scroll"><table><thead><tr><th>Rank</th><th>#</th><th>History</th><th>Recent</th><th>Delay</th><th>Gap Time</th><th>Last10</th><th>Pretest</th><th>Pre Ratio</th><th>Pair</th><th>Pre Pair</th><th>MBI</th><th>Type</th><th>Final %</th></tr></thead><tbody>'+topRows+'</tbody></table></div>'+
-  '<h3>Top Bridge Pairs</h3><p class="small">'+a.topPairs.slice(0,30).map(p=>p.key+"(H "+p.count+", L10 "+p.last10+", P "+p.pretest+")").join(", ")+'</p>'+
-  '<h3>Top Triple Matrix</h3><p class="small">'+a.topTriples.slice(0,20).map(t=>t.key+"(H "+t.count+", L10 "+t.last10+", P "+t.pretest+")").join(", ")+'</p>';
+document.getElementById("summaryBox").innerHTML=
+'<h2 class="section-title">Matrix Summary</h2>'+
+'<div class="grid">'+
+'<div class="stat"><b>'+a.total+'</b><br><span class="small">Cash 5 official drawings</span></div>'+
+'<div class="stat"><b>'+ENGINE.pretests.length+'</b><br><span class="small">Pretest drawn numbers</span></div>'+
+'<div class="stat"><b>'+TOTAL_COMBINATIONS.toLocaleString()+'</b><br><span class="small">Cash 5 total combinations</span></div>'+
+'<div class="stat"><b>71</b><br><span class="small">Bridge matrix source tickets</span></div>'+
+'<div class="stat"><b>40</b><br><span class="small">Top tickets to buy</span></div>'+
+'<div class="stat"><b>Anchor Caps</b><br><span class="small">A 40%, B 30%, C 20%, Wildcard 10%</span></div>'+
+'</div>'+
+'<p class="small"><b>Disclaimer:</b> Cash 5 is random. This tool improves ticket construction only. It cannot guarantee wins.</p>';
+
+document.getElementById("matrixBox").innerHTML=
+'<h2 class="section-title">Number Matrix Ranking</h2>'+
+'<div class="scroll">'+
+'<table>'+
+'<thead>'+
+'<tr>'+
+'<th>Rank</th>'+
+'<th>#</th>'+
+'<th>History</th>'+
+'<th>Recent</th>'+
+'<th>Delay</th>'+
+'<th>Gap Time</th>'+
+'<th>Last10</th>'+
+'<th>Pretest</th>'+
+'<th>Pre Ratio</th>'+
+'<th>Pair</th>'+
+'<th>Pre Pair</th>'+
+'<th>MBI</th>'+
+'<th>Type</th>'+
+'<th>Anchor Level</th>'+
+'<th>Cap</th>'+
+'<th>Final %</th>'+
+'</tr>'+
+'</thead>'+
+'<tbody>'+topRows+'</tbody>'+
+'</table>'+
+'</div>'+
+'<h3>Top Bridge Pairs</h3>'+
+'<p class="small">'+a.topPairs.slice(0,30).map(p=>p.key+"(H "+p.count+", L10 "+p.last10+", P "+p.pretest+")").join(", ")+'</p>'+
+'<h3>Top Triple Matrix</h3>'+
+'<p class="small">'+a.topTriples.slice(0,20).map(t=>t.key+"(H "+t.count+", L10 "+t.last10+", P "+t.pretest+")").join(", ")+'</p>';
+}
+
+function renderAnchorExposure(){
+if(!ENGINE.analysis)return;
+
+const a=ENGINE.analysis;
+const rows=a.rows.slice().sort((x,y)=>x.rank-y.rank);
+
+let usage=Array(36).fill(0);
+
+if(ENGINE.top40&&ENGINE.top40.length){
+ENGINE.top40.forEach(t=>t.nums.forEach(n=>usage[n]++));
+}
+
+const htmlRows=rows.map(r=>{
+const used=usage[r.n]||0;
+const pct=r.anchorCap?((used/r.anchorCap)*100):0;
+
+let status="Open";
+if(used>=r.anchorCap)status="Capped";
+else if(pct>=80)status="Near Cap";
+
+return "<tr>"+
+"<td>"+String(r.n).padStart(2,"0")+"</td>"+
+"<td>"+r.rank+"</td>"+
+"<td>"+r.anchorLevel+"</td>"+
+"<td>"+r.anchorCap+"</td>"+
+"<td>"+used+"</td>"+
+"<td>"+pct.toFixed(0)+"%</td>"+
+"<td>"+status+"</td>"+
+"</tr>";
+}).join("");
+
+document.getElementById("anchorBox").innerHTML=
+'<h2 class="section-title">Anchor Exposure Control</h2>'+
+'<p class="small">'+
+'This stage keeps strong numbers like 35 active, but limits how many final Top 40 tickets can use each number. '+
+'The score still ranks the number, but the ticket builder controls exposure so one hot anchor does not dominate the full set.'+
+'</p>'+
+'<div class="grid">'+
+'<div class="stat"><b>Anchor A</b><br><span class="small">Top 3 numbers, max 40% = 16 of 40 tickets</span></div>'+
+'<div class="stat"><b>Anchor B</b><br><span class="small">Ranks 4-8, max 30% = 12 of 40 tickets</span></div>'+
+'<div class="stat"><b>Anchor C</b><br><span class="small">Ranks 9-16, max 20% = 8 of 40 tickets</span></div>'+
+'<div class="stat"><b>Wildcard</b><br><span class="small">Ranks 17-35, max 10% = 4 of 40 tickets</span></div>'+
+'</div>'+
+'<div class="scroll" style="margin-top:12px">'+
+'<table>'+
+'<thead>'+
+'<tr>'+
+'<th>#</th>'+
+'<th>Rank</th>'+
+'<th>Level</th>'+
+'<th>Cap</th>'+
+'<th>Used in Top 40</th>'+
+'<th>Cap Used</th>'+
+'<th>Status</th>'+
+'</tr>'+
+'</thead>'+
+'<tbody>'+htmlRows+'</tbody>'+
+'</table>'+
+'</div>';
 }
 
 function render71Analysis(){
-  if(!ENGINE.analysis71)return;
-  const x=ENGINE.analysis71;
-  document.getElementById("analysis71Box").innerHTML=
-  '<h2 class="section-title">Extra Analysis Stage: 71 Tickets as New Matrix</h2>'+
-  '<div class="grid">'+
-  '<div class="stat"><b>'+x.top71Pairs.slice(0,5).map(p=>p.key).join(", ")+'</b><br><span class="small">Strongest repeated 71-ticket pairs</span></div>'+
-  '<div class="stat"><b>'+x.top71Quads.slice(0,3).map(q=>q.key).join(", ")+'</b><br><span class="small">Strongest 4-number bridge cores</span></div>'+
-  '<div class="stat"><b>'+x.overrepresented.map(n=>String(n).padStart(2,"0")).join(", ")+'</b><br><span class="small">Overrepresented numbers watched by penalty</span></div>'+
-  '</div><h3>Top 71 Matrix Pairs</h3><p class="small">'+x.top71Pairs.slice(0,30).map(p=>p.key+"(71x "+p.count+", Hist "+p.hist+", Pre "+p.pre+")").join(", ")+'</p>'+
-  '<h3>Top 4-Number Bridge Cores</h3><p class="small">'+x.top71Quads.slice(0,20).map(q=>q.key+"(Count "+q.count+", PreBridge "+q.preHits+")").join(", ")+'</p>';
+if(!ENGINE.analysis71)return;
+
+const x=ENGINE.analysis71;
+
+document.getElementById("analysis71Box").innerHTML=
+'<h2 class="section-title">Extra Analysis Stage: 71 Tickets as New Matrix</h2>'+
+'<div class="grid">'+
+'<div class="stat"><b>'+x.top71Pairs.slice(0,5).map(p=>p.key).join(", ")+'</b><br><span class="small">Strongest repeated 71-ticket pairs</span></div>'+
+'<div class="stat"><b>'+x.top71Quads.slice(0,3).map(q=>q.key).join(", ")+'</b><br><span class="small">Strongest 4-number bridge cores</span></div>'+
+'<div class="stat"><b>'+x.overrepresented.map(n=>String(n).padStart(2,"0")).join(", ")+'</b><br><span class="small">Overrepresented numbers watched by penalty</span></div>'+
+'</div>'+
+'<h3>Top 71 Matrix Pairs</h3>'+
+'<p class="small">'+x.top71Pairs.slice(0,30).map(p=>p.key+"(71x "+p.count+", Hist "+p.hist+", Pre "+p.pre+")").join(", ")+'</p>'+
+'<h3>Top 4-Number Bridge Cores</h3>'+
+'<p class="small">'+x.top71Quads.slice(0,20).map(q=>q.key+"(Count "+q.count+", PreBridge "+q.preHits+")").join(", ")+'</p>';
 }
 
 function render71Tickets(){
-  let html='<h2 class="section-title">Generated 71 Bridge Matrix Tickets</h2><div class="ticket-grid">';
-  ENGINE.tickets71.forEach((t,i)=>{html+='<div class="ticket"><strong>'+String(i+1).padStart(2,"0")+'.</strong><div class="nums">'+formatNums(t.nums)+'</div><span class="tag">'+esc(t.type)+'</span><div class="small">'+esc(t.profile)+'</div><div class="small">Re-score: '+(t.reScore||t.score).toFixed(4)+'</div><div class="small">'+esc(t.extraProfile||"")+'</div></div>';});
-  html+='</div>';
-  document.getElementById("tickets71Box").innerHTML=html;
+let html=
+'<h2 class="section-title">Generated 71 Bridge Matrix Tickets</h2>'+
+'<div class="ticket-grid">';
+
+ENGINE.tickets71.forEach((t,i)=>{
+html+=
+'<div class="ticket">'+
+'<strong>'+String(i+1).padStart(2,"0")+'.</strong>'+
+'<div class="nums">'+formatNums(t.nums)+'</div>'+
+'<span class="tag">'+esc(t.type)+'</span>'+
+'<div class="small">'+esc(t.profile)+'</div>'+
+'<div class="small">Re-score: '+(t.reScore||t.score).toFixed(4)+'</div>'+
+'<div class="small">'+esc(t.extraProfile||"")+'</div>'+
+'</div>';
+});
+
+html+='</div>';
+
+document.getElementById("tickets71Box").innerHTML=html;
 }
 
 function renderTop40Tickets(){
-  let html='<h2 class="section-title">Top 40 Tickets to Buy</h2><div class="scroll"><table><thead><tr><th>#</th><th>Numbers</th><th>Type</th><th>Profile</th><th>Score</th></tr></thead><tbody>';
-  ENGINE.top40.forEach((t,i)=>{html+='<tr><td>'+String(i+1).padStart(2,"0")+'</td><td><b>'+formatNums(t.nums)+'</b></td><td>'+esc(t.type)+'</td><td>'+esc(t.profile)+'</td><td>'+t.score.toFixed(4)+'</td></tr>';});
-  html+='</tbody></table></div>';
-  document.getElementById("top40Box").innerHTML=html;
+let html=
+'<h2 class="section-title">Top 40 Tickets to Buy</h2>'+
+'<div class="scroll">'+
+'<table>'+
+'<thead>'+
+'<tr>'+
+'<th>#</th>'+
+'<th>Numbers</th>'+
+'<th>Type</th>'+
+'<th>Profile</th>'+
+'<th>Score</th>'+
+'</tr>'+
+'</thead>'+
+'<tbody>';
+
+ENGINE.top40.forEach((t,i)=>{
+html+=
+'<tr>'+
+'<td>'+String(i+1).padStart(2,"0")+'</td>'+
+'<td><b>'+formatNums(t.nums)+'</b></td>'+
+'<td>'+esc(t.type)+'</td>'+
+'<td>'+esc(t.profile)+'</td>'+
+'<td>'+t.score.toFixed(4)+'</td>'+
+'</tr>';
+});
+
+html+='</tbody></table></div>';
+
+document.getElementById("top40Box").innerHTML=html;
 }
 
 function printTop40(){
-  if(!ENGINE.top40.length){setMsg("Generate Top 40 Tickets to Buy first.","bad");return}
-  let html='<h1>Cash 5 - Top 40 Tickets to Buy</h1><table><thead><tr><th>#</th><th>Numbers</th><th>Type</th><th>Profile</th><th>Score</th></tr></thead><tbody>';
-  ENGINE.top40.forEach((t,i)=>{html+='<tr><td>'+String(i+1).padStart(2,"0")+'</td><td><b>'+formatNums(t.nums)+'</b></td><td>'+esc(t.type)+'</td><td>'+esc(t.profile)+'</td><td>'+t.score.toFixed(4)+'</td></tr>';});
-  html+='</tbody></table><p>Disclaimer: Cash 5 is random. Matrix construction only.</p>';
-  document.getElementById("printArea").innerHTML=html;
-  setTimeout(()=>window.print(),100);
+if(!ENGINE.top40.length){
+setMsg("Generate Top 40 Tickets first.","bad");
+return;
+}
+
+let html=
+'<h1>Cash 5 - Top 40 Tickets to Buy</h1>'+
+'<p>Anchor Exposure Control Active: A 40%, B 30%, C 20%, Wildcard 10%.</p>'+
+'<table>'+
+'<thead>'+
+'<tr>'+
+'<th>#</th>'+
+'<th>Numbers</th>'+
+'<th>Type</th>'+
+'<th>Profile</th>'+
+'<th>Score</th>'+
+'</tr>'+
+'</thead>'+
+'<tbody>';
+
+ENGINE.top40.forEach((t,i)=>{
+html+=
+'<tr>'+
+'<td>'+String(i+1).padStart(2,"0")+'</td>'+
+'<td><b>'+formatNums(t.nums)+'</b></td>'+
+'<td>'+esc(t.type)+'</td>'+
+'<td>'+esc(t.profile)+'</td>'+
+'<td>'+t.score.toFixed(4)+'</td>'+
+'</tr>';
+});
+
+html+=
+'</tbody>'+
+'</table>'+
+'<p>Disclaimer: Cash 5 is random. Matrix construction only.</p>';
+
+document.getElementById("printArea").innerHTML=html;
+
+setTimeout(()=>window.print(),100);
 }
 
 function exportExcel(){
-  if(!ENGINE.analysis){setMsg("Analyze Matrix first.","bad");return}
-  let html='<html><head><meta charset="UTF-8"></head><body><h1>Cash 5 Matrix Results</h1>';
-  html+='<h2>Generated 71 Bridge Matrix Tickets</h2><table border="1"><tr><th>#</th><th>Numbers</th><th>Profile</th><th>ReScore</th></tr>';
-  ENGINE.tickets71.forEach((t,i)=>html+='<tr><td>'+(i+1)+'</td><td>'+formatNums(t.nums)+'</td><td>'+esc(t.profile+" "+(t.extraProfile||""))+'</td><td>'+(t.reScore||t.score).toFixed(4)+'</td></tr>');
-  html+='</table><h2>Top 40 Tickets to Buy</h2><table border="1"><tr><th>#</th><th>Numbers</th><th>Profile</th><th>Score</th></tr>';
-  ENGINE.top40.forEach((t,i)=>html+='<tr><td>'+(i+1)+'</td><td>'+formatNums(t.nums)+'</td><td>'+esc(t.profile)+'</td><td>'+t.score.toFixed(4)+'</td></tr>');
-  html+='</table><h2>Number Matrix Ranking</h2><table border="1"><tr><th>Rank</th><th>#</th><th>History</th><th>Recent</th><th>Delay</th><th>Last10</th><th>Pretest</th><th>MBI</th><th>Type</th><th>Final %</th></tr>';
-  ENGINE.analysis.rows.forEach(r=>{html+='<tr><td>'+r.rank+'</td><td>'+r.n+'</td><td>'+r.total+'</td><td>'+r.recent+'</td><td>'+r.delay+'</td><td>'+r.last10Freq+'</td><td>'+r.preUse+'</td><td>'+r.mbi.toFixed(3)+'</td><td>'+esc(r.mbiLabel)+'</td><td>'+(r.finalProb*100).toFixed(2)+'%</td></tr>';});
-  html+='</table><p>Disclaimer: Cash 5 is random. Matrix construction only.</p></body></html>';
+if(!ENGINE.analysis){
+setMsg("Analyze Matrix first.","bad");
+return;
+}
 
-  const blob=new Blob([html],{type:"application/vnd.ms-excel;charset=utf-8"});
-  const url=URL.createObjectURL(blob);
-  const link=document.createElement("a");
-  link.href=url;
-  link.download="Cash5_71_Extra_Analysis_Top40_Results.xls";
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-  setMsg("Excel matrix results downloaded.","good");
+let html=
+'<html>'+
+'<head><meta charset="UTF-8"></head>'+
+'<body>'+
+'<h1>Cash 5 Matrix Results</h1>'+
+'<p>Anchor Exposure Control Active: A 40%, B 30%, C 20%, Wildcard 10%.</p>';
+
+html+=
+'<h2>Generated 71 Bridge Matrix Tickets</h2>'+
+'<table border="1">'+
+'<tr>'+
+'<th>#</th>'+
+'<th>Numbers</th>'+
+'<th>Profile</th>'+
+'<th>ReScore</th>'+
+'</tr>';
+
+ENGINE.tickets71.forEach((t,i)=>{
+html+=
+'<tr>'+
+'<td>'+(i+1)+'</td>'+
+'<td>'+formatNums(t.nums)+'</td>'+
+'<td>'+esc(t.profile+" "+(t.extraProfile||""))+'</td>'+
+'<td>'+(t.reScore||t.score).toFixed(4)+'</td>'+
+'</tr>';
+});
+
+html+='</table>';
+
+html+=
+'<h2>Top 40 Tickets to Buy</h2>'+
+'<table border="1">'+
+'<tr>'+
+'<th>#</th>'+
+'<th>Numbers</th>'+
+'<th>Profile</th>'+
+'<th>Score</th>'+
+'</tr>';
+
+ENGINE.top40.forEach((t,i)=>{
+html+=
+'<tr>'+
+'<td>'+(i+1)+'</td>'+
+'<td>'+formatNums(t.nums)+'</td>'+
+'<td>'+esc(t.profile)+'</td>'+
+'<td>'+t.score.toFixed(4)+'</td>'+
+'</tr>';
+});
+
+html+='</table>';
+
+html+=
+'<h2>Number Matrix Ranking</h2>'+
+'<table border="1">'+
+'<tr>'+
+'<th>Rank</th>'+
+'<th>#</th>'+
+'<th>History</th>'+
+'<th>Recent</th>'+
+'<th>Delay</th>'+
+'<th>Last10</th>'+
+'<th>Pretest</th>'+
+'<th>MBI</th>'+
+'<th>Type</th>'+
+'<th>Anchor Level</th>'+
+'<th>Anchor Cap</th>'+
+'<th>Final %</th>'+
+'</tr>';
+
+ENGINE.analysis.rows.forEach(r=>{
+html+=
+'<tr>'+
+'<td>'+r.rank+'</td>'+
+'<td>'+r.n+'</td>'+
+'<td>'+r.total+'</td>'+
+'<td>'+r.recent+'</td>'+
+'<td>'+r.delay+'</td>'+
+'<td>'+r.last10Freq+'</td>'+
+'<td>'+r.preUse+'</td>'+
+'<td>'+r.mbi.toFixed(3)+'</td>'+
+'<td>'+esc(r.mbiLabel)+'</td>'+
+'<td>'+esc(r.anchorLevel)+'</td>'+
+'<td>'+r.anchorCap+'</td>'+
+'<td>'+(r.finalProb*100).toFixed(2)+'%</td>'+
+'</tr>';
+});
+
+html+='</table>';
+
+html+=
+'<h2>Anchor Exposure Report</h2>'+
+'<table border="1">'+
+'<tr>'+
+'<th>#</th>'+
+'<th>Rank</th>'+
+'<th>Level</th>'+
+'<th>Cap</th>'+
+'<th>Used in Top 40</th>'+
+'</tr>';
+
+const usage=Array(36).fill(0);
+if(ENGINE.top40&&ENGINE.top40.length){
+ENGINE.top40.forEach(t=>t.nums.forEach(n=>usage[n]++));
+}
+
+ENGINE.analysis.rows.forEach(r=>{
+html+=
+'<tr>'+
+'<td>'+r.n+'</td>'+
+'<td>'+r.rank+'</td>'+
+'<td>'+esc(r.anchorLevel)+'</td>'+
+'<td>'+r.anchorCap+'</td>'+
+'<td>'+(usage[r.n]||0)+'</td>'+
+'</tr>';
+});
+
+html+=
+'</table>'+
+'<p>Disclaimer: Cash 5 is random. Matrix construction only.</p>'+
+'</body>'+
+'</html>';
+
+const blob=new Blob([html],{type:"application/vnd.ms-excel;charset=utf-8"});
+const url=URL.createObjectURL(blob);
+const link=document.createElement("a");
+
+link.href=url;
+link.download="Cash5_Anchor_Exposure_Top40_Results.xls";
+
+document.body.appendChild(link);
+link.click();
+document.body.removeChild(link);
+URL.revokeObjectURL(url);
+
+setMsg("Excel matrix results downloaded with Anchor Exposure Report.","good");
 }
 </script>
 </body>
