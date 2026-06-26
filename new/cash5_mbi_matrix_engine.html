@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Cash 5 Adaptive MBI Matrix Engine - Anchor Exposure Control</title>
+<title>Cash 5 Adaptive MBI Matrix Engine - MSI Pretest Upgrade</title>
+
 <style>
 :root{
 --bg:#fff;--p:#f7f9fc;--p2:#eef3f9;--t:#172033;--m:#5c6b82;
@@ -19,7 +20,7 @@ main{max-width:1250px;margin:0 auto;padding:18px}
 .card{background:#fff;border:1px solid var(--b);border-radius:14px;box-shadow:var(--sh);padding:16px;margin:0 0 16px}
 textarea{width:100%;resize:vertical;border:1px solid var(--b);border-radius:12px;padding:12px;font-family:Consolas,monospace;font-size:14px}
 #dataInput{min-height:260px}
-#pretestInput{min-height:150px}
+#pretestInput{min-height:190px}
 .button-row{display:flex;gap:12px;flex-wrap:wrap;margin-top:12px}
 button{border:0;border-radius:12px;padding:13px 18px;font-weight:bold;cursor:pointer;color:#fff;background:var(--a)}
 button:nth-child(2){background:var(--g)}
@@ -55,7 +56,7 @@ body *{visibility:hidden}
 <header>
 <h1>Cash 5 Adaptive MBI Matrix Engine</h1>
 <p>
-Cash 5 History → Generate 71 Bridge Tickets → Analyze 71 Matrix → Apply Anchor Exposure Control → Generate Top 40 Tickets.
+Official Cash 5 History + Machine Pretest History → MSI Score → Combined Final Score → 71 Bridge Matrix → Top 40 Tickets.
 </p>
 </header>
 
@@ -66,11 +67,16 @@ Cash 5 History → Generate 71 Bridge Tickets → Analyze 71 Matrix → Apply An
 09/20/2018 01 11 22 24 35
 09/21/2018 06 11 29 32 35"></textarea>
 
-<h2 class="section-title">2. Paste Pretest Drawn Numbers</h2>
-<textarea id="pretestInput" placeholder="Paste pretest drawn numbers:
-06/25/2026 04 08 11 24 35
-06/25/2026 01 11 22 24 35
-06/25/2026 03 12 18 26 35"></textarea>
+<h2 class="section-title">2. Paste Machine Pretest History</h2>
+<textarea id="pretestInput" placeholder="Paste up to 300 pretest drawn numbers.
+
+Supported format:
+6/25/2026 Test# 1 30 - 25 - 3 - 6 - 11
+Test# 2 8 - 15 - 20 - 13 - 4
+Test# 3 16 - 14 - 3 - 10 - 34
+Test# 4 27 - 3 - 25 - 7 - 20
+
+The engine supports 4 tests per day and automatically reads valid numbers 1-35."></textarea>
 
 <div class="button-row">
 <button onclick="analyzeMatrix()">1. Analyze Matrix</button>
@@ -87,6 +93,7 @@ Paste Cash 5 draw history and pretest numbers, then click <b>Analyze Matrix</b>.
 <section id="summaryBox" class="card no-print"></section>
 <section id="matrixBox" class="card no-print"></section>
 <section id="anchorBox" class="card no-print"></section>
+<section id="msiBox" class="card no-print"></section>
 <section id="analysis71Box" class="card no-print"></section>
 <section id="tickets71Box" class="card no-print"></section>
 <section id="top40Box" class="card no-print"></section>
@@ -96,10 +103,12 @@ Paste Cash 5 draw history and pretest numbers, then click <b>Analyze Matrix</b>.
 <script>
 const MIN=1,MAX=35,TOTAL_COMBINATIONS=324632;
 const MATRIX71_COUNT=71,TOP40_COUNT=40;
+const PRETEST_NUMBER_LIMIT=300;
 
 let ENGINE={
 draws:[],
 pretests:[],
+pretestNumberCount:0,
 analysis:null,
 tickets71:[],
 analysis71:null,
@@ -116,11 +125,12 @@ function formatNums(nums){return nums.slice().sort((a,b)=>a-b).map(n=>String(n).
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
 function setMsg(t,type){let b=document.getElementById("messageBox");b.className="card no-print "+(type||"warning");b.innerHTML=t}
 
-function parseBox(id){
-const raw=document.getElementById(id).value.trim();
+function parseOfficialBox(){
+const raw=document.getElementById("dataInput").value.trim();
 if(!raw)return [];
 const lines=raw.split(/\n+/).map(x=>x.trim()).filter(Boolean);
 const out=[];
+
 for(const line of lines){
 const nums=line.split(/[^0-9]+/).filter(Boolean).map(Number).filter(n=>n>=MIN&&n<=MAX);
 if(nums.length>=5){
@@ -131,6 +141,47 @@ if(d.length===5)out.push(d);
 return out;
 }
 
+function parsePretestBox(){
+const raw=document.getElementById("pretestInput").value.trim();
+if(!raw)return {draws:[],numberCount:0,limited:false};
+
+const lines=raw.split(/\n+/).map(x=>x.trim()).filter(Boolean);
+const draws=[];
+let flat=[];
+let limited=false;
+
+for(const line of lines){
+let nums=line.split(/[^0-9]+/).filter(Boolean).map(Number).filter(n=>n>=MIN&&n<=MAX);
+
+if(nums.length>=5){
+let five=nums.slice(-5);
+let d=[...new Set(five)].sort((a,b)=>a-b);
+
+if(d.length===5){
+for(const n of d){
+if(flat.length<PRETEST_NUMBER_LIMIT)flat.push(n);
+else limited=true;
+}
+if(flat.length<=PRETEST_NUMBER_LIMIT)draws.push(d);
+}
+}
+}
+
+if(flat.length>PRETEST_NUMBER_LIMIT){
+flat=flat.slice(0,PRETEST_NUMBER_LIMIT);
+limited=true;
+}
+
+const allowedDraws=Math.floor(flat.length/5);
+const finalDraws=draws.slice(0,allowedDraws);
+
+return {
+draws:finalDraws,
+numberCount:finalDraws.length*5,
+limited
+};
+}
+
 function makeMatrix(draws){
 const freq=Array(36).fill(0),lastSeen=Array(36).fill(-1),gaps=Array.from({length:36},()=>[]);
 const pairCounts={},tripleCounts={},quadCounts={};
@@ -138,17 +189,21 @@ const total=draws.length||1;
 
 for(let i=0;i<draws.length;i++){
 const d=draws[i].slice().sort((a,b)=>a-b);
+
 for(const n of d){
 freq[n]++;
 if(lastSeen[n]>=0)gaps[n].push(i-lastSeen[n]);
 lastSeen[n]=i;
 }
+
 for(let a=0;a<5;a++)for(let b=a+1;b<5;b++){
 pairCounts[pairKey(d[a],d[b])]=(pairCounts[pairKey(d[a],d[b])]||0)+1;
 }
+
 for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)for(let c=b+1;c<5;c++){
 tripleCounts[triKey(d[a],d[b],d[c])]=(tripleCounts[triKey(d[a],d[b],d[c])]||0)+1;
 }
+
 for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)for(let c=b+1;c<5;c++)for(let e=c+1;e<5;e++){
 const k=[d[a],d[b],d[c],d[e]].join("-");
 quadCounts[k]=(quadCounts[k]||0)+1;
@@ -173,6 +228,7 @@ n,total:freq[n],delay,averageGap,timeRatio,hotRatio,chaosRatio,
 pairStrength,tripleStrength,score:0,rank:0,finalProb:0,
 anchorLevel:"Wildcard",anchorCap:0
 };
+
 rows.push(row);
 byNum[n]=row;
 }
@@ -186,6 +242,7 @@ return {total,rows,byNum,pairCounts,tripleCounts,quadCounts};
 function pairStrengthFor(n,pairs,total){
 if(!total)return 0;
 let s=0,c=0;
+
 for(let m=1;m<=35;m++){
 if(m===n)continue;
 const k=pairKey(n,m);
@@ -197,6 +254,7 @@ return c?(s/c)*10:0;
 function tripleStrengthFor(n,triples,total){
 if(!total)return 0;
 let s=0,c=0;
+
 for(const k in triples){
 const p=k.split("-").map(Number);
 if(p.includes(n)){s+=triples[k]/total;c++}
@@ -204,13 +262,68 @@ if(p.includes(n)){s+=triples[k]/total;c++}
 return c?(s/c)*30:0;
 }
 
-/* NEW: Anchor Exposure Control
-Level A = maximum 40% of final tickets
-Level B = maximum 30%
-Level C = maximum 20%
-Wildcard = maximum 10%
-*/
-function applyAnchorExposureLevels(rows,ticketCount){
+function machinePersistenceScore(n,pretests){
+if(!pretests.length)return 0;
+let dayLikeBlocks=[];
+for(let i=0;i<pretests.length;i+=4){
+dayLikeBlocks.push(pretests.slice(i,i+4));
+}
+
+let score=0;
+for(const block of dayLikeBlocks){
+let appearances=0;
+for(const d of block){
+if(d.includes(n))appearances++;
+}
+if(appearances>=3)score+=1.00;
+else if(appearances===2)score+=0.55;
+else if(appearances===1)score+=0.20;
+}
+
+return score/Math.max(dayLikeBlocks.length,1);
+}
+
+function machineRecentWeightScore(n,pretests){
+if(!pretests.length)return 0;
+
+const recent=pretests.slice(-20);
+const mid=pretests.slice(Math.max(0,pretests.length-40),Math.max(0,pretests.length-20));
+const old=pretests.slice(0,Math.max(0,pretests.length-40));
+
+let r=0,m=0,o=0;
+for(const d of recent)if(d.includes(n))r++;
+for(const d of mid)if(d.includes(n))m++;
+for(const d of old)if(d.includes(n))o++;
+
+const rRatio=recent.length?r/(recent.length*(5/35)):0;
+const mRatio=mid.length?m/(mid.length*(5/35)):0;
+const oRatio=old.length?o/(old.length*(5/35)):0;
+
+return (.45*norm(rRatio,0,3)+.35*norm(mRatio,0,3)+.20*norm(oRatio,0,3));
+}
+
+function machineGapRecoveryScore(n,pretests){
+if(!pretests.length)return 0;
+
+let last=-1,prev=-1;
+for(let i=0;i<pretests.length;i++){
+if(pretests[i].includes(n)){
+prev=last;
+last=i;
+}
+}
+
+if(last<0)return 0;
+
+const currentDelay=pretests.length-1-last;
+let priorGap=prev>=0?last-prev:pretests.length;
+
+if(currentDelay<=4 && priorGap>=10)return 1;
+if(currentDelay<=8 && priorGap>=14)return .75;
+if(currentDelay<=12 && priorGap>=18)return .50;
+return norm(currentDelay,20,0);
+}
+  function applyAnchorExposureLevels(rows,ticketCount){
 const sorted=rows.slice().sort((a,b)=>b.score-a.score);
 
 sorted.forEach((r,i)=>{
@@ -251,20 +364,24 @@ return true;
 
 function anchorExposurePenalty(ticket,usage,a,ticketCount){
 let penalty=0;
+
 for(const n of ticket){
 const cap=getAnchorCap(n,a,ticketCount);
 const used=usage[n]||0;
 const ratio=cap?used/cap:1;
+
 if(ratio>.90)penalty+=.030;
 else if(ratio>.75)penalty+=.018;
 else if(ratio>.60)penalty+=.010;
 }
+
 return penalty;
 }
 
 function analyzeMatrix(){
-const draws=parseBox("dataInput");
-const pretests=parseBox("pretestInput");
+const draws=parseOfficialBox();
+const preParsed=parsePretestBox();
+const pretests=preParsed.draws;
 
 if(draws.length<20){
 setMsg("Need at least 20 official Cash 5 drawings from 9-20-2018 to current.","bad");
@@ -278,22 +395,41 @@ const recentWindow=Math.min(60,total);
 const last10=draws.slice(-10);
 const lastDraw=draws[total-1];
 
-const recent=Array(36).fill(0),last10Freq=Array(36).fill(0),lastDrawFlag=Array(36).fill(0);
-const preUse=Array(36).fill(0),last10Pair={},last10Triple={},prePair={},preTriple={};
+const recent=Array(36).fill(0);
+const last10Freq=Array(36).fill(0);
+const lastDrawFlag=Array(36).fill(0);
+const preUse=Array(36).fill(0);
 
-for(let i=total-recentWindow;i<total;i++)for(const n of draws[i])recent[n]++;
+const last10Pair={},last10Triple={},prePair={},preTriple={};
+
+for(let i=total-recentWindow;i<total;i++){
+for(const n of draws[i])recent[n]++;
+}
+
 for(const n of lastDraw)lastDrawFlag[n]=1;
 
 for(const d of last10){
 for(const n of d)last10Freq[n]++;
-for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)last10Pair[pairKey(d[a],d[b])]=(last10Pair[pairKey(d[a],d[b])]||0)+1;
-for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)for(let c=b+1;c<5;c++)last10Triple[triKey(d[a],d[b],d[c])]=(last10Triple[triKey(d[a],d[b],d[c])]||0)+1;
+
+for(let a=0;a<5;a++)for(let b=a+1;b<5;b++){
+last10Pair[pairKey(d[a],d[b])]=(last10Pair[pairKey(d[a],d[b])]||0)+1;
+}
+
+for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)for(let c=b+1;c<5;c++){
+last10Triple[triKey(d[a],d[b],d[c])]=(last10Triple[triKey(d[a],d[b],d[c])]||0)+1;
+}
 }
 
 for(const d of pretests){
 for(const n of d)preUse[n]++;
-for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)prePair[pairKey(d[a],d[b])]=(prePair[pairKey(d[a],d[b])]||0)+1;
-for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)for(let c=b+1;c<5;c++)preTriple[triKey(d[a],d[b],d[c])]=(preTriple[triKey(d[a],d[b],d[c])]||0)+1;
+
+for(let a=0;a<5;a++)for(let b=a+1;b<5;b++){
+prePair[pairKey(d[a],d[b])]=(prePair[pairKey(d[a],d[b])]||0)+1;
+}
+
+for(let a=0;a<5;a++)for(let b=a+1;b<5;b++)for(let c=b+1;c<5;c++){
+preTriple[triKey(d[a],d[b],d[c])]=(preTriple[triKey(d[a],d[b],d[c])]||0)+1;
+}
 }
 
 const preAvg=(Math.max(pretests.length,1)*5)/35;
@@ -301,31 +437,77 @@ const rows=[],byNum={};
 
 for(let n=1;n<=35;n++){
 const base=official.byNum[n];
+
 const hotRatio=base.hotRatio;
 const recentRatio=(recent[n]/recentWindow)/(5/35);
 const timeRatio=base.timeRatio;
 const pairStrength=base.pairStrength;
 const tripleStrength=base.tripleStrength;
 const last10Ratio=last10Freq[n]/10;
+
 const preRatio=pretests.length?(preUse[n]/preAvg):0;
 const prePairStrength=pretests.length?pairStrengthFor(n,prePair,pretests.length):0;
+const preTripleStrength=pretests.length?tripleStrengthFor(n,preTriple,pretests.length):0;
+
+const persistenceScore=machinePersistenceScore(n,pretests);
+const recentMachineScore=machineRecentWeightScore(n,pretests);
+const gapRecoveryScore=machineGapRecoveryScore(n,pretests);
+const machineTimeRatio=preMatrix.byNum[n]?.timeRatio||0;
+
 const stabilityRatio=1-base.chaosRatio;
 const lastDrawBridge=lastDrawFlag[n];
 
-const historyScore=.35*norm(hotRatio,0,2.5)+.20*norm(recentRatio,0,2.5)+.20*norm(pairStrength,0,.75)+.10*norm(tripleStrength,0,.55)+.10*norm(timeRatio,0,3.5)+.05*stabilityRatio;
-const bridgeScore=.45*norm(pairStrength,0,.75)+.20*norm(tripleStrength,0,.55)+.20*norm(last10Ratio,0,.40)+.15*norm(timeRatio,0,3.5);
-const pretestScore=pretests.length?(.55*norm(preRatio,0,2.5)+.30*norm(prePairStrength,0,.75)+.15*norm(preMatrix.byNum[n]?.timeRatio||0,0,3.5)):0;
+const historyScore=
+.35*norm(hotRatio,0,2.5)+
+.20*norm(recentRatio,0,2.5)+
+.20*norm(pairStrength,0,.75)+
+.10*norm(tripleStrength,0,.55)+
+.10*norm(timeRatio,0,3.5)+
+.05*stabilityRatio;
 
-const finalScore=.50*historyScore+.25*bridgeScore+.15*norm(timeRatio,0,3.5)+.05*pretestScore+(n<=15?.05:0)+(lastDrawBridge?.04:0);
+const bridgeScore=
+.45*norm(pairStrength,0,.75)+
+.20*norm(tripleStrength,0,.55)+
+.20*norm(last10Ratio,0,.40)+
+.15*norm(timeRatio,0,3.5);
 
-const mbi=.24*(hotRatio-1)+.18*(recentRatio-1)+.18*(timeRatio-1)+.15*(pairStrength-.18)+.10*(tripleStrength-.10)+.10*(last10Ratio-.14)+.05*(preRatio-1);
+const msiScore=pretests.length?(
+.30*norm(preRatio,0,2.5)+
+.20*norm(prePairStrength,0,.75)+
+.12*norm(preTripleStrength,0,.55)+
+.15*persistenceScore+
+.13*recentMachineScore+
+.10*gapRecoveryScore
+):0;
+
+const finalScore=
+.45*historyScore+
+.25*bridgeScore+
+.20*msiScore+
+.05*norm(timeRatio,0,3.5)+
+(n<=15?.03:0)+
+(lastDrawBridge?.02:0);
+
+const mbi=
+.22*(hotRatio-1)+
+.16*(recentRatio-1)+
+.16*(timeRatio-1)+
+.14*(pairStrength-.18)+
+.10*(tripleStrength-.10)+
+.08*(last10Ratio-.14)+
+.14*(preRatio-1);
+
 const mbiLabel=mbi>.16?"Positive MBI":mbi<-.10?"Negative MBI":"Near-Zero MBI";
 
 const row={
 n,total:base.total,recent:recent[n],delay:base.delay,averageGap:base.averageGap,
 timeRatio,hotRatio,recentRatio,pairStrength,tripleStrength,
-last10Freq:last10Freq[n],last10Ratio,preUse:preUse[n],preRatio,prePairStrength,
-lastDrawBridge,score:Math.max(.0001,finalScore),finalProb:0,rank:0,
+last10Freq:last10Freq[n],last10Ratio,
+preUse:preUse[n],preRatio,prePairStrength,preTripleStrength,
+persistenceScore,recentMachineScore,gapRecoveryScore,machineTimeRatio,
+msiScore,lastDrawBridge,
+historyScore,bridgeScore,
+score:Math.max(.0001,finalScore),finalProb:0,rank:0,
 mbi,mbiLabel,anchorLevel:"Wildcard",anchorCap:0
 };
 
@@ -335,6 +517,7 @@ byNum[n]=row;
 
 rows.sort((a,b)=>b.score-a.score);
 const sum=rows.reduce((s,r)=>s+r.score,0);
+
 rows.forEach((r,i)=>{
 r.rank=i+1;
 r.finalProb=r.score/sum;
@@ -344,9 +527,11 @@ applyAnchorExposureLevels(rows,TOP40_COUNT);
 
 const topPairs=makePairList(official.pairCounts,last10Pair,prePair,total,pretests.length).slice(0,100);
 const topTriples=makeTripleList(official.tripleCounts,last10Triple,preTriple,total,pretests.length).slice(0,80);
-  ENGINE={
+
+ENGINE={
 draws,
 pretests,
+pretestNumberCount:preParsed.numberCount,
 analysis:{
 total,last10,lastDraw,official,preMatrix,rows,byNum,topPairs,topTriples,
 pairCounts:official.pairCounts,
@@ -356,7 +541,7 @@ hotTop:rows.slice(0,12),
 bridgePool:makeBridgePool(rows),
 recovery:[...rows].sort((a,b)=>b.timeRatio-a.timeRatio).slice(0,16),
 lowPool:rows.filter(x=>x.n<=15).sort((a,b)=>b.score-a.score),
-pretestPool:rows.filter(x=>x.preUse>0).sort((a,b)=>b.preRatio-a.preRatio||b.score-a.score),
+pretestPool:rows.filter(x=>x.preUse>0).sort((a,b)=>b.msiScore-a.msiScore||b.preRatio-a.preRatio||b.score-a.score),
 last10Pool:rows.filter(x=>x.last10Freq>0).sort((a,b)=>b.last10Freq-a.last10Freq||b.score-a.score),
 positive:rows.filter(x=>x.mbiLabel==="Positive MBI"),
 zero:rows.filter(x=>x.mbiLabel==="Near-Zero MBI"),
@@ -369,13 +554,21 @@ top40:[]
 
 renderAnalysis();
 renderAnchorExposure();
-setMsg("Matrix analyzed. Anchor Exposure Control is active: A 40%, B 30%, C 20%, Wildcard 10%.","good");
+renderMSIReport();
+
+let limitMsg=preParsed.limited?" The pretest input was limited to the first 300 valid numbers.":"";
+
+setMsg(
+"Matrix analyzed. MSI Pretest Upgrade is active: Pre-Test Input → Parser → MSI Score → Combined Final Score → Better Ticket Assembly."+limitMsg,
+"good"
+);
 }
 
 function makePairList(pairs,last10,pre,total,preTotal){
 return Object.entries(pairs).map(([key,count])=>{
 const [a,b]=key.split("-").map(Number);
-const l10=last10[key]||0,pt=pre[key]||0;
+const l10=last10[key]||0;
+const pt=pre[key]||0;
 const score=(count/total)+(l10*.05)+(preTotal?pt/preTotal*.30:0);
 return {key,a,b,count,last10:l10,pretest:pt,score};
 }).sort((a,b)=>b.score-a.score);
@@ -384,7 +577,8 @@ return {key,a,b,count,last10:l10,pretest:pt,score};
 function makeTripleList(triples,last10,pre,total,preTotal){
 return Object.entries(triples).map(([key,count])=>{
 const nums=key.split("-").map(Number);
-const l10=last10[key]||0,pt=pre[key]||0;
+const l10=last10[key]||0;
+const pt=pre[key]||0;
 const score=(count/total)+(l10*.04)+(preTotal?pt/preTotal*.25:0);
 return {key,nums,count,last10:l10,pretest:pt,score};
 }).sort((a,b)=>b.score-a.score);
@@ -394,17 +588,26 @@ function makeBridgePool(rows){
 const a=rows.slice(0,16);
 const b=[...rows].sort((x,y)=>y.pairStrength-x.pairStrength).slice(0,14);
 const c=[...rows].sort((x,y)=>y.timeRatio-x.timeRatio).slice(0,14);
+const d=[...rows].sort((x,y)=>y.msiScore-x.msiScore).slice(0,14);
+
 const map={};
-[...a,...b,...c].forEach(r=>map[r.n]=r);
+[...a,...b,...c,...d].forEach(r=>map[r.n]=r);
+
 return Object.values(map).sort((x,y)=>y.score-x.score);
 }
 
 function generate71Tickets(){
-if(!ENGINE.analysis){setMsg("Click Analyze Matrix first.","bad");return}
+if(!ENGINE.analysis){
+setMsg("Click Analyze Matrix first.","bad");
+return;
+}
+
 ENGINE.tickets71=buildBridge71();
 ENGINE.analysis71=analyze71TicketMatrix();
+
 render71Tickets();
 render71Analysis();
+
 setMsg("Generated 71 Bridge Tickets, then analyzed the 71 tickets as a new matrix layer.","good");
 }
 
@@ -416,9 +619,12 @@ let coreIndex=0,guard=0;
 
 while(list.length<MATRIX71_COUNT&&guard<30000){
 guard++;
+
 const core=cores[coreIndex%cores.length];
 const t=buildFromCore(core,a,usage,list.length);
+
 pushTicket(list,used,usage,t,"71 Bridge Matrix Source",a,MATRIX71_COUNT,4);
+
 coreIndex++;
 }
 
@@ -443,6 +649,11 @@ cores.push([...new Set(core)].slice(0,4).sort((x,y)=>x-y));
 }
 }
 
+const msiTop=a.rows.slice().sort((x,y)=>y.msiScore-x.msiScore).slice(0,14).map(x=>x.n);
+for(let i=0;i<msiTop.length-3;i++){
+cores.push([msiTop[i],msiTop[i+1],msiTop[i+2],msiTop[i+3]].sort((x,y)=>x-y));
+}
+
 const top=a.rows.slice(0,14).map(x=>x.n);
 for(let i=0;i<top.length-3;i++){
 cores.push([top[i],top[i+1],top[i+2],top[i+3]].sort((x,y)=>x-y));
@@ -465,10 +676,10 @@ function buildFromCore(core,a,usage,shift){
 let t=[...core];
 
 const rotation=[
+a.pretestPool.length?a.pretestPool:a.bridgePool,
 a.bridgePool,
 a.hotTop,
 a.recovery,
-a.pretestPool.length?a.pretestPool:a.last10Pool,
 a.lowPool,
 a.last10Pool,
 a.positive,
@@ -477,7 +688,7 @@ a.zero
 
 while(t.length<5){
 const group=rotation[(shift+t.length)%rotation.length];
-const x=pickNumber(group,a,usage,t);
+const x=pickNumber(group,a,usage,t,MATRIX71_COUNT);
 if(x&&!t.includes(x.n))t.push(x.n);
 else break;
 }
@@ -530,14 +741,15 @@ cloneMap[j]=(cloneMap[j]||0)+1;
 
 ENGINE.tickets71=ENGINE.tickets71.map((t,i)=>{
 const base=scoreTicket(t,a,usage,MATRIX71_COUNT);
-const matrixPairBonus=pairMatrixBonus(t,top71Pairs);
-const quadBonus=quadCoreBonus(t,top71Quads);
-const preBonus=pretestReinforcement(t,a);
+const matrixPairBonus=pairMatrixBonus(t.nums,top71Pairs);
+const quadBonus=quadCoreBonus(t.nums,top71Quads);
+const preBonus=pretestReinforcement(t.nums,a);
+const msiBonus=machineTicketBonus(t.nums,a);
 const overPenalty=t.nums.filter(n=>overrepresented.includes(n)).length*.006;
 const clonePenalty=(cloneMap[i]||0)*.010;
 const exposurePenalty=anchorExposurePenalty(t.nums,usage,a,MATRIX71_COUNT);
 
-const reScore=base+matrixPairBonus+quadBonus+preBonus-overPenalty-clonePenalty-exposurePenalty;
+const reScore=base+matrixPairBonus+quadBonus+preBonus+msiBonus-overPenalty-clonePenalty-exposurePenalty;
 
 return {
 ...t,
@@ -546,6 +758,7 @@ extraProfile:
 "71-pair bonus "+matrixPairBonus.toFixed(3)+
 " | 4-core bonus "+quadBonus.toFixed(3)+
 " | Pretest bridge "+preBonus.toFixed(3)+
+" | MSI bonus "+msiBonus.toFixed(3)+
 " | Anchor exposure penalty "+exposurePenalty.toFixed(3)+
 " | Clone penalty "+clonePenalty.toFixed(3)
 };
@@ -588,15 +801,34 @@ if(a.prePair[k])s+=.006;
 return Math.min(s,.040);
 }
 
-function generateTop40Tickets(){
-if(!ENGINE.analysis){setMsg("Click Analyze Matrix first.","bad");return}
+function machineTicketBonus(t,a){
+let s=0;
+let msiCount=0;
+
+for(const n of t){
+const r=a.byNum[n];
+if(!r)continue;
+
+s+=r.msiScore*.008;
+if(r.msiScore>.50)msiCount++;
+}
+
+if(msiCount>=2)s+=.010;
+if(msiCount>=3)s+=.018;
+
+return Math.min(s,.050);
+}
+  function generateTop40Tickets(){
+if(!ENGINE.analysis){
+setMsg("Click Analyze Matrix first.","bad");
+return;
+}
 if(!ENGINE.tickets71.length)generate71Tickets();
 
 const a=ENGINE.analysis;
 const ranked71=ENGINE.tickets71.slice().sort((x,y)=>(y.reScore||y.score)-(x.reScore||x.score));
 const list=[],used=new Set(),usage=Array(36).fill(0);
 
-/* First pass: use best 71 tickets but obey anchor exposure caps */
 for(const source of ranked71){
 if(list.length>=TOP40_COUNT)break;
 
@@ -605,7 +837,7 @@ list,
 used,
 usage,
 source.nums,
-"Top 40 Tickets to Buy",
+"Top 40 MSI Bridge",
 a,
 TOP40_COUNT,
 4,
@@ -615,7 +847,6 @@ true
 );
 }
 
-/* Second pass: rebuild backups while still obeying caps */
 let guard=0;
 while(list.length<TOP40_COUNT&&guard<25000){
 guard++;
@@ -633,23 +864,22 @@ list,
 used,
 usage,
 t,
-"Top 40 Backup Bridge",
+"Top 40 MSI Backup",
 a,
 TOP40_COUNT,
 4,
 null,
-"Anchor cap protected backup",
+"MSI protected backup",
 true
 );
 }
 
-/* Emergency final fill: relax clone overlap, but not anchor caps */
 guard=0;
 while(list.length<TOP40_COUNT&&guard<30000){
 guard++;
 
 let t=[];
-addGroupToTicket(t,a.bridgePool,2,a,usage,TOP40_COUNT);
+addGroupToTicket(t,a.pretestPool.length?a.pretestPool:a.bridgePool,2,a,usage,TOP40_COUNT);
 addGroupToTicket(t,a.recovery,1,a,usage,TOP40_COUNT);
 addGroupToTicket(t,a.lowPool,1,a,usage,TOP40_COUNT);
 addGroupToTicket(t,a.zero.length?a.zero:a.rows,1,a,usage,TOP40_COUNT);
@@ -666,7 +896,7 @@ a,
 TOP40_COUNT,
 5,
 null,
-"Final fill with anchor caps",
+"Final fill with MSI and anchor caps",
 true
 );
 }
@@ -676,7 +906,7 @@ ENGINE.top40=list.sort((x,y)=>y.score-x.score).slice(0,TOP40_COUNT);
 renderTop40Tickets();
 renderAnchorExposure();
 
-setMsg("Top 40 Tickets generated with Anchor Exposure Control. Strong anchors stay active, but no number is allowed to dominate the set.","good");
+setMsg("Top 40 Tickets generated with MSI Pretest Score and Anchor Exposure Control.","good");
 }
 
 function pushTicket(list,used,usage,t,type,a,limit,maxOverlap,forcedScore,extraProfile,useCaps){
@@ -692,6 +922,7 @@ if(used.has(key))return;
 if(maxOverlap&&hasTooMuchOverlap(t,list,maxOverlap))return;
 
 used.add(key);
+
 const score=(forcedScore||scoreTicket(t,a,usage,limit))-anchorExposurePenalty(t,usage,a,limit);
 
 t.forEach(n=>usage[n]++);
@@ -732,13 +963,14 @@ return (usage[x.n]||0)<cap;
 if(!pool.length)return null;
 
 pool=pool.slice().sort((x,y)=>{
-const ux=usage[x.n]||0,uy=usage[y.n]||0;
+const ux=usage[x.n]||0;
+const uy=usage[y.n]||0;
 const cx=getAnchorCap(x.n,a,limit||TOP40_COUNT);
 const cy=getAnchorCap(y.n,a,limit||TOP40_COUNT);
 const rx=cx?ux/cx:1;
 const ry=cy?uy/cy:1;
 
-return rx-ry || ux-uy || (y.score||y.sourceScore||0)-(x.score||x.sourceScore||0);
+return rx-ry || ux-uy || (y.score||y.msiScore||0)-(x.score||x.msiScore||0);
 });
 
 return pool[0];
@@ -748,10 +980,10 @@ function cleanTicket(ticket,a,usage,allowBridge,limit){
 ticket=[...new Set(ticket)].filter(n=>n>=1&&n<=35).sort((x,y)=>x-y);
 
 const fillPools=[
+a.pretestPool.length?a.pretestPool:a.bridgePool,
 a.bridgePool,
 a.hotTop,
 a.recovery,
-a.pretestPool,
 a.last10Pool,
 a.lowPool,
 a.positive,
@@ -763,11 +995,13 @@ let guard=0,pi=0;
 
 while(ticket.length<5&&guard<300){
 guard++;
+
 const pool=fillPools[pi%fillPools.length];
 pi++;
 
 const x=pickNumber(pool,a,usage,ticket,limit||TOP40_COUNT);
 if(x&&!ticket.includes(x.n))ticket.push(x.n);
+
 ticket.sort((x,y)=>x-y);
 }
 
@@ -786,11 +1020,28 @@ if(sum<35||sum>155)return false;
 if(low===0||low===5)return false;
 if(odd===0||odd===5)return false;
 
+let zones=[
+t.filter(n=>n>=1&&n<=7).length,
+t.filter(n=>n>=8&&n<=14).length,
+t.filter(n=>n>=15&&n<=21).length,
+t.filter(n=>n>=22&&n<=28).length,
+t.filter(n=>n>=29&&n<=35).length
+];
+
+if(Math.max(...zones)>3)return false;
+
+let consecutive=0;
+for(let i=1;i<t.length;i++){
+if(t[i]===t[i-1]+1)consecutive++;
+}
+if(consecutive>=3)return false;
+
 return true;
 }
 
 function scoreTicket(t,a,usage,limit){
 let s=0,pre=0,last10=0,lastDraw=0,low=t.filter(n=>n<=15).length;
+let msiSum=0,msiStrong=0;
 
 for(const n of t){
 const r=a.byNum[n];
@@ -802,12 +1053,18 @@ if(r.preUse>0){s+=.010;pre++}
 if(r.last10Freq>0){s+=.009;last10++}
 if(r.lastDrawBridge){s+=.007;lastDraw++}
 if(n<=15)s+=.004;
+
+msiSum+=r.msiScore;
+if(r.msiScore>.50)msiStrong++;
 }
 
 if(pre>=2)s+=.015;
 if(last10>=3)s+=.018;
 if(low>=2)s+=.010;
 if(lastDraw>=2)s+=.010;
+if(msiStrong>=2)s+=.015;
+if(msiStrong>=3)s+=.025;
+s+=Math.min(msiSum*.006,.035);
 
 for(let i=0;i<5;i++)for(let j=i+1;j<5;j++){
 const k=pairKey(t[i],t[j]);
@@ -820,8 +1077,11 @@ s-=anchorExposurePenalty(t,usage||Array(36).fill(0),a,limit||TOP40_COUNT);
 
 return s;
 }
-  function ticketProfile(t,a){
-let pos=0,zero=0,neg=0,pre=0,last10=0,lastDraw=0,low=t.filter(n=>n<=15).length;
+
+function ticketProfile(t,a){
+let pos=0,zero=0,neg=0,pre=0,last10=0,lastDraw=0;
+let low=t.filter(n=>n<=15).length;
+let msiStrong=0;
 
 for(const n of t){
 const r=a.byNum[n];
@@ -834,9 +1094,11 @@ else zero++;
 if(r.preUse>0)pre++;
 if(r.last10Freq>0)last10++;
 if(r.lastDrawBridge)lastDraw++;
+if(r.msiScore>.50)msiStrong++;
 }
 
 return "Pretest: "+pre+
+" | MSI Strong: "+msiStrong+
 " | Last10: "+last10+
 " | LastDraw: "+lastDraw+
 " | Low 1-15: "+low+
@@ -857,6 +1119,7 @@ const topRows=a.rows.slice(0,35).map(r=>
 "<td>"+r.last10Freq+"</td>"+
 "<td>"+r.preUse+"</td>"+
 "<td>"+r.preRatio.toFixed(2)+"</td>"+
+"<td>"+r.msiScore.toFixed(3)+"</td>"+
 "<td>"+r.pairStrength.toFixed(3)+"</td>"+
 "<td>"+r.prePairStrength.toFixed(3)+"</td>"+
 "<td>"+r.mbi.toFixed(3)+"</td>"+
@@ -871,11 +1134,11 @@ document.getElementById("summaryBox").innerHTML=
 '<h2 class="section-title">Matrix Summary</h2>'+
 '<div class="grid">'+
 '<div class="stat"><b>'+a.total+'</b><br><span class="small">Cash 5 official drawings</span></div>'+
-'<div class="stat"><b>'+ENGINE.pretests.length+'</b><br><span class="small">Pretest drawn numbers</span></div>'+
+'<div class="stat"><b>'+ENGINE.pretests.length+'</b><br><span class="small">Pretest sets loaded</span></div>'+
+'<div class="stat"><b>'+ENGINE.pretestNumberCount+'</b><br><span class="small">Pretest numbers used, max 300</span></div>'+
 '<div class="stat"><b>'+TOTAL_COMBINATIONS.toLocaleString()+'</b><br><span class="small">Cash 5 total combinations</span></div>'+
-'<div class="stat"><b>71</b><br><span class="small">Bridge matrix source tickets</span></div>'+
+'<div class="stat"><b>MSI</b><br><span class="small">Machine Stability Index active</span></div>'+
 '<div class="stat"><b>40</b><br><span class="small">Top tickets to buy</span></div>'+
-'<div class="stat"><b>Anchor Caps</b><br><span class="small">A 40%, B 30%, C 20%, Wildcard 10%</span></div>'+
 '</div>'+
 '<p class="small"><b>Disclaimer:</b> Cash 5 is random. This tool improves ticket construction only. It cannot guarantee wins.</p>';
 
@@ -894,6 +1157,7 @@ document.getElementById("matrixBox").innerHTML=
 '<th>Last10</th>'+
 '<th>Pretest</th>'+
 '<th>Pre Ratio</th>'+
+'<th>MSI</th>'+
 '<th>Pair</th>'+
 '<th>Pre Pair</th>'+
 '<th>MBI</th>'+
@@ -910,6 +1174,52 @@ document.getElementById("matrixBox").innerHTML=
 '<p class="small">'+a.topPairs.slice(0,30).map(p=>p.key+"(H "+p.count+", L10 "+p.last10+", P "+p.pretest+")").join(", ")+'</p>'+
 '<h3>Top Triple Matrix</h3>'+
 '<p class="small">'+a.topTriples.slice(0,20).map(t=>t.key+"(H "+t.count+", L10 "+t.last10+", P "+t.pretest+")").join(", ")+'</p>';
+}
+
+function renderMSIReport(){
+if(!ENGINE.analysis)return;
+
+const a=ENGINE.analysis;
+const top=a.rows.slice().sort((x,y)=>y.msiScore-x.msiScore).slice(0,15);
+
+let rows=top.map(r=>
+"<tr>"+
+"<td><b>"+String(r.n).padStart(2,"0")+"</b></td>"+
+"<td>"+r.preUse+"</td>"+
+"<td>"+r.preRatio.toFixed(2)+"</td>"+
+"<td>"+r.prePairStrength.toFixed(3)+"</td>"+
+"<td>"+r.preTripleStrength.toFixed(3)+"</td>"+
+"<td>"+r.persistenceScore.toFixed(3)+"</td>"+
+"<td>"+r.recentMachineScore.toFixed(3)+"</td>"+
+"<td>"+r.gapRecoveryScore.toFixed(3)+"</td>"+
+"<td><b>"+r.msiScore.toFixed(3)+"</b></td>"+
+"</tr>"
+).join("");
+
+document.getElementById("msiBox").innerHTML=
+'<h2 class="section-title">Machine Stability Index Report</h2>'+
+'<p class="small">'+
+'MSI uses pretest frequency, pretest pair memory, pretest triple memory, persistence, recent machine weight, and gap recovery. '+
+'This is the main upgrade: Pre-Test Input → Parser → MSI Score → Combined Final Score → Better Ticket Assembly.'+
+'</p>'+
+'<div class="scroll">'+
+'<table>'+
+'<thead>'+
+'<tr>'+
+'<th>#</th>'+
+'<th>Pretest Hits</th>'+
+'<th>Pre Ratio</th>'+
+'<th>Pre Pair</th>'+
+'<th>Pre Triple</th>'+
+'<th>Persistence</th>'+
+'<th>Recent Machine</th>'+
+'<th>Gap Recovery</th>'+
+'<th>MSI</th>'+
+'</tr>'+
+'</thead>'+
+'<tbody>'+rows+'</tbody>'+
+'</table>'+
+'</div>';
 }
 
 function renderAnchorExposure(){
@@ -946,8 +1256,8 @@ return "<tr>"+
 document.getElementById("anchorBox").innerHTML=
 '<h2 class="section-title">Anchor Exposure Control</h2>'+
 '<p class="small">'+
-'This stage keeps strong numbers like 35 active, but limits how many final Top 40 tickets can use each number. '+
-'The score still ranks the number, but the ticket builder controls exposure so one hot anchor does not dominate the full set.'+
+'This keeps strong numbers active but limits how many final Top 40 tickets can use each number. '+
+'The MSI score can push a number higher, but anchor caps stop one number from dominating the full set.'+
 '</p>'+
 '<div class="grid">'+
 '<div class="stat"><b>Anchor A</b><br><span class="small">Top 3 numbers, max 40% = 16 of 40 tickets</span></div>'+
@@ -1053,7 +1363,7 @@ return;
 
 let html=
 '<h1>Cash 5 - Top 40 Tickets to Buy</h1>'+
-'<p>Anchor Exposure Control Active: A 40%, B 30%, C 20%, Wildcard 10%.</p>'+
+'<p>MSI Pretest Upgrade and Anchor Exposure Control Active.</p>'+
 '<table>'+
 '<thead>'+
 '<tr>'+
@@ -1098,29 +1408,7 @@ let html=
 '<head><meta charset="UTF-8"></head>'+
 '<body>'+
 '<h1>Cash 5 Matrix Results</h1>'+
-'<p>Anchor Exposure Control Active: A 40%, B 30%, C 20%, Wildcard 10%.</p>';
-
-html+=
-'<h2>Generated 71 Bridge Matrix Tickets</h2>'+
-'<table border="1">'+
-'<tr>'+
-'<th>#</th>'+
-'<th>Numbers</th>'+
-'<th>Profile</th>'+
-'<th>ReScore</th>'+
-'</tr>';
-
-ENGINE.tickets71.forEach((t,i)=>{
-html+=
-'<tr>'+
-'<td>'+(i+1)+'</td>'+
-'<td>'+formatNums(t.nums)+'</td>'+
-'<td>'+esc(t.profile+" "+(t.extraProfile||""))+'</td>'+
-'<td>'+(t.reScore||t.score).toFixed(4)+'</td>'+
-'</tr>';
-});
-
-html+='</table>';
+'<p>MSI Pretest Upgrade Active. Anchor Exposure Control Active.</p>';
 
 html+=
 '<h2>Top 40 Tickets to Buy</h2>'+
@@ -1145,6 +1433,28 @@ html+=
 html+='</table>';
 
 html+=
+'<h2>Generated 71 Bridge Matrix Tickets</h2>'+
+'<table border="1">'+
+'<tr>'+
+'<th>#</th>'+
+'<th>Numbers</th>'+
+'<th>Profile</th>'+
+'<th>ReScore</th>'+
+'</tr>';
+
+ENGINE.tickets71.forEach((t,i)=>{
+html+=
+'<tr>'+
+'<td>'+(i+1)+'</td>'+
+'<td>'+formatNums(t.nums)+'</td>'+
+'<td>'+esc(t.profile+" "+(t.extraProfile||""))+'</td>'+
+'<td>'+(t.reScore||t.score).toFixed(4)+'</td>'+
+'</tr>';
+});
+
+html+='</table>';
+
+html+=
 '<h2>Number Matrix Ranking</h2>'+
 '<table border="1">'+
 '<tr>'+
@@ -1155,6 +1465,7 @@ html+=
 '<th>Delay</th>'+
 '<th>Last10</th>'+
 '<th>Pretest</th>'+
+'<th>MSI</th>'+
 '<th>MBI</th>'+
 '<th>Type</th>'+
 '<th>Anchor Level</th>'+
@@ -1172,11 +1483,44 @@ html+=
 '<td>'+r.delay+'</td>'+
 '<td>'+r.last10Freq+'</td>'+
 '<td>'+r.preUse+'</td>'+
+'<td>'+r.msiScore.toFixed(3)+'</td>'+
 '<td>'+r.mbi.toFixed(3)+'</td>'+
 '<td>'+esc(r.mbiLabel)+'</td>'+
 '<td>'+esc(r.anchorLevel)+'</td>'+
 '<td>'+r.anchorCap+'</td>'+
 '<td>'+(r.finalProb*100).toFixed(2)+'%</td>'+
+'</tr>';
+});
+
+html+='</table>';
+
+html+=
+'<h2>Machine Stability Index Report</h2>'+
+'<table border="1">'+
+'<tr>'+
+'<th>#</th>'+
+'<th>Pretest Hits</th>'+
+'<th>Pre Ratio</th>'+
+'<th>Pre Pair</th>'+
+'<th>Pre Triple</th>'+
+'<th>Persistence</th>'+
+'<th>Recent Machine</th>'+
+'<th>Gap Recovery</th>'+
+'<th>MSI</th>'+
+'</tr>';
+
+ENGINE.analysis.rows.slice().sort((x,y)=>y.msiScore-x.msiScore).forEach(r=>{
+html+=
+'<tr>'+
+'<td>'+r.n+'</td>'+
+'<td>'+r.preUse+'</td>'+
+'<td>'+r.preRatio.toFixed(2)+'</td>'+
+'<td>'+r.prePairStrength.toFixed(3)+'</td>'+
+'<td>'+r.preTripleStrength.toFixed(3)+'</td>'+
+'<td>'+r.persistenceScore.toFixed(3)+'</td>'+
+'<td>'+r.recentMachineScore.toFixed(3)+'</td>'+
+'<td>'+r.gapRecoveryScore.toFixed(3)+'</td>'+
+'<td>'+r.msiScore.toFixed(3)+'</td>'+
 '</tr>';
 });
 
@@ -1220,14 +1564,14 @@ const url=URL.createObjectURL(blob);
 const link=document.createElement("a");
 
 link.href=url;
-link.download="Cash5_Anchor_Exposure_Top40_Results.xls";
+link.download="Cash5_MSI_Pretest_Anchor_Top40_Results.xls";
 
 document.body.appendChild(link);
 link.click();
 document.body.removeChild(link);
 URL.revokeObjectURL(url);
 
-setMsg("Excel matrix results downloaded with Anchor Exposure Report.","good");
+setMsg("Excel matrix results downloaded with MSI Report and Anchor Exposure Report.","good");
 }
 </script>
 </body>
