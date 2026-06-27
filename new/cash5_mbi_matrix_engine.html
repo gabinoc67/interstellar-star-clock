@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Cash 5 Adaptive MBI Matrix Engine - MSI Pretest Upgrade</title>
+<title>Cash 5 Adaptive MBI Matrix Engine - Hit Cluster Upgrade</title>
 
 <style>
 :root{
@@ -56,7 +56,7 @@ body *{visibility:hidden}
 <header>
 <h1>Cash 5 Adaptive MBI Matrix Engine</h1>
 <p>
-Official Cash 5 History + Machine Pretest History → MSI Score → Combined Final Score → 71 Bridge Matrix → Top 40 Tickets.
+Official Cash 5 History + Machine Pretest History → MSI Score → Hit-Cluster Assembly Boost → 71 Bridge Matrix → Top 40 Tickets.
 </p>
 </header>
 
@@ -94,6 +94,7 @@ Paste Cash 5 draw history and pretest numbers, then click <b>Analyze Matrix</b>.
 <section id="matrixBox" class="card no-print"></section>
 <section id="anchorBox" class="card no-print"></section>
 <section id="msiBox" class="card no-print"></section>
+<section id="clusterBox" class="card no-print"></section>
 <section id="analysis71Box" class="card no-print"></section>
 <section id="tickets71Box" class="card no-print"></section>
 <section id="top40Box" class="card no-print"></section>
@@ -323,7 +324,8 @@ if(currentDelay<=8 && priorGap>=14)return .75;
 if(currentDelay<=12 && priorGap>=18)return .50;
 return norm(currentDelay,20,0);
 }
-  function applyAnchorExposureLevels(rows,ticketCount){
+
+function applyAnchorExposureLevels(rows,ticketCount){
 const sorted=rows.slice().sort((a,b)=>b.score-a.score);
 
 sorted.forEach((r,i)=>{
@@ -541,6 +543,7 @@ hotTop:rows.slice(0,12),
 bridgePool:makeBridgePool(rows),
 recovery:[...rows].sort((a,b)=>b.timeRatio-a.timeRatio).slice(0,16),
 lowPool:rows.filter(x=>x.n<=15).sort((a,b)=>b.score-a.score),
+lowRecoveryPool:rows.filter(x=>x.n<=7).sort((a,b)=>b.score-a.score||b.msiScore-a.msiScore),
 pretestPool:rows.filter(x=>x.preUse>0).sort((a,b)=>b.msiScore-a.msiScore||b.preRatio-a.preRatio||b.score-a.score),
 last10Pool:rows.filter(x=>x.last10Freq>0).sort((a,b)=>b.last10Freq-a.last10Freq||b.score-a.score),
 positive:rows.filter(x=>x.mbiLabel==="Positive MBI"),
@@ -555,11 +558,12 @@ top40:[]
 renderAnalysis();
 renderAnchorExposure();
 renderMSIReport();
+renderClusterReport();
 
 let limitMsg=preParsed.limited?" The pretest input was limited to the first 300 valid numbers.":"";
 
 setMsg(
-"Matrix analyzed. MSI Pretest Upgrade is active: Pre-Test Input → Parser → MSI Score → Combined Final Score → Better Ticket Assembly."+limitMsg,
+"Matrix analyzed. New update active: MSI Score + Hit-Cluster Assembly Boost + Low 1-7 Recovery + Pair/Triple Grouping."+limitMsg,
 "good"
 );
 }
@@ -583,8 +587,7 @@ const score=(count/total)+(l10*.04)+(preTotal?pt/preTotal*.25:0);
 return {key,nums,count,last10:l10,pretest:pt,score};
 }).sort((a,b)=>b.score-a.score);
 }
-
-function makeBridgePool(rows){
+  function makeBridgePool(rows){
 const a=rows.slice(0,16);
 const b=[...rows].sort((x,y)=>y.pairStrength-x.pairStrength).slice(0,14);
 const c=[...rows].sort((x,y)=>y.timeRatio-x.timeRatio).slice(0,14);
@@ -594,6 +597,242 @@ const map={};
 [...a,...b,...c,...d].forEach(r=>map[r.n]=r);
 
 return Object.values(map).sort((x,y)=>y.score-x.score);
+}
+
+function getRankedNumberList(a){
+return a.rows.slice().sort((x,y)=>{
+return y.score-x.score ||
+y.msiScore-x.msiScore ||
+y.pairStrength-x.pairStrength ||
+y.timeRatio-x.timeRatio;
+}).map(r=>r.n);
+}
+
+function scoreTicketCluster(ticket,a){
+let score=0;
+const rankedNumbers=getRankedNumberList(a);
+
+ticket.forEach(n=>{
+const rankIndex=rankedNumbers.indexOf(n);
+const r=a.byNum[n];
+
+if(rankIndex>=0 && rankIndex<10)score+=10;
+else if(rankIndex>=10 && rankIndex<20)score+=6;
+else if(rankIndex>=20 && rankIndex<31)score+=3;
+
+if(r){
+if(r.msiScore>.50)score+=6;
+if(r.last10Freq>0)score+=4;
+if(r.preUse>0)score+=4;
+if(r.mbiLabel==="Positive MBI")score+=5;
+if(r.timeRatio>1.15)score+=3;
+}
+});
+
+for(let i=0;i<ticket.length;i++){
+for(let j=i+1;j<ticket.length;j++){
+const k=pairKey(ticket[i],ticket[j]);
+if(a.pairCounts[k])score+=Math.min(a.pairCounts[k],20)*1.2;
+if(a.prePair[k])score+=a.prePair[k]*2.5;
+if(a.last10Pair[k])score+=a.last10Pair[k]*2.2;
+}
+}
+
+for(let i=0;i<ticket.length;i++){
+for(let j=i+1;j<ticket.length;j++){
+for(let k=j+1;k<ticket.length;k++){
+const key=triKey(ticket[i],ticket[j],ticket[k]);
+if(a.tripleCounts[key])score+=Math.min(a.tripleCounts[key],12)*2.5;
+if(a.preTriple[key])score+=a.preTriple[key]*4;
+if(a.last10Triple[key])score+=a.last10Triple[key]*3.5;
+}
+}
+}
+
+const low7=ticket.filter(n=>n>=1&&n<=7).length;
+const low15=ticket.filter(n=>n>=1&&n<=15).length;
+const mid=ticket.filter(n=>n>=16&&n<=25).length;
+const high=ticket.filter(n=>n>=26&&n<=35).length;
+
+if(low7>=2)score+=18;
+if(low15>=2)score+=10;
+if(low15>=1&&mid>=1&&high>=1)score+=12;
+
+const odd=ticket.filter(n=>n%2).length;
+if(odd===2||odd===3)score+=8;
+
+let consecutive=0;
+for(let i=1;i<ticket.length;i++){
+if(ticket[i]===ticket[i-1]+1)consecutive++;
+}
+if(consecutive===1)score+=3;
+if(consecutive>=3)score-=20;
+
+const top5=rankedNumbers.slice(0,5);
+const anchorHeavy=ticket.filter(n=>top5.includes(n)).length;
+if(anchorHeavy>=4)score-=15;
+
+return score;
+}
+
+function ticketClusterDetails(ticket,a){
+const rankedNumbers=getRankedNumberList(a);
+let topCount=0,msiStrong=0,pairHits=0,tripleHits=0,low7=0;
+
+ticket.forEach(n=>{
+const idx=rankedNumbers.indexOf(n);
+if(idx>=0&&idx<15)topCount++;
+const r=a.byNum[n];
+if(r&&r.msiScore>.50)msiStrong++;
+if(n<=7)low7++;
+});
+
+for(let i=0;i<ticket.length;i++){
+for(let j=i+1;j<ticket.length;j++){
+const k=pairKey(ticket[i],ticket[j]);
+if(a.pairCounts[k]||a.prePair[k]||a.last10Pair[k])pairHits++;
+}
+}
+
+for(let i=0;i<ticket.length;i++){
+for(let j=i+1;j<ticket.length;j++){
+for(let k=j+1;k<ticket.length;k++){
+const key=triKey(ticket[i],ticket[j],ticket[k]);
+if(a.tripleCounts[key]||a.preTriple[key]||a.last10Triple[key])tripleHits++;
+}
+}
+}
+
+return "Cluster Top15: "+topCount+
+" | MSI Strong: "+msiStrong+
+" | Pair bridges: "+pairHits+
+" | Triple bridges: "+tripleHits+
+" | Low 1-7: "+low7+
+" | Cluster Score: "+scoreTicketCluster(ticket,a).toFixed(1);
+}
+
+function generateClusterOpportunityTickets(a,usage,limit){
+const candidates=[];
+const groups=[
+a.rows.slice(0,12),
+a.pretestPool.length?a.pretestPool:a.rows.slice(0,16),
+a.last10Pool.length?a.last10Pool:a.rows.slice(0,16),
+a.recovery,
+a.lowRecoveryPool.length?a.lowRecoveryPool:a.lowPool,
+a.positive.length?a.positive:a.rows.slice(0,16),
+a.zero.length?a.zero:a.rows.slice(12,28)
+];
+
+function addCandidate(nums,label){
+nums=[...new Set(nums)].filter(n=>n>=1&&n<=35).sort((x,y)=>x-y);
+if(nums.length!==5)return;
+if(!passesBalance(nums,true))return;
+
+const key=nums.join("-");
+if(candidates.find(x=>x.key===key))return;
+
+candidates.push({
+key,
+nums,
+label,
+clusterScore:scoreTicketCluster(nums,a)
+});
+}
+
+for(const tr of a.topTriples.slice(0,35)){
+let base=tr.nums.slice();
+
+for(const p of a.topPairs.slice(0,60)){
+let t=base.slice();
+if(t.includes(p.a)&&!t.includes(p.b))t.push(p.b);
+else if(t.includes(p.b)&&!t.includes(p.a))t.push(p.a);
+
+for(const g of groups){
+for(const r of g){
+let tt=t.slice();
+if(!tt.includes(r.n))tt.push(r.n);
+if(tt.length===5)addCandidate(tt,"Triple + Pair + Cluster Fill");
+}
+}
+}
+}
+
+for(let i=0;i<a.rows.length;i++){
+for(let j=i+1;j<a.rows.length;j++){
+for(let k=j+1;k<a.rows.length;k++){
+let core=[a.rows[i].n,a.rows[j].n,a.rows[k].n];
+
+if(i>12||j>18||k>24)continue;
+
+for(const low of (a.lowRecoveryPool.length?a.lowRecoveryPool:a.lowPool).slice(0,10)){
+let t=core.slice();
+if(!t.includes(low.n))t.push(low.n);
+
+for(const fill of (a.pretestPool.length?a.pretestPool:a.bridgePool).slice(0,16)){
+let tt=t.slice();
+if(!tt.includes(fill.n))tt.push(fill.n);
+if(tt.length===5)addCandidate(tt,"Top Matrix + Low Recovery + MSI Fill");
+}
+}
+}
+}
+}
+
+for(const p1 of a.topPairs.slice(0,30)){
+for(const p2 of a.topPairs.slice(0,30)){
+let t=[p1.a,p1.b,p2.a,p2.b];
+if(new Set(t).size<4)continue;
+
+for(const r of a.lowPool.slice(0,12)){
+let tt=t.slice();
+if(!tt.includes(r.n))tt.push(r.n);
+if(tt.length===5)addCandidate(tt,"Pair Stack + Low Guard");
+}
+}
+}
+
+candidates.sort((x,y)=>y.clusterScore-x.clusterScore);
+
+return candidates.slice(0,limit||30);
+}
+
+function renderClusterReport(){
+if(!ENGINE.analysis)return;
+const a=ENGINE.analysis;
+const fakeUsage=Array(36).fill(0);
+const c=generateClusterOpportunityTickets(a,fakeUsage,12);
+
+let html=
+'<h2 class="section-title">Hit-Cluster Assembly Boost Report</h2>'+
+'<p class="small">'+
+'This upgrade fixes the problem where good numbers are found but spread across different tickets. '+
+'It rewards top-ranked numbers, MSI numbers, low 1-7 recovery, pair memory, triple memory, last-10 memory, and pretest bridges inside the same ticket.'+
+'</p>'+
+'<div class="scroll">'+
+'<table>'+
+'<thead>'+
+'<tr>'+
+'<th>#</th>'+
+'<th>Candidate Cluster</th>'+
+'<th>Type</th>'+
+'<th>Cluster Details</th>'+
+'</tr>'+
+'</thead>'+
+'<tbody>';
+
+c.forEach((x,i)=>{
+html+=
+'<tr>'+
+'<td>'+String(i+1).padStart(2,"0")+'</td>'+
+'<td><b>'+formatNums(x.nums)+'</b></td>'+
+'<td>'+esc(x.label)+'</td>'+
+'<td>'+esc(ticketClusterDetails(x.nums,a))+'</td>'+
+'</tr>';
+});
+
+html+='</tbody></table></div>';
+
+document.getElementById("clusterBox").innerHTML=html;
 }
 
 function generate71Tickets(){
@@ -608,13 +847,20 @@ ENGINE.analysis71=analyze71TicketMatrix();
 render71Tickets();
 render71Analysis();
 
-setMsg("Generated 71 Bridge Tickets, then analyzed the 71 tickets as a new matrix layer.","good");
+setMsg("Generated 71 Bridge Tickets with Hit-Cluster Assembly Boost, then analyzed the 71 tickets as a new matrix layer.","good");
 }
 
 function buildBridge71(){
 const a=ENGINE.analysis;
 const list=[],used=new Set(),usage=Array(36).fill(0);
 const cores=buildCores(a);
+const clusterCandidates=generateClusterOpportunityTickets(a,usage,25);
+
+for(const c of clusterCandidates){
+if(list.length>=20)break;
+pushTicket(list,used,usage,c.nums,"71 Hit-Cluster Source",a,MATRIX71_COUNT,4,null,ticketClusterDetails(c.nums,a),false);
+}
+
 let coreIndex=0,guard=0;
 
 while(list.length<MATRIX71_COUNT&&guard<30000){
@@ -654,9 +900,18 @@ for(let i=0;i<msiTop.length-3;i++){
 cores.push([msiTop[i],msiTop[i+1],msiTop[i+2],msiTop[i+3]].sort((x,y)=>x-y));
 }
 
+const lowTop=(a.lowRecoveryPool.length?a.lowRecoveryPool:a.lowPool).slice(0,7).map(x=>x.n);
 const top=a.rows.slice(0,14).map(x=>x.n);
+
 for(let i=0;i<top.length-3;i++){
 cores.push([top[i],top[i+1],top[i+2],top[i+3]].sort((x,y)=>x-y));
+}
+
+for(let i=0;i<lowTop.length;i++){
+for(let j=0;j<top.length-2;j++){
+const c=[lowTop[i],top[j],top[j+1],top[j+2]].sort((x,y)=>x-y);
+cores.push(c);
+}
 }
 
 const unique=[],seen=new Set();
@@ -680,6 +935,7 @@ a.pretestPool.length?a.pretestPool:a.bridgePool,
 a.bridgePool,
 a.hotTop,
 a.recovery,
+a.lowRecoveryPool.length?a.lowRecoveryPool:a.lowPool,
 a.lowPool,
 a.last10Pool,
 a.positive,
@@ -740,16 +996,17 @@ cloneMap[j]=(cloneMap[j]||0)+1;
 }
 
 ENGINE.tickets71=ENGINE.tickets71.map((t,i)=>{
-const base=scoreTicket(t,a,usage,MATRIX71_COUNT);
+const base=scoreTicket(t.nums,a,usage,MATRIX71_COUNT);
 const matrixPairBonus=pairMatrixBonus(t.nums,top71Pairs);
 const quadBonus=quadCoreBonus(t.nums,top71Quads);
 const preBonus=pretestReinforcement(t.nums,a);
 const msiBonus=machineTicketBonus(t.nums,a);
+const clusterBonus=Math.min(scoreTicketCluster(t.nums,a)*.0018,.080);
 const overPenalty=t.nums.filter(n=>overrepresented.includes(n)).length*.006;
 const clonePenalty=(cloneMap[i]||0)*.010;
 const exposurePenalty=anchorExposurePenalty(t.nums,usage,a,MATRIX71_COUNT);
 
-const reScore=base+matrixPairBonus+quadBonus+preBonus+msiBonus-overPenalty-clonePenalty-exposurePenalty;
+const reScore=base+matrixPairBonus+quadBonus+preBonus+msiBonus+clusterBonus-overPenalty-clonePenalty-exposurePenalty;
 
 return {
 ...t,
@@ -759,6 +1016,7 @@ extraProfile:
 " | 4-core bonus "+quadBonus.toFixed(3)+
 " | Pretest bridge "+preBonus.toFixed(3)+
 " | MSI bonus "+msiBonus.toFixed(3)+
+" | Cluster bonus "+clusterBonus.toFixed(3)+
 " | Anchor exposure penalty "+exposurePenalty.toFixed(3)+
 " | Clone penalty "+clonePenalty.toFixed(3)
 };
@@ -818,7 +1076,8 @@ if(msiCount>=3)s+=.018;
 
 return Math.min(s,.050);
 }
-  function generateTop40Tickets(){
+
+function generateTop40Tickets(){
 if(!ENGINE.analysis){
 setMsg("Click Analyze Matrix first.","bad");
 return;
@@ -828,6 +1087,26 @@ if(!ENGINE.tickets71.length)generate71Tickets();
 const a=ENGINE.analysis;
 const ranked71=ENGINE.tickets71.slice().sort((x,y)=>(y.reScore||y.score)-(x.reScore||x.score));
 const list=[],used=new Set(),usage=Array(36).fill(0);
+
+const clusterCandidates=generateClusterOpportunityTickets(a,usage,20);
+
+for(const c of clusterCandidates.slice(0,10)){
+if(list.length>=TOP40_COUNT)break;
+
+pushTicket(
+list,
+used,
+usage,
+c.nums,
+"Top 40 Hit-Cluster Boost",
+a,
+TOP40_COUNT,
+4,
+null,
+ticketClusterDetails(c.nums,a),
+true
+);
+}
 
 for(const source of ranked71){
 if(list.length>=TOP40_COUNT)break;
@@ -854,8 +1133,8 @@ guard++;
 const seed=ranked71[guard%ranked71.length]?.nums||[];
 let t=seed.slice(0,3);
 
+addGroupToTicket(t,a.lowRecoveryPool.length?a.lowRecoveryPool:a.lowPool,1,a,usage,TOP40_COUNT);
 addGroupToTicket(t,a.pretestPool.length?a.pretestPool:a.bridgePool,1,a,usage,TOP40_COUNT);
-addGroupToTicket(t,a.lowPool,1,a,usage,TOP40_COUNT);
 
 t=cleanTicket(t,a,usage,true,TOP40_COUNT);
 
@@ -864,12 +1143,12 @@ list,
 used,
 usage,
 t,
-"Top 40 MSI Backup",
+"Top 40 MSI Cluster Backup",
 a,
 TOP40_COUNT,
 4,
 null,
-"MSI protected backup",
+"MSI cluster protected backup | "+ticketClusterDetails(t,a),
 true
 );
 }
@@ -881,7 +1160,7 @@ guard++;
 let t=[];
 addGroupToTicket(t,a.pretestPool.length?a.pretestPool:a.bridgePool,2,a,usage,TOP40_COUNT);
 addGroupToTicket(t,a.recovery,1,a,usage,TOP40_COUNT);
-addGroupToTicket(t,a.lowPool,1,a,usage,TOP40_COUNT);
+addGroupToTicket(t,a.lowRecoveryPool.length?a.lowRecoveryPool:a.lowPool,1,a,usage,TOP40_COUNT);
 addGroupToTicket(t,a.zero.length?a.zero:a.rows,1,a,usage,TOP40_COUNT);
 
 t=cleanTicket(t,a,usage,true,TOP40_COUNT);
@@ -896,7 +1175,7 @@ a,
 TOP40_COUNT,
 5,
 null,
-"Final fill with MSI and anchor caps",
+"Final fill with MSI, cluster, and anchor caps | "+ticketClusterDetails(t,a),
 true
 );
 }
@@ -906,7 +1185,7 @@ ENGINE.top40=list.sort((x,y)=>y.score-x.score).slice(0,TOP40_COUNT);
 renderTop40Tickets();
 renderAnchorExposure();
 
-setMsg("Top 40 Tickets generated with MSI Pretest Score and Anchor Exposure Control.","good");
+setMsg("Top 40 Tickets generated with MSI Pretest Score, Hit-Cluster Assembly Boost, Low 1-7 Recovery, and Anchor Exposure Control.","good");
 }
 
 function pushTicket(list,used,usage,t,type,a,limit,maxOverlap,forcedScore,extraProfile,useCaps){
@@ -923,7 +1202,9 @@ if(maxOverlap&&hasTooMuchOverlap(t,list,maxOverlap))return;
 
 used.add(key);
 
-const score=(forcedScore||scoreTicket(t,a,usage,limit))-anchorExposurePenalty(t,usage,a,limit);
+const base=(forcedScore||scoreTicket(t,a,usage,limit));
+const clusterBoost=Math.min(scoreTicketCluster(t,a)*.0018,.080);
+const score=base+clusterBoost-anchorExposurePenalty(t,usage,a,limit);
 
 t.forEach(n=>usage[n]++);
 
@@ -931,7 +1212,7 @@ list.push({
 nums:t,
 type,
 score,
-profile:ticketProfile(t,a)+(extraProfile?" | "+extraProfile:"")
+profile:ticketProfile(t,a)+(extraProfile?" | "+extraProfile:"")+" | Cluster Boost "+clusterBoost.toFixed(3)
 });
 }
 
@@ -970,7 +1251,13 @@ const cy=getAnchorCap(y.n,a,limit||TOP40_COUNT);
 const rx=cx?ux/cx:1;
 const ry=cy?uy/cy:1;
 
-return rx-ry || ux-uy || (y.score||y.msiScore||0)-(x.score||x.msiScore||0);
+const testX=ticket.concat([x.n]).sort((a,b)=>a-b);
+const testY=ticket.concat([y.n]).sort((a,b)=>a-b);
+
+return rx-ry ||
+uy-ux ||
+scoreTicketCluster(testY,a)-scoreTicketCluster(testX,a) ||
+(y.score||y.msiScore||0)-(x.score||x.msiScore||0);
 });
 
 return pool[0];
@@ -984,8 +1271,9 @@ a.pretestPool.length?a.pretestPool:a.bridgePool,
 a.bridgePool,
 a.hotTop,
 a.recovery,
-a.last10Pool,
+a.lowRecoveryPool.length?a.lowRecoveryPool:a.lowPool,
 a.lowPool,
+a.last10Pool,
 a.positive,
 a.zero,
 a.rows
@@ -1010,8 +1298,7 @@ if(!passesBalance(ticket,allowBridge))return [];
 
 return ticket.sort((x,y)=>x-y);
 }
-
-function passesBalance(t,allowBridge){
+  function passesBalance(t,allowBridge){
 const sum=t.reduce((a,b)=>a+b,0);
 const low=t.filter(n=>n<=17).length;
 const odd=t.filter(n=>n%2).length;
@@ -1041,6 +1328,7 @@ return true;
 
 function scoreTicket(t,a,usage,limit){
 let s=0,pre=0,last10=0,lastDraw=0,low=t.filter(n=>n<=15).length;
+let low7=t.filter(n=>n<=7).length;
 let msiSum=0,msiStrong=0;
 
 for(const n of t){
@@ -1053,6 +1341,7 @@ if(r.preUse>0){s+=.010;pre++}
 if(r.last10Freq>0){s+=.009;last10++}
 if(r.lastDrawBridge){s+=.007;lastDraw++}
 if(n<=15)s+=.004;
+if(n<=7)s+=.006;
 
 msiSum+=r.msiScore;
 if(r.msiScore>.50)msiStrong++;
@@ -1061,6 +1350,7 @@ if(r.msiScore>.50)msiStrong++;
 if(pre>=2)s+=.015;
 if(last10>=3)s+=.018;
 if(low>=2)s+=.010;
+if(low7>=2)s+=.018;
 if(lastDraw>=2)s+=.010;
 if(msiStrong>=2)s+=.015;
 if(msiStrong>=3)s+=.025;
@@ -1073,6 +1363,7 @@ if(a.prePair[k])s+=Math.min(a.prePair[k]*.010,.050);
 if(a.last10Pair[k])s+=Math.min(a.last10Pair[k]*.016,.050);
 }
 
+s+=Math.min(scoreTicketCluster(t,a)*.0015,.070);
 s-=anchorExposurePenalty(t,usage||Array(36).fill(0),a,limit||TOP40_COUNT);
 
 return s;
@@ -1081,6 +1372,7 @@ return s;
 function ticketProfile(t,a){
 let pos=0,zero=0,neg=0,pre=0,last10=0,lastDraw=0;
 let low=t.filter(n=>n<=15).length;
+let low7=t.filter(n=>n<=7).length;
 let msiStrong=0;
 
 for(const n of t){
@@ -1102,6 +1394,7 @@ return "Pretest: "+pre+
 " | Last10: "+last10+
 " | LastDraw: "+lastDraw+
 " | Low 1-15: "+low+
+" | Low 1-7: "+low7+
 " | MBI +"+pos+" / 0 "+zero+" / -"+neg;
 }
 
@@ -1137,7 +1430,7 @@ document.getElementById("summaryBox").innerHTML=
 '<div class="stat"><b>'+ENGINE.pretests.length+'</b><br><span class="small">Pretest sets loaded</span></div>'+
 '<div class="stat"><b>'+ENGINE.pretestNumberCount+'</b><br><span class="small">Pretest numbers used, max 300</span></div>'+
 '<div class="stat"><b>'+TOTAL_COMBINATIONS.toLocaleString()+'</b><br><span class="small">Cash 5 total combinations</span></div>'+
-'<div class="stat"><b>MSI</b><br><span class="small">Machine Stability Index active</span></div>'+
+'<div class="stat"><b>MSI + Cluster</b><br><span class="small">Machine Stability + Hit-Cluster active</span></div>'+
 '<div class="stat"><b>40</b><br><span class="small">Top tickets to buy</span></div>'+
 '</div>'+
 '<p class="small"><b>Disclaimer:</b> Cash 5 is random. This tool improves ticket construction only. It cannot guarantee wins.</p>';
@@ -1200,7 +1493,7 @@ document.getElementById("msiBox").innerHTML=
 '<h2 class="section-title">Machine Stability Index Report</h2>'+
 '<p class="small">'+
 'MSI uses pretest frequency, pretest pair memory, pretest triple memory, persistence, recent machine weight, and gap recovery. '+
-'This is the main upgrade: Pre-Test Input → Parser → MSI Score → Combined Final Score → Better Ticket Assembly.'+
+'The Hit-Cluster Boost then uses MSI to assemble stronger numbers into the same ticket instead of scattering them.'+
 '</p>'+
 '<div class="scroll">'+
 '<table>'+
@@ -1257,7 +1550,7 @@ document.getElementById("anchorBox").innerHTML=
 '<h2 class="section-title">Anchor Exposure Control</h2>'+
 '<p class="small">'+
 'This keeps strong numbers active but limits how many final Top 40 tickets can use each number. '+
-'The MSI score can push a number higher, but anchor caps stop one number from dominating the full set.'+
+'The MSI and cluster score can push a number higher, but anchor caps stop one number from dominating the full set.'+
 '</p>'+
 '<div class="grid">'+
 '<div class="stat"><b>Anchor A</b><br><span class="small">Top 3 numbers, max 40% = 16 of 40 tickets</span></div>'+
@@ -1363,7 +1656,7 @@ return;
 
 let html=
 '<h1>Cash 5 - Top 40 Tickets to Buy</h1>'+
-'<p>MSI Pretest Upgrade and Anchor Exposure Control Active.</p>'+
+'<p>MSI Pretest Upgrade, Hit-Cluster Boost, and Anchor Exposure Control Active.</p>'+
 '<table>'+
 '<thead>'+
 '<tr>'+
@@ -1408,7 +1701,7 @@ let html=
 '<head><meta charset="UTF-8"></head>'+
 '<body>'+
 '<h1>Cash 5 Matrix Results</h1>'+
-'<p>MSI Pretest Upgrade Active. Anchor Exposure Control Active.</p>';
+'<p>MSI Pretest Upgrade, Hit-Cluster Boost, and Anchor Exposure Control Active.</p>';
 
 html+=
 '<h2>Top 40 Tickets to Buy</h2>'+
@@ -1527,6 +1820,26 @@ html+=
 html+='</table>';
 
 html+=
+'<h2>Hit-Cluster Assembly Report</h2>'+
+'<table border="1">'+
+'<tr>'+
+'<th>#</th>'+
+'<th>Numbers</th>'+
+'<th>Cluster Details</th>'+
+'</tr>';
+
+generateClusterOpportunityTickets(ENGINE.analysis,Array(36).fill(0),20).forEach((c,i)=>{
+html+=
+'<tr>'+
+'<td>'+(i+1)+'</td>'+
+'<td>'+formatNums(c.nums)+'</td>'+
+'<td>'+esc(ticketClusterDetails(c.nums,ENGINE.analysis))+'</td>'+
+'</tr>';
+});
+
+html+='</table>';
+
+html+=
 '<h2>Anchor Exposure Report</h2>'+
 '<table border="1">'+
 '<tr>'+
@@ -1564,14 +1877,14 @@ const url=URL.createObjectURL(blob);
 const link=document.createElement("a");
 
 link.href=url;
-link.download="Cash5_MSI_Pretest_Anchor_Top40_Results.xls";
+link.download="Cash5_MSI_HitCluster_Top40_Results.xls";
 
 document.body.appendChild(link);
 link.click();
 document.body.removeChild(link);
 URL.revokeObjectURL(url);
 
-setMsg("Excel matrix results downloaded with MSI Report and Anchor Exposure Report.","good");
+setMsg("Excel matrix results downloaded with MSI Report, Hit-Cluster Report, and Anchor Exposure Report.","good");
 }
 </script>
 </body>
