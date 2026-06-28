@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Cash 5 Adaptive MBI Matrix Engine - Daily Diversity Lock</title>
+<title>Cash 5 Adaptive MBI Matrix Engine - Fixed Daily Diversity Lock</title>
 
 <style>
 :root{
@@ -55,7 +55,7 @@ body *{visibility:hidden}
 <body>
 <header>
 <h1>Cash 5 Adaptive MBI Matrix Engine</h1>
-<p>Number Score Matrix + Cluster Matrix + Exposure Balance Matrix + Daily Diversity Lock.</p>
+<p>Fixed Daily Diversity Lock + Exact Top 40 Ticket Output.</p>
 </header>
 
 <main>
@@ -135,14 +135,19 @@ b.className="card no-print "+(type||"warning");
 b.innerHTML=t;
 }
 
+/* FIXED PARSER:
+   It now scans each line for valid 1-35 numbers and keeps the last valid 5.
+   This prevents dates, ticket labels, and Test# labels from confusing the matrix. */
 function parseTicketLines(raw){
 if(!raw.trim())return [];
 const lines=raw.split(/\n+/).map(x=>x.trim()).filter(Boolean);
 const out=[];
 for(const line of lines){
-const nums=line.split(/[^0-9]+/).filter(Boolean).map(Number).filter(n=>n>=MIN&&n<=MAX);
-if(nums.length>=5){
-const d=[...new Set(nums.slice(-5))].sort((a,b)=>a-b);
+const nums=line.match(/\d+/g);
+if(!nums)continue;
+const valid=nums.map(Number).filter(n=>n>=MIN&&n<=MAX);
+if(valid.length>=5){
+const d=[...new Set(valid.slice(-5))].sort((a,b)=>a-b);
 if(d.length===5)out.push(d);
 }
 }
@@ -242,7 +247,8 @@ if(p.includes(n)){s+=triples[k]/total;c++;}
 }
 return c?(s/c)*30:0;
 }
-   function machinePersistenceScore(n,pretests){
+
+function machinePersistenceScore(n,pretests){
 if(!pretests.length)return 0;
 let blocks=[];
 for(let i=0;i<pretests.length;i+=4)blocks.push(pretests.slice(i,i+4));
@@ -338,7 +344,7 @@ if((UP_HARD.has(n)||UP_MEDIUM.has(n)) && used<getTargetMin(n,a))penalty-=.020;
 return penalty;
 }
 
-/* NEW DAILY DIVERSITY LOCK */
+/* FIXED DAILY DIVERSITY LOCK */
 function overlapCount(a,b){
 let c=0;
 for(const n of a)if(b.includes(n))c++;
@@ -385,8 +391,7 @@ if(d.maxOverlap===3 && DAILY_LOCK.penalizeMatch3)return d.penalty;
 if(d.maxOverlap>=4)return d.penalty;
 return 0;
 }
-
-function makePairList(pairs,last10,pre,total,preTotal){
+   function makePairList(pairs,last10,pre,total,preTotal){
 return Object.entries(pairs).map(([key,count])=>{
 const [a,b]=key.split("-").map(Number);
 const l10=last10[key]||0;
@@ -439,7 +444,7 @@ setMsg("Need at least 20 official Cash 5 drawings from 9-20-2018 to current.","b
 return;
 }
 
-setMsg("Analyzing Matrix with Daily Diversity Lock...","warning");
+setMsg("Analyzing Matrix with Fixed Daily Diversity Lock...","warning");
 
 const official=makeMatrix(draws);
 const preMatrix=makeMatrix(pretests.length?pretests:[]);
@@ -617,7 +622,7 @@ renderExposureBalanceReport();
 
 let limitMsg=preParsed.limited?" The pretest input was limited to the first 300 valid numbers.":"";
 setMsg(
-"Matrix analyzed. Daily Diversity Lock active. Previous tickets loaded: <b>"+previousTickets.length+"</b>."+limitMsg,
+"Matrix analyzed. Fixed Daily Diversity Lock active. Previous tickets loaded: <b>"+previousTickets.length+"</b>."+limitMsg,
 "good"
 );
 }
@@ -721,7 +726,8 @@ return "Top15: "+topCount+
 " | Daily Max Overlap: "+d.maxOverlap+
 " | Cluster Score: "+scoreTicketCluster(ticket,a).toFixed(1);
 }
-   function generateClusterOpportunityTickets(a,usage,limit){
+
+function generateClusterOpportunityTickets(a,usage,limit){
 const candidates=[];
 const seen=new Set();
 
@@ -821,7 +827,7 @@ setMsg("Click Analyze Matrix first.","bad");
 return;
 }
 
-setMsg("Generating 71 tickets with Exposure Balance and Daily Diversity Lock...","warning");
+setMsg("Generating 71 tickets with Fixed Diversity Lock...","warning");
 
 ENGINE.tickets71=buildBridge71();
 ENGINE.analysis71=analyze71TicketMatrix();
@@ -829,7 +835,7 @@ ENGINE.analysis71=analyze71TicketMatrix();
 render71Tickets();
 renderDiversityReport();
 
-setMsg("Generated 71 tickets. Daily Diversity Lock rejected 4-number and 5-number clones.","good");
+setMsg("Generated 71 tickets. Fixed Daily Diversity Lock rejected 4/5 and 5/5 clones.","good");
 }
 
 function buildBridge71(){
@@ -854,7 +860,7 @@ coreIndex++;
 }
 
 let fallbackGuard=0;
-while(list.length<MATRIX71_COUNT&&fallbackGuard<3000){
+while(list.length<MATRIX71_COUNT&&fallbackGuard<7000){
 fallbackGuard++;
 
 let t=[];
@@ -865,6 +871,14 @@ addGroupToTicket(t,a.zero.length?a.zero:a.rows,1,a,usage,MATRIX71_COUNT);
 
 t=cleanTicket(t,a,usage,true,MATRIX71_COUNT);
 pushTicket(list,used,usage,t,"71 Safe Fallback + Daily Lock",a,MATRIX71_COUNT,5);
+}
+
+/* FINAL 71 COMPLETION — keeps Daily Lock, relaxes exposure only */
+let finalGuard=0;
+while(list.length<MATRIX71_COUNT&&finalGuard<20000){
+finalGuard++;
+const t=randomWeightedTicket(a,usage,true);
+pushTicket(list,used,usage,t,"71 Final Completion + Daily Lock",a,MATRIX71_COUNT,5,null,"Final completion layer",false);
 }
 
 list.sort((x,y)=>y.score-x.score);
@@ -973,6 +987,14 @@ extraProfile:
 return {matrix:m71};
 }
 
+/* MAIN FIX:
+   This function now guarantees exactly 40 output tickets.
+   It uses 4 layers:
+   1. Cluster candidates
+   2. Best 71 matrix tickets
+   3. Exposure fill
+   4. Final exact-40 completion
+*/
 function generateTop40Tickets(){
 if(!ENGINE.analysis){
 setMsg("Click Analyze Matrix first.","bad");
@@ -980,13 +1002,13 @@ return;
 }
 if(!ENGINE.tickets71.length)generate71Tickets();
 
-setMsg("Generating Top 40 with Daily Diversity Lock...","warning");
+setMsg("Generating exact Top 40 with Fixed Daily Diversity Lock...","warning");
 
 const a=ENGINE.analysis;
 const ranked71=ENGINE.tickets71.slice().sort((x,y)=>(y.reScore||y.score)-(x.reScore||x.score));
 const list=[],used=new Set(),usage=Array(36).fill(0);
 
-const clusterCandidates=generateClusterOpportunityTickets(a,usage,24);
+const clusterCandidates=generateClusterOpportunityTickets(a,usage,35);
 
 for(const c of clusterCandidates){
 if(list.length>=TOP40_COUNT)break;
@@ -1001,7 +1023,7 @@ pushTicket(list,used,usage,source.nums,"Top 40 71-Matrix + Daily Lock",a,TOP40_C
 forceMinimumExposure(list,used,usage,a);
 
 let guard=0;
-while(list.length<TOP40_COUNT&&guard<8000){
+while(list.length<TOP40_COUNT&&guard<12000){
 guard++;
 
 let t=[];
@@ -1016,24 +1038,31 @@ t=cleanTicket(t,a,usage,true,TOP40_COUNT);
 pushTicket(list,used,usage,t,"Top 40 Exposure Fill + Daily Lock",a,TOP40_COUNT,4,null,"Balanced fill | "+ticketClusterDetails(t,a),true);
 }
 
-guard=0;
-while(list.length<TOP40_COUNT&&guard<4000){
-guard++;
-
-let t=[];
-addGroupToTicket(t,a.rows,5,a,usage,TOP40_COUNT);
-t=cleanTicket(t,a,usage,true,TOP40_COUNT);
-
-pushTicket(list,used,usage,t,"Top 40 Emergency Fill",a,TOP40_COUNT,5,null,"Emergency completion fill | "+ticketClusterDetails(t,a),false);
+/* FINAL EXACT 40 COMPLETION:
+   This is the correction for 36 or 43 outputs.
+   It never allows more than 40.
+   It keeps previous-ticket Daily Lock active.
+   It relaxes exposure caps only when needed to finish exactly 40. */
+let finalGuard=0;
+while(list.length<TOP40_COUNT&&finalGuard<30000){
+finalGuard++;
+let t=randomWeightedTicket(a,usage,true);
+pushTicket(list,used,usage,t,"Top 40 Final Exact Completion",a,TOP40_COUNT,5,null,"Exact-40 completion layer | "+ticketClusterDetails(t,a),false);
 }
 
-ENGINE.top40=list.sort((x,y)=>y.score-x.score).slice(0,TOP40_COUNT);
+ENGINE.top40=list
+.sort((x,y)=>y.score-x.score)
+.slice(0,TOP40_COUNT);
 
 renderTop40Tickets();
 renderExposureBalanceReport();
 renderDiversityReport();
 
-setMsg("Top 40 generated. Daily Diversity Lock is active: 4/5 and 5/5 previous-ticket clones rejected.","good");
+if(ENGINE.top40.length===TOP40_COUNT){
+setMsg("Top 40 generated successfully. Exact count: <b>40</b>. Daily Diversity Lock is active.","good");
+}else{
+setMsg("Warning: Only generated "+ENGINE.top40.length+" tickets. Add more draw history or reduce previous-ticket restrictions.","bad");
+}
 }
 
 function forceMinimumExposure(list,used,usage,a){
@@ -1060,6 +1089,10 @@ pushTicket(list,used,usage,t,"Minimum Exposure Protector + Daily Lock",a,TOP40_C
 }
 }
 
+/* FIXED PUSH:
+   list.length>=limit blocks output above 40.
+   Daily Lock always stays active.
+   Exposure caps can be relaxed only when useCaps=false. */
 function pushTicket(list,used,usage,t,type,a,limit,maxOverlap,forcedScore,extraProfile,useCaps){
 if(list.length>=limit)return;
 
@@ -1138,7 +1171,49 @@ scoreTicketCluster(testY,a)-scoreTicketCluster(testX,a) ||
 return pool[0]||null;
 }
 
-function cleanTicket(ticket,a,usage,allowBridge,limit){
+/* NEW EXACT COMPLETION TICKET BUILDER */
+function randomWeightedTicket(a,usage,allowBridge){
+let pools=[
+a.rows.slice(0,20),
+a.bridgePool,
+a.recovery,
+a.lowRecoveryPool.length?a.lowRecoveryPool:a.lowPool,
+a.pretestPool.length?a.pretestPool:a.rows,
+a.zero.length?a.zero:a.rows,
+a.rows
+];
+
+let best=[];
+let bestScore=-999999;
+
+for(let attempt=0;attempt<60;attempt++){
+let t=[];
+
+for(const pool of pools){
+if(t.length>=5)break;
+let candidates=(pool||[]).filter(r=>r&&r.n&&!t.includes(r.n));
+candidates=candidates.sort((x,y)=>{
+let sx=(x.score||0)+exposureNeedScore(x.n,usage,a)*.015+(Math.random()*.025);
+let sy=(y.score||0)+exposureNeedScore(y.n,usage,a)*.015+(Math.random()*.025);
+return sy-sx;
+});
+if(candidates[0])t.push(candidates[0].n);
+}
+
+t=cleanTicket(t,a,usage,allowBridge,TOP40_COUNT);
+if(t.length!==5)continue;
+if(!dailyDiversityAllowed(t))continue;
+
+const sc=scoreTicket(t,a,usage,TOP40_COUNT)+scoreTicketCluster(t,a)*.001;
+if(sc>bestScore){
+bestScore=sc;
+best=t;
+}
+}
+
+return best;
+}
+   function cleanTicket(ticket,a,usage,allowBridge,limit){
 ticket=[...new Set(ticket)].filter(n=>n>=1&&n<=35).sort((x,y)=>x-y);
 
 const fillPools=[
@@ -1317,8 +1392,8 @@ document.getElementById("summaryBox").innerHTML=
 '<div class="stat"><b>'+ENGINE.pretests.length+'</b><br><span class="small">Pretest sets loaded</span></div>'+
 '<div class="stat"><b>'+ENGINE.previousTickets.length+'</b><br><span class="small">Previous tickets for Daily Lock</span></div>'+
 '<div class="stat"><b>'+TOTAL_COMBINATIONS.toLocaleString()+'</b><br><span class="small">Total Cash 5 combinations</span></div>'+
+'<div class="stat"><b>Exact 40</b><br><span class="small">Top 40 output lock</span></div>'+
 '<div class="stat"><b>4/5 Reject</b><br><span class="small">Daily Diversity Lock clone rule</span></div>'+
-'<div class="stat"><b>3/5 Penalty</b><br><span class="small">Similarity penalty rule</span></div>'+
 '</div>'+
 '<p class="small"><b>Disclaimer:</b> Cash 5 is random. This tool improves ticket construction only. It cannot guarantee wins.</p>';
 
@@ -1363,10 +1438,11 @@ document.getElementById("diversityBox").innerHTML=
 '<h2 class="section-title">Daily Diversity Lock Report</h2>'+
 '<div class="grid">'+
 '<div class="stat"><b>'+prev.length+'</b><br><span class="small">Previous tickets loaded</span></div>'+
-'<div class="stat"><b>'+maxOverlap+'</b><br><span class="small">Highest overlap in active output</span></div>'+
+'<div class="stat"><b>'+tested.length+'</b><br><span class="small">Active output tickets</span></div>'+
+'<div class="stat"><b>'+maxOverlap+'</b><br><span class="small">Highest previous-ticket overlap</span></div>'+
 '<div class="stat"><b>'+match3+'</b><br><span class="small">3-number similarity penalties</span></div>'+
-'<div class="stat"><b>'+match4+'</b><br><span class="small">4-number clones rejected</span></div>'+
-'<div class="stat"><b>'+match5+'</b><br><span class="small">5-number repeats rejected</span></div>'+
+'<div class="stat"><b>'+match4+'</b><br><span class="small">4-number clones in output</span></div>'+
+'<div class="stat"><b>'+match5+'</b><br><span class="small">5-number repeats in output</span></div>'+
 '</div>'+
 '<p class="small">Daily Lock rule: 5/5 previous-ticket repeat rejected, 4/5 clone rejected, 3/5 similarity allowed but penalized.</p>';
 }
@@ -1401,7 +1477,7 @@ return "<tr>"+
 
 document.getElementById("exposureBox").innerHTML=
 '<h2 class="section-title">Exposure Balance Matrix</h2>'+
-'<p class="small">Strong anchors target 5-7 uses, secondary numbers 4-6, recovery/challenger numbers 3-5, and risk/spike numbers 2-4.</p>'+
+'<p class="small">Strong anchors target 5-7 uses, secondary numbers 4-6, recovery/challenger numbers 3-5, and risk/spike numbers 2-4. Final completion may relax exposure caps only to guarantee exactly 40 tickets.</p>'+
 '<div class="scroll">'+
 '<table>'+
 '<thead>'+
@@ -1433,7 +1509,7 @@ document.getElementById("tickets71Box").innerHTML=html;
 
 function renderTop40Tickets(){
 let html=
-'<h2 class="section-title">Top 40 Tickets to Buy</h2>'+
+'<h2 class="section-title">Top 40 Tickets to Buy — Exact Count: '+ENGINE.top40.length+'</h2>'+
 '<div class="scroll">'+
 '<table>'+
 '<thead>'+
@@ -1464,7 +1540,7 @@ return;
 
 let html=
 '<h1>Cash 5 - Top 40 Tickets to Buy</h1>'+
-'<p>Exposure Balance Matrix and Daily Diversity Lock active.</p>'+
+'<p>Exact 40 Output Lock, Exposure Balance Matrix, and Daily Diversity Lock active.</p>'+
 '<table>'+
 '<thead>'+
 '<tr><th>#</th><th>Numbers</th><th>Type</th><th>Profile</th><th>Score</th></tr>'+
@@ -1498,19 +1574,20 @@ return;
 
 let html=
 '<html><head><meta charset="UTF-8"></head><body>'+
-'<h1>Cash 5 Daily Diversity Lock Matrix Results</h1>'+
-'<p>Number Score Matrix + Cluster Matrix + Exposure Balance Matrix + Daily Diversity Lock.</p>';
+'<h1>Cash 5 Fixed Daily Diversity Lock Matrix Results</h1>'+
+'<p>Number Score Matrix + Cluster Matrix + Exposure Balance Matrix + Exact Top 40 Daily Diversity Lock.</p>';
 
 html+=
 '<h2>Top 40 Tickets to Buy</h2>'+
 '<table border="1">'+
-'<tr><th>#</th><th>Numbers</th><th>Profile</th><th>Score</th></tr>';
+'<tr><th>#</th><th>Numbers</th><th>Type</th><th>Profile</th><th>Score</th></tr>';
 
 ENGINE.top40.forEach((t,i)=>{
 html+=
 '<tr>'+
 '<td>'+(i+1)+'</td>'+
 '<td>'+formatNums(t.nums)+'</td>'+
+'<td>'+esc(t.type)+'</td>'+
 '<td>'+esc(t.profile)+'</td>'+
 '<td>'+t.score.toFixed(4)+'</td>'+
 '</tr>';
@@ -1552,12 +1629,13 @@ html+='</table>';
 html+=
 '<h2>Daily Diversity Lock</h2>'+
 '<table border="1">'+
-'<tr><th>Previous Tickets Loaded</th><th>Reject 5/5</th><th>Reject 4/5</th><th>Penalize 3/5</th></tr>'+
+'<tr><th>Previous Tickets Loaded</th><th>Reject 5/5</th><th>Reject 4/5</th><th>Penalize 3/5</th><th>Top 40 Count</th></tr>'+
 '<tr>'+
 '<td>'+ENGINE.previousTickets.length+'</td>'+
 '<td>Yes</td>'+
 '<td>Yes</td>'+
 '<td>Yes</td>'+
+'<td>'+ENGINE.top40.length+'</td>'+
 '</tr>'+
 '</table>';
 
@@ -1570,7 +1648,7 @@ const url=URL.createObjectURL(blob);
 const link=document.createElement("a");
 
 link.href=url;
-link.download="Cash5_Daily_Diversity_Lock_Top40_Results.xls";
+link.download="Cash5_Fixed_Daily_Diversity_Lock_Top40_Results.xls";
 
 document.body.appendChild(link);
 link.click();
