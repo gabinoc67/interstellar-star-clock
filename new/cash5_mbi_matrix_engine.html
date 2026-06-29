@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Cash 5 Adaptive MBI Matrix Engine - Final Optimization Upgrade</title>
+<title>Cash 5 Adaptive MBI Matrix Engine - Final Optimization Fixed</title>
 
 <style>
 :root{
@@ -55,7 +55,7 @@ body *{visibility:hidden}
 <body>
 <header>
 <h1>Cash 5 Adaptive MBI Matrix Engine</h1>
-<p>Final Upgrade: Adaptive Exposure Cap + Position Entropy + Ticket Uniqueness + Coverage Optimization.</p>
+<p>Fixed Final Upgrade: Adaptive Exposure Cap + Position Entropy + Ticket Uniqueness + Fast Coverage Optimization.</p>
 </header>
 
 <main>
@@ -113,14 +113,16 @@ match4Penalty:.120,
 match5Penalty:.300
 };
 
+/* FIXED: lighter optimizer so browser does not freeze */
 const FINAL_UPGRADE={
 maxTop40Exposure:18,
 softCapStart:16,
 hardCap:18,
 internalRejectOverlap4:true,
 internalPenaltyOverlap3:.040,
-coveragePasses:3,
-entropyWeight:.16
+coveragePasses:1,
+entropyWeight:.16,
+maxCandidates:55
 };
 
 let ENGINE={
@@ -175,7 +177,6 @@ const finalDraws=parsed.slice(0,Math.floor(PRETEST_NUMBER_LIMIT/5));
 return {draws:finalDraws,numberCount:finalDraws.length*5,limited};
 }
 
-/* POSITION ENTROPY UPGRADE */
 function positionEntropyScore(counts){
 const total=counts.reduce((a,b)=>a+b,0);
 if(!total)return 0;
@@ -186,8 +187,7 @@ const p=c/total;
 h-=p*Math.log(p);
 }
 }
-const maxH=Math.log(5);
-return clamp(h/maxH,0,1);
+return clamp(h/Math.log(5),0,1);
 }
 
 function makePositionMatrix(draws){
@@ -241,7 +241,6 @@ positionEntropy:entropy,
 columnStory:POSITIONS[bestPos]+" home | Share "+(posShare*100).toFixed(1)+"% | Entropy "+entropy.toFixed(2)+" | Delay "+posDelay
 };
 }
-
 return {posCounts,posTotals,byNum,total};
 }
 
@@ -291,7 +290,6 @@ n,total:freq[n],delay,averageGap,timeRatio,hotRatio,chaosRatio,
 pairStrength,tripleStrength,score:0,rank:0,finalProb:0,
 targetMin:2,targetMax:4,exposureClass:"Risk/Spike"
 };
-
 rows.push(row);
 byNum[n]=row;
 }
@@ -367,7 +365,6 @@ if(currentDelay<=12 && priorGap>=18)return .50;
 return norm(currentDelay,20,0);
 }
 
-/* ADAPTIVE EXPOSURE CAP UPGRADE */
 function assignExposureTargets(rows){
 const sorted=rows.slice().sort((a,b)=>b.score-a.score);
 sorted.forEach((r,i)=>{
@@ -437,8 +434,7 @@ return c;
 
 function dailyDiversityStatus(ticket){
 const previous=ENGINE.previousTickets||[];
-let maxOverlap=0;
-let closest="";
+let maxOverlap=0,closest="";
 for(const old of previous){
 const c=overlapCount(ticket,old);
 if(c>maxOverlap){
@@ -487,8 +483,92 @@ if(overlapCount(ticket,oldNums)>=4)return false;
 return true;
 }
 
+/* FIXED: fast coverage optimization */
+function finalCoverageOptimization(list,a){
+if(!list||!list.length)return [];
+
+let selected=[];
+let usage=Array(36).fill(0);
+let seenPairs={};
+let seenTriples={};
+
+let candidates=list.slice()
+.sort((x,y)=>y.score-x.score)
+.slice(0,FINAL_UPGRADE.maxCandidates);
+
+while(selected.length<TOP40_COUNT && candidates.length){
+let bestIndex=-1;
+let bestValue=-999999;
+
+for(let i=0;i<candidates.length;i++){
+const t=candidates[i];
+
+if(!dailyDiversityAllowed(t.nums))continue;
+if(!internalUniquenessAllowed(t.nums,selected))continue;
+if(!exposureAllowed(t.nums,usage,a))continue;
+
+let gain=0;
+
+for(let x=0;x<5;x++){
+for(let y=x+1;y<5;y++){
+const pk=pairKey(t.nums[x],t.nums[y]);
+if(!seenPairs[pk]){
+gain+=((a.pairCounts[pk]||0)*.002);
+gain+=((a.prePair[pk]||0)*.010);
+gain+=((a.last10Pair[pk]||0)*.008);
+}
+}
+}
+
+for(let x=0;x<5;x++){
+for(let y=x+1;y<5;y++){
+for(let z=y+1;z<5;z++){
+const tk=triKey(t.nums[x],t.nums[y],t.nums[z]);
+if(!seenTriples[tk]){
+gain+=((a.tripleCounts[tk]||0)*.004);
+gain+=((a.preTriple[tk]||0)*.014);
+gain+=((a.last10Triple[tk]||0)*.010);
+}
+}
+}
+}
+
+const value=t.score+gain-internalUniquenessPenalty(t.nums,selected)-exposurePenalty(t.nums,usage,a);
+
+if(value>bestValue){
+bestValue=value;
+bestIndex=i;
+}
+}
+
+if(bestIndex<0)break;
+
+const chosen=candidates.splice(bestIndex,1)[0];
+chosen.score=bestValue;
+
+selected.push(chosen);
+chosen.nums.forEach(n=>usage[n]++);
+
+for(let x=0;x<5;x++){
+for(let y=x+1;y<5;y++){
+seenPairs[pairKey(chosen.nums[x],chosen.nums[y])]=true;
+}
+}
+
+for(let x=0;x<5;x++){
+for(let y=x+1;y<5;y++){
+for(let z=y+1;z<5;z++){
+seenTriples[triKey(chosen.nums[x],chosen.nums[y],chosen.nums[z])]=true;
+}
+}
+}
+}
+
+return selected.slice(0,TOP40_COUNT).sort((x,y)=>y.score-x.score);
+}
+
 function coverageScore(ticket,a,chosen){
-let pairGain=0,tripleGain=0,repeatPenalty=0;
+let gain=0;
 const seenPairs={},seenTriples={};
 
 for(const item of chosen||[]){
@@ -504,9 +584,11 @@ seenTriples[triKey(nums[i],nums[j],nums[k])]=true;
 for(let i=0;i<5;i++){
 for(let j=i+1;j<5;j++){
 const k=pairKey(ticket[i],ticket[j]);
-const strength=(a.pairCounts[k]||0)+(a.prePair[k]||0)*3+(a.last10Pair[k]||0)*2;
-if(strength>0 && !seenPairs[k])pairGain+=Math.min(strength,.35);
-if(seenPairs[k])repeatPenalty+=.010;
+if(!seenPairs[k]){
+gain+=((a.pairCounts[k]||0)*.002);
+gain+=((a.prePair[k]||0)*.010);
+gain+=((a.last10Pair[k]||0)*.008);
+}
 }
 }
 
@@ -514,69 +596,16 @@ for(let i=0;i<5;i++){
 for(let j=i+1;j<5;j++){
 for(let k=j+1;k<5;k++){
 const key=triKey(ticket[i],ticket[j],ticket[k]);
-const strength=(a.tripleCounts[key]||0)+(a.preTriple[key]||0)*4+(a.last10Triple[key]||0)*3;
-if(strength>0 && !seenTriples[key])tripleGain+=Math.min(strength,.45);
-if(seenTriples[key])repeatPenalty+=.018;
+if(!seenTriples[key]){
+gain+=((a.tripleCounts[key]||0)*.004);
+gain+=((a.preTriple[key]||0)*.014);
+gain+=((a.last10Triple[key]||0)*.010);
 }
 }
 }
-
-return (pairGain*.006)+(tripleGain*.010)-repeatPenalty;
 }
 
-function finalCoverageOptimization(list,a){
-if(!list||list.length<=1)return list||[];
-let pool=list.slice().sort((x,y)=>y.score-x.score);
-let selected=[],usage=Array(36).fill(0);
-
-for(let pass=0;pass<FINAL_UPGRADE.coveragePasses;pass++){
-selected=[];
-usage=Array(36).fill(0);
-
-let candidates=pool.slice().sort((x,y)=>y.score-x.score);
-
-while(selected.length<TOP40_COUNT && candidates.length){
-let bestIndex=0,bestValue=-999999;
-
-for(let i=0;i<candidates.length;i++){
-const t=candidates[i];
-if(!dailyDiversityAllowed(t.nums))continue;
-if(!internalUniquenessAllowed(t.nums,selected))continue;
-if(!exposureAllowed(t.nums,usage,a))continue;
-
-const value=
-t.score+
-coverageScore(t.nums,a,selected)-
-internalUniquenessPenalty(t.nums,selected)-
-exposurePenalty(t.nums,usage,a);
-
-if(value>bestValue){
-bestValue=value;
-bestIndex=i;
-}
-}
-
-const chosen=candidates.splice(bestIndex,1)[0];
-if(!chosen)break;
-
-if(
-dailyDiversityAllowed(chosen.nums) &&
-internalUniquenessAllowed(chosen.nums,selected) &&
-exposureAllowed(chosen.nums,usage,a)
-){
-chosen.score=
-chosen.score+
-coverageScore(chosen.nums,a,selected)-
-internalUniquenessPenalty(chosen.nums,selected);
-selected.push(chosen);
-chosen.nums.forEach(n=>usage[n]++);
-}
-}
-
-pool=selected.concat(candidates).sort((x,y)=>y.score-x.score);
-}
-
-return selected.slice(0,TOP40_COUNT).sort((x,y)=>y.score-x.score);
+return gain;
 }
 
 function makePairList(pairs,last10,pre,total,preTotal){
@@ -634,7 +663,7 @@ setMsg("Need at least 20 official Cash 5 drawings from 9-20-2018 to current.","b
 return;
 }
 
-setMsg("Analyzing Position Memory Matrix, Pretest Lean, Last Draw Bridge, Entropy, and Final Optimization...","warning");
+setMsg("Analyzing Matrix with fixed fast optimizer...","warning");
 
 const official=makeMatrix(draws);
 const positionMatrix=makePositionMatrix(draws);
@@ -702,7 +731,6 @@ const persistenceScore=machinePersistenceScore(n,pretests);
 const recentMachineScore=machineRecentWeightScore(n,pretests);
 const gapRecoveryScore=machineGapRecoveryScore(n,pretests);
 const machineTimeRatio=preMatrix.byNum[n]?.timeRatio||0;
-const stabilityRatio=1-base.chaosRatio;
 const lastDrawBridge=lastDrawFlag[n];
 
 const positionScore=
@@ -836,7 +864,7 @@ renderDiversityReport();
 renderExposureBalanceReport();
 
 let limitMsg=preParsed.limited?" The pretest input was limited to the first 300 valid numbers.":"";
-setMsg("Matrix analyzed. Final upgrades are active: exposure cap, position entropy, uniqueness, and coverage optimization."+limitMsg,"good");
+setMsg("Matrix analyzed. Fixed fast optimizer is active."+limitMsg,"good");
 }
 
 function scoreTicketCluster(ticket,a){
@@ -908,8 +936,7 @@ score-=dailyDiversityPenalty(ticket)*500;
 
 return score;
 }
-
-function ticketClusterDetails(ticket,a){
+  function ticketClusterDetails(ticket,a){
 let topCount=0,msiStrong=0,pairHits=0,tripleHits=0,posHits=0,lastDraw=0,pre=0,entropyHits=0;
 
 ticket.forEach((n,idx)=>{
@@ -973,16 +1000,16 @@ a.positive.length?a.positive:a.rows.slice(0,16),
 a.zero.length?a.zero:a.rows.slice(12,28)
 ];
 
-for(const tr of a.topTriples.slice(0,32)){
+for(const tr of a.topTriples.slice(0,24)){
 const base=tr.nums.slice();
-for(const p of a.topPairs.slice(0,48)){
+for(const p of a.topPairs.slice(0,32)){
 let t=base.slice();
 if(t.includes(p.a)&&!t.includes(p.b))t.push(p.b);
 else if(t.includes(p.b)&&!t.includes(p.a))t.push(p.a);
 else continue;
 if(t.length>4)continue;
-for(const g of groups.slice(0,7)){
-for(const r of g.slice(0,12)){
+for(const g of groups.slice(0,6)){
+for(const r of g.slice(0,8)){
 let tt=t.slice();
 if(!tt.includes(r.n))tt.push(r.n);
 if(tt.length===5)addCandidate(tt,"Triple + Pair + Position Entropy Lock");
@@ -991,21 +1018,21 @@ if(tt.length===5)addCandidate(tt,"Triple + Pair + Position Entropy Lock");
 }
 }
 
-const topRows=a.rows.slice(0,24);
-const fillRows=(a.pretestPool.length?a.pretestPool:a.bridgePool).slice(0,18);
-const posRows=a.positionPool.slice(0,18);
-const entropyRows=a.entropyPool.slice(0,18);
+const topRows=a.rows.slice(0,20);
+const fillRows=(a.pretestPool.length?a.pretestPool:a.bridgePool).slice(0,14);
+const posRows=a.positionPool.slice(0,14);
+const entropyRows=a.entropyPool.slice(0,14);
 
-for(let i=0;i<12;i++){
-for(let j=i+1;j<18;j++){
+for(let i=0;i<10;i++){
+for(let j=i+1;j<15;j++){
 let core=[topRows[i].n,topRows[j].n];
-for(const p of posRows){
+for(const p of posRows.slice(0,8)){
 let t=core.slice();
 if(!t.includes(p.n))t.push(p.n);
-for(const e of entropyRows.slice(0,10)){
+for(const e of entropyRows.slice(0,6)){
 let te=t.slice();
 if(!te.includes(e.n))te.push(e.n);
-for(const f of fillRows){
+for(const f of fillRows.slice(0,8)){
 let tt=te.slice();
 if(!tt.includes(f.n))tt.push(f.n);
 if(tt.length===5)addCandidate(tt,"Top + Position + Entropy + Pretest");
@@ -1021,18 +1048,18 @@ return candidates.slice(0,limit||40);
 
 function generate71Tickets(){
 if(!ENGINE.analysis){setMsg("Click Analyze Matrix first.","bad");return}
-setMsg("Generating 71 tickets with Position Entropy and Daily Lock...","warning");
+setMsg("Generating 71 tickets with fixed fast optimizer...","warning");
 ENGINE.tickets71=buildBridge71();
 ENGINE.analysis71=analyze71TicketMatrix();
 render71Tickets();
 renderDiversityReport();
-setMsg("Generated 71 tickets. Position Memory, Entropy, Pretest Lean, and Daily Lock active.","good");
+setMsg("Generated 71 tickets. Fixed fast optimizer active.","good");
 }
 
 function buildBridge71(){
 const a=ENGINE.analysis;
 const list=[],used=new Set(),usage=Array(36).fill(0);
-const candidates=generateClusterOpportunityTickets(a,usage,45);
+const candidates=generateClusterOpportunityTickets(a,usage,35);
 
 for(const c of candidates){
 if(list.length>=MATRIX71_COUNT)break;
@@ -1040,7 +1067,7 @@ pushTicket(list,used,usage,c.nums,"71 Position Entropy Candidate",a,MATRIX71_COU
 }
 
 let guard=0;
-while(list.length<MATRIX71_COUNT&&guard<25000){
+while(list.length<MATRIX71_COUNT&&guard<12000){
 guard++;
 const t=randomWeightedTicket(a,usage,true);
 pushTicket(list,used,usage,t,"71 Final Completion",a,MATRIX71_COUNT,5,null,"Completion layer | "+ticketClusterDetails(t,a),false);
@@ -1074,39 +1101,40 @@ extraProfile:"Cluster "+clusterBonus.toFixed(3)+
 
 return {matrix:m71};
 }
-  function generateTop40Tickets(){
+
+function generateTop40Tickets(){
 if(!ENGINE.analysis){setMsg("Click Analyze Matrix first.","bad");return}
 if(!ENGINE.tickets71.length)generate71Tickets();
 
-setMsg("Generating exact Top 40 with Final Coverage Optimization...","warning");
+setMsg("Generating exact Top 40 with fixed fast optimizer...","warning");
 
 const a=ENGINE.analysis;
 const ranked71=ENGINE.tickets71.slice().sort((x,y)=>(y.reScore||y.score)-(x.reScore||x.score));
 let list=[],used=new Set(),usage=Array(36).fill(0);
-const candidates=generateClusterOpportunityTickets(a,usage,80);
+const candidates=generateClusterOpportunityTickets(a,usage,35);
 
 for(const c of candidates){
-if(list.length>=TOP40_COUNT+20)break;
-pushTicket(list,used,usage,c.nums,"Top 40 Final Optimized",a,TOP40_COUNT+20,4,null,ticketClusterDetails(c.nums,a),true);
+if(list.length>=TOP40_COUNT+10)break;
+pushTicket(list,used,usage,c.nums,"Top 40 Final Optimized",a,TOP40_COUNT+10,4,null,ticketClusterDetails(c.nums,a),true);
 }
 
 for(const source of ranked71){
-if(list.length>=TOP40_COUNT+20)break;
-pushTicket(list,used,usage,source.nums,"Top 40 71-Matrix Optimized",a,TOP40_COUNT+20,4,source.reScore||source.score,source.extraProfile||"",true);
+if(list.length>=TOP40_COUNT+10)break;
+pushTicket(list,used,usage,source.nums,"Top 40 71-Matrix Optimized",a,TOP40_COUNT+10,4,source.reScore||source.score,source.extraProfile||"",true);
 }
 
 forceMinimumExposure(list,used,usage,a);
 
 let guard=0;
-while(list.length<TOP40_COUNT+20&&guard<35000){
+while(list.length<TOP40_COUNT+10&&guard<15000){
 guard++;
 const t=randomWeightedTicket(a,usage,true);
-pushTicket(list,used,usage,t,"Top 40 Final Exact Completion",a,TOP40_COUNT+20,5,null,"Exact-40 completion | "+ticketClusterDetails(t,a),false);
+pushTicket(list,used,usage,t,"Top 40 Final Exact Completion",a,TOP40_COUNT+10,5,null,"Exact-40 completion | "+ticketClusterDetails(t,a),false);
 }
 
 ENGINE.top40=finalCoverageOptimization(list,a);
 
-while(ENGINE.top40.length<TOP40_COUNT&&guard<60000){
+while(ENGINE.top40.length<TOP40_COUNT&&guard<25000){
 guard++;
 const t=randomWeightedTicket(a,usage,true);
 pushTicket(ENGINE.top40,used,usage,t,"Top 40 Backup Completion",a,TOP40_COUNT,5,null,"Backup completion | "+ticketClusterDetails(t,a),false);
@@ -1120,9 +1148,9 @@ renderExposureBalanceReport();
 renderDiversityReport();
 
 if(ENGINE.top40.length===40){
-setMsg("Top 40 generated successfully. Exact count: <b>40</b>. Final upgrades active: adaptive cap, entropy, uniqueness, and coverage optimization.","good");
+setMsg("Top 40 generated successfully. Exact count: <b>40</b>. Browser freeze fix active.","good");
 }else{
-setMsg("Warning: only generated "+ENGINE.top40.length+" tickets. Too many restrictions blocked completion.","bad");
+setMsg("Warning: only generated "+ENGINE.top40.length+" tickets. Restrictions may be too tight.","bad");
 }
 }
 
@@ -1133,7 +1161,7 @@ const priority=a.rows
 
 let guard=0;
 for(const r of priority){
-while((usage[r.n]||0)<r.targetMin && list.length<TOP40_COUNT+20 && guard<4000){
+while((usage[r.n]||0)<r.targetMin && list.length<TOP40_COUNT+10 && guard<1600){
 guard++;
 let t=[r.n];
 addGroupToTicket(t,a.pretestPool.length?a.pretestPool:a.bridgePool,1,a,usage,TOP40_COUNT);
@@ -1142,7 +1170,7 @@ addGroupToTicket(t,a.entropyPool,1,a,usage,TOP40_COUNT);
 addGroupToTicket(t,a.lastDrawPool.length?a.lastDrawPool:a.rows.slice(0,12),1,a,usage,TOP40_COUNT);
 addGroupToTicket(t,a.lowRecoveryPool.length?a.lowRecoveryPool:a.lowPool,1,a,usage,TOP40_COUNT);
 t=cleanTicket(t,a,usage,true,TOP40_COUNT);
-pushTicket(list,used,usage,t,"Minimum Exposure Protector",a,TOP40_COUNT+20,4,null,"Forced exposure for "+String(r.n).padStart(2,"0")+" | "+ticketClusterDetails(t,a),true);
+pushTicket(list,used,usage,t,"Minimum Exposure Protector",a,TOP40_COUNT+10,4,null,"Forced exposure for "+String(r.n).padStart(2,"0")+" | "+ticketClusterDetails(t,a),true);
 }
 }
 }
@@ -1208,7 +1236,7 @@ if(!pool.length)return null;
 pool=pool.filter(x=>(usage[x.n]||0)<getTargetMax(x.n,a));
 if(!pool.length)pool=(group||[]).filter(x=>x&&x.n>=1&&x.n<=35&&!ticket.includes(x.n));
 
-pool=pool.slice(0,35).sort((x,y)=>{
+pool=pool.slice(0,28).sort((x,y)=>{
 const tx=ticket.concat([x.n]).sort((a,b)=>a-b);
 const ty=ticket.concat([y.n]).sort((a,b)=>a-b);
 return scoreTicketCluster(ty,a)-scoreTicketCluster(tx,a) ||
@@ -1235,12 +1263,12 @@ a.rows
 
 let best=[],bestScore=-999999;
 
-for(let attempt=0;attempt<80;attempt++){
+for(let attempt=0;attempt<45;attempt++){
 let t=[];
 for(const pool of pools){
 if(t.length>=5)break;
 let candidates=(pool||[]).filter(r=>r&&r.n&&!t.includes(r.n));
-candidates=candidates.sort((x,y)=>{
+candidates=candidates.slice(0,25).sort((x,y)=>{
 let sx=(x.score||0)+(x.positionScore||0)*.05+(x.positionEntropy||0)*.035+(x.msiScore||0)*.06+(x.lastDrawBridge?.04:0)+exposureNeedScore(x.n,usage,a)*.015+(Math.random()*.025);
 let sy=(y.score||0)+(y.positionScore||0)*.05+(y.positionEntropy||0)*.035+(y.msiScore||0)*.06+(y.lastDrawBridge?.04:0)+exposureNeedScore(y.n,usage,a)*.015+(Math.random()*.025);
 return sy-sx;
@@ -1279,7 +1307,7 @@ a.rows
 ];
 
 let guard=0,pi=0;
-while(ticket.length<5&&guard<160){
+while(ticket.length<5&&guard<90){
 guard++;
 const pool=fillPools[pi%fillPools.length];
 pi++;
@@ -1440,8 +1468,8 @@ document.getElementById("summaryBox").innerHTML=
 '<div class="stat"><b>'+ENGINE.pretests.length+'</b><br><span class="small">Pretest sets loaded</span></div>'+
 '<div class="stat"><b>'+ENGINE.previousTickets.length+'</b><br><span class="small">Previous tickets loaded</span></div>'+
 '<div class="stat"><b>'+formatNums(a.lastDraw)+'</b><br><span class="small">Last official draw bridge</span></div>'+
+'<div class="stat"><b>Fast Fixed</b><br><span class="small">No-freeze optimization</span></div>'+
 '<div class="stat"><b>Cap 16–18</b><br><span class="small">Adaptive exposure control</span></div>'+
-'<div class="stat"><b>Coverage Pass</b><br><span class="small">Pair/triple optimization</span></div>'+
 '</div>'+
 '<p class="small"><b>Disclaimer:</b> Cash 5 is random. This tool improves ticket construction only. It cannot guarantee wins.</p>';
 
@@ -1465,7 +1493,7 @@ return "<tr><td>"+String(r.n).padStart(2,"0")+"</td>"+
 
 document.getElementById("positionBox").innerHTML=
 '<h2 class="section-title">A–E Position Memory + Entropy Matrix</h2>'+
-'<p class="small">A is the lowest sorted number, C is the middle bridge, and E is the highest sorted number. Entropy rewards numbers that have useful position variety instead of being forced into one column only.</p>'+
+'<p class="small">A is the lowest sorted number, C is the middle bridge, and E is the highest sorted number.</p>'+
 '<div class="scroll"><table><thead><tr>'+
 '<th>#</th><th>A</th><th>B</th><th>C</th><th>D</th><th>E</th><th>Home</th><th>Score</th><th>Entropy</th><th>Story</th>'+
 '</tr></thead><tbody>'+rows+'</tbody></table></div>';
@@ -1556,7 +1584,7 @@ document.getElementById("top40Box").innerHTML=html;
 
 function printTop40(){
 if(!ENGINE.top40.length){setMsg("Generate Top 40 Tickets first.","bad");return}
-let html='<h1>Cash 5 - Top 40 Tickets to Buy</h1><p>Final Upgrade Active: Adaptive Cap, Position Entropy, Ticket Uniqueness, and Coverage Optimization.</p>'+
+let html='<h1>Cash 5 - Top 40 Tickets to Buy</h1><p>Fixed Final Upgrade Active: Adaptive Cap, Position Entropy, Ticket Uniqueness, and Fast Coverage Optimization.</p>'+
 '<table><thead><tr><th>#</th><th>Numbers</th><th>Type</th><th>Profile</th><th>Score</th></tr></thead><tbody>';
 
 ENGINE.top40.forEach((t,i)=>{
@@ -1571,7 +1599,7 @@ setTimeout(()=>window.print(),100);
 function exportExcel(){
 if(!ENGINE.analysis){setMsg("Analyze Matrix first.","bad");return}
 let html='<html><head><meta charset="UTF-8"></head><body>'+
-'<h1>Cash 5 Final Optimization Matrix Results</h1>'+
+'<h1>Cash 5 Fixed Final Optimization Matrix Results</h1>'+
 '<h2>Top 40 Tickets</h2><table border="1"><tr><th>#</th><th>Numbers</th><th>Type</th><th>Profile</th><th>Score</th></tr>';
 
 ENGINE.top40.forEach((t,i)=>{
@@ -1590,7 +1618,7 @@ const blob=new Blob([html],{type:"application/vnd.ms-excel;charset=utf-8"});
 const url=URL.createObjectURL(blob);
 const link=document.createElement("a");
 link.href=url;
-link.download="Cash5_Final_Optimization_Top40_Results.xls";
+link.download="Cash5_Fixed_Final_Optimization_Top40_Results.xls";
 document.body.appendChild(link);
 link.click();
 document.body.removeChild(link);
