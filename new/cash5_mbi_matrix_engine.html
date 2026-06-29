@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Cash 5 Adaptive MBI Matrix Engine - Stable Fixed Version</title>
+<title>Cash 5 Adaptive MBI Matrix Engine - No Freeze Version</title>
 
 <style>
 :root{
@@ -55,7 +55,7 @@ body *{visibility:hidden}
 <body>
 <header>
 <h1>Cash 5 Adaptive MBI Matrix Engine</h1>
-<p>Stable Fixed Version: Matrix Score + Position Memory + Pretest Lean + Simple Fast Top 40.</p>
+<p>No-Freeze Version: Ranked Matrix + Position Memory + Pretest Lean + Fast Top 40.</p>
 </header>
 
 <main>
@@ -95,8 +95,8 @@ Paste official history, pretests, and optional previous tickets, then click Anal
 
 <script>
 const MIN=1,MAX=35;
-const MATRIX71_COUNT=71,TOP40_COUNT=40;
-const PRETEST_NUMBER_LIMIT=300;
+const MATRIX71_COUNT=71;
+const TOP40_COUNT=40;
 const POSITIONS=["A","B","C","D","E"];
 
 const DOWN_HARD=new Set([7,9,10,26,30]);
@@ -104,21 +104,12 @@ const DOWN_MEDIUM=new Set([4,13,20,25,32]);
 const UP_HARD=new Set([12,24,29]);
 const UP_MEDIUM=new Set([22,35,11,23,28,34]);
 
-const DAILY_LOCK={
-rejectMatch5:true,
-rejectMatch4:true,
-match3Penalty:8,
-match4Penalty:40,
-match5Penalty:100
-};
-
-const SETTINGS={
+const ENGINE_SETTINGS={
 maxUseTop40:14,
 maxUse71:26,
-candidateLimit71:120,
-candidateLimit40:90,
-maxBuildAttempts:450,
-entropyWeight:.12
+candidatePoolSize:260,
+rejectInternalOverlap4:true,
+rejectPreviousOverlap4:true
 };
 
 let ENGINE={
@@ -166,22 +157,15 @@ function parseOfficialBox(){
 return parseTicketLines(document.getElementById("dataInput").value);
 }
 
+function parsePretestBox(){
+return parseTicketLines(document.getElementById("pretestInput").value).slice(0,60);
+}
+
 function parsePreviousTicketsBox(){
 return parseTicketLines(document.getElementById("previousTicketsInput").value);
 }
 
-function parsePretestBox(){
-const raw=document.getElementById("pretestInput").value.trim();
-if(!raw)return {draws:[],limited:false};
-const parsed=parseTicketLines(raw);
-const maxSets=Math.floor(PRETEST_NUMBER_LIMIT/5);
-return {
-draws:parsed.slice(0,maxSets),
-limited:parsed.length>maxSets
-};
-}
-
-function positionEntropyScore(counts){
+function positionEntropy(counts){
 const total=counts.reduce((a,b)=>a+b,0);
 if(!total)return 0;
 let h=0;
@@ -195,59 +179,59 @@ return clamp(h/Math.log(5),0,1);
 }
 
 function makePositionMatrix(draws){
-const posCounts=Array.from({length:36},()=>Array(5).fill(0));
-const lastPos=Array.from({length:36},()=>Array(5).fill(-1));
-const posGaps=Array.from({length:36},()=>Array.from({length:5},()=>[]));
+const counts=Array.from({length:36},()=>Array(5).fill(0));
+const last=Array.from({length:36},()=>Array(5).fill(-1));
+const gaps=Array.from({length:36},()=>Array.from({length:5},()=>[]));
 const total=draws.length||1;
+const byNum={};
 
 for(let i=0;i<draws.length;i++){
 const d=draws[i].slice().sort((a,b)=>a-b);
 for(let p=0;p<5;p++){
 const n=d[p];
-posCounts[n][p]++;
-if(lastPos[n][p]>=0)posGaps[n][p].push(i-lastPos[n][p]);
-lastPos[n][p]=i;
+counts[n][p]++;
+if(last[n][p]>=0)gaps[n][p].push(i-last[n][p]);
+last[n][p]=i;
 }
 }
-
-const byNum={};
 
 for(let n=1;n<=35;n++){
 let bestPos=0,bestCount=-1;
 for(let p=0;p<5;p++){
-if(posCounts[n][p]>bestCount){
-bestCount=posCounts[n][p];
+if(counts[n][p]>bestCount){
+bestCount=counts[n][p];
 bestPos=p;
 }
 }
 
-const totalHits=posCounts[n].reduce((a,b)=>a+b,0)||1;
-const posShare=posCounts[n][bestPos]/totalHits;
-const expected=totalHits/5;
-const posStrength=norm(posCounts[n][bestPos],expected,totalHits);
-const posDelay=lastPos[n][bestPos]<0?total:total-1-lastPos[n][bestPos];
-const posAvgGap=posGaps[n][bestPos].length?avg(posGaps[n][bestPos]):total;
-const posTiming=(posDelay+1)/(posAvgGap+1);
-const entropy=positionEntropyScore(posCounts[n]);
+const hits=counts[n].reduce((a,b)=>a+b,0)||1;
+const share=counts[n][bestPos]/hits;
+const expected=hits/5;
+const strength=norm(counts[n][bestPos],expected,hits);
+const delay=last[n][bestPos]<0?total:total-1-last[n][bestPos];
+const gap=gaps[n][bestPos].length?avg(gaps[n][bestPos]):total;
+const timing=(delay+1)/(gap+1);
+const entropy=positionEntropy(counts[n]);
 
 byNum[n]={
 n,
-posCounts:posCounts[n],
+posCounts:counts[n],
 bestPos,
 bestLabel:POSITIONS[bestPos],
-posShare,
-posStrength,
-posDelay,
-posAvgGap,
-posTiming,
+posShare:share,
+posStrength:strength,
+posDelay:delay,
+posGap:gap,
+posTiming:timing,
 positionEntropy:entropy,
-story:POSITIONS[bestPos]+" home | Share "+(posShare*100).toFixed(1)+"% | Entropy "+entropy.toFixed(2)
+story:POSITIONS[bestPos]+" home | Share "+(share*100).toFixed(1)+"% | Entropy "+entropy.toFixed(2)
 };
 }
 
-return {byNum,posCounts,total};
+return {byNum,counts,total};
 }
-  function makeMatrix(draws){
+
+function makeMatrix(draws){
 const freq=Array(36).fill(0);
 const lastSeen=Array(36).fill(-1);
 const gaps=Array.from({length:36},()=>[]);
@@ -282,7 +266,6 @@ tripleCounts[k]=(tripleCounts[k]||0)+1;
 }
 
 const avgFreq=(total*5)/35;
-const rows=[];
 const byNum={};
 
 for(let n=1;n<=35;n++){
@@ -295,35 +278,17 @@ const chaosRatio=norm(gapStd/(averageGap+1),0,1.8);
 const pairStrength=pairStrengthFor(n,pairCounts,total);
 const tripleStrength=tripleStrengthFor(n,tripleCounts,total);
 
-const row={
-n,
-total:freq[n],
-delay,
-averageGap,
-timeRatio,
-hotRatio,
-chaosRatio,
-pairStrength,
-tripleStrength,
-score:0,
-rank:0,
-finalProb:0,
-targetMin:1,
-targetMax:5,
-exposureClass:"Open"
+byNum[n]={
+n,total:freq[n],delay,averageGap,timeRatio,hotRatio,chaosRatio,
+pairStrength,tripleStrength
 };
-
-rows.push(row);
-byNum[n]=row;
 }
 
-return {total,rows,byNum,pairCounts,tripleCounts};
+return {total,byNum,pairCounts,tripleCounts};
 }
 
 function pairStrengthFor(n,pairs,total){
-if(!total)return 0;
 let s=0,c=0;
-
 for(let m=1;m<=35;m++){
 if(m===n)continue;
 const k=pairKey(n,m);
@@ -332,26 +297,21 @@ s+=pairs[k]/total;
 c++;
 }
 }
-
 return c?(s/c)*10:0;
 }
 
 function tripleStrengthFor(n,triples,total){
-if(!total)return 0;
 let s=0,c=0;
-
 for(const k in triples){
-const p=k.split("-").map(Number);
-if(p.includes(n)){
+const nums=k.split("-").map(Number);
+if(nums.includes(n)){
 s+=triples[k]/total;
 c++;
 }
 }
-
 return c?(s/c)*30:0;
 }
-
-function overlapCount(a,b){
+  function overlapCount(a,b){
 let c=0;
 for(const n of a){
 if(b.includes(n))c++;
@@ -359,377 +319,20 @@ if(b.includes(n))c++;
 return c;
 }
 
-function dailyDiversityStatus(ticket){
-const previous=ENGINE.previousTickets||[];
+function previousOverlap(ticket){
 let maxOverlap=0;
-let closest="";
-
-for(const old of previous){
-const c=overlapCount(ticket,old);
-if(c>maxOverlap){
-maxOverlap=c;
-closest=formatNums(old);
+for(const old of ENGINE.previousTickets||[]){
+maxOverlap=Math.max(maxOverlap,overlapCount(ticket,old));
 }
+return maxOverlap;
 }
 
-let status="Clear";
-let penalty=0;
-
-if(maxOverlap>=5){
-status="Rejected: 5-number repeat";
-penalty=DAILY_LOCK.match5Penalty;
-}else if(maxOverlap>=4){
-status="Rejected: 4-number clone";
-penalty=DAILY_LOCK.match4Penalty;
-}else if(maxOverlap===3){
-status="Penalty: 3-number similarity";
-penalty=DAILY_LOCK.match3Penalty;
-}
-
-return {maxOverlap,closest,status,penalty};
-}
-
-function dailyDiversityAllowed(ticket){
-const d=dailyDiversityStatus(ticket);
-if(d.maxOverlap>=5&&DAILY_LOCK.rejectMatch5)return false;
-if(d.maxOverlap>=4&&DAILY_LOCK.rejectMatch4)return false;
-return true;
-}
-
-function internalUniquenessAllowed(ticket,list){
+function hasInternalClone(ticket,list){
 for(const item of list||[]){
 const old=item.nums||item;
-if(overlapCount(ticket,old)>=4)return false;
+if(overlapCount(ticket,old)>=4)return true;
 }
-return true;
-}
-
-function exposureAllowed(ticket,usage,maxUse){
-for(const n of ticket){
-if((usage[n]||0)>=maxUse)return false;
-}
-return true;
-}
-
-function assignExposureTargets(rows){
-const sorted=rows.slice().sort((a,b)=>b.score-a.score);
-
-sorted.forEach((r,i)=>{
-let min=1,max=5,cls="Open";
-
-if(i<5){
-min=4;
-max=8;
-cls="Strong Anchor";
-}else if(i<12){
-min=3;
-max=7;
-cls="Secondary";
-}else if(i<20){
-min=2;
-max=6;
-cls="Recovery";
-}
-
-if(UP_HARD.has(r.n)){
-min=Math.max(min,4);
-max=Math.max(max,8);
-cls="Up Hard";
-}
-
-if(UP_MEDIUM.has(r.n)){
-min=Math.max(min,3);
-max=Math.max(max,7);
-cls="Up Medium";
-}
-
-if(DOWN_HARD.has(r.n)){
-min=1;
-max=4;
-cls="Down Hard Control";
-}
-
-if(DOWN_MEDIUM.has(r.n)){
-min=Math.min(min,2);
-max=Math.min(max,5);
-cls="Down Medium Control";
-}
-
-r.targetMin=min;
-r.targetMax=max;
-r.exposureClass=cls;
-});
-
-return sorted;
-}
-
-function analyzeMatrix(){
-const draws=parseOfficialBox();
-const preParsed=parsePretestBox();
-const pretests=preParsed.draws;
-const previousTickets=parsePreviousTicketsBox();
-
-if(draws.length<20){
-setMsg("Need at least 20 official Cash 5 drawings from 9-20-2018 to current.","bad");
-return;
-}
-
-setMsg("Analyzing stable fixed matrix...","warning");
-
-const official=makeMatrix(draws);
-const positionMatrix=makePositionMatrix(draws);
-const preMatrix=makeMatrix(pretests.length?pretests:[]);
-const prePositionMatrix=makePositionMatrix(pretests.length?pretests:[]);
-
-const total=draws.length;
-const recentWindow=Math.min(60,total);
-const last10=draws.slice(-10);
-const lastDraw=draws[total-1];
-
-const recent=Array(36).fill(0);
-const last10Freq=Array(36).fill(0);
-const lastDrawFlag=Array(36).fill(0);
-const preUse=Array(36).fill(0);
-
-for(let i=total-recentWindow;i<total;i++){
-for(const n of draws[i])recent[n]++;
-}
-
-for(const n of lastDraw){
-lastDrawFlag[n]=1;
-}
-
-for(const d of last10){
-for(const n of d){
-last10Freq[n]++;
-}
-}
-
-for(const d of pretests){
-for(const n of d){
-preUse[n]++;
-}
-}
-
-const preAvg=(Math.max(pretests.length,1)*5)/35;
-const rows=[];
-const byNum={};
-
-for(let n=1;n<=35;n++){
-const base=official.byNum[n];
-const pos=positionMatrix.byNum[n];
-const prePos=prePositionMatrix.byNum[n]||{posStrength:0,positionEntropy:0};
-
-const hotRatio=base.hotRatio;
-const recentRatio=(recent[n]/recentWindow)/(5/35);
-const timeRatio=base.timeRatio;
-const pairStrength=base.pairStrength;
-const tripleStrength=base.tripleStrength;
-const last10Ratio=last10Freq[n]/10;
-const preRatio=pretests.length?(preUse[n]/preAvg):0;
-const lastDrawBridge=lastDrawFlag[n];
-
-const positionScore=
-.42*pos.posStrength+
-.18*norm(pos.posTiming,0,3.5)+
-.16*pos.posShare+
-.12*norm(prePos.posStrength||0,0,1)+
-SETTINGS.entropyWeight*pos.positionEntropy;
-
-let adjust=0;
-if(UP_HARD.has(n))adjust+=.060;
-if(UP_MEDIUM.has(n))adjust+=.035;
-if(DOWN_HARD.has(n))adjust-=.060;
-if(DOWN_MEDIUM.has(n))adjust-=.030;
-
-const msiScore=pretests.length?(
-.54*norm(preRatio,0,2.5)+
-.18*norm(preMatrix.byNum[n]?.timeRatio||0,0,3.5)+
-.16*norm(preMatrix.byNum[n]?.pairStrength||0,0,.75)+
-.12*norm(prePos.positionEntropy||0,0,1)
-):0;
-
-const historyScore=
-.27*norm(hotRatio,0,2.5)+
-.18*norm(recentRatio,0,2.5)+
-.15*norm(pairStrength,0,.75)+
-.08*norm(tripleStrength,0,.55)+
-.12*norm(timeRatio,0,3.5)+
-.20*positionScore;
-
-const finalScore=
-.42*historyScore+
-.24*msiScore+
-.14*positionScore+
-.08*norm(last10Ratio,0,.40)+
-.05*(lastDrawBridge?1:0)+
-.04*(n<=15?1:0)+
-adjust;
-
-const mbi=
-.18*(hotRatio-1)+
-.14*(recentRatio-1)+
-.13*(timeRatio-1)+
-.10*(pairStrength-.18)+
-.07*(tripleStrength-.10)+
-.14*(preRatio-1)+
-.12*(positionScore-.50)+
-adjust;
-
-const mbiLabel=mbi>.16?"Positive MBI":mbi<-.10?"Negative MBI":"Near-Zero MBI";
-
-const row={
-n,
-total:base.total,
-recent:recent[n],
-delay:base.delay,
-averageGap:base.averageGap,
-timeRatio,
-hotRatio,
-recentRatio,
-pairStrength,
-tripleStrength,
-last10Freq:last10Freq[n],
-last10Ratio,
-preUse:preUse[n],
-preRatio,
-msiScore,
-lastDrawBridge,
-positionScore,
-positionEntropy:pos.positionEntropy,
-bestPosition:pos.bestLabel,
-positionStory:pos.story,
-score:Math.max(.0001,finalScore),
-finalProb:0,
-rank:0,
-mbi,
-mbiLabel,
-targetMin:1,
-targetMax:5,
-exposureClass:"Open"
-};
-
-rows.push(row);
-byNum[n]=row;
-}
-
-rows.sort((a,b)=>b.score-a.score);
-const sum=rows.reduce((s,r)=>s+r.score,0)||1;
-
-rows.forEach((r,i)=>{
-r.rank=i+1;
-r.finalProb=r.score/sum;
-});
-
-assignExposureTargets(rows);
-
-ENGINE={
-draws,
-pretests,
-previousTickets,
-analysis:{
-total,
-last10,
-lastDraw,
-official,
-positionMatrix,
-preMatrix,
-prePositionMatrix,
-rows,
-byNum,
-pairCounts:official.pairCounts,
-tripleCounts:official.tripleCounts,
-hotTop:rows.slice(0,12),
-bridgePool:rows.slice(0,20),
-recovery:[...rows].sort((a,b)=>b.timeRatio-a.timeRatio||b.score-a.score).slice(0,18),
-positionPool:[...rows].sort((a,b)=>b.positionScore-a.positionScore||b.score-a.score).slice(0,18),
-entropyPool:[...rows].sort((a,b)=>b.positionEntropy-a.positionEntropy||b.score-a.score).slice(0,18),
-lastDrawPool:rows.filter(x=>x.lastDrawBridge).sort((a,b)=>b.score-a.score),
-lowPool:rows.filter(x=>x.n<=15).sort((a,b)=>b.score-a.score),
-pretestPool:rows.filter(x=>x.preUse>0).sort((a,b)=>b.msiScore-a.msiScore||b.preRatio-a.preRatio||b.score-a.score),
-last10Pool:rows.filter(x=>x.last10Freq>0).sort((a,b)=>b.last10Freq-a.last10Freq||b.score-a.score),
-positive:rows.filter(x=>x.mbiLabel==="Positive MBI"),
-zero:rows.filter(x=>x.mbiLabel==="Near-Zero MBI"),
-negative:rows.filter(x=>x.mbiLabel==="Negative MBI")
-},
-tickets71:[],
-top40:[]
-};
-
-renderAnalysis();
-renderPositionMatrix();
-renderDiversityReport();
-renderExposureBalanceReport();
-
-let limitMsg=preParsed.limited?" Pretest input was limited to the first 300 valid numbers.":"";
-setMsg("Matrix analyzed. Stable fixed version is active."+limitMsg,"good");
-}
-  function ticketScore(ticket,a,usage){
-let s=0;
-let pre=0,last10=0,lastDraw=0,posHits=0,entropyHits=0,posMbi=0;
-
-for(let i=0;i<ticket.length;i++){
-const n=ticket[i];
-const r=a.byNum[n];
-if(!r)continue;
-
-s+=r.finalProb*100;
-
-if(r.preUse>0){s+=4;pre++}
-if(r.last10Freq>0){s+=2;last10++}
-if(r.lastDrawBridge){s+=4;lastDraw++}
-if(r.bestPosition===POSITIONS[i]){s+=4;posHits++}
-if(r.positionEntropy>.65){s+=2;entropyHits++}
-if(r.mbiLabel==="Positive MBI"){s+=3;posMbi++}
-if(n<=15)s+=1;
-
-if(UP_HARD.has(n))s+=2;
-if(UP_MEDIUM.has(n))s+=1;
-if(DOWN_HARD.has(n))s-=2;
-if(DOWN_MEDIUM.has(n))s-=1;
-
-const used=usage?usage[n]||0:0;
-if(used>=14)s-=20;
-else if(used>=11)s-=8;
-else if(used>=8)s-=4;
-}
-
-if(pre>=2)s+=4;
-if(lastDraw>=1)s+=3;
-if(posHits>=3)s+=5;
-if(entropyHits>=2)s+=3;
-if(posMbi>=2)s+=3;
-if(last10>=3)s+=2;
-
-const low=ticket.filter(n=>n<=15).length;
-const mid=ticket.filter(n=>n>=16&&n<=25).length;
-const high=ticket.filter(n=>n>=26).length;
-if(low>=1&&mid>=1&&high>=1)s+=4;
-if(low>=2)s+=2;
-
-const odd=ticket.filter(n=>n%2).length;
-if(odd===2||odd===3)s+=3;
-
-for(let i=0;i<5;i++){
-for(let j=i+1;j<5;j++){
-const k=pairKey(ticket[i],ticket[j]);
-if(a.pairCounts[k])s+=Math.min(a.pairCounts[k],12)*.20;
-}
-}
-
-for(let i=0;i<5;i++){
-for(let j=i+1;j<5;j++){
-for(let k=j+1;k<5;k++){
-const tk=triKey(ticket[i],ticket[j],ticket[k]);
-if(a.tripleCounts[tk])s+=Math.min(a.tripleCounts[tk],8)*.25;
-}
-}
-}
-
-const d=dailyDiversityStatus(ticket);
-s-=d.penalty;
-
-return s;
+return false;
 }
 
 function passesBalance(t){
@@ -740,6 +343,7 @@ if(sum<35||sum>155)return false;
 
 const low=t.filter(n=>n<=17).length;
 const odd=t.filter(n=>n%2).length;
+
 if(low===0||low===5)return false;
 if(odd===0||odd===5)return false;
 
@@ -764,227 +368,300 @@ if(t.filter(n=>DOWN_HARD.has(n)).length>=3)return false;
 return true;
 }
 
-function weightedPick(pool,ticket,usage,maxUse){
-if(!pool||!pool.length)return null;
+function analyzeMatrix(){
+const draws=parseOfficialBox();
+const pretests=parsePretestBox();
+const previousTickets=parsePreviousTicketsBox();
 
-let best=null;
-let bestValue=-999999;
-
-for(const r of pool.slice(0,22)){
-if(!r||!r.n)continue;
-if(ticket.includes(r.n))continue;
-
-const used=usage[r.n]||0;
-if(used>=maxUse)continue;
-
-let value=
-(r.score||0)*100+
-(r.positionScore||0)*8+
-(r.positionEntropy||0)*4+
-(r.msiScore||0)*8+
-(r.lastDrawBridge?5:0)+
-(r.preUse>0?4:0)+
-Math.random();
-
-if(used>=12)value-=18;
-else if(used>=9)value-=10;
-else if(used>=6)value-=5;
-
-if(value>bestValue){
-bestValue=value;
-best=r.n;
-}
-}
-
-return best;
-}
-
-function buildOneTicket(a,usage,maxUse,seed){
-const pools=[
-a.pretestPool.length?a.pretestPool:a.bridgePool,
-a.lastDrawPool.length?a.lastDrawPool:a.bridgePool,
-a.positionPool,
-a.entropyPool,
-a.recovery,
-a.lowPool,
-a.positive.length?a.positive:a.bridgePool,
-a.zero.length?a.zero:a.bridgePool,
-a.bridgePool,
-a.hotTop
-];
-
-let t=[];
-let start=seed%pools.length;
-
-for(let i=0;i<pools.length&&t.length<5;i++){
-const pool=pools[(start+i)%pools.length];
-const n=weightedPick(pool,t,usage,maxUse);
-if(n&&!t.includes(n))t.push(n);
-}
-
-let guard=0;
-while(t.length<5&&guard<20){
-guard++;
-const n=weightedPick(a.rows,t,usage,maxUse);
-if(n&&!t.includes(n))t.push(n);
-else break;
-}
-
-t=[...new Set(t)].sort((a,b)=>a-b);
-if(t.length!==5)return null;
-if(!passesBalance(t))return null;
-if(!dailyDiversityAllowed(t))return null;
-return t;
-}
-
-function makeTicketCandidates(a,needed,maxUse){
-const candidates=[];
-const usage=Array(36).fill(0);
-const seen=new Set();
-const maxAttempts=SETTINGS.maxBuildAttempts;
-
-let attempt=0;
-while(candidates.length<needed&&attempt<maxAttempts){
-attempt++;
-
-const t=buildOneTicket(a,usage,maxUse,attempt);
-if(!t)continue;
-
-const key=ticketKey(t);
-if(seen.has(key))continue;
-if(!internalUniquenessAllowed(t,candidates))continue;
-
-const score=ticketScore(t,a,usage);
-
-candidates.push({
-nums:t,
-score,
-type:"Stable Matrix Candidate",
-profile:ticketProfile(t,a)
-});
-
-seen.add(key);
-for(const n of t)usage[n]++;
-}
-
-return candidates.sort((a,b)=>b.score-a.score);
-}
-
-function selectTickets(candidates,a,count,maxUse){
-const selected=[];
-const usage=Array(36).fill(0);
-const seen=new Set();
-
-for(const c of candidates.sort((a,b)=>b.score-a.score)){
-if(selected.length>=count)break;
-
-const key=ticketKey(c.nums);
-if(seen.has(key))continue;
-if(!dailyDiversityAllowed(c.nums))continue;
-if(!internalUniquenessAllowed(c.nums,selected))continue;
-if(!exposureAllowed(c.nums,usage,maxUse))continue;
-
-const score=ticketScore(c.nums,a,usage);
-
-selected.push({
-...c,
-score,
-profile:c.profile+" | Final Score "+score.toFixed(2)
-});
-
-seen.add(key);
-for(const n of c.nums)usage[n]++;
-}
-
-let guard=0;
-while(selected.length<count&&guard<250){
-guard++;
-
-const t=buildOneTicket(a,usage,maxUse,guard+1000);
-if(!t)continue;
-
-const key=ticketKey(t);
-if(seen.has(key))continue;
-if(!internalUniquenessAllowed(t,selected))continue;
-if(!exposureAllowed(t,usage,maxUse))continue;
-
-const score=ticketScore(t,a,usage);
-
-selected.push({
-nums:t,
-score,
-type:"Stable Backup Fill",
-profile:ticketProfile(t,a)+" | Backup Fill"
-});
-
-seen.add(key);
-for(const n of t)usage[n]++;
-}
-
-return selected.slice(0,count).sort((a,b)=>b.score-a.score);
-}
-
-function generate71Tickets(){
-if(!ENGINE.analysis){
-setMsg("Click Analyze Matrix first.","bad");
+if(draws.length<20){
+setMsg("Need at least 20 official Cash 5 drawings from 9-20-2018 to current.","bad");
 return;
 }
 
-setMsg("Generating 71 tickets using stable fixed generator...","warning");
+setMsg("Analyzing no-freeze matrix...","warning");
 
-const a=ENGINE.analysis;
-const candidates=makeTicketCandidates(a,SETTINGS.candidateLimit71,SETTINGS.maxUse71);
-ENGINE.tickets71=selectTickets(candidates,a,MATRIX71_COUNT,SETTINGS.maxUse71);
+const official=makeMatrix(draws);
+const position=makePositionMatrix(draws);
+const preMatrix=makeMatrix(pretests.length?pretests:[]);
+const prePosition=makePositionMatrix(pretests.length?pretests:[]);
 
-render71Tickets();
+const total=draws.length;
+const recentWindow=Math.min(60,total);
+const recent=Array(36).fill(0);
+const last10Freq=Array(36).fill(0);
+const preUse=Array(36).fill(0);
+const lastDraw=draws[draws.length-1];
+const lastDrawFlag=Array(36).fill(0);
+
+for(let i=total-recentWindow;i<total;i++){
+for(const n of draws[i])recent[n]++;
+}
+
+for(const n of lastDraw)lastDrawFlag[n]=1;
+
+for(const d of draws.slice(-10)){
+for(const n of d)last10Freq[n]++;
+}
+
+for(const d of pretests){
+for(const n of d)preUse[n]++;
+}
+
+const preAvg=(Math.max(pretests.length,1)*5)/35;
+const rows=[];
+const byNum={};
+
+for(let n=1;n<=35;n++){
+const base=official.byNum[n];
+const pos=position.byNum[n];
+const prePos=prePosition.byNum[n]||{posStrength:0,positionEntropy:0};
+
+const hotRatio=base.hotRatio;
+const recentRatio=(recent[n]/recentWindow)/(5/35);
+const timeRatio=base.timeRatio;
+const pairStrength=base.pairStrength;
+const tripleStrength=base.tripleStrength;
+const last10Ratio=last10Freq[n]/10;
+const preRatio=pretests.length?(preUse[n]/preAvg):0;
+
+const positionScore=
+.42*pos.posStrength+
+.18*norm(pos.posTiming,0,3.5)+
+.16*pos.posShare+
+.12*norm(prePos.posStrength||0,0,1)+
+.12*pos.positionEntropy;
+
+const msiScore=pretests.length?(
+.54*norm(preRatio,0,2.5)+
+.18*norm(preMatrix.byNum[n]?.timeRatio||0,0,3.5)+
+.16*norm(preMatrix.byNum[n]?.pairStrength||0,0,.75)+
+.12*norm(prePos.positionEntropy||0,0,1)
+):0;
+
+let adjust=0;
+if(UP_HARD.has(n))adjust+=.060;
+if(UP_MEDIUM.has(n))adjust+=.035;
+if(DOWN_HARD.has(n))adjust-=.060;
+if(DOWN_MEDIUM.has(n))adjust-=.030;
+
+const historyScore=
+.27*norm(hotRatio,0,2.5)+
+.18*norm(recentRatio,0,2.5)+
+.15*norm(pairStrength,0,.75)+
+.08*norm(tripleStrength,0,.55)+
+.12*norm(timeRatio,0,3.5)+
+.20*positionScore;
+
+const finalScore=
+.42*historyScore+
+.24*msiScore+
+.14*positionScore+
+.08*norm(last10Ratio,0,.40)+
+.05*(lastDrawFlag[n]?1:0)+
+.04*(n<=15?1:0)+
+adjust;
+
+const mbi=
+.18*(hotRatio-1)+
+.14*(recentRatio-1)+
+.13*(timeRatio-1)+
+.10*(pairStrength-.18)+
+.07*(tripleStrength-.10)+
+.14*(preRatio-1)+
+.12*(positionScore-.50)+
+adjust;
+
+const mbiLabel=mbi>.16?"Positive MBI":mbi<-.10?"Negative MBI":"Near-Zero MBI";
+
+const row={
+n,
+rank:0,
+total:base.total,
+recent:recent[n],
+delay:base.delay,
+averageGap:base.averageGap,
+timeRatio,
+hotRatio,
+recentRatio,
+pairStrength,
+tripleStrength,
+last10Freq:last10Freq[n],
+preUse:preUse[n],
+preRatio,
+msiScore,
+lastDrawBridge:lastDrawFlag[n],
+positionScore,
+positionEntropy:pos.positionEntropy,
+bestPosition:pos.bestLabel,
+positionStory:pos.story,
+score:Math.max(.0001,finalScore),
+finalProb:0,
+mbi,
+mbiLabel,
+exposureClass:"Open",
+targetMin:1,
+targetMax:5
+};
+
+rows.push(row);
+byNum[n]=row;
+}
+
+rows.sort((a,b)=>b.score-a.score);
+const sum=rows.reduce((s,r)=>s+r.score,0)||1;
+
+rows.forEach((r,i)=>{
+r.rank=i+1;
+r.finalProb=r.score/sum;
+
+if(i<5){
+r.exposureClass="Strong Anchor";
+r.targetMin=4;
+r.targetMax=8;
+}else if(i<12){
+r.exposureClass="Secondary";
+r.targetMin=3;
+r.targetMax=7;
+}else if(i<20){
+r.exposureClass="Recovery";
+r.targetMin=2;
+r.targetMax=6;
+}
+
+if(UP_HARD.has(r.n)){
+r.exposureClass="Up Hard";
+r.targetMin=Math.max(r.targetMin,4);
+r.targetMax=Math.max(r.targetMax,8);
+}
+
+if(UP_MEDIUM.has(r.n)){
+r.exposureClass="Up Medium";
+r.targetMin=Math.max(r.targetMin,3);
+r.targetMax=Math.max(r.targetMax,7);
+}
+
+if(DOWN_HARD.has(r.n)){
+r.exposureClass="Down Hard Control";
+r.targetMin=1;
+r.targetMax=4;
+}
+
+if(DOWN_MEDIUM.has(r.n)){
+r.exposureClass="Down Medium Control";
+r.targetMin=Math.min(r.targetMin,2);
+r.targetMax=Math.min(r.targetMax,5);
+}
+});
+
+ENGINE={
+draws,
+pretests,
+previousTickets,
+analysis:{
+total,
+lastDraw,
+rows,
+byNum,
+pairCounts:official.pairCounts,
+tripleCounts:official.tripleCounts,
+positionMatrix:position,
+hotTop:rows.slice(0,12),
+bridgePool:rows.slice(0,20),
+recovery:[...rows].sort((a,b)=>b.timeRatio-a.timeRatio||b.score-a.score).slice(0,18),
+positionPool:[...rows].sort((a,b)=>b.positionScore-a.positionScore||b.score-a.score).slice(0,18),
+entropyPool:[...rows].sort((a,b)=>b.positionEntropy-a.positionEntropy||b.score-a.score).slice(0,18),
+lastDrawPool:rows.filter(x=>x.lastDrawBridge).sort((a,b)=>b.score-a.score),
+lowPool:rows.filter(x=>x.n<=15).sort((a,b)=>b.score-a.score),
+pretestPool:rows.filter(x=>x.preUse>0).sort((a,b)=>b.msiScore-a.msiScore||b.score-a.score),
+last10Pool:rows.filter(x=>x.last10Freq>0).sort((a,b)=>b.last10Freq-a.last10Freq||b.score-a.score),
+positive:rows.filter(x=>x.mbiLabel==="Positive MBI"),
+zero:rows.filter(x=>x.mbiLabel==="Near-Zero MBI"),
+negative:rows.filter(x=>x.mbiLabel==="Negative MBI")
+},
+tickets71:[],
+top40:[]
+};
+
+renderAnalysis();
+renderPositionMatrix();
 renderDiversityReport();
-
-if(ENGINE.tickets71.length===MATRIX71_COUNT){
-setMsg("Generated 71 tickets successfully.","good");
-}else{
-setMsg("Generated "+ENGINE.tickets71.length+" tickets. Restrictions may be tight.","warning");
-}
-}
-
-function generateTop40Tickets(){
-if(!ENGINE.analysis){
-setMsg("Click Analyze Matrix first.","bad");
-return;
-}
-
-if(!ENGINE.tickets71.length){
-generate71Tickets();
-}
-
-setMsg("Generating Top 40 using stable fixed generator...","warning");
-
-const a=ENGINE.analysis;
-
-const fresh=makeTicketCandidates(a,SETTINGS.candidateLimit40,SETTINGS.maxUseTop40);
-const from71=(ENGINE.tickets71||[]).map(t=>({
-...t,
-type:"Top 40 From 71 Matrix",
-score:t.score+1
-}));
-
-const all=from71.concat(fresh).sort((a,b)=>b.score-a.score);
-ENGINE.top40=selectTickets(all,a,TOP40_COUNT,SETTINGS.maxUseTop40);
-
-renderTop40Tickets();
 renderExposureBalanceReport();
-renderDiversityReport();
 
-if(ENGINE.top40.length===TOP40_COUNT){
-setMsg("Top 40 generated successfully. Exact count: <b>40</b>.","good");
-}else{
-setMsg("Only generated "+ENGINE.top40.length+" tickets. Restrictions may be too tight.","warning");
+setMsg("Matrix analyzed. No-freeze ranked generator is ready.","good");
 }
+
+function scoreTicket(ticket,a,usage){
+let s=0;
+let pre=0,last10=0,lastDraw=0,posHits=0,entropyHits=0,posMbi=0;
+
+for(let i=0;i<ticket.length;i++){
+const n=ticket[i];
+const r=a.byNum[n];
+if(!r)continue;
+
+s+=r.finalProb*100;
+
+if(r.preUse>0){s+=4;pre++}
+if(r.last10Freq>0){s+=2;last10++}
+if(r.lastDrawBridge){s+=4;lastDraw++}
+if(r.bestPosition===POSITIONS[i]){s+=4;posHits++}
+if(r.positionEntropy>.65){s+=2;entropyHits++}
+if(r.mbiLabel==="Positive MBI"){s+=3;posMbi++}
+if(n<=15)s+=1;
+
+if(UP_HARD.has(n))s+=2;
+if(UP_MEDIUM.has(n))s+=1;
+if(DOWN_HARD.has(n))s-=2;
+if(DOWN_MEDIUM.has(n))s-=1;
+
+const used=usage[n]||0;
+if(used>=12)s-=15;
+else if(used>=9)s-=8;
+else if(used>=6)s-=4;
+}
+
+if(pre>=2)s+=4;
+if(lastDraw>=1)s+=3;
+if(posHits>=3)s+=5;
+if(entropyHits>=2)s+=3;
+if(posMbi>=2)s+=3;
+if(last10>=3)s+=2;
+
+const low=ticket.filter(n=>n<=15).length;
+const mid=ticket.filter(n=>n>=16&&n<=25).length;
+const high=ticket.filter(n=>n>=26).length;
+
+if(low>=1&&mid>=1&&high>=1)s+=4;
+if(low>=2)s+=2;
+
+const odd=ticket.filter(n=>n%2).length;
+if(odd===2||odd===3)s+=3;
+
+for(let i=0;i<5;i++){
+for(let j=i+1;j<5;j++){
+const k=pairKey(ticket[i],ticket[j]);
+if(a.pairCounts[k])s+=Math.min(a.pairCounts[k],12)*.20;
+}
+}
+
+for(let i=0;i<5;i++){
+for(let j=i+1;j<5;j++){
+for(let k=j+1;k<5;k++){
+const tk=triKey(ticket[i],ticket[j],ticket[k]);
+if(a.tripleCounts[tk])s+=Math.min(a.tripleCounts[tk],8)*.25;
+}
+}
+}
+
+const prev=previousOverlap(ticket);
+if(prev>=4)s-=80;
+else if(prev===3)s-=8;
+
+return s;
 }
 
 function ticketProfile(t,a){
-let pos=0,zero=0,neg=0,pre=0,last10=0,lastDraw=0,posHits=0,entropyHits=0;
-let low=t.filter(n=>n<=15).length;
-let pairs=0,triples=0;
+let pos=0,zero=0,neg=0,pre=0,last10=0,lastDraw=0,posHits=0,entropyHits=0,pairs=0,triples=0;
 
 for(let i=0;i<t.length;i++){
 const n=t[i];
@@ -1016,20 +693,171 @@ if(a.tripleCounts[triKey(t[i],t[j],t[k])])triples++;
 }
 }
 
-const d=dailyDiversityStatus(t);
-
 return "Pretest: "+pre+
 " | LastDraw: "+lastDraw+
 " | Position Hits: "+posHits+"/5"+
 " | Entropy Hits: "+entropyHits+
 " | Last10: "+last10+
-" | Low 1-15: "+low+
 " | Pairs: "+pairs+
 " | Triples: "+triples+
 " | MBI +"+pos+" / 0 "+zero+" / -"+neg+
-" | Previous Overlap: "+d.maxOverlap;
+" | Prev Overlap: "+previousOverlap(t);
 }
-  function renderAnalysis(){
+
+function buildCandidatePool(a){
+const pools=[
+a.pretestPool.length?a.pretestPool:a.bridgePool,
+a.lastDrawPool.length?a.lastDrawPool:a.bridgePool,
+a.positionPool,
+a.entropyPool,
+a.recovery,
+a.lowPool,
+a.positive.length?a.positive:a.bridgePool,
+a.zero.length?a.zero:a.bridgePool,
+a.bridgePool,
+a.hotTop,
+a.last10Pool.length?a.last10Pool:a.bridgePool
+];
+
+const candidates=[];
+const seen=new Set();
+
+for(let start=0;start<pools.length;start++){
+for(let offset=0;offset<24;offset++){
+let nums=[];
+
+for(let p=0;p<pools.length&&nums.length<5;p++){
+const pool=pools[(start+p)%pools.length];
+if(!pool||!pool.length)continue;
+
+const row=pool[(offset+p)%pool.length];
+if(row&&!nums.includes(row.n))nums.push(row.n);
+}
+
+if(nums.length<5){
+for(const row of a.rows){
+if(nums.length>=5)break;
+if(!nums.includes(row.n))nums.push(row.n);
+}
+}
+
+nums=[...new Set(nums)].sort((a,b)=>a-b);
+if(nums.length!==5)continue;
+if(!passesBalance(nums))continue;
+
+const key=ticketKey(nums);
+if(seen.has(key))continue;
+
+seen.add(key);
+candidates.push({nums,score:0,type:"Ranked Matrix Candidate",profile:""});
+}
+}
+
+for(let i=0;i<a.rows.length-4;i++){
+const nums=[
+a.rows[i].n,
+a.rows[(i+3)%35].n,
+a.rows[(i+7)%35].n,
+a.rows[(i+13)%35].n,
+a.rows[(i+19)%35].n
+].sort((a,b)=>a-b);
+
+if(nums.length!==5)continue;
+if(!passesBalance(nums))continue;
+
+const key=ticketKey(nums);
+if(seen.has(key))continue;
+
+seen.add(key);
+candidates.push({nums,score:0,type:"Rank Spread Candidate",profile:""});
+}
+
+return candidates.slice(0,ENGINE_SETTINGS.candidatePoolSize);
+}
+
+function selectTickets(candidates,a,count,maxUse){
+const selected=[];
+const usage=Array(36).fill(0);
+
+for(const c of candidates){
+c.score=scoreTicket(c.nums,a,usage);
+c.profile=ticketProfile(c.nums,a);
+}
+
+candidates.sort((x,y)=>y.score-x.score);
+
+for(const c of candidates){
+if(selected.length>=count)break;
+
+if(ENGINE_SETTINGS.rejectPreviousOverlap4&&previousOverlap(c.nums)>=4)continue;
+if(ENGINE_SETTINGS.rejectInternalOverlap4&&hasInternalClone(c.nums,selected))continue;
+
+let over=false;
+for(const n of c.nums){
+if(usage[n]>=maxUse){
+over=true;
+break;
+}
+}
+if(over)continue;
+
+selected.push({...c});
+for(const n of c.nums)usage[n]++;
+}
+
+return selected;
+}
+  function generate71Tickets(){
+if(!ENGINE.analysis){
+setMsg("Click Analyze Matrix first.","bad");
+return;
+}
+
+setMsg("Generating 71 tickets with no-freeze ranked generator...","warning");
+
+const a=ENGINE.analysis;
+const pool=buildCandidatePool(a);
+ENGINE.tickets71=selectTickets(pool,a,MATRIX71_COUNT,ENGINE_SETTINGS.maxUse71);
+
+render71Tickets();
+renderDiversityReport();
+
+if(ENGINE.tickets71.length===MATRIX71_COUNT){
+setMsg("Generated 71 tickets successfully.","good");
+}else{
+setMsg("Generated "+ENGINE.tickets71.length+" tickets. If you need exactly 71, reduce previous-ticket restrictions.","warning");
+}
+}
+
+function generateTop40Tickets(){
+if(!ENGINE.analysis){
+setMsg("Click Analyze Matrix first.","bad");
+return;
+}
+
+setMsg("Generating Top 40 tickets with no-freeze ranked generator...","warning");
+
+const a=ENGINE.analysis;
+let pool=buildCandidatePool(a);
+
+if(ENGINE.tickets71.length){
+pool=ENGINE.tickets71.concat(pool);
+}
+
+ENGINE.top40=selectTickets(pool,a,TOP40_COUNT,ENGINE_SETTINGS.maxUseTop40);
+
+renderTop40Tickets();
+renderExposureBalanceReport();
+renderDiversityReport();
+
+if(ENGINE.top40.length===TOP40_COUNT){
+setMsg("Top 40 generated successfully. Exact count: <b>40</b>.","good");
+}else{
+setMsg("Generated only "+ENGINE.top40.length+" tickets. The lock settings may be too strict.","warning");
+}
+}
+
+function renderAnalysis(){
 const a=ENGINE.analysis;
 
 const topRows=a.rows.slice(0,35).map(r=>
@@ -1062,8 +890,8 @@ document.getElementById("summaryBox").innerHTML=
 '<div class="stat"><b>'+ENGINE.pretests.length+'</b><br><span class="small">Pretest sets loaded</span></div>'+
 '<div class="stat"><b>'+ENGINE.previousTickets.length+'</b><br><span class="small">Previous tickets loaded</span></div>'+
 '<div class="stat"><b>'+formatNums(a.lastDraw)+'</b><br><span class="small">Last official draw bridge</span></div>'+
-'<div class="stat"><b>Stable Fixed</b><br><span class="small">Reduced generator complexity</span></div>'+
-'<div class="stat"><b>Top 40</b><br><span class="small">Fast portfolio construction</span></div>'+
+'<div class="stat"><b>No-Freeze</b><br><span class="small">No heavy retry loops</span></div>'+
+'<div class="stat"><b>Ranked Pool</b><br><span class="small">Fast ticket generation</span></div>'+
 '</div>'+
 '<p class="small"><b>Disclaimer:</b> Cash 5 is random. This tool improves ticket construction only. It cannot guarantee wins.</p>';
 
@@ -1078,8 +906,10 @@ document.getElementById("matrixBox").innerHTML=
 
 function renderPositionMatrix(){
 const a=ENGINE.analysis;
+
 const rows=a.rows.map(r=>{
 const p=a.positionMatrix.byNum[r.n];
+
 return "<tr><td>"+String(r.n).padStart(2,"0")+"</td>"+
 "<td>"+p.posCounts[0]+"</td>"+
 "<td>"+p.posCounts[1]+"</td>"+
@@ -1110,17 +940,21 @@ tested=ENGINE.top40.map(t=>t.nums);
 tested=ENGINE.tickets71.map(t=>t.nums);
 }
 
-let maxOverlap=0,match3=0,match4=0,match5=0,internal4=0;
+let maxOverlap=0;
+let match3=0;
+let match4=0;
+let match5=0;
+let internal4=0;
 
 for(let i=0;i<tested.length;i++){
 const t=tested[i];
-const d=dailyDiversityStatus(t);
+const p=previousOverlap(t);
 
-maxOverlap=Math.max(maxOverlap,d.maxOverlap);
+maxOverlap=Math.max(maxOverlap,p);
 
-if(d.maxOverlap===3)match3++;
-if(d.maxOverlap===4)match4++;
-if(d.maxOverlap>=5)match5++;
+if(p===3)match3++;
+if(p===4)match4++;
+if(p>=5)match5++;
 
 for(let j=0;j<i;j++){
 if(overlapCount(t,tested[j])>=4)internal4++;
@@ -1133,7 +967,7 @@ document.getElementById("diversityBox").innerHTML=
 '<div class="stat"><b>'+prev.length+'</b><br><span class="small">Previous tickets loaded</span></div>'+
 '<div class="stat"><b>'+tested.length+'</b><br><span class="small">Active output tickets</span></div>'+
 '<div class="stat"><b>'+maxOverlap+'</b><br><span class="small">Highest previous overlap</span></div>'+
-'<div class="stat"><b>'+match3+'</b><br><span class="small">3-number previous penalties</span></div>'+
+'<div class="stat"><b>'+match3+'</b><br><span class="small">3-number previous overlaps</span></div>'+
 '<div class="stat"><b>'+match4+'</b><br><span class="small">4-number previous clones</span></div>'+
 '<div class="stat"><b>'+internal4+'</b><br><span class="small">Internal 4-number clones</span></div>'+
 '</div>';
@@ -1157,7 +991,7 @@ if(ENGINE.top40.length){
 if(used<r.targetMin)status="Below Min";
 if(used>=r.targetMin&&used<=r.targetMax)status="Balanced";
 if(used>=10)status="High Use";
-if(used>=SETTINGS.maxUseTop40)status="At Max";
+if(used>=ENGINE_SETTINGS.maxUseTop40)status="At Max";
 }
 
 return "<tr>"+
@@ -1237,7 +1071,7 @@ return;
 }
 
 let html='<h1>Cash 5 - Top 40 Tickets to Buy</h1>'+
-'<p>Stable Fixed Version: Matrix Score, Position Memory, Pretest Lean, Last Draw Bridge, Daily Diversity Lock.</p>'+
+'<p>No-Freeze Version: Matrix Score, Position Memory, Pretest Lean, Last Draw Bridge, Daily Diversity Lock.</p>'+
 '<table><thead><tr><th>#</th><th>Numbers</th><th>Type</th><th>Profile</th><th>Score</th></tr></thead><tbody>';
 
 ENGINE.top40.forEach((t,i)=>{
@@ -1264,7 +1098,7 @@ return;
 }
 
 let html='<html><head><meta charset="UTF-8"></head><body>'+
-'<h1>Cash 5 Stable Fixed Matrix Results</h1>';
+'<h1>Cash 5 No-Freeze Matrix Results</h1>';
 
 html+='<h2>Top 40 Tickets</h2>'+
 '<table border="1"><tr><th>#</th><th>Numbers</th><th>Type</th><th>Profile</th><th>Score</th></tr>';
@@ -1318,7 +1152,7 @@ const url=URL.createObjectURL(blob);
 const link=document.createElement("a");
 
 link.href=url;
-link.download="Cash5_Stable_Fixed_Matrix_Results.xls";
+link.download="Cash5_No_Freeze_Matrix_Results.xls";
 
 document.body.appendChild(link);
 link.click();
