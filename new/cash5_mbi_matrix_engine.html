@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Cash 5 Adaptive MBI Matrix Engine - Cluster Oscillation Upgrade</title>
+<title>Cash 5 Adaptive MBI Matrix Engine - Neighbor Replacement Upgrade</title>
 
 <style>
 :root{
@@ -55,7 +55,7 @@ body *{visibility:hidden}
 <body>
 <header>
 <h1>Cash 5 Adaptive MBI Matrix Engine</h1>
-<p>Upgrade: Cluster Center Matrix + Oscillation Matrix + Pair Momentum Matrix + Position Probability Matrix 2.0.</p>
+<p>Upgrade: Cluster Center Matrix + Oscillation Matrix + Pair Momentum Matrix + Position Probability Matrix 2.0 + Neighbor Replacement Engine.</p>
 </header>
 
 <main>
@@ -84,6 +84,7 @@ Paste official history, pretests, and optional previous tickets, then click Anal
 <section id="summaryBox" class="card no-print"></section>
 <section id="matrixBox" class="card no-print"></section>
 <section id="upgradeBox" class="card no-print"></section>
+<section id="neighborBox" class="card no-print"></section>
 <section id="positionBox" class="card no-print"></section>
 <section id="assemblyBox" class="card no-print"></section>
 <section id="diversityBox" class="card no-print"></section>
@@ -107,9 +108,12 @@ const UP_MEDIUM=new Set([22,35,11,23,28,34]);
 const ENGINE_SETTINGS={
 maxUseTop40:14,
 maxUse71:26,
-candidatePoolSize:620,
+maxLastDrawPerTicket:2,
+candidatePoolSize:760,
 rejectInternalOverlap4:true,
 rejectPreviousOverlap4:true,
+rejectExactLastDraw:true,
+forceDifferentFromLastDraw:true,
 eliteTopPool:15,
 strongPairBonus:9,
 strongTripleBonus:16,
@@ -117,7 +121,8 @@ positionHitBonus:6,
 clusterCenterBonus:9,
 oscillationBonus:7,
 pairMomentumBonus:11,
-position20Bonus:8
+position20Bonus:8,
+neighborReplacementBonus:14
 };
 
 let ENGINE={
@@ -291,14 +296,14 @@ if(weighted[p]>weighted[best])best=p;
 
 const sorted=weighted.slice().sort((a,b)=>b-a);
 const confidence=sorted[0]-(sorted[1]||0);
-const last10Best=result[n].recentProb[best]||0;
+const last20Best=result[n].recentProb[best]||0;
 const allBest=result[n].prob[best]||0;
 
 result[n].weightedProb=weighted;
 result[n].bestPos=best;
 result[n].bestLabel=POSITIONS[best];
 result[n].confidence=clamp(confidence,0,1);
-result[n].momentum=last10Best-allBest;
+result[n].momentum=last20Best-allBest;
 }
 
 return result;
@@ -377,8 +382,7 @@ if(nums.includes(n)){s+=triples[k]/total;c++}
 }
 return c?(s/c)*30:0;
 }
-
-/* CLUSTER CENTER MATRIX */
+  /* CLUSTER CENTER MATRIX */
 function makeClusterCenterMatrix(draws){
 const windows=[
 {label:"short",size:10,weight:0.45},
@@ -578,10 +582,111 @@ byNum[n].topPairLabel=row.label;
 pairs.sort((a,b)=>b.momentum-a.momentum);
 return {pairs,byPair,byNum};
 }
-  function overlapCount(a,b){
+
+/* NEIGHBOR REPLACEMENT ENGINE */
+function makeNeighborReplacementMatrix(draws,pairMomentum,clusterCenter,oscillation){
+const byNum={};
+const replacements=[];
+
+for(let n=1;n<=35;n++){
+byNum[n]={
+n,
+replaceScore:0,
+leftScore:0,
+rightScore:0,
+bestNeighbor:null,
+bestNeighborScore:0,
+label:"Open",
+story:""
+};
+}
+
+const recent=draws.slice(-Math.min(20,draws.length));
+const recentFreq=Array(36).fill(0);
+for(const d of recent){
+for(const n of d)recentFreq[n]++;
+}
+
+for(let n=1;n<=35;n++){
+const left=n>1?n-1:null;
+const right=n<35?n+1:null;
+
+const leftCluster=left?clusterCenter[left].centerPower:0;
+const rightCluster=right?clusterCenter[right].centerPower:0;
+const selfCluster=clusterCenter[n].centerPower;
+
+const leftOsc=left?oscillation[left].oscillationScore:0;
+const rightOsc=right?oscillation[right].oscillationScore:0;
+
+const leftRecent=left?recentFreq[left]/(recent.length||1):0;
+const rightRecent=right?recentFreq[right]/(recent.length||1):0;
+const selfRecent=recentFreq[n]/(recent.length||1);
+
+const leftPair=left?(pairMomentum.byPair[pairKey(n,left)]?.momentum||0):0;
+const rightPair=right?(pairMomentum.byPair[pairKey(n,right)]?.momentum||0):0;
+
+const leftScore=left?(
+.30*norm(leftCluster,0,.70)+
+.22*norm(leftOsc,0,.85)+
+.20*norm(leftRecent,0,.35)+
+.18*norm(leftPair,0,.55)+
+.10*norm(leftCluster-selfCluster,-.35,.35)
+):0;
+
+const rightScore=right?(
+.30*norm(rightCluster,0,.70)+
+.22*norm(rightOsc,0,.85)+
+.20*norm(rightRecent,0,.35)+
+.18*norm(rightPair,0,.55)+
+.10*norm(rightCluster-selfCluster,-.35,.35)
+):0;
+
+let bestNeighbor=null,bestNeighborScore=0;
+if(leftScore>=rightScore && left){bestNeighbor=left;bestNeighborScore=leftScore}
+if(rightScore>leftScore && right){bestNeighbor=right;bestNeighborScore=rightScore}
+
+const replaceScore=Math.max(leftScore,rightScore);
+
+let label="Open";
+if(replaceScore>.62)label="Strong Neighbor Replacement";
+else if(replaceScore>.42)label="Medium Neighbor Replacement";
+else if(replaceScore>.25)label="Light Neighbor Replacement";
+
+byNum[n]={
+n,
+replaceScore,
+leftScore,
+rightScore,
+bestNeighbor,
+bestNeighborScore,
+label,
+story:bestNeighbor?String(n).padStart(2,"0")+" can rotate toward "+String(bestNeighbor).padStart(2,"0"):"No strong neighbor"
+};
+
+if(bestNeighbor){
+replacements.push({
+from:n,
+to:bestNeighbor,
+score:replaceScore,
+label,
+story:byNum[n].story
+});
+}
+}
+
+replacements.sort((a,b)=>b.score-a.score);
+return {byNum,replacements};
+}
+
+function overlapCount(a,b){
 let c=0;
 for(const n of a){if(b.includes(n))c++}
 return c;
+}
+
+function lastDrawOverlap(ticket,a){
+if(!a||!a.lastDraw)return 0;
+return overlapCount(ticket,a.lastDraw);
 }
 
 function previousOverlap(ticket){
@@ -600,9 +705,9 @@ if(overlapCount(ticket,old)>=4)return true;
 return false;
 }
 
-function passesBalance(t){
+function passesBalance(t,a){
 if(!t||t.length!==5)return false;
-const sum=t.reduce((a,b)=>a+b,0);
+const sum=t.reduce((x,y)=>x+y,0);
 if(sum<35||sum>155)return false;
 
 const low=t.filter(n=>n<=17).length;
@@ -625,6 +730,13 @@ if(t[i]===t[i-1]+1)consecutive++;
 }
 if(consecutive>=3)return false;
 if(t.filter(n=>DOWN_HARD.has(n)).length>=3)return false;
+
+if(a){
+const lastOver=lastDrawOverlap(t,a);
+if(ENGINE_SETTINGS.rejectExactLastDraw&&lastOver>=5)return false;
+if(ENGINE_SETTINGS.maxLastDrawPerTicket>=0 && lastOver>ENGINE_SETTINGS.maxLastDrawPerTicket)return false;
+}
+
 return true;
 }
 
@@ -638,7 +750,7 @@ setMsg("Need at least 20 official Cash 5 drawings from 9-20-2018 to current.","b
 return;
 }
 
-setMsg("Analyzing upgraded Cluster + Oscillation + Pair Momentum Matrix...","warning");
+setMsg("Analyzing Cluster + Oscillation + Pair Momentum + Neighbor Replacement Matrix...","warning");
 
 const official=makeMatrix(draws);
 const position=makePositionMatrix(draws);
@@ -646,6 +758,7 @@ const position20=makePositionProbability20(draws);
 const clusterCenter=makeClusterCenterMatrix(draws);
 const oscillation=makeOscillationMatrix(draws);
 const pairMomentum=makePairMomentumMatrix(draws);
+const neighborReplacement=makeNeighborReplacementMatrix(draws,pairMomentum,clusterCenter,oscillation);
 
 const preMatrix=makeMatrix(pretests.length?pretests:[]);
 const prePosition=makePositionMatrix(pretests.length?pretests:[]);
@@ -686,6 +799,7 @@ const prePos20=prePosition20[n]||{confidence:0,momentum:0};
 const cluster=clusterCenter[n];
 const osc=oscillation[n];
 const pm=pairMomentum.byNum[n];
+const nr=neighborReplacement.byNum[n];
 
 const hotRatio=base.hotRatio;
 const recentRatio=(recent[n]/recentWindow)/(5/35);
@@ -721,6 +835,12 @@ const pairMomentumScore=
 .20*(pm.topPairLabel==="Hot Pair Momentum"?1:0)+
 .12*(pm.topPairLabel==="Warm Pair Momentum"?1:0);
 
+const neighborScore=
+.64*norm(nr.replaceScore,0,.75)+
+.22*(nr.label==="Strong Neighbor Replacement"?1:0)+
+.10*(nr.label==="Medium Neighbor Replacement"?1:0)+
+.04*(nr.bestNeighbor?1:0);
+
 const msiScore=pretests.length?(
 .44*norm(preRatio,0,2.5)+
 .15*norm(preMatrix.byNum[n]?.timeRatio||0,0,3.5)+
@@ -737,39 +857,42 @@ if(DOWN_HARD.has(n))adjust-=.060;
 if(DOWN_MEDIUM.has(n))adjust-=.030;
 
 const historyScore=
-.18*norm(hotRatio,0,2.5)+
-.12*norm(recentRatio,0,2.5)+
-.11*norm(pairStrength,0,.75)+
-.08*norm(tripleStrength,0,.55)+
-.08*norm(timeRatio,0,3.5)+
-.17*positionScore+
+.16*norm(hotRatio,0,2.5)+
+.10*norm(recentRatio,0,2.5)+
+.10*norm(pairStrength,0,.75)+
+.07*norm(tripleStrength,0,.55)+
+.07*norm(timeRatio,0,3.5)+
+.16*positionScore+
 .12*clusterScore+
 .08*oscillationScore+
-.06*pairMomentumScore;
+.07*pairMomentumScore+
+.07*neighborScore;
 
 const finalScore=
-.30*historyScore+
-.17*msiScore+
-.15*positionScore+
-.13*clusterScore+
-.10*oscillationScore+
-.10*pairMomentumScore+
-.05*norm(last10Ratio,0,.40)+
-.04*(lastDrawFlag[n]?1:0)+
+.27*historyScore+
+.15*msiScore+
+.14*positionScore+
+.12*clusterScore+
+.09*oscillationScore+
+.09*pairMomentumScore+
+.08*neighborScore+
+.04*norm(last10Ratio,0,.40)+
+.02*(lastDrawFlag[n]?1:0)+
 .03*(n<=15?1:0)+
 adjust;
 
 const mbi=
-.13*(hotRatio-1)+
-.11*(recentRatio-1)+
-.09*(timeRatio-1)+
+.11*(hotRatio-1)+
+.10*(recentRatio-1)+
+.08*(timeRatio-1)+
 .08*(pairStrength-.18)+
-.07*(tripleStrength-.10)+
-.10*(preRatio-1)+
-.12*(positionScore-.50)+
-.12*(clusterScore-.45)+
-.09*(oscillationScore-.35)+
+.06*(tripleStrength-.10)+
+.09*(preRatio-1)+
+.11*(positionScore-.50)+
+.11*(clusterScore-.45)+
+.08*(oscillationScore-.35)+
 .09*(pairMomentumScore-.35)+
+.09*(neighborScore-.35)+
 adjust;
 
 const mbiLabel=mbi>.16?"Positive MBI":mbi<-.10?"Negative MBI":"Near-Zero MBI";
@@ -810,6 +933,10 @@ pairMomentumScore,
 topMomentumPair:pm.topPair,
 topMomentumPairNumber:pm.topPairNumber,
 topMomentumPairLabel:pm.topPairLabel,
+neighborScore,
+neighborBest:nr.bestNeighbor,
+neighborLabel:nr.label,
+neighborStory:nr.story,
 score:Math.max(.0001,finalScore),
 finalProb:0,
 mbi,
@@ -862,6 +989,12 @@ r.targetMin=Math.max(r.targetMin,3);
 r.targetMax=Math.max(r.targetMax,8);
 }
 
+if(r.neighborLabel==="Strong Neighbor Replacement"){
+r.exposureClass="Neighbor Replacement";
+r.targetMin=Math.max(r.targetMin,3);
+r.targetMax=Math.max(r.targetMax,7);
+}
+
 if(UP_HARD.has(r.n)){
 r.exposureClass="Up Hard";
 r.targetMin=Math.max(r.targetMin,4);
@@ -908,6 +1041,7 @@ position20,
 clusterCenter,
 oscillation,
 pairMomentum,
+neighborReplacement,
 hotTop:rows.slice(0,15),
 bridgePool:rows.slice(0,22),
 recovery:[...rows].sort((a,b)=>b.timeRatio-a.timeRatio||b.score-a.score).slice(0,20),
@@ -916,6 +1050,7 @@ position20Pool:[...rows].sort((a,b)=>b.position20Confidence-a.position20Confiden
 clusterPool:[...rows].sort((a,b)=>b.clusterScore-a.clusterScore||b.score-a.score).slice(0,20),
 oscillationPool:[...rows].sort((a,b)=>b.oscillationScore-a.oscillationScore||b.score-a.score).slice(0,20),
 pairMomentumPool:[...rows].sort((a,b)=>b.pairMomentumScore-a.pairMomentumScore||b.score-a.score).slice(0,20),
+neighborPool:[...rows].sort((a,b)=>b.neighborScore-a.neighborScore||b.score-a.score).slice(0,20),
 entropyPool:[...rows].sort((a,b)=>b.positionEntropy-a.positionEntropy||b.score-a.score).slice(0,20),
 lastDrawPool:rows.filter(x=>x.lastDrawBridge).sort((a,b)=>b.score-a.score),
 lowPool:rows.filter(x=>x.n<=15).sort((a,b)=>b.score-a.score),
@@ -931,12 +1066,13 @@ top40:[]
 
 renderAnalysis();
 renderUpgradeMatrix();
+renderNeighborMatrix();
 renderPositionMatrix();
 renderAssemblyMatrix();
 renderDiversityReport();
 renderExposureBalanceReport();
 
-setMsg("Matrix analyzed with Cluster Center, Oscillation, Pair Momentum, and Position Probability 2.0.","good");
+setMsg("Matrix analyzed with Neighbor Replacement Engine and max last-draw control.","good");
 }
 
 function buildStrongPairs(pairCounts,rows,pairMomentum){
@@ -968,6 +1104,7 @@ const rankScore=(36-rankMap[nums[0]])+(36-rankMap[nums[1]])+(36-rankMap[nums[2]]
 let clusterBoost=0;
 let waveBoost=0;
 let pairMomentumBoost=0;
+let neighborBoost=0;
 
 nums.forEach(n=>{
 const r=rows.find(x=>x.n===n);
@@ -975,10 +1112,11 @@ if(r){
 clusterBoost+=r.clusterScore||0;
 waveBoost+=r.oscillationScore||0;
 pairMomentumBoost+=r.pairMomentumScore||0;
+neighborBoost+=r.neighborScore||0;
 }
 });
 
-const score=tripleCounts[k]*14+rankScore+(clusterBoost*12)+(waveBoost*9)+(pairMomentumBoost*10);
+const score=tripleCounts[k]*14+rankScore+(clusterBoost*12)+(waveBoost*9)+(pairMomentumBoost*10)+(neighborBoost*10);
 out.push({key:k,nums,count:tripleCounts[k],score});
 }
 out.sort((a,b)=>b.score-a.score);
@@ -1025,29 +1163,15 @@ if(pm && pm.momentum>.18)c++;
 return c;
 }
 
-function strongPairCount(ticket,a){
+function neighborReplacementFit(ticket,a){
 let c=0;
-for(let i=0;i<5;i++){
-for(let j=i+1;j<5;j++){
-if(a.pairCounts[pairKey(ticket[i],ticket[j])])c++;
-}
+for(const n of ticket){
+const r=a.byNum[n];
+if(r && r.neighborLabel==="Strong Neighbor Replacement")c++;
 }
 return c;
 }
-
-function strongTripleCount(ticket,a){
-let c=0;
-for(let i=0;i<5;i++){
-for(let j=i+1;j<5;j++){
-for(let k=j+1;k<5;k++){
-if(a.tripleCounts[triKey(ticket[i],ticket[j],ticket[k])])c++;
-}
-}
-}
-return c;
-}
-
-function completeTicket(seed,pool,a,offset){
+  function completeTicket(seed,pool,a,offset){
 let nums=[...seed];
 
 for(let i=0;i<pool.length && nums.length<5;i++){
@@ -1065,10 +1189,10 @@ if(!nums.includes(row.n))nums.push(row.n);
 return [...new Set(nums)].sort((x,y)=>x-y).slice(0,5);
 }
 
-function addCandidate(candidates,seen,nums,type){
-nums=[...new Set(nums)].sort((a,b)=>a-b);
+function addCandidate(candidates,seen,nums,type,a){
+nums=[...new Set(nums)].sort((x,y)=>x-y);
 if(nums.length!==5)return;
-if(!passesBalance(nums))return;
+if(!passesBalance(nums,a))return;
 
 const key=ticketKey(nums);
 if(seen.has(key))return;
@@ -1080,7 +1204,7 @@ candidates.push({nums,score:0,type,profile:""});
 function buildMomentumNeighborSeeds(a){
 const seeds=[];
 
-a.pairMomentum.pairs.slice(0,35).forEach(p=>{
+a.pairMomentum.pairs.slice(0,45).forEach(p=>{
 const pair=p.nums;
 const x=pair[0],y=pair[1];
 
@@ -1089,10 +1213,37 @@ const x=pair[0],y=pair[1];
 [x,y,x+1],
 [x,y,y-1],
 [x,y,y+1],
-[x,y,Math.round((x+y)/2)]
+[x,y,Math.round((x+y)/2)],
+[x-1,y],
+[x+1,y],
+[x,y-1],
+[x,y+1]
 ].forEach(seed=>{
 const clean=[...new Set(seed.filter(n=>n>=1&&n<=35))].sort((aa,bb)=>aa-bb);
 if(clean.length>=2)seeds.push(clean);
+});
+});
+
+return seeds;
+}
+
+function buildNeighborReplacementSeeds(a){
+const seeds=[];
+
+a.neighborReplacement.replacements.slice(0,45).forEach(r=>{
+const from=r.from;
+const to=r.to;
+
+[
+[to],
+[from,to],
+[to,to-1],
+[to,to+1],
+[from,to,to-1],
+[from,to,to+1]
+].forEach(seed=>{
+const clean=[...new Set(seed.filter(n=>n>=1&&n<=35))].sort((x,y)=>x-y);
+if(clean.length>=1)seeds.push(clean);
 });
 });
 
@@ -1106,53 +1257,61 @@ const seen=new Set();
 const top15=a.hotTop.slice(0,15);
 const top22=a.bridgePool.slice(0,22);
 const momentumSeeds=buildMomentumNeighborSeeds(a);
+const replacementSeeds=buildNeighborReplacementSeeds(a);
 
 for(let i=0;i<top15.length;i++){
 const seed=[top15[i].n];
-const pool=[...a.clusterPool,...a.pairMomentumPool,...a.position20Pool,...a.positionPool,...a.pretestPool,...a.lastDrawPool,...a.recovery,...a.zero];
+const pool=[...a.clusterPool,...a.neighborPool,...a.pairMomentumPool,...a.position20Pool,...a.positionPool,...a.pretestPool,...a.recovery,...a.zero];
 const nums=completeTicket(seed,pool,a,i);
-addCandidate(candidates,seen,nums,"Elite Cluster Anchor Assembly");
+addCandidate(candidates,seen,nums,"Elite Cluster Anchor Assembly",a);
 }
 
 for(let i=0;i<a.strongPairs.length;i++){
 const pair=a.strongPairs[i].nums;
-const pool=[...a.clusterPool,...a.oscillationPool,...a.position20Pool,...a.pretestPool,...a.hotTop,...a.recovery];
+const pool=[...a.neighborPool,...a.clusterPool,...a.oscillationPool,...a.position20Pool,...a.pretestPool,...a.hotTop,...a.recovery];
 const nums=completeTicket(pair,pool,a,i);
-addCandidate(candidates,seen,nums,"Pair Momentum Assembly");
+addCandidate(candidates,seen,nums,"Pair Momentum Assembly",a);
 }
 
 for(let i=0;i<a.strongTriples.length;i++){
 const tri=a.strongTriples[i].nums;
-const pool=[...a.pairMomentumPool,...a.clusterPool,...a.position20Pool,...a.last10Pool,...a.zero,...a.lowPool,...a.recovery];
+const pool=[...a.neighborPool,...a.pairMomentumPool,...a.clusterPool,...a.position20Pool,...a.last10Pool,...a.zero,...a.lowPool,...a.recovery];
 const nums=completeTicket(tri,pool,a,i);
-addCandidate(candidates,seen,nums,"Triple Momentum Assembly");
+addCandidate(candidates,seen,nums,"Triple Momentum Assembly",a);
 }
 
 for(let i=0;i<momentumSeeds.length;i++){
 const seed=momentumSeeds[i];
-const pool=[...a.clusterPool,...a.oscillationPool,...a.pairMomentumPool,...a.position20Pool,...a.hotTop,...a.recovery];
+const pool=[...a.neighborPool,...a.clusterPool,...a.oscillationPool,...a.pairMomentumPool,...a.position20Pool,...a.hotTop,...a.recovery];
 const nums=completeTicket(seed,pool,a,i);
-addCandidate(candidates,seen,nums,"Neighbor Pair/Triple Conversion Assembly");
+addCandidate(candidates,seen,nums,"Neighbor Pair/Triple Conversion Assembly",a);
+}
+
+for(let i=0;i<replacementSeeds.length;i++){
+const seed=replacementSeeds[i];
+const pool=[...a.neighborPool,...a.clusterPool,...a.pairMomentumPool,...a.oscillationPool,...a.position20Pool,...a.recovery,...a.lowPool];
+const nums=completeTicket(seed,pool,a,i);
+addCandidate(candidates,seen,nums,"Neighbor Replacement Assembly",a);
 }
 
 for(let i=0;i<a.clusterPool.length;i++){
 const c1=a.clusterPool[i];
 const c2=a.clusterPool[(i+3)%a.clusterPool.length];
+const n1=a.neighborPool[(i+4)%a.neighborPool.length];
 const o1=a.oscillationPool[(i+5)%a.oscillationPool.length];
 const p1=a.pairMomentumPool[(i+7)%a.pairMomentumPool.length];
-const z1=a.zero.length?a.zero[(i+9)%a.zero.length]:a.bridgePool[(i+9)%a.bridgePool.length];
 
-addCandidate(candidates,seen,[c1.n,c2.n,o1.n,p1.n,z1.n],"Cluster Center Matrix Assembly");
+addCandidate(candidates,seen,[c1.n,c2.n,n1.n,o1.n,p1.n],"Cluster Center Matrix Assembly",a);
 }
 
 for(let i=0;i<a.oscillationPool.length;i++){
 const o1=a.oscillationPool[i];
 const o2=a.oscillationPool[(i+4)%a.oscillationPool.length];
 const c1=a.clusterPool[(i+6)%a.clusterPool.length];
+const n1=a.neighborPool[(i+7)%a.neighborPool.length];
 const p1=a.pairMomentumPool[(i+8)%a.pairMomentumPool.length];
-const l1=a.lowPool[(i+2)%a.lowPool.length];
 
-addCandidate(candidates,seen,[o1.n,o2.n,c1.n,p1.n,l1.n],"Oscillation Wave Assembly");
+addCandidate(candidates,seen,[o1.n,o2.n,c1.n,n1.n,p1.n],"Oscillation Wave Assembly",a);
 }
 
 for(let i=0;i<a.position20Pool.length;i++){
@@ -1160,19 +1319,19 @@ const p1=a.position20Pool[i];
 const p2=a.position20Pool[(i+5)%a.position20Pool.length];
 const p3=a.pretestPool.length?a.pretestPool[i%a.pretestPool.length]:a.hotTop[i%a.hotTop.length];
 const p4=a.clusterPool[(i+3)%a.clusterPool.length];
-const p5=a.recovery[(i+7)%a.recovery.length];
+const p5=a.neighborPool[(i+7)%a.neighborPool.length];
 
-addCandidate(candidates,seen,[p1.n,p2.n,p3.n,p4.n,p5.n],"Position Probability 2.0 Assembly");
+addCandidate(candidates,seen,[p1.n,p2.n,p3.n,p4.n,p5.n],"Position Probability 2.0 Assembly",a);
 }
 
 for(let i=0;i<a.recovery.length;i++){
 const r1=a.recovery[i];
-const r2=a.lastDrawPool.length?a.lastDrawPool[i%a.lastDrawPool.length]:a.hotTop[i%a.hotTop.length];
-const r3=a.pretestPool.length?a.pretestPool[(i+4)%a.pretestPool.length]:a.bridgePool[(i+4)%a.bridgePool.length];
-const r4=a.clusterPool[(i+6)%a.clusterPool.length];
-const r5=a.oscillationPool[(i+8)%a.oscillationPool.length];
+const r2=a.pretestPool.length?a.pretestPool[(i+4)%a.pretestPool.length]:a.bridgePool[(i+4)%a.bridgePool.length];
+const r3=a.clusterPool[(i+6)%a.clusterPool.length];
+const r4=a.oscillationPool[(i+8)%a.oscillationPool.length];
+const r5=a.neighborPool[(i+10)%a.neighborPool.length];
 
-addCandidate(candidates,seen,[r1.n,r2.n,r3.n,r4.n,r5.n],"Transition Recovery Assembly");
+addCandidate(candidates,seen,[r1.n,r2.n,r3.n,r4.n,r5.n],"Transition Recovery Assembly",a);
 }
 
 for(let i=0;i<a.entropyPool.length;i++){
@@ -1180,9 +1339,9 @@ const e1=a.entropyPool[i];
 const e2=a.entropyPool[(i+4)%a.entropyPool.length];
 const e3=a.zero.length?a.zero[(i+8)%a.zero.length]:a.bridgePool[(i+8)%a.bridgePool.length];
 const e4=a.negative.length?a.negative[(i+3)%a.negative.length]:a.lowPool[(i+3)%a.lowPool.length];
-const e5=a.clusterPool[(i+9)%a.clusterPool.length];
+const e5=a.neighborPool[(i+9)%a.neighborPool.length];
 
-addCandidate(candidates,seen,[e1.n,e2.n,e3.n,e4.n,e5.n],"Chaos Entropy Assembly");
+addCandidate(candidates,seen,[e1.n,e2.n,e3.n,e4.n,e5.n],"Chaos Entropy Assembly",a);
 }
 
 for(let i=0;i<top22.length;i++){
@@ -1191,19 +1350,21 @@ top22[i].n,
 a.clusterPool[(i+3)%a.clusterPool.length].n,
 a.pairMomentumPool[(i+7)%a.pairMomentumPool.length].n,
 a.oscillationPool[(i+13)%a.oscillationPool.length].n,
-a.position20Pool[(i+19)%a.position20Pool.length].n
+a.neighborPool[(i+17)%a.neighborPool.length].n
 ];
-addCandidate(candidates,seen,nums,"Rank Spread Assembly");
+addCandidate(candidates,seen,nums,"Rank Spread Assembly",a);
 }
 
 return candidates.slice(0,ENGINE_SETTINGS.candidatePoolSize);
 }
-  function scoreTicket(ticket,a,usage){
+
+function scoreTicket(ticket,a,usage){
 let s=0;
 let pre=0,last10=0,lastDraw=0,posHits=0,entropyHits=0,posMbi=0;
 let clusterHits=clusterFit(ticket,a);
 let oscHits=oscillationFit(ticket,a);
 let pairMomentumHits=pairMomentumFit(ticket,a);
+let neighborHits=neighborReplacementFit(ticket,a);
 
 for(let i=0;i<ticket.length;i++){
 const n=ticket[i];
@@ -1214,7 +1375,7 @@ s+=r.finalProb*100;
 
 if(r.preUse>0){s+=4;pre++}
 if(r.last10Freq>0){s+=2;last10++}
-if(r.lastDrawBridge){s+=4;lastDraw++}
+if(r.lastDrawBridge){s+=2;lastDraw++}
 if(r.bestPosition===POSITIONS[i] || r.position20Best===POSITIONS[i]){s+=ENGINE_SETTINGS.positionHitBonus;posHits++}
 if(r.positionEntropy>.65){s+=2;entropyHits++}
 if(r.mbiLabel==="Positive MBI"){s+=3;posMbi++}
@@ -1223,6 +1384,7 @@ if(r.clusterLabel==="Cluster Center")s+=ENGINE_SETTINGS.clusterCenterBonus;
 if(r.oscillationLabel==="Strong Wave")s+=ENGINE_SETTINGS.oscillationBonus;
 if(r.topMomentumPairLabel==="Hot Pair Momentum")s+=ENGINE_SETTINGS.pairMomentumBonus;
 if(r.position20Confidence>.25)s+=ENGINE_SETTINGS.position20Bonus;
+if(r.neighborLabel==="Strong Neighbor Replacement")s+=ENGINE_SETTINGS.neighborReplacementBonus;
 
 if(n<=15)s+=1;
 if(UP_HARD.has(n))s+=2;
@@ -1237,7 +1399,8 @@ else if(used>=6)s-=4;
 }
 
 if(pre>=2)s+=4;
-if(lastDraw>=1)s+=3;
+if(lastDraw>=1)s+=1;
+if(lastDraw>ENGINE_SETTINGS.maxLastDrawPerTicket)s-=60;
 if(posHits>=3)s+=8;
 if(posHits>=4)s+=8;
 if(entropyHits>=2)s+=3;
@@ -1249,6 +1412,8 @@ if(clusterHits>=3)s+=8;
 if(oscHits>=2)s+=8;
 if(pairMomentumHits>=1)s+=10;
 if(pairMomentumHits>=2)s+=12;
+if(neighborHits>=1)s+=10;
+if(neighborHits>=2)s+=12;
 
 const low=ticket.filter(n=>n<=15).length;
 const mid=ticket.filter(n=>n>=16&&n<=25).length;
@@ -1296,6 +1461,9 @@ const prev=previousOverlap(ticket);
 if(prev>=4)s-=80;
 else if(prev===3)s-=8;
 
+const lastOver=lastDrawOverlap(ticket,a);
+if(lastOver>=3)s-=55;
+
 return s;
 }
 
@@ -1304,6 +1472,7 @@ let pos=0,zero=0,neg=0,pre=0,last10=0,lastDraw=0,posHits=0,entropyHits=0,pairs=0
 let clusterHits=clusterFit(t,a);
 let oscHits=oscillationFit(t,a);
 let pairMomentumHits=pairMomentumFit(t,a);
+let neighborHits=neighborReplacementFit(t,a);
 
 for(let i=0;i<t.length;i++){
 const n=t[i];
@@ -1341,6 +1510,7 @@ return "Pretest: "+pre+
 " | Cluster Centers: "+clusterHits+
 " | Oscillation: "+oscHits+
 " | Pair Momentum: "+pairMomentumHits+
+" | Neighbor Replace: "+neighborHits+
 " | Entropy: "+entropyHits+
 " | Last10: "+last10+
 " | Pairs: "+pairs+
@@ -1361,6 +1531,7 @@ c.profile=ticketProfile(c.nums,a);
 candidates.sort((x,y)=>y.score-x.score);
 
 function canUse(c){
+if(!passesBalance(c.nums,a))return false;
 if(ENGINE_SETTINGS.rejectPreviousOverlap4&&previousOverlap(c.nums)>=4)return false;
 if(ENGINE_SETTINGS.rejectInternalOverlap4&&hasInternalClone(c.nums,selected))return false;
 
@@ -1377,7 +1548,7 @@ for(const n of c.nums)usage[n]++;
 
 if(mode==="top40"){
 const sections=[
-{label:"Elite 1-10 Cluster Center",take:10,types:["Elite Cluster Anchor Assembly","Cluster Center Matrix Assembly","Pair Momentum Assembly"]},
+{label:"Elite 1-10 Cluster/Neighbor",take:10,types:["Elite Cluster Anchor Assembly","Cluster Center Matrix Assembly","Neighbor Replacement Assembly"]},
 {label:"11-20 Pair/Triple Momentum",take:10,types:["Triple Momentum Assembly","Pair Momentum Assembly","Neighbor Pair/Triple Conversion Assembly"]},
 {label:"21-30 Oscillation/Position 2.0",take:10,types:["Oscillation Wave Assembly","Position Probability 2.0 Assembly","Transition Recovery Assembly"]},
 {label:"31-40 Chaos/Recovery Coverage",take:10,types:["Chaos Entropy Assembly","Rank Spread Assembly","Transition Recovery Assembly"]}
@@ -1425,6 +1596,7 @@ for(const n of c.nums){
 if(usage[n]>=maxUse+3){over=true;break}
 }
 if(over)continue;
+if(!passesBalance(c.nums,a))continue;
 
 selected.push({...c,type:c.type+" / Soft Fill"});
 for(const n of c.nums)usage[n]++;
@@ -1440,7 +1612,7 @@ setMsg("Click Analyze Matrix first.","bad");
 return;
 }
 
-setMsg("Generating 71 tickets with upgraded Cluster/Oscillation/Pair Momentum Matrix...","warning");
+setMsg("Generating 71 tickets with Neighbor Replacement Engine...","warning");
 
 const a=ENGINE.analysis;
 const pool=buildTicketAssemblyPool(a);
@@ -1450,7 +1622,7 @@ render71Tickets();
 renderDiversityReport();
 
 if(ENGINE.tickets71.length===MATRIX71_COUNT){
-setMsg("Generated 71 tickets successfully using upgraded assembly matrix.","good");
+setMsg("Generated 71 tickets successfully using Neighbor Replacement Engine.","good");
 }else{
 setMsg("Generated "+ENGINE.tickets71.length+" tickets. If you need exactly 71, reduce previous-ticket restrictions.","warning");
 }
@@ -1462,7 +1634,7 @@ setMsg("Click Analyze Matrix first.","bad");
 return;
 }
 
-setMsg("Generating Top 40 with Cluster Center, Pair Momentum, Oscillation, and Position 2.0 sections...","warning");
+setMsg("Generating Top 40 with max last-draw control and neighbor replacement...","warning");
 
 const a=ENGINE.analysis;
 let pool=buildTicketAssemblyPool(a);
@@ -1478,7 +1650,7 @@ renderExposureBalanceReport();
 renderDiversityReport();
 
 if(ENGINE.top40.length===TOP40_COUNT){
-setMsg("Top 40 generated successfully with upgraded purpose-based sections.","good");
+setMsg("Top 40 generated successfully. Last-draw repeat is controlled at max 2 per ticket.","good");
 }else{
 setMsg("Generated only "+ENGINE.top40.length+" tickets. The lock settings may be too strict.","warning");
 }
@@ -1507,6 +1679,8 @@ const topRows=a.rows.slice(0,35).map(r=>
 "<td>"+r.oscillationLabel+"</td>"+
 "<td>"+r.pairMomentumScore.toFixed(3)+"</td>"+
 "<td>"+esc(r.topMomentumPair||"")+"</td>"+
+"<td>"+r.neighborScore.toFixed(3)+"</td>"+
+"<td>"+esc(r.neighborBest||"")+"</td>"+
 "<td>"+r.mbi.toFixed(3)+"</td>"+
 "<td>"+r.mbiLabel+"</td>"+
 "<td>"+r.exposureClass+"</td>"+
@@ -1521,9 +1695,9 @@ document.getElementById("summaryBox").innerHTML=
 '<div class="stat"><b>'+a.total+'</b><br><span class="small">Official drawings</span></div>'+
 '<div class="stat"><b>'+ENGINE.pretests.length+'</b><br><span class="small">Pretest sets loaded</span></div>'+
 '<div class="stat"><b>'+ENGINE.previousTickets.length+'</b><br><span class="small">Previous tickets loaded</span></div>'+
-'<div class="stat"><b>'+formatNums(a.lastDraw)+'</b><br><span class="small">Last official draw bridge</span></div>'+
-'<div class="stat"><b>Cluster Center</b><br><span class="small">Finds strongest number inside hot groups</span></div>'+
-'<div class="stat"><b>Pair Momentum</b><br><span class="small">5/10/20/60 draw acceleration</span></div>'+
+'<div class="stat"><b>'+formatNums(a.lastDraw)+'</b><br><span class="small">Last draw bridge only; max 2 per ticket</span></div>'+
+'<div class="stat"><b>Neighbor Replacement</b><br><span class="small">Rotates around close-miss clusters</span></div>'+
+'<div class="stat"><b>Different-Number Control</b><br><span class="small">Avoids copying the last draw</span></div>'+
 '</div>'+
 '<p class="small"><b>Disclaimer:</b> Cash 5 is random. This tool improves ticket construction only. It cannot guarantee wins.</p>';
 
@@ -1534,7 +1708,8 @@ document.getElementById("matrixBox").innerHTML=
 '<th>Last10</th><th>Pretest</th><th>Pre Ratio</th><th>MSI</th>'+
 '<th>Old Pos</th><th>Pos 2.0</th><th>Pos Score</th>'+
 '<th>Cluster</th><th>Cluster Type</th><th>Wave</th><th>Wave Type</th>'+
-'<th>Pair Mom</th><th>Top Pair</th><th>MBI</th><th>Type</th><th>Exposure</th><th>Min</th><th>Max</th><th>Final %</th>'+
+'<th>Pair Mom</th><th>Top Pair</th><th>Neighbor</th><th>Best Replace</th>'+
+'<th>MBI</th><th>Type</th><th>Exposure</th><th>Min</th><th>Max</th><th>Final %</th>'+
 '</tr></thead><tbody>'+topRows+'</tbody></table></div>';
 }
 
@@ -1568,8 +1743,8 @@ const pairRows=a.pairMomentum.pairs.slice(0,30).map((p,i)=>
 ).join("");
 
 document.getElementById("upgradeBox").innerHTML=
-'<h2 class="section-title">New Upgrade Layers</h2>'+
-'<p class="small">These four layers are designed to catch close misses like 05-12-13-24-29 versus 05-13-23-27-29 by favoring cluster centers, neighbor waves, and accelerating pairs.</p>'+
+'<h2 class="section-title">Upgrade Layers</h2>'+
+'<p class="small">Cluster Center, Oscillation, Pair Momentum, and Position 2.0 are calculated independently from last draw. Last draw is only a small bridge signal.</p>'+
 '<div class="scroll"><table><thead><tr>'+
 '<th>#</th><th>Cluster Score</th><th>Center Power</th><th>Cluster Type</th><th>Band</th>'+
 '<th>Osc Score</th><th>Wave Type</th><th>Direction</th>'+
@@ -1580,6 +1755,26 @@ document.getElementById("upgradeBox").innerHTML=
 '<div class="scroll"><table><thead><tr>'+
 '<th>Rank</th><th>Pair</th><th>Last5</th><th>Last10</th><th>Last20</th><th>Last60</th><th>Momentum</th><th>Acceleration</th><th>Label</th>'+
 '</tr></thead><tbody>'+pairRows+'</tbody></table></div>';
+}
+
+function renderNeighborMatrix(){
+const a=ENGINE.analysis;
+
+const rows=a.neighborReplacement.replacements.slice(0,50).map((r,i)=>
+"<tr><td>"+(i+1)+"</td>"+
+"<td><b>"+String(r.from).padStart(2,"0")+"</b></td>"+
+"<td><b>"+String(r.to).padStart(2,"0")+"</b></td>"+
+"<td>"+r.score.toFixed(3)+"</td>"+
+"<td>"+esc(r.label)+"</td>"+
+"<td>"+esc(r.story)+"</td></tr>"
+).join("");
+
+document.getElementById("neighborBox").innerHTML=
+'<h2 class="section-title">Neighbor Replacement Engine</h2>'+
+'<p class="small">This protects against close misses by rotating strong numbers into nearby alternatives. Example: 24 can rotate toward 23, 27 toward 28, or 29 toward 30 if the matrix supports it.</p>'+
+'<div class="scroll"><table><thead><tr>'+
+'<th>Rank</th><th>Original</th><th>Best Neighbor</th><th>Score</th><th>Label</th><th>Story</th>'+
+'</tr></thead><tbody>'+rows+'</tbody></table></div>';
 }
 
 function renderPositionMatrix(){
@@ -1606,7 +1801,7 @@ return "<tr><td>"+String(r.n).padStart(2,"0")+"</td>"+
 
 document.getElementById("positionBox").innerHTML=
 '<h2 class="section-title">A–E Position Memory + Position Probability Matrix 2.0</h2>'+
-'<p class="small">A is the lowest sorted number, C is the middle bridge, and E is the highest sorted number. Position 2.0 weighs recent 10, 20, and 50 draw position behavior.</p>'+
+'<p class="small">A is the lowest sorted number, C is the middle bridge, and E is the highest sorted number.</p>'+
 '<div class="scroll"><table><thead><tr>'+
 '<th>#</th><th>A</th><th>B</th><th>C</th><th>D</th><th>E</th><th>Old Home</th><th>2.0 Home</th><th>2.0 Conf</th><th>2.0 Mom</th><th>Score</th><th>Entropy</th><th>Story</th>'+
 '</tr></thead><tbody>'+rows+'</tbody></table></div>';
@@ -1625,9 +1820,9 @@ const tripleRows=a.strongTriples.slice(0,25).map((t,i)=>
 
 document.getElementById("assemblyBox").innerHTML=
 '<h2 class="section-title">Ticket Assembly Matrix</h2>'+
-'<p class="small">This builder now creates tickets from cluster centers, pair momentum, triple conversion, oscillation waves, and Position 2.0.</p>'+
+'<p class="small">Top 40 is divided into cluster/neighbor, pair/triple momentum, oscillation/position 2.0, and chaos/recovery coverage.</p>'+
 '<div class="grid">'+
-'<div class="stat"><b>Tickets 1-10</b><br><span class="small">Elite cluster center</span></div>'+
+'<div class="stat"><b>Tickets 1-10</b><br><span class="small">Elite cluster + neighbor</span></div>'+
 '<div class="stat"><b>Tickets 11-20</b><br><span class="small">Pair/triple momentum</span></div>'+
 '<div class="stat"><b>Tickets 21-30</b><br><span class="small">Oscillation + position 2.0</span></div>'+
 '<div class="stat"><b>Tickets 31-40</b><br><span class="small">Chaos/recovery coverage</span></div>'+
@@ -1648,15 +1843,17 @@ tested=ENGINE.top40.map(t=>t.nums);
 tested=ENGINE.tickets71.map(t=>t.nums);
 }
 
-let maxOverlap=0,match3=0,match4=0,match5=0,internal4=0;
+let maxOverlap=0,match3=0,match4=0,internal4=0,lastMax=0,lastOver3=0;
 
 for(let i=0;i<tested.length;i++){
 const t=tested[i];
 const p=previousOverlap(t);
+const lo=ENGINE.analysis?lastDrawOverlap(t,ENGINE.analysis):0;
 maxOverlap=Math.max(maxOverlap,p);
+lastMax=Math.max(lastMax,lo);
 if(p===3)match3++;
 if(p===4)match4++;
-if(p>=5)match5++;
+if(lo>=3)lastOver3++;
 
 for(let j=0;j<i;j++){
 if(overlapCount(t,tested[j])>=4)internal4++;
@@ -1669,8 +1866,8 @@ document.getElementById("diversityBox").innerHTML=
 '<div class="stat"><b>'+prev.length+'</b><br><span class="small">Previous tickets loaded</span></div>'+
 '<div class="stat"><b>'+tested.length+'</b><br><span class="small">Active output tickets</span></div>'+
 '<div class="stat"><b>'+maxOverlap+'</b><br><span class="small">Highest previous overlap</span></div>'+
-'<div class="stat"><b>'+match3+'</b><br><span class="small">3-number previous overlaps</span></div>'+
-'<div class="stat"><b>'+match4+'</b><br><span class="small">4-number previous clones</span></div>'+
+'<div class="stat"><b>'+lastMax+'</b><br><span class="small">Highest last-draw overlap</span></div>'+
+'<div class="stat"><b>'+lastOver3+'</b><br><span class="small">Tickets with 3+ last draw numbers</span></div>'+
 '<div class="stat"><b>'+internal4+'</b><br><span class="small">Internal 4-number clones</span></div>'+
 '</div>';
 }
@@ -1709,7 +1906,7 @@ return "<tr>"+
 
 document.getElementById("exposureBox").innerHTML=
 '<h2 class="section-title">Exposure Balance Matrix</h2>'+
-'<p class="small">Top 40 number usage is capped to reduce over-concentration while still allowing cluster centers and pair momentum to appear more often.</p>'+
+'<p class="small">Top 40 number usage is capped to reduce over-concentration.</p>'+
 '<div class="scroll"><table>'+
 '<thead><tr><th>#</th><th>Rank</th><th>Class</th><th>Min</th><th>Max</th><th>Used Top 40</th><th>Status</th></tr></thead>'+
 '<tbody>'+rows+'</tbody></table></div>';
@@ -1773,7 +1970,7 @@ return;
 }
 
 let html='<h1>Cash 5 - Top 40 Tickets to Buy</h1>'+
-'<p>Upgrade Matrix: Cluster Center, Oscillation, Pair Momentum, Position Probability 2.0, pretest lean, last draw bridge, and diversity lock.</p>'+
+'<p>Upgrade Matrix: Cluster Center, Oscillation, Pair Momentum, Position Probability 2.0, Neighbor Replacement, max last-draw control, and diversity lock.</p>'+
 '<table><thead><tr><th>#</th><th>Numbers</th><th>Purpose Section</th><th>Profile</th><th>Score</th></tr></thead><tbody>';
 
 ENGINE.top40.forEach((t,i)=>{
@@ -1800,7 +1997,7 @@ return;
 }
 
 let html='<html><head><meta charset="UTF-8"></head><body>'+
-'<h1>Cash 5 Cluster Oscillation Pair Momentum Matrix Results</h1>';
+'<h1>Cash 5 Neighbor Replacement Matrix Results</h1>';
 
 html+='<h2>Top 40 Tickets</h2>'+
 '<table border="1"><tr><th>#</th><th>Numbers</th><th>Purpose Section</th><th>Profile</th><th>Score</th></tr>';
@@ -1828,6 +2025,7 @@ html+='<h2>Number Matrix</h2>'+
 '<th>Position Score</th><th>Cluster Score</th><th>Cluster Type</th>'+
 '<th>Oscillation Score</th><th>Oscillation Type</th>'+
 '<th>Pair Momentum</th><th>Top Pair</th>'+
+'<th>Neighbor Score</th><th>Best Neighbor</th>'+
 '<th>MSI</th><th>MBI</th><th>Final %</th></tr>';
 
 ENGINE.analysis.rows.forEach(r=>{
@@ -1848,9 +2046,27 @@ html+='<tr>'+
 '<td>'+r.oscillationLabel+'</td>'+
 '<td>'+r.pairMomentumScore.toFixed(3)+'</td>'+
 '<td>'+esc(r.topMomentumPair||"")+'</td>'+
+'<td>'+r.neighborScore.toFixed(3)+'</td>'+
+'<td>'+esc(r.neighborBest||"")+'</td>'+
 '<td>'+r.msiScore.toFixed(3)+'</td>'+
 '<td>'+r.mbi.toFixed(3)+'</td>'+
 '<td>'+(r.finalProb*100).toFixed(2)+'%</td>'+
+'</tr>';
+});
+
+html+='</table>';
+
+html+='<h2>Neighbor Replacement Matrix</h2>'+
+'<table border="1"><tr><th>Rank</th><th>Original</th><th>Best Neighbor</th><th>Score</th><th>Label</th><th>Story</th></tr>';
+
+ENGINE.analysis.neighborReplacement.replacements.slice(0,100).forEach((r,i)=>{
+html+='<tr>'+
+'<td>'+(i+1)+'</td>'+
+'<td>'+r.from+'</td>'+
+'<td>'+r.to+'</td>'+
+'<td>'+r.score.toFixed(3)+'</td>'+
+'<td>'+r.label+'</td>'+
+'<td>'+esc(r.story)+'</td>'+
 '</tr>';
 });
 
@@ -1882,7 +2098,7 @@ const url=URL.createObjectURL(blob);
 const link=document.createElement("a");
 
 link.href=url;
-link.download="Cash5_Cluster_Oscillation_PairMomentum_Results.xls";
+link.download="Cash5_Neighbor_Replacement_Matrix_Results.xls";
 
 document.body.appendChild(link);
 link.click();
