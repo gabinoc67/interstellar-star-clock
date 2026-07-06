@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Goodbye - Cash 5 Deterministic Matrix Engine</title>
+<title>Goodbye - Cash 5 Anchor Cap Pair Bridge Recovery Engine</title>
 <style>
 body{font-family:Arial;margin:0;color:#172033;background:#fff}
 header{text-align:center;padding:20px;border-bottom:1px solid #cfd8e6}
@@ -31,8 +31,8 @@ th{background:#eef3f9}
 
 <body>
 <header>
-<h1>Goodbye - Cash 5 Deterministic Matrix Engine</h1>
-<p>No-loop optimizer. Same input data = same Top 40 every time.</p>
+<h1>Goodbye - Cash 5 Anchor Cap Pair Bridge Recovery Engine</h1>
+<p>Deterministic Top 40. Anchor Cap + Pair Bridge + Missed Draw Recovery.</p>
 </header>
 
 <main>
@@ -49,10 +49,9 @@ th{background:#eef3f9}
 <button onclick="step1LoadData()">Step 1 Load Data</button>
 <button onclick="step2BasicMatrix()">Step 2 Basic Matrix</button>
 <button onclick="step3UpgradeLayers()">Step 3 Upgrade Layers</button>
-<button onclick="step4TripleEvolution()">Step 4 Triple Evolution</button>
-<button onclick="step5BuildCandidates()">Step 5 Build Candidates</button>
-<button onclick="step6NoLoopOptimizer()">Step 6 Goodbye Top 40</button>
-<button onclick="printTop40()">Print Goodbye Top 40</button>
+<button onclick="step4BridgeRecovery()">Step 4 Bridge Recovery</button>
+<button onclick="step5BuildTop40()">Step 5 Build Top 40</button>
+<button onclick="printTop40()">Print Top 40</button>
 <button onclick="exportExcel()">Download Excel</button>
 </div>
 
@@ -60,33 +59,42 @@ th{background:#eef3f9}
 <div id="summary" class="card"></div>
 <div id="matrix" class="card"></div>
 <div id="upgrade" class="card"></div>
-<div id="evolution" class="card"></div>
-<div id="candidates" class="card"></div>
-<div id="optimizer" class="card"></div>
+<div id="bridge" class="card"></div>
 <div id="top40" class="card"></div>
 </main>
 
 <script>
 const MIN=1;
 const MAX=35;
-const MAX_CANDIDATES=350;
 const PORTFOLIO_SIZE=40;
+
+const STRONG_MIN=10;
+const STRONG_MAX=16;
+const SECONDARY_MIN=6;
+const SECONDARY_MAX=10;
+const WILDCARD_MIN=3;
+const WILDCARD_MAX=6;
+const HARD_CAP=18;
 
 let S={
 draws:[],
 pretests:[],
 previous:[],
 basic:null,
-position:null,
+rows:[],
 position20:null,
 cluster:null,
 osc:null,
 pairMomentum:null,
-tripleEvolution:null,
-rows:[],
-candidates:[],
+strongPool:[],
+secondaryPool:[],
+wildPool:[],
+recoveryPool:[],
+bridge4:[],
 top40:[],
-optimizer:null
+usage:Array(36).fill(0),
+pairUse:{},
+triUse:{}
 };
 
 function msg(t,cls="warn"){
@@ -121,16 +129,13 @@ return max===min?0:Math.max(0,Math.min(1,(v-min)/(max-min)));
 function parseLines(raw){
 if(!raw.trim())return [];
 let out=[];
-
 raw.split(/\n+/).forEach(line=>{
 let nums=(line.match(/\d+/g)||[]).map(Number).filter(n=>n>=1&&n<=35);
-
 if(nums.length>=5){
 let d=[...new Set(nums.slice(-5))].sort((a,b)=>a-b);
 if(d.length===5)out.push(d);
 }
 });
-
 return out;
 }
 
@@ -142,28 +147,52 @@ function prevOverlap(t){
 return Math.max(0,...S.previous.map(p=>overlap(t,p)));
 }
 
+function ticketPairs(nums){
+let out=[];
+for(let i=0;i<5;i++){
+for(let j=i+1;j<5;j++){
+out.push(pairKey(nums[i],nums[j]));
+}
+}
+return out;
+}
+
+function ticketTriples(nums){
+let out=[];
+for(let i=0;i<5;i++){
+for(let j=i+1;j<5;j++){
+for(let k=j+1;k<5;k++){
+out.push(triKey(nums[i],nums[j],nums[k]));
+}
+}
+}
+return out;
+}
+
 function step1LoadData(){
 S.draws=parseLines(document.getElementById("dataInput").value);
 S.pretests=parseLines(document.getElementById("pretestInput").value).slice(0,80);
 S.previous=parseLines(document.getElementById("previousTicketsInput").value);
 
 S.basic=null;
-S.position=null;
+S.rows=[];
 S.position20=null;
 S.cluster=null;
 S.osc=null;
 S.pairMomentum=null;
-S.tripleEvolution=null;
-S.rows=[];
-S.candidates=[];
+S.strongPool=[];
+S.secondaryPool=[];
+S.wildPool=[];
+S.recoveryPool=[];
+S.bridge4=[];
 S.top40=[];
-S.optimizer=null;
+S.usage=Array(36).fill(0);
+S.pairUse={};
+S.triUse={};
 
 document.getElementById("matrix").innerHTML="";
 document.getElementById("upgrade").innerHTML="";
-document.getElementById("evolution").innerHTML="";
-document.getElementById("candidates").innerHTML="";
-document.getElementById("optimizer").innerHTML="";
+document.getElementById("bridge").innerHTML="";
 document.getElementById("top40").innerHTML="";
 
 if(S.draws.length<20){
@@ -177,7 +206,7 @@ document.getElementById("summary").innerHTML=
 <div class="stat"><b>${S.draws.length}</b><br>Official draws</div>
 <div class="stat"><b>${S.pretests.length}</b><br>Pretests loaded</div>
 <div class="stat"><b>${S.previous.length}</b><br>Previous tickets loaded</div>
-<div class="stat"><b>${fmt(S.draws[S.draws.length-1])}</b><br>Last draw bridge only</div>
+<div class="stat"><b>${fmt(S.draws[S.draws.length-1])}</b><br>Last draw</div>
 </div>`;
 
 msg("Step 1 complete. Now run Step 2.","good");
@@ -220,10 +249,11 @@ triples[tk]=(triples[tk]||0)+1;
 }
 });
 
-let avgFreq=total*5/35;
 S.basic={freq,last,gaps,pairs,triples,total};
 
+let avgFreq=total*5/35;
 let rows=[];
+
 for(let n=1;n<=35;n++){
 let delay=last[n]<0?total:total-1-last[n];
 let gap=avg(gaps[n])||total;
@@ -263,13 +293,13 @@ rows.map((r,i)=>`
 
 msg("Step 2 complete. Now run Step 3.","good");
 }
-  function step3UpgradeLayers(){
+
+function step3UpgradeLayers(){
 if(!S.basic){
 msg("Run Step 2 first.","bad");
 return;
 }
 
-S.position=makePosition();
 S.position20=makePosition20();
 S.cluster=makeCluster();
 S.osc=makeOscillation();
@@ -309,22 +339,8 @@ S.rows.map((r,i)=>`
 
 msg("Step 3 complete. Now run Step 4.","good");
 }
-
-function makePosition(){
-let counts=Array.from({length:36},()=>Array(5).fill(0));
-
-S.draws.forEach(d=>{
-d.slice().sort((a,b)=>a-b).forEach((n,i)=>{
-counts[n][i]++;
-});
-});
-
-return counts;
-}
-
-function makePosition20(){
+  function makePosition20(){
 let out={};
-
 for(let n=1;n<=35;n++){
 out[n]={best:0,confidence:0};
 }
@@ -366,7 +382,6 @@ return out;
 
 function makeCluster(){
 let out={};
-
 for(let n=1;n<=35;n++){
 out[n]={centerPower:0};
 }
@@ -387,10 +402,8 @@ for(let n=1;n<=35;n++){
 let left=f[n-1]||0;
 let mid=f[n]||0;
 let right=f[n+1]||0;
-
 let cluster=(left*.75+mid*1.25+right*.75)/(slice.length||1);
 let center=mid/(left+mid+right+1);
-
 out[n].centerPower+=(cluster*.6+center*.4)*o.wt;
 }
 });
@@ -400,7 +413,6 @@ return out;
 
 function makeOscillation(){
 let out={};
-
 for(let n=1;n<=35;n++){
 out[n]={score:0};
 }
@@ -443,7 +455,6 @@ let r5=(windows[0].c[k]||0)/windows[0].s;
 let r10=(windows[1].c[k]||0)/windows[1].s;
 let r20=(windows[2].c[k]||0)/windows[2].s;
 let r60=(windows[3].c[k]||0)/windows[3].s;
-
 let accel=(r5-r20)+(r10-r60);
 
 let score=
@@ -487,148 +498,304 @@ c[pk]=(c[pk]||0)+1;
 return {c:c,s:slice.length||1};
 }
 
-function step4TripleEvolution(){
+function step4BridgeRecovery(){
 if(!S.pairMomentum){
 msg("Run Step 3 first.","bad");
 return;
 }
 
-let rows=[];
+let ranked=S.rows.map(r=>r.n);
 
-S.pairMomentum.pairs.slice(0,70).forEach(p=>{
-let nums=p.nums;
+S.strongPool=ranked.slice(0,10);
+S.secondaryPool=ranked.slice(10,22);
+S.wildPool=ranked.slice(22,35);
 
-for(let third=1;third<=35;third++){
-if(nums.includes(third))continue;
+let lastDraw=S.draws[S.draws.length-1]||[];
+let prevTickets=S.previous||[];
 
-let hist=0;
-let total=0;
+let recovery=[];
 
-S.draws.forEach(d=>{
-if(d.includes(nums[0])&&d.includes(nums[1])){
-total++;
-if(d.includes(third))hist++;
+lastDraw.forEach(n=>{
+let used=prevTickets.filter(t=>t.includes(n)).length;
+if(used<5)recovery.push(n);
+});
+
+ranked.forEach(n=>{
+if(recovery.length<10 && !recovery.includes(n) && S.wildPool.includes(n)){
+recovery.push(n);
 }
 });
 
-let histRate=total?hist/total:0;
-
-let score=
-.30*p.score+
-.25*histRate+
-.18*S.position20[third].confidence+
-.17*S.cluster[third].centerPower+
-.10*S.osc[third].score;
-
-rows.push({
-pair:p.key,
-third:third,
-triple:[nums[0],nums[1],third].sort((a,b)=>a-b),
-hist:hist,
-total:total,
-histRate:histRate,
-score:score
-});
+ranked.forEach(n=>{
+if(recovery.length<12 && !recovery.includes(n)){
+recovery.push(n);
 }
 });
 
-rows.sort((a,b)=>b.score-a.score || triKey(...a.triple).localeCompare(triKey(...b.triple)));
-S.tripleEvolution=rows.slice(0,140);
+S.recoveryPool=recovery.slice(0,12);
 
-S.rows.forEach(r=>{
-let best=S.tripleEvolution.find(e=>e.third===r.n);
-r.evoScore=best?best.score:0;
-r.score+=.18*r.evoScore;
-});
+S.bridge4=makeBridge4Groups(S.strongPool);
 
-S.rows.sort((a,b)=>b.score-a.score || a.n-b.n);
-
-document.getElementById("evolution").innerHTML=
-"<h2>Pair-to-Triple Evolution Matrix</h2>"+
-"<div class='scroll'><table>"+
-"<tr><th>Rank</th><th>Pair</th><th>Third</th><th>Triple</th><th>Hist</th><th>Completion</th><th>Score</th></tr>"+
-S.tripleEvolution.slice(0,50).map((e,i)=>`
+document.getElementById("bridge").innerHTML=
+`<h2>Anchor Cap + Pair Bridge + Missed Draw Recovery</h2>
+<div class="grid">
+<div class="stat"><b>${S.strongPool.map(n=>String(n).padStart(2,"0")).join(" - ")}</b><br>Strong Pool 10</div>
+<div class="stat"><b>${S.secondaryPool.map(n=>String(n).padStart(2,"0")).join(" - ")}</b><br>Secondary Pool</div>
+<div class="stat"><b>${S.wildPool.map(n=>String(n).padStart(2,"0")).join(" - ")}</b><br>Wildcard Pool</div>
+<div class="stat"><b>${S.recoveryPool.map(n=>String(n).padStart(2,"0")).join(" - ")}</b><br>Missed Draw Recovery Pool</div>
+</div>
+<h3>4-Number Bridge Groups</h3>
+<div class="scroll"><table>
+<tr><th>#</th><th>4-Number Bridge</th><th>Bridge Score</th></tr>
+${S.bridge4.map((b,i)=>`
 <tr>
 <td>${i+1}</td>
-<td>${e.pair}</td>
-<td><b>${String(e.third).padStart(2,"0")}</b></td>
-<td><b>${fmt(e.triple)}</b></td>
-<td>${e.hist}/${e.total}</td>
-<td>${(e.histRate*100).toFixed(1)}%</td>
-<td>${e.score.toFixed(3)}</td>
-</tr>`).join("")+
-"</table></div>";
+<td><b>${fmt(b.nums)}</b></td>
+<td>${b.score.toFixed(3)}</td>
+</tr>`).join("")}
+</table></div>
+<p class="small">Rule added: 12 tickets use 4 strong matrix numbers + 1 challenger. This helps force correct-number collision instead of only broad coverage.</p>`;
 
 msg("Step 4 complete. Now run Step 5.","good");
 }
 
-function step5BuildCandidates(){
-if(!S.tripleEvolution){
+function makeBridge4Groups(pool){
+let out=[];
+
+for(let a=0;a<pool.length;a++){
+for(let b=a+1;b<pool.length;b++){
+for(let c=b+1;c<pool.length;c++){
+for(let d=c+1;d<pool.length;d++){
+let nums=[pool[a],pool[b],pool[c],pool[d]].sort((x,y)=>x-y);
+let score=bridgeScore(nums);
+out.push({nums:nums,score:score});
+}
+}
+}
+}
+
+out.sort((x,y)=>y.score-x.score || key(x.nums).localeCompare(key(y.nums)));
+
+let selected=[];
+let use=Array(36).fill(0);
+
+for(let i=0;i<out.length && selected.length<24;i++){
+let g=out[i];
+if(g.nums.some(n=>use[n]>=10))continue;
+selected.push(g);
+g.nums.forEach(n=>use[n]++);
+}
+
+if(selected.length<24){
+for(let i=0;i<out.length && selected.length<24;i++){
+let g=out[i];
+if(selected.some(x=>key(x.nums)===key(g.nums)))continue;
+selected.push(g);
+}
+}
+
+return selected;
+}
+
+function bridgeScore(nums){
+let score=0;
+
+nums.forEach(n=>{
+let r=S.rows.find(x=>x.n===n);
+score+=(r?r.score:0);
+});
+
+for(let i=0;i<nums.length;i++){
+for(let j=i+1;j<nums.length;j++){
+let pk=pairKey(nums[i],nums[j]);
+score+=(S.pairMomentum.byPair[pk]?.score||0)*2.0;
+score+=(S.basic.pairs[pk]||0)*0.02;
+}
+}
+
+return score;
+}
+
+function step5BuildTop40(){
+if(!S.bridge4.length){
 msg("Run Step 4 first.","bad");
 return;
 }
 
-let seen=new Set();
-let out=[];
-let topPool=S.rows.slice(0,15).map(r=>r.n);
-let broadPool=S.rows.slice(0,24).map(r=>r.n);
+S.top40=[];
+S.usage=Array(36).fill(0);
+S.pairUse={};
+S.triUse={};
 
-function add(nums,type){
+buildBucketBridge12();
+buildBucketThreeTwo10();
+buildBucketBalanced10();
+buildBucketRecovery8();
+
+document.getElementById("top40").innerHTML=renderTop40();
+
+msg("Step 5 complete. Top 40 built with anchor cap, pair bridge, and missed draw recovery.","good");
+}
+
+function buildBucketBridge12(){
+let challengers=[...S.secondaryPool,...S.wildPool,...S.recoveryPool];
+
+for(let i=0;i<S.bridge4.length && countRole("4+1 Bridge")<12;i++){
+let bridge=S.bridge4[i].nums;
+
+for(let j=0;j<challengers.length;j++){
+let ch=challengers[(i+j)%challengers.length];
+let nums=[...bridge,ch];
+
+if(addTicket(nums,"4+1 Bridge","4 matrix numbers + 1 challenger"))break;
+}
+}
+}
+
+function buildBucketThreeTwo10(){
+let strong=S.strongPool;
+let outsiders=[...S.secondaryPool,...S.recoveryPool,...S.wildPool];
+
+let made=0;
+
+for(let i=0;i<strong.length && made<10;i++){
+let a=strong[i%strong.length];
+let b=strong[(i+3)%strong.length];
+let c=strong[(i+6)%strong.length];
+
+for(let j=0;j<outsiders.length;j++){
+let x=outsiders[(i+j)%outsiders.length];
+let y=outsiders[(i+j+5)%outsiders.length];
+
+if(addTicket([a,b,c,x,y],"3+2 Blend","3 matrix numbers + 2 challengers")){
+made++;
+break;
+}
+}
+}
+
+if(made<10){
+for(let i=0;i<S.bridge4.length && made<10;i++){
+let base=S.bridge4[i].nums.slice(0,3);
+let x=outsiders[(i+2)%outsiders.length];
+let y=outsiders[(i+8)%outsiders.length];
+
+if(addTicket([...base,x,y],"3+2 Blend","3 matrix numbers + 2 challengers")){
+made++;
+}
+}
+}
+}
+  function buildBucketBalanced10(){
+let hot=S.strongPool.slice(0,6);
+let medium=[...S.strongPool.slice(6),...S.secondaryPool];
+let cold=[...S.wildPool,...S.recoveryPool];
+
+let made=0;
+
+for(let i=0;i<30 && made<10;i++){
+let h1=hot[i%hot.length];
+let h2=hot[(i+3)%hot.length];
+let m1=medium[(i+2)%medium.length];
+let m2=medium[(i+7)%medium.length];
+let c1=cold[(i+5)%cold.length];
+
+if(addTicket([h1,h2,m1,m2,c1],"2+2+1 Balanced","2 hot + 2 medium + 1 cold recovery")){
+made++;
+}
+}
+}
+
+function buildBucketRecovery8(){
+let recovery=S.recoveryPool;
+let strong=S.strongPool;
+let secondary=S.secondaryPool;
+let wild=S.wildPool;
+
+let made=0;
+
+for(let i=0;i<40 && made<8;i++){
+let r1=recovery[i%recovery.length];
+let r2=recovery[(i+4)%recovery.length];
+let s1=strong[(i+2)%strong.length];
+let s2=secondary[(i+5)%secondary.length];
+let w1=wild[(i+3)%wild.length];
+
+if(addTicket([r1,r2,s1,s2,w1],"Recovery Wildcard","missed draw recovery + wildcard protection")){
+made++;
+}
+}
+}
+
+function countRole(role){
+return S.top40.filter(t=>t.type===role).length;
+}
+
+function addTicket(nums,type,role){
 nums=[...new Set(nums)].filter(n=>n>=1&&n<=35).sort((a,b)=>a-b);
 
-if(nums.length!==5)return;
-if(!balance(nums))return;
+if(nums.length!==5)return false;
+if(!balance(nums))return false;
+if(S.top40.some(t=>key(t.nums)===key(nums)))return false;
+if(nums.some(n=>S.usage[n]>=HARD_CAP))return false;
+if(!softUsageAllowed(nums,type))return false;
 
-let k=key(nums);
-if(seen.has(k))return;
+let pairs=ticketPairs(nums);
+let triples=ticketTriples(nums);
 
-seen.add(k);
-out.push({
+if(pairs.some(p=>(S.pairUse[p]||0)>=4))return false;
+if(triples.some(t=>(S.triUse[t]||0)>=1))return false;
+
+S.top40.push({
 nums:nums,
 type:type,
+role:role,
 score:ticketScore(nums,type)
 });
+
+nums.forEach(n=>S.usage[n]++);
+pairs.forEach(p=>S.pairUse[p]=(S.pairUse[p]||0)+1);
+triples.forEach(t=>S.triUse[t]=(S.triUse[t]||0)+1);
+
+return true;
 }
 
-S.tripleEvolution.slice(0,100).forEach((e,i)=>{
-add([...e.triple,broadPool[(i+3)%broadPool.length],broadPool[(i+10)%broadPool.length]],"Triple Evolution");
-add([...e.triple,topPool[(i+2)%topPool.length],topPool[(i+7)%topPool.length]],"Top 15 Triple Blend");
-});
-
-S.pairMomentum.pairs.slice(0,80).forEach((p,i)=>{
-add([...p.nums,broadPool[(i+2)%broadPool.length],broadPool[(i+8)%broadPool.length],broadPool[(i+14)%broadPool.length]],"Pair Momentum");
-add([...p.nums,topPool[(i+1)%topPool.length],topPool[(i+5)%topPool.length],topPool[(i+9)%topPool.length]],"Top 15 Pair Blend");
-});
-
-S.rows.slice(0,25).forEach((r,i)=>{
-add([
-r.n,
-broadPool[(i+5)%broadPool.length],
-broadPool[(i+10)%broadPool.length],
-broadPool[(i+15)%broadPool.length],
-broadPool[(i+20)%broadPool.length]
-],"Rank Spread");
-});
-
-for(let a=0;a<topPool.length;a++){
-for(let b=a+1;b<topPool.length;b++){
-for(let c=b+1;c<topPool.length;c++){
-let triple=[topPool[a],topPool[b],topPool[c]];
-let x=broadPool[(a+b+c+3)%broadPool.length];
-let y=broadPool[(a*2+b+c+9)%broadPool.length];
-add([...triple,x,y],"Top 15 Simulation Base");
-}
-}
+function softUsageAllowed(nums,type){
+for(let n of nums){
+if(S.strongPool.includes(n) && S.usage[n]>=STRONG_MAX)return false;
+if(S.secondaryPool.includes(n) && S.usage[n]>=SECONDARY_MAX)return false;
+if(S.wildPool.includes(n) && S.usage[n]>=WILDCARD_MAX)return false;
 }
 
-S.candidates=out.sort((a,b)=>b.score-a.score || key(a.nums).localeCompare(key(b.nums))).slice(0,MAX_CANDIDATES);
+return true;
+}
 
-document.getElementById("candidates").innerHTML=
-`<h2>Candidate Pool</h2>
-<p><b>${S.candidates.length}</b> safe candidates built.</p>
-<p class="small">This version uses a no-loop final optimizer to avoid browser freezing.</p>`;
+function balance(t){
+let sum=t.reduce((a,b)=>a+b,0);
+if(sum<35||sum>155)return false;
 
-msg("Step 5 complete. Now run Step 6 Goodbye Top 40.","good");
+let odd=t.filter(n=>n%2).length;
+if(odd===0||odd===5)return false;
+
+let low=t.filter(n=>n<=17).length;
+if(low===0||low===5)return false;
+
+let zones=[
+t.filter(n=>n>=1&&n<=7).length,
+t.filter(n=>n>=8&&n<=14).length,
+t.filter(n=>n>=15&&n<=21).length,
+t.filter(n=>n>=22&&n<=28).length,
+t.filter(n=>n>=29&&n<=35).length
+];
+
+if(Math.max(...zones)>3)return false;
+
+if(prevOverlap(t)>=4)return false;
+
+let last=S.draws[S.draws.length-1];
+if(last && overlap(t,last)>3)return false;
+
+return true;
 }
 
 function ticketScore(nums,type){
@@ -642,7 +809,8 @@ score+=(r?r.score:0);
 for(let i=0;i<5;i++){
 for(let j=i+1;j<5;j++){
 let pk=pairKey(nums[i],nums[j]);
-score+=(S.pairMomentum.byPair[pk]?.score||0)*1.20;
+score+=(S.pairMomentum.byPair[pk]?.score||0)*1.35;
+score+=(S.basic.pairs[pk]||0)*0.015;
 }
 }
 
@@ -655,220 +823,76 @@ score+=(S.basic.triples[tk]||0)*0.03;
 }
 }
 
-if(type.includes("Triple"))score+=.50;
-if(type.includes("Top 15"))score+=.30;
-if(type.includes("Pair"))score+=.22;
+if(type==="4+1 Bridge")score+=.90;
+if(type==="3+2 Blend")score+=.65;
+if(type==="2+2+1 Balanced")score+=.45;
+if(type==="Recovery Wildcard")score+=.35;
 
 return score;
 }
 
-function balance(t){
-let sum=t.reduce((a,b)=>a+b,0);
-if(sum<35||sum>155)return false;
+function renderTop40(){
+let missing=PORTFOLIO_SIZE-S.top40.length;
 
-let odd=t.filter(n=>n%2).length;
-if(odd===0||odd===5)return false;
-
-let low=t.filter(n=>n<=17).length;
-if(low===0||low===5)return false;
-
-if(prevOverlap(t)>=4)return false;
-
-let last=S.draws[S.draws.length-1];
-if(last&&overlap(t,last)>3)return false;
-
-return true;
-}
-  function step6NoLoopOptimizer(){
-if(!S.candidates.length){
-msg("Run Step 5 first.","bad");
-return;
-}
-
-let base=S.candidates.slice().sort((a,b)=>b.score-a.score || key(a.nums).localeCompare(key(b.nums)));
-
-let usage=Array(36).fill(0);
-let pairUse={};
-let triUse={};
-let top=[];
-
-for(const c of base){
-if(top.length>=PORTFOLIO_SIZE)break;
-if(!canAddToPortfolio(c,top,usage,pairUse,triUse))continue;
-
-top.push(c);
-c.nums.forEach(n=>usage[n]++);
-ticketPairs(c.nums).forEach(p=>pairUse[p]=(pairUse[p]||0)+1);
-ticketTriples(c.nums).forEach(t=>triUse[t]=(triUse[t]||0)+1);
-}
-
-if(top.length<PORTFOLIO_SIZE){
-for(const c of base){
-if(top.length>=PORTFOLIO_SIZE)break;
-if(top.some(x=>key(x.nums)===key(c.nums)))continue;
-if(c.nums.some(n=>usage[n]>=14))continue;
-if(top.some(t=>overlap(t.nums,c.nums)>=5))continue;
-
-top.push(c);
-c.nums.forEach(n=>usage[n]++);
-ticketPairs(c.nums).forEach(p=>pairUse[p]=(pairUse[p]||0)+1);
-ticketTriples(c.nums).forEach(t=>triUse[t]=(triUse[t]||0)+1);
-}
-}
-
-S.top40=top;
-let finalScore=portfolioScore(top,usage,pairUse,triUse);
-S.optimizer={score:finalScore};
-
-document.getElementById("optimizer").innerHTML=
-`<h2>Goodbye No-Loop Portfolio Optimizer</h2>
+let html=
+`<h2>Goodbye Top 40 Tickets</h2>
 <div class="grid">
-<div class="stat"><b>No repeated loop</b><br>Browser-safe final optimizer</div>
-<div class="stat"><b>${S.candidates.length}</b><br>Candidate tickets reviewed</div>
-<div class="stat"><b>${finalScore.toFixed(3)}</b><br>Portfolio score</div>
-<div class="stat"><b>${S.rows.slice(0,15).map(r=>String(r.n).padStart(2,"0")).join(" - ")}</b><br>Top 15 core pool</div>
-</div>
-<p class="small">This version is deterministic and avoids the freeze problem. Same input produces the same Top 40 every time.</p>`;
+<div class="stat"><b>${countRole("4+1 Bridge")}</b><br>4 matrix + 1 challenger tickets</div>
+<div class="stat"><b>${countRole("3+2 Blend")}</b><br>3 matrix + 2 challenger tickets</div>
+<div class="stat"><b>${countRole("2+2+1 Balanced")}</b><br>2 hot + 2 medium + 1 cold tickets</div>
+<div class="stat"><b>${countRole("Recovery Wildcard")}</b><br>Recovery wildcard tickets</div>
+</div>`;
 
-document.getElementById("top40").innerHTML=
-"<h2>Goodbye Top 40 Tickets - Deterministic No-Loop</h2>"+
+if(missing>0){
+html+=`<p class="bad"><b>Warning:</b> Only ${S.top40.length} tickets were built. ${missing} tickets were blocked by strict caps, duplicate limits, or previous-ticket overlap. To force 40, loosen pair cap or previous overlap rule.</p>`;
+}
+
+html+=
 "<div class='scroll'><table>"+
-"<tr><th>#</th><th>Numbers</th><th>Type</th><th>Ticket Score</th><th>Portfolio Role</th></tr>"+
+"<tr><th>#</th><th>Numbers</th><th>Bucket</th><th>Purpose</th><th>Score</th></tr>"+
 S.top40.map((t,i)=>`
 <tr>
 <td>${i+1}</td>
 <td><b>${fmt(t.nums)}</b></td>
 <td>${t.type}</td>
+<td>${t.role}</td>
 <td>${t.score.toFixed(3)}</td>
-<td>${portfolioRole(t.nums,usage)}</td>
-</tr>`).join("")+
-"</table></div>"+
-"<h2>Number Usage</h2>"+
-"<div class='scroll'><table>"+
-"<tr><th>Number</th><th>Used</th></tr>"+
-Array.from({length:35},(_,i)=>i+1).map(n=>`
-<tr>
-<td><b>${String(n).padStart(2,"0")}</b></td>
-<td>${usage[n]}</td>
 </tr>`).join("")+
 "</table></div>";
 
-msg("Step 6 complete. Goodbye Top 40 created without browser-freezing loops.","good");
-}
+html+=
+"<h2>Number Usage Control</h2>"+
+"<div class='scroll'><table>"+
+"<tr><th>Number</th><th>Used</th><th>Class</th><th>Target Rule</th></tr>"+
+Array.from({length:35},(_,i)=>i+1).map(n=>{
+let cls="Outside";
+let rule="0+";
+if(S.strongPool.includes(n)){cls="Strong";rule="10-16 max";}
+else if(S.secondaryPool.includes(n)){cls="Secondary";rule="6-10 max";}
+else if(S.wildPool.includes(n)){cls="Wildcard";rule="3-6 max";}
+if(S.recoveryPool.includes(n)){cls+=" / Recovery";}
+return `
+<tr>
+<td><b>${String(n).padStart(2,"0")}</b></td>
+<td>${S.usage[n]}</td>
+<td>${cls}</td>
+<td>${rule}</td>
+</tr>`;
+}).join("")+
+"</table></div>";
 
-function canAddToPortfolio(c,portfolio,usage,pairUse,triUse){
-if(c.nums.some(n=>usage[n]>=13))return false;
-if(portfolio.some(t=>overlap(t.nums,c.nums)>=4))return false;
+html+=
+`<h2>Algorithm Update Summary</h2>
+<p>
+This version adds the Anchor Cap + Pair Bridge + Missed Draw Recovery update. 
+The program now builds fixed deterministic buckets instead of letting one anchor dominate the field.
+It creates 12 bridge tickets, 10 three-plus-two tickets, 10 balanced tickets, and 8 recovery tickets.
+</p>
+<p class="small">
+Important: This improves coverage structure and may help create more 3/5 and possible 4/5 collisions, but Cash 5 is still random and no program can guarantee 75% drawn-number capture.
+</p>`;
 
-let pairs=ticketPairs(c.nums);
-let triples=ticketTriples(c.nums);
-
-if(pairs.some(p=>(pairUse[p]||0)>=3))return false;
-if(triples.some(t=>(triUse[t]||0)>=1))return false;
-
-let odd=c.nums.filter(n=>n%2).length;
-if(odd<1||odd>4)return false;
-
-let zones=[
-c.nums.filter(n=>n>=1&&n<=7).length,
-c.nums.filter(n=>n>=8&&n<=14).length,
-c.nums.filter(n=>n>=15&&n<=21).length,
-c.nums.filter(n=>n>=22&&n<=28).length,
-c.nums.filter(n=>n>=29&&n<=35).length
-];
-
-if(Math.max(...zones)>3)return false;
-
-return true;
-}
-
-function portfolioScore(portfolio,usage,pairUse,triUse){
-let score=0;
-
-portfolio.forEach(t=>{
-score+=t.score;
-});
-
-let usedNums=usage.filter((x,i)=>i>0&&x>0).length;
-score+=usedNums*2.25;
-
-let target=PORTFOLIO_SIZE*5/35;
-
-for(let n=1;n<=35;n++){
-score-=Math.abs(usage[n]-target)*.55;
-
-if(usage[n]>13){
-score-=(usage[n]-13)*4.0;
-}
-
-if(usage[n]===0){
-score-=2.0;
-}
-}
-
-Object.values(pairUse).forEach(v=>{
-if(v===1)score+=.08;
-if(v>3)score-=(v-3)*1.75;
-});
-
-Object.values(triUse).forEach(v=>{
-if(v>1)score-=(v-1)*4.5;
-});
-
-for(let i=0;i<portfolio.length;i++){
-for(let j=i+1;j<portfolio.length;j++){
-let ov=overlap(portfolio[i].nums,portfolio[j].nums);
-
-if(ov===0)score+=.10;
-if(ov===1)score+=.20;
-if(ov===2)score+=.10;
-if(ov>=3)score-=ov*1.25;
-}
-}
-
-if(portfolio.length<PORTFOLIO_SIZE){
-score-=(PORTFOLIO_SIZE-portfolio.length)*25;
-}
-
-return score;
-}
-
-function ticketPairs(nums){
-let out=[];
-
-for(let i=0;i<5;i++){
-for(let j=i+1;j<5;j++){
-out.push(pairKey(nums[i],nums[j]));
-}
-}
-
-return out;
-}
-
-function ticketTriples(nums){
-let out=[];
-
-for(let i=0;i<5;i++){
-for(let j=i+1;j<5;j++){
-for(let k=j+1;k<5;k++){
-out.push(triKey(nums[i],nums[j],nums[k]));
-}
-}
-}
-
-return out;
-}
-
-function portfolioRole(nums,usage){
-let top15=S.rows.slice(0,15).map(r=>r.n);
-let topHits=nums.filter(n=>top15.includes(n)).length;
-let low=nums.filter(n=>n<=17).length;
-let high=5-low;
-
-if(topHits>=4)return "Top-core ticket";
-if(low>=3)return "Low-side coverage";
-if(high>=3)return "High-side coverage";
-return "Balanced coverage";
+return html;
 }
 
 function printTop40(){
@@ -876,13 +900,14 @@ window.print();
 }
 
 function exportExcel(){
-let html="<table border='1'><tr><th>#</th><th>Numbers</th><th>Type</th><th>Score</th></tr>";
+let html="<table border='1'><tr><th>#</th><th>Numbers</th><th>Bucket</th><th>Purpose</th><th>Score</th></tr>";
 
 S.top40.forEach((t,i)=>{
 html+=`<tr>
 <td>${i+1}</td>
 <td>${fmt(t.nums)}</td>
 <td>${t.type}</td>
+<td>${t.role}</td>
 <td>${t.score.toFixed(3)}</td>
 </tr>`;
 });
@@ -893,7 +918,7 @@ let blob=new Blob([html],{type:"application/vnd.ms-excel"});
 let a=document.createElement("a");
 
 a.href=URL.createObjectURL(blob);
-a.download="Goodbye_Cash5_NoLoop_Top40.xls";
+a.download="Goodbye_Cash5_AnchorCap_PairBridge_Recovery_Top40.xls";
 a.click();
 }
 </script>
