@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Cash 5 Plain Matrix Engine</title>
+<title>Cash 5 Plain Matrix Engine With Pretests</title>
 <style>
 body{font-family:Arial,Helvetica,sans-serif;margin:0;background:#ffffff;color:#172033}
 header{text-align:center;padding:20px;border-bottom:1px solid #cfd8e6}
@@ -27,8 +27,8 @@ th{background:#eef3f9}
 
 <body>
 <header>
-<h1>Cash 5 Plain Matrix Engine</h1>
-<p>Anchor Cap + Pair Bridge + Recovery Top 40</p>
+<h1>Cash 5 Plain Matrix Engine With Pretests</h1>
+<p>Anchor Cap + Pair Bridge + Recovery Top 40 + Small Pretest Boost</p>
 </header>
 
 <main>
@@ -36,8 +36,11 @@ th{background:#eef3f9}
 <h2>1. Official Cash 5 Draw History</h2>
 <textarea id="dataInput" placeholder="6/26/2026 01 11 22 24 35"></textarea>
 
-<h2>2. Previous Generated Tickets</h2>
-<textarea id="previousTicketsInput" placeholder="Paste previous tickets here"></textarea>
+<h2>2. Machine Pretest History</h2>
+<textarea id="pretestInput" placeholder="Paste machine pretest draws here, one draw per line"></textarea>
+
+<h2>3. Previous Generated Tickets</h2>
+<textarea id="previousTicketsInput" placeholder="Paste previous generated tickets here"></textarea>
 
 <button onclick="loadData()">Step 1 Load Data</button>
 <button onclick="basicMatrix()">Step 2 Basic Matrix</button>
@@ -62,15 +65,20 @@ var HARD_CAP = 18;
 var STRONG_CAP = 16;
 var SECONDARY_CAP = 10;
 var WILD_CAP = 8;
+var PRETEST_WEIGHT = 0.15;
 
 var S = {
 draws:[],
+pretests:[],
 previous:[],
 freq:[],
 last:[],
 gaps:[],
 pairs:{},
 triples:{},
+preFreq:[],
+prePairs:{},
+preTriples:{},
 rows:[],
 pairRows:[],
 strong:[],
@@ -96,13 +104,19 @@ var i;
 S.freq = [];
 S.last = [];
 S.gaps = [];
+S.preFreq = [];
+
 for(i=0;i<36;i++){
 S.freq.push(0);
 S.last.push(-1);
 S.gaps.push([]);
+S.preFreq.push(0);
 }
+
 S.pairs = {};
 S.triples = {};
+S.prePairs = {};
+S.preTriples = {};
 S.rows = [];
 S.pairRows = [];
 S.strong = [];
@@ -112,7 +126,9 @@ S.recovery = [];
 S.bridge4 = [];
 S.top40 = [];
 S.usage = [];
+
 for(i=0;i<36;i++){S.usage.push(0);}
+
 S.pairUse = {};
 S.triUse = {};
 S.log = [];
@@ -177,8 +193,7 @@ if(b.indexOf(a[i]) >= 0){c++;}
 }
 return c;
 }
-
-function parseLines(raw){
+  function parseLines(raw){
 var out = [];
 var lines,m,nums,n,last5,unique,i,j,k;
 
@@ -217,7 +232,9 @@ return out;
 
 function loadData(){
 S.draws = parseLines(document.getElementById("dataInput").value);
+S.pretests = parseLines(document.getElementById("pretestInput").value);
 S.previous = parseLines(document.getElementById("previousTicketsInput").value);
+
 resetState();
 
 document.getElementById("matrix").innerHTML = "";
@@ -234,13 +251,16 @@ document.getElementById("summary").innerHTML =
 "<h2>Step 1 Loaded</h2>" +
 "<div class='grid'>" +
 "<div class='stat'><b>" + S.draws.length + "</b><br>Official draws</div>" +
-"<div class='stat'><b>" + S.previous.length + "</b><br>Previous tickets</div>" +
-"<div class='stat'><b>" + fmt(S.draws[S.draws.length-1]) + "</b><br>Last draw</div>" +
-"</div>";
+"<div class='stat'><b>" + S.pretests.length + "</b><br>Machine pretest draws</div>" +
+"<div class='stat'><b>" + S.previous.length + "</b><br>Previous generated tickets</div>" +
+"<div class='stat'><b>" + fmt(S.draws[S.draws.length-1]) + "</b><br>Last official draw</div>" +
+"</div>" +
+"<p class='small'>Pretests are used as a small boost only. Official draw history remains the main source.</p>";
 
 msg("Step 1 complete. Run Step 2.","good");
 }
-  function basicMatrix(){
+
+function basicMatrix(){
 var total,avgFreq,i,j,a,b,x,y,z,d,n,pk,tk,num,delay,gap,hot,time,base,row,html,r;
 
 if(S.draws.length < 20){
@@ -283,6 +303,8 @@ S.triples[tk] = S.triples[tk] + 1;
 }
 }
 
+analyzePretests();
+
 avgFreq = total * 5 / 35;
 S.rows = [];
 
@@ -312,6 +334,7 @@ gap:gap,
 hot:hot,
 time:time,
 base:base,
+pretest:pretestNumberScore(num),
 score:base
 });
 }
@@ -323,7 +346,7 @@ return a.n - b.n;
 
 html = "<h2>Step 2 Basic Matrix</h2>";
 html += "<div class='scroll'><table>";
-html += "<tr><th>Rank</th><th>#</th><th>Freq</th><th>Delay</th><th>Gap</th><th>Hot</th><th>Time</th><th>Base</th></tr>";
+html += "<tr><th>Rank</th><th>#</th><th>Freq</th><th>Delay</th><th>Gap</th><th>Hot</th><th>Time</th><th>Base</th><th>Pretest</th></tr>";
 
 for(r=0;r<S.rows.length;r++){
 row = S.rows[r];
@@ -337,6 +360,7 @@ html += "<td>" + row.gap.toFixed(1) + "</td>";
 html += "<td>" + row.hot.toFixed(2) + "</td>";
 html += "<td>" + row.time.toFixed(2) + "</td>";
 html += "<td>" + row.base.toFixed(3) + "</td>";
+html += "<td>" + row.pretest.toFixed(3) + "</td>";
 html += "</tr>";
 }
 
@@ -346,8 +370,52 @@ document.getElementById("matrix").innerHTML = html;
 msg("Step 2 complete. Run Step 3.","good");
 }
 
+function analyzePretests(){
+var i,j,a,b,c,d,n,pk,tk;
+
+for(i=0;i<S.pretests.length;i++){
+d = S.pretests[i];
+
+for(j=0;j<5;j++){
+n = d[j];
+S.preFreq[n] = S.preFreq[n] + 1;
+}
+
+for(a=0;a<5;a++){
+for(b=a+1;b<5;b++){
+pk = pairKey(d[a],d[b]);
+if(!S.prePairs[pk]){S.prePairs[pk] = 0;}
+S.prePairs[pk] = S.prePairs[pk] + 1;
+}
+}
+
+for(a=0;a<5;a++){
+for(b=a+1;b<5;b++){
+for(c=b+1;c<5;c++){
+tk = triKey(d[a],d[b],d[c]);
+if(!S.preTriples[tk]){S.preTriples[tk] = 0;}
+S.preTriples[tk] = S.preTriples[tk] + 1;
+}
+}
+}
+}
+}
+
+function pretestNumberScore(n){
+var avgPre,rate;
+
+if(S.pretests.length === 0){return 0;}
+
+avgPre = S.pretests.length * 5 / 35;
+if(avgPre <= 0){return 0;}
+
+rate = S.preFreq[n] / avgPre;
+
+return norm(rate,0,2.5);
+}
+
 function upgradeMatrix(){
-var i,r,ps,cs,os,bs,html;
+var i,r,ps,cs,os,bs,pre,html;
 
 if(S.rows.length === 0){
 msg("Run Step 2 first.","bad");
@@ -363,13 +431,15 @@ ps = positionScore(r.n);
 cs = clusterScore(r.n);
 os = oscillationScore(r.n);
 bs = bestPairScore(r.n);
+pre = pretestNumberScore(r.n);
 
 r.position = ps;
 r.cluster = cs;
 r.osc = os;
 r.pair = bs;
+r.pretest = pre;
 
-r.score = r.base + 0.18*ps + 0.18*cs + 0.12*os + 0.20*bs;
+r.score = r.base + 0.18*ps + 0.18*cs + 0.12*os + 0.20*bs + PRETEST_WEIGHT*pre;
 }
 
 S.rows.sort(function(a,b){
@@ -377,9 +447,9 @@ if(b.score !== a.score){return b.score - a.score;}
 return a.n - b.n;
 });
 
-html = "<h2>Step 3 Upgrade Matrix</h2>";
+html = "<h2>Step 3 Upgrade Matrix With Pretest Boost</h2>";
 html += "<div class='scroll'><table>";
-html += "<tr><th>Rank</th><th>#</th><th>Base</th><th>Position</th><th>Cluster</th><th>Osc</th><th>Pair</th><th>Total</th></tr>";
+html += "<tr><th>Rank</th><th>#</th><th>Base</th><th>Position</th><th>Cluster</th><th>Osc</th><th>Pair</th><th>Pretest</th><th>Total</th></tr>";
 
 for(i=0;i<S.rows.length;i++){
 r = S.rows[i];
@@ -392,6 +462,7 @@ html += "<td>" + r.position.toFixed(3) + "</td>";
 html += "<td>" + r.cluster.toFixed(3) + "</td>";
 html += "<td>" + r.osc.toFixed(3) + "</td>";
 html += "<td>" + r.pair.toFixed(3) + "</td>";
+html += "<td>" + r.pretest.toFixed(3) + "</td>";
 html += "<td><b>" + r.score.toFixed(3) + "</b></td>";
 html += "</tr>";
 }
@@ -401,9 +472,8 @@ html += "</table></div>";
 document.getElementById("upgrade").innerHTML = html;
 msg("Step 3 complete. Run Step 4.","good");
 }
-
-function buildPairMomentum(){
-var windows,all,wi,w,start,count,size,i,d,a,b,pk,k,rate,arr,p,row,accel;
+  function buildPairMomentum(){
+var windows,all,wi,w,start,count,size,i,d,a,b,pk,k,rate,arr,p,row,accel,preBoost;
 
 windows = [5,10,20,60];
 all = {};
@@ -436,6 +506,7 @@ w5:0,
 w10:0,
 w20:0,
 w60:0,
+pre:0,
 nums:k.split("-").map(function(x){return parseInt(x,10);})
 };
 }
@@ -456,13 +527,16 @@ for(p in all){
 if(all.hasOwnProperty(p)){
 row = all[p];
 accel = (row.w5 - row.w20) + (row.w10 - row.w60);
+preBoost = pretestPairScore(row.key);
+row.pre = preBoost;
 
 row.score =
 0.42*row.w5 +
 0.30*row.w10 +
 0.18*row.w20 +
 0.10*row.w60 +
-Math.max(0,accel)*1.25;
+Math.max(0,accel)*1.25 +
+PRETEST_WEIGHT*preBoost;
 
 arr.push(row);
 }
@@ -474,6 +548,32 @@ return a.key.localeCompare(b.key);
 });
 
 return arr;
+}
+
+function pretestPairScore(pk){
+var avgPair,rate;
+
+if(S.pretests.length === 0){return 0;}
+
+avgPair = S.pretests.length * 10 / 595;
+if(avgPair <= 0){return 0;}
+
+rate = (S.prePairs[pk] || 0) / avgPair;
+
+return norm(rate,0,3);
+}
+
+function pretestTripleScore(tk){
+var avgTri,rate;
+
+if(S.pretests.length === 0){return 0;}
+
+avgTri = S.pretests.length * 10 / 6545;
+if(avgTri <= 0){return 0;}
+
+rate = (S.preTriples[tk] || 0) / avgTri;
+
+return norm(rate,0,4);
 }
 
 function positionScore(n){
@@ -514,7 +614,8 @@ final[x] = final[x] + (c[x] / app) * o.wt;
 sorted = final.slice().sort(function(a,b){return b-a;});
 return sorted[0] - (sorted[1] || 0);
 }
-  function clusterScore(n){
+
+function clusterScore(n){
 var configs,score,ci,o,start,f,size,i,d,j,left,mid,right,cluster,center;
 
 configs = [
@@ -646,15 +747,16 @@ html += "<div class='stat'><b>" + numsToText(S.wild) + "</b><br>Wildcard Pool</d
 html += "<div class='stat'><b>" + numsToText(S.recovery) + "</b><br>Recovery Pool</div>";
 html += "</div>";
 
-html += "<h3>Top Pair Momentum</h3>";
+html += "<h3>Top Pair Momentum With Pretest Boost</h3>";
 html += "<div class='scroll'><table>";
-html += "<tr><th>Rank</th><th>Pair</th><th>Score</th></tr>";
+html += "<tr><th>Rank</th><th>Pair</th><th>Official+Pretest Score</th><th>Pretest Boost</th></tr>";
 
 for(i=0;i<Math.min(30,S.pairRows.length);i++){
 html += "<tr>";
 html += "<td>" + (i+1) + "</td>";
 html += "<td><b>" + S.pairRows[i].key + "</b></td>";
 html += "<td>" + S.pairRows[i].score.toFixed(3) + "</td>";
+html += "<td>" + S.pairRows[i].pre.toFixed(3) + "</td>";
 html += "</tr>";
 }
 
@@ -678,8 +780,7 @@ document.getElementById("pools").innerHTML = html;
 
 msg("Step 4 complete. Run Step 5.","good");
 }
-
-function numsToText(arr){
+  function numsToText(arr){
 var out,i;
 out = [];
 for(i=0;i<arr.length;i++){
@@ -714,7 +815,7 @@ return out;
 }
 
 function bridgeScore(nums){
-var score,i,n,r,j,pk,pairScore,p;
+var score,i,n,r,j,pk,pairScore,p,x,y,z,tk,preTriple;
 
 score = 0;
 
@@ -743,6 +844,17 @@ break;
 
 score = score + pairScore*1.75;
 score = score + (S.pairs[pk] || 0)*0.02;
+score = score + PRETEST_WEIGHT*pretestPairScore(pk)*0.50;
+}
+}
+
+for(x=0;x<nums.length;x++){
+for(y=x+1;y<nums.length;y++){
+for(z=y+1;z<nums.length;z++){
+tk = triKey(nums[x],nums[y],nums[z]);
+preTriple = pretestTripleScore(tk);
+score = score + PRETEST_WEIGHT*preTriple*0.25;
+}
 }
 }
 
@@ -835,7 +947,8 @@ made = made + 1;
 }
 }
 }
-  function buildRecovery(){
+
+function buildRecovery(){
 var made,i,nums;
 
 made = 0;
@@ -1133,7 +1246,7 @@ return out;
 }
 
 function ticketScore(nums,type){
-var score,i,r,a,b,pk,pairScore,p,x,y,z,tk;
+var score,i,r,a,b,pk,pairScore,p,x,y,z,tk,prePair,preTri;
 
 score = 0;
 
@@ -1158,8 +1271,11 @@ break;
 }
 }
 
+prePair = pretestPairScore(pk);
+
 score = score + pairScore*1.25;
 score = score + (S.pairs[pk] || 0)*0.015;
+score = score + PRETEST_WEIGHT*prePair*0.25;
 }
 }
 
@@ -1167,7 +1283,9 @@ for(x=0;x<5;x++){
 for(y=x+1;y<5;y++){
 for(z=y+1;z<5;z++){
 tk = triKey(nums[x],nums[y],nums[z]);
+preTri = pretestTripleScore(tk);
 score = score + (S.triples[tk] || 0)*0.025;
+score = score + PRETEST_WEIGHT*preTri*0.10;
 }
 }
 }
@@ -1271,7 +1389,7 @@ html += "</tr>";
 
 html += "</table></div>";
 
-html += "<p class='small'>No random generator is used. Same input creates the same Top 40. Cash 5 is random, so this cannot guarantee a win.</p>";
+html += "<p class='small'>Pretests are used only as a small boost. Same input creates the same Top 40. Cash 5 is random, so this cannot guarantee a win.</p>";
 
 document.getElementById("top40").innerHTML = html;
 }
@@ -1299,7 +1417,7 @@ html += "</table>";
 blob = new Blob([html],{type:"application/vnd.ms-excel"});
 a = document.createElement("a");
 a.href = URL.createObjectURL(blob);
-a.download = "Cash5_Plain_Matrix_Top40.xls";
+a.download = "Cash5_Pretest_Matrix_Top40.xls";
 a.click();
 }
 </script>
