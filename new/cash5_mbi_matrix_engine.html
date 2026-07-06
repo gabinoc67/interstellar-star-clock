@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Cash 5 Step-by-Step Matrix Engine</title>
+<title>Cash 5 Clean Matrix Engine</title>
 <style>
 body{font-family:Arial;margin:0;color:#172033;background:#fff}
 header{text-align:center;padding:20px;border-bottom:1px solid #cfd8e6}
@@ -12,10 +12,6 @@ main{max-width:1250px;margin:auto;padding:18px}
 textarea{width:100%;min-height:130px;font-family:Consolas;padding:10px;border-radius:10px;border:1px solid #cfd8e6}
 #dataInput{min-height:240px}
 button{padding:12px 15px;border:0;border-radius:10px;background:#174ea6;color:white;font-weight:bold;margin:5px;cursor:pointer}
-button:nth-of-type(2){background:#0b6e4f}
-button:nth-of-type(3){background:#403899}
-button:nth-of-type(4){background:#9a6a00}
-button:nth-of-type(5){background:#444}
 .good{background:#eaf8f1}
 .bad{background:#fff0f0}
 .warn{background:#fff8e6}
@@ -31,8 +27,8 @@ th{background:#eef3f9}
 
 <body>
 <header>
-<h1>Cash 5 Step-by-Step Matrix Engine</h1>
-<p>Anchor Cap + Pair Bridge + Missed Draw Recovery + visible calculations.</p>
+<h1>Cash 5 Clean Matrix Engine</h1>
+<p>Anchor Cap + Pair Bridge + Recovery Top 40</p>
 </header>
 
 <main>
@@ -40,18 +36,15 @@ th{background:#eef3f9}
 <h2>1. Official Cash 5 Draw History</h2>
 <textarea id="dataInput" placeholder="6/26/2026 01 11 22 24 35"></textarea>
 
-<h2>2. Machine Pretest History</h2>
-<textarea id="pretestInput" placeholder="Optional pretest numbers"></textarea>
+<h2>2. Previous Generated Tickets</h2>
+<textarea id="previousTicketsInput" placeholder="Paste previous tickets here"></textarea>
 
-<h2>3. Previous Generated Tickets</h2>
-<textarea id="previousTicketsInput" placeholder="Paste previous generated tickets here"></textarea>
-
-<button onclick="step1LoadData()">Step 1 Load Data</button>
-<button onclick="step2BasicMatrix()">Step 2 Basic Matrix</button>
-<button onclick="step3UpgradeScores()">Step 3 Upgrade Scores</button>
-<button onclick="step4BuildPools()">Step 4 Build Pools</button>
-<button onclick="step5BuildTickets()">Step 5 Build Top 40</button>
-<button onclick="printTop40()">Print</button>
+<button onclick="loadData()">Step 1 Load Data</button>
+<button onclick="basicMatrix()">Step 2 Basic Matrix</button>
+<button onclick="upgradeMatrix()">Step 3 Upgrade Matrix</button>
+<button onclick="buildPools()">Step 4 Build Pools</button>
+<button onclick="buildTop40()">Step 5 Build Top 40</button>
+<button onclick="window.print()">Print</button>
 <button onclick="exportExcel()">Excel</button>
 </div>
 
@@ -64,19 +57,18 @@ th{background:#eef3f9}
 </main>
 
 <script>
-const PORTFOLIO_SIZE=40;
-const HARD_CAP=18;
-const STRONG_CAP=16;
-const SECONDARY_CAP=10;
-const WILD_CAP=8;
+var PORTFOLIO_SIZE=40;
+var HARD_CAP=18;
+var STRONG_CAP=16;
+var SECONDARY_CAP=10;
+var WILD_CAP=8;
 
-let S={
+var S={
 draws:[],
-pretests:[],
 previous:[],
-freq:Array(36).fill(0),
-last:Array(36).fill(-1),
-gaps:Array.from({length:36},()=>[]),
+freq:[],
+last:[],
+gaps:[],
 pairs:{},
 triples:{},
 rows:[],
@@ -87,67 +79,17 @@ wild:[],
 recovery:[],
 bridge4:[],
 top40:[],
-usage:Array(36).fill(0),
+usage:[],
 pairUse:{},
 triUse:{},
 log:[]
 };
 
-function msg(t,cls="warn"){
-document.getElementById("msg").className="card "+cls;
-document.getElementById("msg").innerHTML=t;
-}
-
-function fmt(a){
-return a.slice().sort((x,y)=>x-y).map(n=>String(n).padStart(2,"0")).join(" - ");
-}
-
-function key(a){
-return a.slice().sort((x,y)=>x-y).join("-");
-}
-
-function pairKey(a,b){
-return a<b?a+"-"+b:b+"-"+a;
-}
-
-function triKey(a,b,c){
-return [a,b,c].sort((x,y)=>x-y).join("-");
-}
-
-function avg(a){
-return a.length?a.reduce((x,y)=>x+y,0)/a.length:0;
-}
-
-function norm(v,min,max){
-if(max===min)return 0;
-return Math.max(0,Math.min(1,(v-min)/(max-min)));
-}
-
-function overlap(a,b){
-return a.filter(n=>b.includes(n)).length;
-}
-
-function parseLines(raw){
-let out=[];
-if(!raw.trim())return out;
-
-raw.split(/\n+/).forEach(line=>{
-let nums=(line.match(/\d+/g)||[]).map(Number).filter(n=>n>=1&&n<=35);
-
-if(nums.length>=5){
-let last5=nums.slice(-5);
-let d=[...new Set(last5)].sort((a,b)=>a-b);
-if(d.length===5)out.push(d);
-}
-});
-
-return out;
-}
-
-function resetAll(){
+function resetState(){
 S.freq=Array(36).fill(0);
 S.last=Array(36).fill(-1);
-S.gaps=Array.from({length:36},()=>[]);
+S.gaps=[];
+for(var i=0;i<36;i++){S.gaps.push([]);}
 S.pairs={};
 S.triples={};
 S.rows=[];
@@ -164,12 +106,83 @@ S.triUse={};
 S.log=[];
 }
 
-function step1LoadData(){
-S.draws=parseLines(document.getElementById("dataInput").value);
-S.pretests=parseLines(document.getElementById("pretestInput").value);
-S.previous=parseLines(document.getElementById("previousTicketsInput").value);
+function msg(t,cls){
+if(!cls){cls="warn";}
+document.getElementById("msg").className="card "+cls;
+document.getElementById("msg").innerHTML=t;
+}
 
-resetAll();
+function fmt(a){
+return a.slice().sort(function(x,y){return x-y;}).map(function(n){
+return String(n).padStart(2,"0");
+}).join(" - ");
+}
+
+function key(a){
+return a.slice().sort(function(x,y){return x-y;}).join("-");
+}
+
+function pairKey(a,b){
+return a<b ? a+"-"+b : b+"-"+a;
+}
+
+function triKey(a,b,c){
+return [a,b,c].sort(function(x,y){return x-y;}).join("-");
+}
+
+function avg(a){
+if(!a.length){return 0;}
+var s=0;
+for(var i=0;i<a.length;i++){s+=a[i];}
+return s/a.length;
+}
+
+function norm(v,min,max){
+if(max===min){return 0;}
+var x=(v-min)/(max-min);
+if(x<0){x=0;}
+if(x>1){x=1;}
+return x;
+}
+
+function overlap(a,b){
+var c=0;
+for(var i=0;i<a.length;i++){
+if(b.indexOf(a[i])>=0){c++;}
+}
+return c;
+}
+
+function parseLines(raw){
+var out=[];
+if(!raw || !raw.trim()){return out;}
+var lines=raw.split(/\n+/);
+
+for(var i=0;i<lines.length;i++){
+var m=lines[i].match(/\d+/g);
+if(!m){continue;}
+var nums=[];
+for(var j=0;j<m.length;j++){
+var n=parseInt(m[j],10);
+if(n>=1 && n<=35){nums.push(n);}
+}
+if(nums.length>=5){
+var last5=nums.slice(nums.length-5);
+var unique=[];
+for(var k=0;k<last5.length;k++){
+if(unique.indexOf(last5[k])<0){unique.push(last5[k]);}
+}
+unique.sort(function(a,b){return a-b;});
+if(unique.length===5){out.push(unique);}
+}
+}
+return out;
+}
+
+function loadData(){
+S.draws=parseLines(document.getElementById("dataInput").value);
+S.previous=parseLines(document.getElementById("previousTicketsInput").value);
+resetState();
 
 document.getElementById("matrix").innerHTML="";
 document.getElementById("upgrade").innerHTML="";
@@ -177,396 +190,435 @@ document.getElementById("pools").innerHTML="";
 document.getElementById("top40").innerHTML="";
 
 if(S.draws.length<20){
-msg("Need at least 20 official draw lines. Each line must contain five Cash 5 numbers from 1 to 35.","bad");
+msg("Need at least 20 official Cash 5 draw lines.","bad");
 return;
 }
 
 document.getElementById("summary").innerHTML=
-`<h2>Step 1 Loaded</h2>
-<div class="grid">
-<div class="stat"><b>${S.draws.length}</b><br>Official draws</div>
-<div class="stat"><b>${S.pretests.length}</b><br>Pretest rows</div>
-<div class="stat"><b>${S.previous.length}</b><br>Previous tickets</div>
-<div class="stat"><b>${fmt(S.draws[S.draws.length-1])}</b><br>Last draw used for recovery</div>
-</div>`;
+"<h2>Step 1 Loaded</h2>"+
+"<div class='grid'>"+
+"<div class='stat'><b>"+S.draws.length+"</b><br>Official draws</div>"+
+"<div class='stat'><b>"+S.previous.length+"</b><br>Previous tickets</div>"+
+"<div class='stat'><b>"+fmt(S.draws[S.draws.length-1])+"</b><br>Last draw</div>"+
+"</div>";
 
 msg("Step 1 complete. Run Step 2.","good");
 }
 
-function step2BasicMatrix(){
+function basicMatrix(){
 if(S.draws.length<20){
 msg("Run Step 1 first.","bad");
 return;
 }
 
-let total=S.draws.length;
+var total=S.draws.length;
 
-S.draws.forEach((d,i)=>{
-d.forEach(n=>{
+for(var i=0;i<S.draws.length;i++){
+var d=S.draws[i];
+
+for(var j=0;j<5;j++){
+var n=d[j];
 S.freq[n]++;
-if(S.last[n]>=0){
-S.gaps[n].push(i-S.last[n]);
-}
+if(S.last[n]>=0){S.gaps[n].push(i-S.last[n]);}
 S.last[n]=i;
-});
+}
 
-for(let a=0;a<5;a++){
-for(let b=a+1;b<5;b++){
-let pk=pairKey(d[a],d[b]);
+for(var a=0;a<5;a++){
+for(var b=a+1;b<5;b++){
+var pk=pairKey(d[a],d[b]);
 S.pairs[pk]=(S.pairs[pk]||0)+1;
 }
 }
 
-for(let a=0;a<5;a++){
-for(let b=a+1;b<5;b++){
-for(let c=b+1;c<5;c++){
-let tk=triKey(d[a],d[b],d[c]);
+for(var x=0;x<5;x++){
+for(var y=x+1;y<5;y++){
+for(var z=y+1;z<5;z++){
+var tk=triKey(d[x],d[y],d[z]);
 S.triples[tk]=(S.triples[tk]||0)+1;
 }
 }
 }
-});
+}
 
-let avgFreq=total*5/35;
-let rows=[];
+var avgFreq=total*5/35;
+S.rows=[];
 
-for(let n=1;n<=35;n++){
-let delay=S.last[n]<0?total:total-1-S.last[n];
-let gap=avg(S.gaps[n])||total;
-let hot=S.freq[n]/avgFreq;
-let time=(delay+1)/(gap+1);
+for(var num=1;num<=35;num++){
+var delay=S.last[num]<0 ? total : total-1-S.last[num];
+var gap=avg(S.gaps[num]) || total;
+var hot=S.freq[num]/avgFreq;
+var time=(delay+1)/(gap+1);
+var base=0.40*norm(hot,0,2.5)+0.35*norm(time,0,3.5)+0.25*norm(delay,0,25);
 
-let baseScore=
-0.40*norm(hot,0,2.5)+
-0.35*norm(time,0,3.5)+
-0.25*norm(delay,0,25);
-
-rows.push({
-n:n,
-freq:S.freq[n],
+S.rows.push({
+n:num,
+freq:S.freq[num],
 delay:delay,
 gap:gap,
 hot:hot,
 time:time,
-baseScore:baseScore,
-score:baseScore
+base:base,
+score:base
 });
 }
 
-rows.sort((a,b)=>b.score-a.score || a.n-b.n);
-S.rows=rows;
+S.rows.sort(function(a,b){
+if(b.score!==a.score){return b.score-a.score;}
+return a.n-b.n;
+});
 
-document.getElementById("matrix").innerHTML=
-"<h2>Step 2 Basic Matrix</h2>"+
-"<div class='scroll'><table>"+
-"<tr><th>Rank</th><th>#</th><th>Freq</th><th>Delay</th><th>Avg Gap</th><th>Hot</th><th>Time Ratio</th><th>Base Score</th></tr>"+
-S.rows.map((r,i)=>`
-<tr>
-<td>${i+1}</td>
-<td><b>${String(r.n).padStart(2,"0")}</b></td>
-<td>${r.freq}</td>
-<td>${r.delay}</td>
-<td>${r.gap.toFixed(1)}</td>
-<td>${r.hot.toFixed(2)}</td>
-<td>${r.time.toFixed(2)}</td>
-<td>${r.baseScore.toFixed(3)}</td>
-</tr>`).join("")+
-"</table></div>";
+var html="<h2>Step 2 Basic Matrix</h2><div class='scroll'><table>";
+html+="<tr><th>Rank</th><th>#</th><th>Freq</th><th>Delay</th><th>Gap</th><th>Hot</th><th>Time</th><th>Base</th></tr>";
 
-msg("Step 2 complete. Run Step 3.","good");
+for(var r=0;r<S.rows.length;r++){
+var row=S.rows[r];
+html+="<tr><td>"+(r+1)+"</td><td><b>"+String(row.n).padStart(2,"0")+"</b></td><td>"+row.freq+"</td><td>"+row.delay+"</td><td>"+row.gap.toFixed(1)+"</td><td>"+row.hot.toFixed(2)+"</td><td>"+row.time.toFixed(2)+"</td><td>"+row.base.toFixed(3)+"</td></tr>";
 }
 
-function step3UpgradeScores(){
+html+="</table></div>";
+document.getElementById("matrix").innerHTML=html;
+msg("Step 2 complete. Run Step 3.","good");
+}
+  function upgradeMatrix(){
 if(!S.rows.length){
 msg("Run Step 2 first.","bad");
 return;
 }
 
-let pairRows=buildPairMomentum();
-S.pairRows=pairRows;
+S.pairRows=buildPairMomentum();
 
-S.rows.forEach(r=>{
-let n=r.n;
+for(var i=0;i<S.rows.length;i++){
+var r=S.rows[i];
+var ps=positionScore(r.n);
+var cs=clusterScore(r.n);
+var os=oscillationScore(r.n);
+var bs=bestPairScore(r.n);
 
-let positionScore=positionConfidence(n);
-let clusterScore=clusterPower(n);
-let oscillationScore=oscillationPower(n);
-let pairScore=bestPairScore(n);
+r.position=ps;
+r.cluster=cs;
+r.osc=os;
+r.pair=bs;
 
-r.positionScore=positionScore;
-r.clusterScore=clusterScore;
-r.oscillationScore=oscillationScore;
-r.pairScore=pairScore;
+r.score=r.base+0.18*ps+0.18*cs+0.12*os+0.20*bs;
+}
 
-r.score=
-r.baseScore+
-0.18*positionScore+
-0.18*clusterScore+
-0.12*oscillationScore+
-0.20*pairScore;
+S.rows.sort(function(a,b){
+if(b.score!==a.score){return b.score-a.score;}
+return a.n-b.n;
 });
 
-S.rows.sort((a,b)=>b.score-a.score || a.n-b.n);
+var html="<h2>Step 3 Upgrade Matrix</h2><div class='scroll'><table>";
+html+="<tr><th>Rank</th><th>#</th><th>Base</th><th>Position</th><th>Cluster</th><th>Osc</th><th>Pair</th><th>Total</th></tr>";
 
-document.getElementById("upgrade").innerHTML=
-"<h2>Step 3 Individual Upgrade Scores</h2>"+
-"<div class='scroll'><table>"+
-"<tr><th>Rank</th><th>#</th><th>Base</th><th>Position</th><th>Cluster</th><th>Oscillation</th><th>Pair</th><th>Total</th></tr>"+
-S.rows.map((r,i)=>`
-<tr>
-<td>${i+1}</td>
-<td><b>${String(r.n).padStart(2,"0")}</b></td>
-<td>${r.baseScore.toFixed(3)}</td>
-<td>${r.positionScore.toFixed(3)}</td>
-<td>${r.clusterScore.toFixed(3)}</td>
-<td>${r.oscillationScore.toFixed(3)}</td>
-<td>${r.pairScore.toFixed(3)}</td>
-<td><b>${r.score.toFixed(3)}</b></td>
-</tr>`).join("")+
-"</table></div>";
+for(var i=0;i<S.rows.length;i++){
+var r=S.rows[i];
+html+="<tr><td>"+(i+1)+"</td><td><b>"+String(r.n).padStart(2,"0")+"</b></td><td>"+r.base.toFixed(3)+"</td><td>"+r.position.toFixed(3)+"</td><td>"+r.cluster.toFixed(3)+"</td><td>"+r.osc.toFixed(3)+"</td><td>"+r.pair.toFixed(3)+"</td><td><b>"+r.score.toFixed(3)+"</b></td></tr>";
+}
+
+html+="</table></div>";
+document.getElementById("upgrade").innerHTML=html;
 
 msg("Step 3 complete. Run Step 4.","good");
 }
-  function buildPairMomentum(){
-let windows=[5,10,20,60];
-let all={};
 
-windows.forEach(w=>{
-let slice=S.draws.slice(-Math.min(w,S.draws.length));
-let count={};
+function buildPairMomentum(){
+var windows=[5,10,20,60];
+var all={};
 
-slice.forEach(d=>{
-for(let i=0;i<5;i++){
-for(let j=i+1;j<5;j++){
-let pk=pairKey(d[i],d[j]);
+for(var wi=0;wi<windows.length;wi++){
+var w=windows[wi];
+var start=Math.max(0,S.draws.length-w);
+var count={};
+var size=S.draws.length-start;
+
+for(var i=start;i<S.draws.length;i++){
+var d=S.draws[i];
+
+for(var a=0;a<5;a++){
+for(var b=a+1;b<5;b++){
+var pk=pairKey(d[a],d[b]);
 count[pk]=(count[pk]||0)+1;
 }
 }
-});
+}
 
-Object.keys(count).forEach(k=>{
-if(!all[k])all[k]={key:k,score:0,w5:0,w10:0,w20:0,w60:0};
-let rate=count[k]/slice.length;
-if(w===5)all[k].w5=rate;
-if(w===10)all[k].w10=rate;
-if(w===20)all[k].w20=rate;
-if(w===60)all[k].w60=rate;
-});
-});
+for(var k in count){
+if(!all[k]){
+all[k]={key:k,score:0,w5:0,w10:0,w20:0,w60:0,nums:k.split("-").map(function(x){return parseInt(x,10);})};
+}
 
-Object.values(all).forEach(p=>{
-let accel=(p.w5-p.w20)+(p.w10-p.w60);
-p.score=
-0.42*p.w5+
-0.30*p.w10+
-0.18*p.w20+
-0.10*p.w60+
+var rate=count[k]/size;
+if(w===5){all[k].w5=rate;}
+if(w===10){all[k].w10=rate;}
+if(w===20){all[k].w20=rate;}
+if(w===60){all[k].w60=rate;}
+}
+}
+
+var arr=[];
+
+for(var p in all){
+var row=all[p];
+var accel=(row.w5-row.w20)+(row.w10-row.w60);
+
+row.score=
+0.42*row.w5+
+0.30*row.w10+
+0.18*row.w20+
+0.10*row.w60+
 Math.max(0,accel)*1.25;
 
-p.nums=p.key.split("-").map(Number);
-});
-
-return Object.values(all).sort((a,b)=>b.score-a.score || a.key.localeCompare(b.key));
+arr.push(row);
 }
 
-function positionConfidence(n){
-let windows=[
-{w:10,wt:.45},
-{w:20,wt:.35},
-{w:50,wt:.20}
+arr.sort(function(a,b){
+if(b.score!==a.score){return b.score-a.score;}
+return a.key.localeCompare(b.key);
+});
+
+return arr;
+}
+
+function positionScore(n){
+var windows=[
+{w:10,wt:0.45},
+{w:20,wt:0.35},
+{w:50,wt:0.20}
 ];
 
-let final=[0,0,0,0,0];
+var final=[0,0,0,0,0];
 
-windows.forEach(o=>{
-let slice=S.draws.slice(-Math.min(o.w,S.draws.length));
-let c=[0,0,0,0,0];
-let app=0;
+for(var wi=0;wi<windows.length;wi++){
+var o=windows[wi];
+var start=Math.max(0,S.draws.length-o.w);
+var c=[0,0,0,0,0];
+var app=0;
 
-slice.forEach(d=>{
-d.slice().sort((a,b)=>a-b).forEach((x,i)=>{
-if(x===n){
-c[i]++;
+for(var i=start;i<S.draws.length;i++){
+var d=S.draws[i].slice().sort(function(a,b){return a-b;});
+
+for(var j=0;j<5;j++){
+if(d[j]===n){
+c[j]++;
 app++;
 }
-});
-});
+}
+}
 
 if(app>0){
-for(let i=0;i<5;i++){
-final[i]+=(c[i]/app)*o.wt;
+for(var x=0;x<5;x++){
+final[x]+=(c[x]/app)*o.wt;
 }
 }
-});
+}
 
-let sorted=final.slice().sort((a,b)=>b-a);
+var sorted=final.slice().sort(function(a,b){return b-a;});
 return sorted[0]-(sorted[1]||0);
 }
 
-function clusterPower(n){
-let configs=[
-{w:10,wt:.45},
-{w:25,wt:.35},
-{w:60,wt:.20}
+function clusterScore(n){
+var configs=[
+{w:10,wt:0.45},
+{w:25,wt:0.35},
+{w:60,wt:0.20}
 ];
 
-let score=0;
+var score=0;
 
-configs.forEach(o=>{
-let slice=S.draws.slice(-Math.min(o.w,S.draws.length));
-let f=Array(36).fill(0);
+for(var ci=0;ci<configs.length;ci++){
+var o=configs[ci];
+var start=Math.max(0,S.draws.length-o.w);
+var f=Array(36).fill(0);
+var size=S.draws.length-start;
 
-slice.forEach(d=>{
-d.forEach(x=>f[x]++);
-});
+for(var i=start;i<S.draws.length;i++){
+var d=S.draws[i];
 
-let left=f[n-1]||0;
-let mid=f[n]||0;
-let right=f[n+1]||0;
+for(var j=0;j<5;j++){
+f[d[j]]++;
+}
+}
 
-let cluster=(left*.75+mid*1.25+right*.75)/(slice.length||1);
-let center=mid/(left+mid+right+1);
+var left=f[n-1]||0;
+var mid=f[n]||0;
+var right=f[n+1]||0;
 
-score+=(cluster*.6+center*.4)*o.wt;
-});
+var cluster=(left*0.75+mid*1.25+right*0.75)/(size||1);
+var center=mid/(left+mid+right+1);
+
+score+=(cluster*0.6+center*0.4)*o.wt;
+}
 
 return score;
 }
 
-function oscillationPower(n){
-let r=S.draws.slice(-Math.min(25,S.draws.length));
-let wave=0;
+function oscillationScore(n){
+var start=Math.max(0,S.draws.length-25);
+var wave=0;
+var size=S.draws.length-start;
 
-for(let i=1;i<r.length;i++){
-if(r[i-1].includes(n-1)&&r[i].includes(n))wave+=1.3;
-if(r[i-1].includes(n+1)&&r[i].includes(n))wave+=1.3;
-if(r[i].includes(n-1)||r[i].includes(n+1))wave+=.25;
+for(var i=start+1;i<S.draws.length;i++){
+var prev=S.draws[i-1];
+var cur=S.draws[i];
+
+if(prev.indexOf(n-1)>=0 && cur.indexOf(n)>=0){wave+=1.3;}
+if(prev.indexOf(n+1)>=0 && cur.indexOf(n)>=0){wave+=1.3;}
+if(cur.indexOf(n-1)>=0 || cur.indexOf(n+1)>=0){wave+=0.25;}
 }
 
-return wave/(r.length||1);
+return wave/(size||1);
 }
 
 function bestPairScore(n){
-let best=0;
+var best=0;
 
-S.pairRows.forEach(p=>{
-if(p.nums.includes(n)){
-best=Math.max(best,p.score);
+for(var i=0;i<S.pairRows.length;i++){
+var p=S.pairRows[i];
+
+if(p.nums.indexOf(n)>=0 && p.score>best){
+best=p.score;
 }
-});
+}
 
 return best;
 }
 
-function step4BuildPools(){
+function buildPools(){
 if(!S.rows.length || !S.pairRows.length){
 msg("Run Step 3 first.","bad");
 return;
 }
 
-let ranked=S.rows.map(r=>r.n);
+var ranked=[];
+for(var i=0;i<S.rows.length;i++){
+ranked.push(S.rows[i].n);
+}
 
 S.strong=ranked.slice(0,10);
 S.secondary=ranked.slice(10,22);
 S.wild=ranked.slice(22,35);
-
 S.recovery=[];
 
-let lastDraw=S.draws[S.draws.length-1]||[];
+var lastDraw=S.draws[S.draws.length-1];
 
-lastDraw.forEach(n=>{
-let used=S.previous.filter(t=>t.includes(n)).length;
-if(used<5 && !S.recovery.includes(n)){
+for(var i=0;i<lastDraw.length;i++){
+var n=lastDraw[i];
+var used=0;
+
+for(var j=0;j<S.previous.length;j++){
+if(S.previous[j].indexOf(n)>=0){used++;}
+}
+
+if(used<5 && S.recovery.indexOf(n)<0){
 S.recovery.push(n);
 }
-});
+}
 
-ranked.forEach(n=>{
-if(S.recovery.length<12 && !S.recovery.includes(n) && S.wild.includes(n)){
+for(var i=0;i<ranked.length && S.recovery.length<12;i++){
+var n=ranked[i];
+
+if(S.wild.indexOf(n)>=0 && S.recovery.indexOf(n)<0){
 S.recovery.push(n);
 }
-});
+}
 
-ranked.forEach(n=>{
-if(S.recovery.length<12 && !S.recovery.includes(n)){
+for(var i=0;i<ranked.length && S.recovery.length<12;i++){
+var n=ranked[i];
+
+if(S.recovery.indexOf(n)<0){
 S.recovery.push(n);
 }
-});
+}
 
 S.bridge4=buildBridge4();
 
-document.getElementById("pools").innerHTML=
-`<h2>Step 4 Pools Built Individually</h2>
-<div class="grid">
-<div class="stat"><b>${S.strong.map(n=>String(n).padStart(2,"0")).join(" - ")}</b><br>Strong Pool: top 10</div>
-<div class="stat"><b>${S.secondary.map(n=>String(n).padStart(2,"0")).join(" - ")}</b><br>Secondary Pool: rank 11-22</div>
-<div class="stat"><b>${S.wild.map(n=>String(n).padStart(2,"0")).join(" - ")}</b><br>Wildcard Pool: rank 23-35</div>
-<div class="stat"><b>${S.recovery.map(n=>String(n).padStart(2,"0")).join(" - ")}</b><br>Missed Draw Recovery</div>
-</div>
+var html="<h2>Step 4 Pools</h2>";
+html+="<div class='grid'>";
+html+="<div class='stat'><b>"+S.strong.map(function(n){return String(n).padStart(2,'0');}).join(" - ")+"</b><br>Strong Pool</div>";
+html+="<div class='stat'><b>"+S.secondary.map(function(n){return String(n).padStart(2,'0');}).join(" - ")+"</b><br>Secondary Pool</div>";
+html+="<div class='stat'><b>"+S.wild.map(function(n){return String(n).padStart(2,'0');}).join(" - ")+"</b><br>Wildcard Pool</div>";
+html+="<div class='stat'><b>"+S.recovery.map(function(n){return String(n).padStart(2,'0');}).join(" - ")+"</b><br>Recovery Pool</div>";
+html+="</div>";
 
-<h3>Top Pair Momentum</h3>
-<div class="scroll"><table>
-<tr><th>Rank</th><th>Pair</th><th>Score</th></tr>
-${S.pairRows.slice(0,30).map((p,i)=>`
-<tr>
-<td>${i+1}</td>
-<td><b>${p.key}</b></td>
-<td>${p.score.toFixed(3)}</td>
-</tr>`).join("")}
-</table></div>
+html+="<h3>Top Pair Momentum</h3><div class='scroll'><table>";
+html+="<tr><th>Rank</th><th>Pair</th><th>Score</th></tr>";
 
-<h3>4-Number Bridge Groups</h3>
-<div class="scroll"><table>
-<tr><th>Rank</th><th>Bridge Group</th><th>Score</th></tr>
-${S.bridge4.slice(0,40).map((b,i)=>`
-<tr>
-<td>${i+1}</td>
-<td><b>${fmt(b.nums)}</b></td>
-<td>${b.score.toFixed(3)}</td>
-</tr>`).join("")}
-</table></div>`;
+for(var i=0;i<Math.min(30,S.pairRows.length);i++){
+html+="<tr><td>"+(i+1)+"</td><td><b>"+S.pairRows[i].key+"</b></td><td>"+S.pairRows[i].score.toFixed(3)+"</td></tr>";
+}
+
+html+="</table></div>";
+
+html+="<h3>Top 4-Number Bridge Groups</h3><div class='scroll'><table>";
+html+="<tr><th>Rank</th><th>Bridge</th><th>Score</th></tr>";
+
+for(var i=0;i<Math.min(40,S.bridge4.length);i++){
+html+="<tr><td>"+(i+1)+"</td><td><b>"+fmt(S.bridge4[i].nums)+"</b></td><td>"+S.bridge4[i].score.toFixed(3)+"</td></tr>";
+}
+
+html+="</table></div>";
+
+document.getElementById("pools").innerHTML=html;
 
 msg("Step 4 complete. Run Step 5.","good");
 }
 
 function buildBridge4(){
-let out=[];
+var out=[];
 
-for(let a=0;a<S.strong.length;a++){
-for(let b=a+1;b<S.strong.length;b++){
-for(let c=b+1;c<S.strong.length;c++){
-for(let d=c+1;d<S.strong.length;d++){
-let nums=[S.strong[a],S.strong[b],S.strong[c],S.strong[d]].sort((x,y)=>x-y);
+for(var a=0;a<S.strong.length;a++){
+for(var b=a+1;b<S.strong.length;b++){
+for(var c=b+1;c<S.strong.length;c++){
+for(var d=c+1;d<S.strong.length;d++){
+var nums=[S.strong[a],S.strong[b],S.strong[c],S.strong[d]].sort(function(x,y){return x-y;});
 out.push({nums:nums,score:bridgeScore(nums)});
 }
 }
 }
 }
 
-out.sort((x,y)=>y.score-x.score || key(x.nums).localeCompare(key(y.nums)));
+out.sort(function(x,y){
+if(y.score!==x.score){return y.score-x.score;}
+return key(x.nums).localeCompare(key(y.nums));
+});
+
 return out;
 }
 
 function bridgeScore(nums){
-let score=0;
+var score=0;
 
-nums.forEach(n=>{
-let r=S.rows.find(x=>x.n===n);
-score+=(r?r.score:0);
-});
+for(var i=0;i<nums.length;i++){
+var n=nums[i];
 
-for(let i=0;i<nums.length;i++){
-for(let j=i+1;j<nums.length;j++){
-let pk=pairKey(nums[i],nums[j]);
-let p=S.pairRows.find(x=>x.key===pk);
-score+=(p?p.score:0)*1.75;
+for(var r=0;r<S.rows.length;r++){
+if(S.rows[r].n===n){
+score+=S.rows[r].score;
+break;
+}
+}
+}
+
+for(var i=0;i<nums.length;i++){
+for(var j=i+1;j<nums.length;j++){
+var pk=pairKey(nums[i],nums[j]);
+var pairScore=0;
+
+for(var p=0;p<S.pairRows.length;p++){
+if(S.pairRows[p].key===pk){
+pairScore=S.pairRows[p].score;
+break;
+}
+}
+
+score+=pairScore*1.75;
 score+=(S.pairs[pk]||0)*0.02;
 }
 }
 
 return score;
 }
-  function step5BuildTickets(){
+  function buildTop40(){
 if(!S.bridge4.length){
 msg("Run Step 4 first.","bad");
 return;
@@ -584,22 +636,21 @@ buildBalanced();
 buildRecovery();
 finishTop40();
 
-document.getElementById("top40").innerHTML=renderTickets();
-
-msg("Step 5 complete. Top 40 created step by step.","good");
+renderTop40();
+msg("Step 5 complete. Top 40 created.","good");
 }
 
 function build4Plus1(){
-let challengers=[...S.secondary,...S.wild,...S.recovery];
-let made=0;
+var challengers=S.secondary.concat(S.wild).concat(S.recovery);
+var made=0;
 
-for(let i=0;i<S.bridge4.length && made<12;i++){
-let bridge=S.bridge4[i].nums;
+for(var i=0;i<S.bridge4.length && made<12;i++){
+var bridge=S.bridge4[i].nums;
 
-for(let j=0;j<challengers.length;j++){
-let ch=challengers[(i+j)%challengers.length];
+for(var j=0;j<challengers.length;j++){
+var ch=challengers[(i+j)%challengers.length];
 
-if(addTicket([...bridge,ch],"4+1 Bridge","4 matrix numbers + 1 challenger",true)){
+if(addTicket(bridge.concat([ch]),"4+1 Bridge","4 matrix numbers + 1 challenger",true)){
 made++;
 break;
 }
@@ -608,11 +659,11 @@ break;
 }
 
 function build3Plus2(){
-let made=0;
-let outsiders=[...S.secondary,...S.recovery,...S.wild];
+var outsiders=S.secondary.concat(S.recovery).concat(S.wild);
+var made=0;
 
-for(let i=0;i<60 && made<10;i++){
-let nums=[
+for(var i=0;i<80 && made<10;i++){
+var nums=[
 S.strong[i%S.strong.length],
 S.strong[(i+3)%S.strong.length],
 S.strong[(i+6)%S.strong.length],
@@ -627,13 +678,13 @@ made++;
 }
 
 function buildBalanced(){
-let made=0;
-let hot=S.strong.slice(0,6);
-let medium=[...S.strong.slice(6),...S.secondary];
-let cold=[...S.wild,...S.recovery];
+var hot=S.strong.slice(0,6);
+var medium=S.strong.slice(6).concat(S.secondary);
+var cold=S.wild.concat(S.recovery);
+var made=0;
 
-for(let i=0;i<80 && made<10;i++){
-let nums=[
+for(var i=0;i<100 && made<10;i++){
+var nums=[
 hot[i%hot.length],
 hot[(i+3)%hot.length],
 medium[(i+2)%medium.length],
@@ -648,10 +699,10 @@ made++;
 }
 
 function buildRecovery(){
-let made=0;
+var made=0;
 
-for(let i=0;i<80 && made<8;i++){
-let nums=[
+for(var i=0;i<100 && made<8;i++){
+var nums=[
 S.recovery[i%S.recovery.length],
 S.recovery[(i+4)%S.recovery.length],
 S.strong[(i+2)%S.strong.length],
@@ -666,14 +717,18 @@ made++;
 }
 
 function finishTop40(){
-let ranked=S.rows.map(r=>r.n);
+var ranked=[];
 
-for(let a=0;a<ranked.length && S.top40.length<40;a++){
-for(let b=a+1;b<ranked.length && S.top40.length<40;b++){
-for(let c=b+1;c<ranked.length && S.top40.length<40;c++){
-for(let d=c+1;d<ranked.length && S.top40.length<40;d++){
-for(let e=d+1;e<ranked.length && S.top40.length<40;e++){
-let nums=[ranked[a],ranked[b],ranked[c],ranked[d],ranked[e]];
+for(var i=0;i<S.rows.length;i++){
+ranked.push(S.rows[i].n);
+}
+
+for(var a=0;a<ranked.length && S.top40.length<PORTFOLIO_SIZE;a++){
+for(var b=a+1;b<ranked.length && S.top40.length<PORTFOLIO_SIZE;b++){
+for(var c=b+1;c<ranked.length && S.top40.length<PORTFOLIO_SIZE;c++){
+for(var d=c+1;d<ranked.length && S.top40.length<PORTFOLIO_SIZE;d++){
+for(var e=d+1;e<ranked.length && S.top40.length<PORTFOLIO_SIZE;e++){
+var nums=[ranked[a],ranked[b],ranked[c],ranked[d],ranked[e]];
 addTicket(nums,"Safe Fill","deterministic fill to complete Top 40",false);
 }
 }
@@ -683,42 +738,42 @@ addTicket(nums,"Safe Fill","deterministic fill to complete Top 40",false);
 }
 
 function addTicket(nums,type,role,strict){
-nums=[...new Set(nums)].filter(n=>n>=1&&n<=35).sort((a,b)=>a-b);
+nums=uniqueSorted(nums);
 
 if(nums.length!==5){
-S.log.push(["reject",fmt(nums),type,"duplicate or invalid length"]);
+S.log.push(["reject",fmt(nums),type,"invalid or duplicate number"]);
 return false;
 }
 
-if(S.top40.some(t=>key(t.nums)===key(nums))){
+if(ticketExists(nums)){
 S.log.push(["reject",fmt(nums),type,"duplicate ticket"]);
 return false;
 }
 
-if(!balance(nums,strict)){
+if(!balanceOK(nums,strict)){
 S.log.push(["reject",fmt(nums),type,"balance rule"]);
 return false;
 }
 
-if(nums.some(n=>S.usage[n]>=HARD_CAP)){
+if(overHardCap(nums)){
 S.log.push(["reject",fmt(nums),type,"hard cap"]);
 return false;
 }
 
-if(strict && !classCapAllowed(nums)){
+if(strict && !classCapOK(nums)){
 S.log.push(["reject",fmt(nums),type,"class cap"]);
 return false;
 }
 
-let pairs=ticketPairs(nums);
-let triples=ticketTriples(nums);
+var pairs=ticketPairs(nums);
+var triples=ticketTriples(nums);
 
-if(strict && pairs.some(p=>(S.pairUse[p]||0)>=5)){
+if(strict && pairCapBlocked(pairs)){
 S.log.push(["reject",fmt(nums),type,"pair cap"]);
 return false;
 }
 
-if(strict && triples.some(t=>(S.triUse[t]||0)>=2)){
+if(strict && tripleCapBlocked(triples)){
 S.log.push(["reject",fmt(nums),type,"triple cap"]);
 return false;
 }
@@ -730,186 +785,350 @@ role:role,
 score:ticketScore(nums,type)
 });
 
-nums.forEach(n=>S.usage[n]++);
-pairs.forEach(p=>S.pairUse[p]=(S.pairUse[p]||0)+1);
-triples.forEach(t=>S.triUse[t]=(S.triUse[t]||0)+1);
+for(var i=0;i<nums.length;i++){
+S.usage[nums[i]]++;
+}
+
+for(var p=0;p<pairs.length;p++){
+S.pairUse[pairs[p]]=(S.pairUse[pairs[p]]||0)+1;
+}
+
+for(var t=0;t<triples.length;t++){
+S.triUse[triples[t]]=(S.triUse[triples[t]]||0)+1;
+}
 
 S.log.push(["accept",fmt(nums),type,"accepted"]);
 return true;
 }
 
-function classCapAllowed(nums){
-for(let n of nums){
-if(S.strong.includes(n) && S.usage[n]>=STRONG_CAP)return false;
-if(S.secondary.includes(n) && S.usage[n]>=SECONDARY_CAP)return false;
-if(S.wild.includes(n) && S.usage[n]>=WILD_CAP)return false;
+function uniqueSorted(nums){
+var out=[];
+
+for(var i=0;i<nums.length;i++){
+var n=parseInt(nums[i],10);
+
+if(n>=1 && n<=35 && out.indexOf(n)<0){
+out.push(n);
 }
+}
+
+out.sort(function(a,b){return a-b;});
+return out;
+}
+
+function ticketExists(nums){
+var k=key(nums);
+
+for(var i=0;i<S.top40.length;i++){
+if(key(S.top40[i].nums)===k){
 return true;
 }
+}
 
-function balance(nums,strict){
-let sum=nums.reduce((a,b)=>a+b,0);
-if(sum<35 || sum>155)return false;
+return false;
+}
 
-let odd=nums.filter(n=>n%2).length;
-if(odd===0 || odd===5)return false;
+function balanceOK(nums,strict){
+var sum=0;
 
-let low=nums.filter(n=>n<=17).length;
-if(low===0 || low===5)return false;
+for(var i=0;i<nums.length;i++){
+sum+=nums[i];
+}
 
-let zones=[
-nums.filter(n=>n>=1&&n<=7).length,
-nums.filter(n=>n>=8&&n<=14).length,
-nums.filter(n=>n>=15&&n<=21).length,
-nums.filter(n=>n>=22&&n<=28).length,
-nums.filter(n=>n>=29&&n<=35).length
-];
+if(sum<35 || sum>155){
+return false;
+}
 
-if(Math.max(...zones)>3)return false;
+var odd=0;
+var low=0;
+var zones=[0,0,0,0,0];
+
+for(var i=0;i<nums.length;i++){
+var n=nums[i];
+
+if(n%2===1){odd++;}
+if(n<=17){low++;}
+
+if(n>=1 && n<=7){zones[0]++;}
+else if(n>=8 && n<=14){zones[1]++;}
+else if(n>=15 && n<=21){zones[2]++;}
+else if(n>=22 && n<=28){zones[3]++;}
+else if(n>=29 && n<=35){zones[4]++;}
+}
+
+if(odd===0 || odd===5){
+return false;
+}
+
+if(low===0 || low===5){
+return false;
+}
+
+var maxZone=0;
+
+for(var z=0;z<zones.length;z++){
+if(zones[z]>maxZone){maxZone=zones[z];}
+}
+
+if(maxZone>3){
+return false;
+}
 
 if(strict){
-let last=S.draws[S.draws.length-1];
-if(last && overlap(nums,last)>3)return false;
+var last=S.draws[S.draws.length-1];
 
-let maxPrev=Math.max(0,...S.previous.map(p=>overlap(nums,p)));
-if(maxPrev>=4)return false;
+if(last && overlap(nums,last)>3){
+return false;
+}
+
+var maxPrev=0;
+
+for(var p=0;p<S.previous.length;p++){
+var ov=overlap(nums,S.previous[p]);
+if(ov>maxPrev){maxPrev=ov;}
+}
+
+if(maxPrev>=4){
+return false;
+}
 }
 
 return true;
+}
+
+function overHardCap(nums){
+for(var i=0;i<nums.length;i++){
+if(S.usage[nums[i]]>=HARD_CAP){
+return true;
+}
+}
+return false;
+}
+
+function classCapOK(nums){
+for(var i=0;i<nums.length;i++){
+var n=nums[i];
+
+if(S.strong.indexOf(n)>=0 && S.usage[n]>=STRONG_CAP){
+return false;
+}
+
+if(S.secondary.indexOf(n)>=0 && S.usage[n]>=SECONDARY_CAP){
+return false;
+}
+
+if(S.wild.indexOf(n)>=0 && S.usage[n]>=WILD_CAP){
+return false;
+}
+}
+
+return true;
+}
+
+function pairCapBlocked(pairs){
+for(var i=0;i<pairs.length;i++){
+if((S.pairUse[pairs[i]]||0)>=5){
+return true;
+}
+}
+return false;
+}
+
+function tripleCapBlocked(triples){
+for(var i=0;i<triples.length;i++){
+if((S.triUse[triples[i]]||0)>=2){
+return true;
+}
+}
+return false;
+}
+
+function ticketPairs(nums){
+var out=[];
+
+for(var i=0;i<5;i++){
+for(var j=i+1;j<5;j++){
+out.push(pairKey(nums[i],nums[j]));
+}
+}
+
+return out;
+}
+
+function ticketTriples(nums){
+var out=[];
+
+for(var i=0;i<5;i++){
+for(var j=i+1;j<5;j++){
+for(var k=j+1;k<5;k++){
+out.push(triKey(nums[i],nums[j],nums[k]));
+}
+}
+}
+
+return out;
 }
 
 function ticketScore(nums,type){
-let score=0;
+var score=0;
 
-nums.forEach(n=>{
-let r=S.rows.find(x=>x.n===n);
-score+=(r?r.score:0);
-});
+for(var i=0;i<nums.length;i++){
+for(var r=0;r<S.rows.length;r++){
+if(S.rows[r].n===nums[i]){
+score+=S.rows[r].score;
+break;
+}
+}
+}
 
-for(let i=0;i<5;i++){
-for(let j=i+1;j<5;j++){
-let pk=pairKey(nums[i],nums[j]);
-let pr=S.pairRows.find(p=>p.key===pk);
-score+=(pr?pr.score:0)*1.25;
+for(var a=0;a<5;a++){
+for(var b=a+1;b<5;b++){
+var pk=pairKey(nums[a],nums[b]);
+var pairScore=0;
+
+for(var p=0;p<S.pairRows.length;p++){
+if(S.pairRows[p].key===pk){
+pairScore=S.pairRows[p].score;
+break;
+}
+}
+
+score+=pairScore*1.25;
 score+=(S.pairs[pk]||0)*0.015;
 }
 }
 
-for(let i=0;i<5;i++){
-for(let j=i+1;j<5;j++){
-for(let k=j+1;k<5;k++){
-let tk=triKey(nums[i],nums[j],nums[k]);
+for(var x=0;x<5;x++){
+for(var y=x+1;y<5;y++){
+for(var z=y+1;z<5;z++){
+var tk=triKey(nums[x],nums[y],nums[z]);
 score+=(S.triples[tk]||0)*0.025;
 }
 }
 }
 
-if(type==="4+1 Bridge")score+=.90;
-if(type==="3+2 Blend")score+=.65;
-if(type==="2+2+1 Balanced")score+=.45;
-if(type==="Recovery Wildcard")score+=.35;
-if(type==="Safe Fill")score+=.10;
+if(type==="4+1 Bridge"){score+=0.90;}
+if(type==="3+2 Blend"){score+=0.65;}
+if(type==="2+2+1 Balanced"){score+=0.45;}
+if(type==="Recovery Wildcard"){score+=0.35;}
+if(type==="Safe Fill"){score+=0.10;}
 
 return score;
 }
 
-function countType(t){
-return S.top40.filter(x=>x.type===t).length;
+function countType(type){
+var c=0;
+
+for(var i=0;i<S.top40.length;i++){
+if(S.top40[i].type===type){
+c++;
+}
 }
 
-function renderTickets(){
-let html=
-`<h2>Step 5 Top 40 Tickets</h2>
-<div class="grid">
-<div class="stat"><b>${countType("4+1 Bridge")}</b><br>4 matrix + 1 challenger</div>
-<div class="stat"><b>${countType("3+2 Blend")}</b><br>3 matrix + 2 challenger</div>
-<div class="stat"><b>${countType("2+2+1 Balanced")}</b><br>2 hot + 2 medium + 1 cold</div>
-<div class="stat"><b>${countType("Recovery Wildcard")}</b><br>Recovery wildcard</div>
-<div class="stat"><b>${countType("Safe Fill")}</b><br>Safe fill tickets</div>
-<div class="stat"><b>${S.top40.length}</b><br>Total tickets</div>
-</div>`;
+return c;
+}
+
+function renderTop40(){
+var html="<h2>Top 40 Tickets</h2>";
+
+html+="<div class='grid'>";
+html+="<div class='stat'><b>"+countType("4+1 Bridge")+"</b><br>4 matrix + 1 challenger</div>";
+html+="<div class='stat'><b>"+countType("3+2 Blend")+"</b><br>3 matrix + 2 challenger</div>";
+html+="<div class='stat'><b>"+countType("2+2+1 Balanced")+"</b><br>2 hot + 2 medium + 1 cold</div>";
+html+="<div class='stat'><b>"+countType("Recovery Wildcard")+"</b><br>Recovery wildcard</div>";
+html+="<div class='stat'><b>"+countType("Safe Fill")+"</b><br>Safe fill</div>";
+html+="<div class='stat'><b>"+S.top40.length+"</b><br>Total tickets</div>";
+html+="</div>";
 
 if(S.top40.length<40){
-html+=`<p class="bad"><b>Warning:</b> Only ${S.top40.length} tickets were created. The caps are still too tight for the input data.</p>`;
+html+="<p class='bad'><b>Warning:</b> only "+S.top40.length+" tickets were created.</p>";
 }
 
-html+=
-"<div class='scroll'><table>"+
-"<tr><th>#</th><th>Numbers</th><th>Bucket</th><th>Purpose</th><th>Score</th></tr>"+
-S.top40.map((t,i)=>`
-<tr>
-<td>${i+1}</td>
-<td><b>${fmt(t.nums)}</b></td>
-<td>${t.type}</td>
-<td>${t.role}</td>
-<td>${t.score.toFixed(3)}</td>
-</tr>`).join("")+
-"</table></div>";
+html+="<div class='scroll'><table>";
+html+="<tr><th>#</th><th>Numbers</th><th>Bucket</th><th>Purpose</th><th>Score</th></tr>";
 
-html+=
-"<h2>Number Usage</h2>"+
-"<div class='scroll'><table>"+
-"<tr><th>Number</th><th>Used</th><th>Class</th></tr>"+
-Array.from({length:35},(_,i)=>i+1).map(n=>{
-let cls="Other";
-if(S.strong.includes(n))cls="Strong";
-else if(S.secondary.includes(n))cls="Secondary";
-else if(S.wild.includes(n))cls="Wildcard";
-if(S.recovery.includes(n))cls+=" / Recovery";
-return `
-<tr>
-<td><b>${String(n).padStart(2,"0")}</b></td>
-<td>${S.usage[n]}</td>
-<td>${cls}</td>
-</tr>`;
-}).join("")+
-"</table></div>";
+for(var i=0;i<S.top40.length;i++){
+var t=S.top40[i];
 
-html+=
-"<h2>Accepted / Rejected Calculation Log</h2>"+
-"<div class='scroll'><table>"+
-"<tr><th>Status</th><th>Ticket</th><th>Bucket</th><th>Reason</th></tr>"+
-S.log.slice(-180).map(x=>`
-<tr>
-<td>${x[0]}</td>
-<td>${x[1]}</td>
-<td>${x[2]}</td>
-<td>${x[3]}</td>
-</tr>`).join("")+
-"</table></div>";
-
-html+=
-`<p class="small">
-This version calculates each bucket separately and shows the acceptance/rejection reason.
-It does not use random generation. Same input gives the same ticket list.
-</p>`;
-
-return html;
+html+="<tr>";
+html+="<td>"+(i+1)+"</td>";
+html+="<td><b>"+fmt(t.nums)+"</b></td>";
+html+="<td>"+t.type+"</td>";
+html+="<td>"+t.role+"</td>";
+html+="<td>"+t.score.toFixed(3)+"</td>";
+html+="</tr>";
 }
 
-function printTop40(){
-window.print();
+html+="</table></div>";
+
+html+="<h2>Number Usage</h2>";
+html+="<div class='scroll'><table>";
+html+="<tr><th>Number</th><th>Used</th><th>Class</th></tr>";
+
+for(var n=1;n<=35;n++){
+var cls="Other";
+
+if(S.strong.indexOf(n)>=0){cls="Strong";}
+else if(S.secondary.indexOf(n)>=0){cls="Secondary";}
+else if(S.wild.indexOf(n)>=0){cls="Wildcard";}
+
+if(S.recovery.indexOf(n)>=0){
+cls+=" / Recovery";
+}
+
+html+="<tr>";
+html+="<td><b>"+String(n).padStart(2,"0")+"</b></td>";
+html+="<td>"+S.usage[n]+"</td>";
+html+="<td>"+cls+"</td>";
+html+="</tr>";
+}
+
+html+="</table></div>";
+
+html+="<h2>Calculation Log</h2>";
+html+="<div class='scroll'><table>";
+html+="<tr><th>Status</th><th>Ticket</th><th>Bucket</th><th>Reason</th></tr>";
+
+var start=Math.max(0,S.log.length-200);
+
+for(var i=start;i<S.log.length;i++){
+html+="<tr>";
+html+="<td>"+S.log[i][0]+"</td>";
+html+="<td>"+S.log[i][1]+"</td>";
+html+="<td>"+S.log[i][2]+"</td>";
+html+="<td>"+S.log[i][3]+"</td>";
+html+="</tr>";
+}
+
+html+="</table></div>";
+
+html+="<p class='small'>No random generator is used. Same input creates the same Top 40.</p>";
+
+document.getElementById("top40").innerHTML=html;
 }
 
 function exportExcel(){
-let html="<table border='1'><tr><th>#</th><th>Numbers</th><th>Bucket</th><th>Purpose</th><th>Score</th></tr>";
+var html="<table border='1'>";
+html+="<tr><th>#</th><th>Numbers</th><th>Bucket</th><th>Purpose</th><th>Score</th></tr>";
 
-S.top40.forEach((t,i)=>{
-html+=`<tr>
-<td>${i+1}</td>
-<td>${fmt(t.nums)}</td>
-<td>${t.type}</td>
-<td>${t.role}</td>
-<td>${t.score.toFixed(3)}</td>
-</tr>`;
-});
+for(var i=0;i<S.top40.length;i++){
+var t=S.top40[i];
+
+html+="<tr>";
+html+="<td>"+(i+1)+"</td>";
+html+="<td>"+fmt(t.nums)+"</td>";
+html+="<td>"+t.type+"</td>";
+html+="<td>"+t.role+"</td>";
+html+="<td>"+t.score.toFixed(3)+"</td>";
+html+="</tr>";
+}
 
 html+="</table>";
 
-let blob=new Blob([html],{type:"application/vnd.ms-excel"});
-let a=document.createElement("a");
+var blob=new Blob([html],{type:"application/vnd.ms-excel"});
+var a=document.createElement("a");
 a.href=URL.createObjectURL(blob);
-a.download="Cash5_Step_By_Step_Top40.xls";
+a.download="Cash5_Clean_Matrix_Top40.xls";
 a.click();
 }
 </script>
