@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta
+  name="viewport"
+  content="width=device-width, initial-scale=1.0"
+>
 
 <title>Cash 5 Machine-Order Coverage Simulator</title>
 
@@ -36,8 +39,8 @@
 
 body {
   margin: 0;
-  background: var(--bg);
   color: var(--ink);
+  background: var(--bg);
   font-family: Arial, Helvetica, sans-serif;
 }
 
@@ -113,8 +116,8 @@ textarea {
 }
 
 textarea:focus {
-  outline: 2px solid rgba(21, 90, 150, 0.22);
   border-color: var(--accent);
+  outline: 2px solid rgba(21, 90, 150, 0.22);
 }
 
 .controls {
@@ -133,14 +136,13 @@ button {
   cursor: pointer;
 }
 
-button:hover {
+button:hover:not(:disabled) {
   transform: translateY(-1px);
 }
 
 button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
-  transform: none;
 }
 
 .btn-primary {
@@ -216,6 +218,7 @@ button:disabled {
   margin-top: 4px;
   color: var(--accent-dark);
   font-size: 22px;
+  overflow-wrap: anywhere;
 }
 
 .column-tabs {
@@ -271,45 +274,6 @@ th {
   background: var(--cold);
 }
 
-.badge {
-  display: inline-block;
-  min-width: 66px;
-  padding: 4px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.badge-hot {
-  color: #0e5738;
-  background: #bfe7cf;
-}
-
-.badge-warm {
-  color: #244c82;
-  background: #cddfff;
-}
-
-.badge-cold {
-  color: #744400;
-  background: #ffe0a8;
-}
-
-.badge-primary {
-  color: #244c82;
-  background: var(--primary);
-}
-
-.badge-reserve {
-  color: #744400;
-  background: var(--reserve);
-}
-
-.badge-emergency {
-  color: #542987;
-  background: var(--emergency);
-}
-
 .candidate-box,
 .transition-box,
 .coverage-box {
@@ -338,13 +302,21 @@ th {
 }
 
 .candidate-pill {
-  min-width: 72px;
+  min-width: 76px;
   padding: 8px 10px;
   text-align: center;
   font-weight: 700;
   background: #ffffff;
   border: 1px solid #cbd5df;
   border-radius: 8px;
+}
+
+.candidate-pill.primary {
+  background: var(--primary);
+}
+
+.candidate-pill.reserve {
+  background: var(--reserve);
 }
 
 .ticket-grid {
@@ -411,12 +383,6 @@ th {
 
 .hidden {
   display: none !important;
-}
-
-.note {
-  margin-top: 12px;
-  color: var(--muted);
-  line-height: 1.5;
 }
 
 @media print {
@@ -489,29 +455,47 @@ th {
 17 12 2 30 13"></textarea>
 
     <div class="controls">
-      <button class="btn-primary" id="analyzeBtn">
+      <button
+        type="button"
+        class="btn-primary"
+        id="analyzeBtn">
         Analyze Columns
       </button>
 
-      <button class="btn-generate" id="generateBtn" disabled>
+      <button
+        type="button"
+        class="btn-generate"
+        id="generateBtn"
+        disabled>
         Generate 40 Future Draws
       </button>
 
-      <button class="btn-print" id="printBtn" disabled>
+      <button
+        type="button"
+        class="btn-print"
+        id="printBtn"
+        disabled>
         Print 40 Numbers
       </button>
 
-      <button class="btn-download" id="downloadBtn" disabled>
+      <button
+        type="button"
+        class="btn-download"
+        id="downloadBtn"
+        disabled>
         Download Excel Results
       </button>
 
-      <button class="btn-clear" id="clearBtn">
+      <button
+        type="button"
+        class="btn-clear"
+        id="clearBtn">
         Clear
       </button>
     </div>
 
     <div class="status" id="statusBox">
-      Enter historical machine-order draws and select Analyze Columns.
+      Program loaded. Enter historical machine-order draws.
     </div>
   </div>
 </section>
@@ -521,8 +505,8 @@ th {
     <h2>Independent Column Analysis</h2>
 
     <p>
-      Each position is analyzed separately using frequency, recent
-      activity, gaps, timing and transitions.
+      Frequency, recent activity, return gaps and historical transitions
+      are calculated independently for each machine position.
     </p>
   </div>
 
@@ -545,6 +529,7 @@ th {
   <div class="panel-body">
     <div class="coverage-box" id="coverageSummary">
       <h3>Coverage Report</h3>
+
       <div class="summary-grid" id="coverageCards"></div>
 
       <div
@@ -561,1003 +546,1000 @@ th {
 <script>
 "use strict";
 
-const MAX_ROWS = 1000;
-const NUMBER_MIN = 1;
-const NUMBER_MAX = 35;
-const COLUMN_COUNT = 5;
-const TICKET_COUNT = 40;
+document.addEventListener("DOMContentLoaded", function () {
+  const MAX_ROWS = 1000;
+  const NUMBER_MIN = 1;
+  const NUMBER_MAX = 35;
+  const COLUMN_COUNT = 5;
+  const TICKET_COUNT = 40;
 
-const PRIMARY_POOL_SIZE = 12;
-const RESERVE_POOL_END = 20;
+  const PRIMARY_POOL_SIZE = 12;
+  const RESERVE_POOL_SIZE = 8;
 
-const MIN_UNIQUE_COVERAGE = 28;
-const TARGET_UNIQUE_COVERAGE = 30;
+  const MIN_UNIQUE_COVERAGE = 28;
+  const TARGET_UNIQUE_COVERAGE = 30;
 
-const TARGET_MAX_EXPOSURE = 9;
-const HARD_MAX_EXPOSURE = 11;
+  const TARGET_MAX_EXPOSURE = 9;
+  const HARD_MAX_EXPOSURE = 11;
 
-const TARGET_MAX_COLUMN_EXPOSURE = 5;
-const HARD_MAX_COLUMN_EXPOSURE = 7;
+  const TARGET_MAX_COLUMN_EXPOSURE = 5;
+  const HARD_MAX_COLUMN_EXPOSURE = 7;
 
-const TARGET_MAX_PAIR_EXPOSURE = 2;
-const HARD_MAX_PAIR_EXPOSURE = 4;
+  const TARGET_MAX_PAIR_EXPOSURE = 2;
+  const HARD_MAX_PAIR_EXPOSURE = 4;
 
-const MATRIX_ATTEMPTS = 60;
+  const MATRIX_ATTEMPTS = 30;
 
-let parsedDraws = [];
-let columnAnalyses = [];
-let generatedTickets = [];
-let generatedStatistics = null;
-let selectedColumnIndex = 0;
+  let parsedDraws = [];
+  let columnAnalyses = [];
+  let generatedTickets = [];
+  let generatedStatistics = null;
+  let selectedColumnIndex = 0;
 
-const drawInput =
-  document.getElementById("drawInput");
+  const drawInput =
+    document.getElementById("drawInput");
 
-const analyzeBtn =
-  document.getElementById("analyzeBtn");
+  const analyzeBtn =
+    document.getElementById("analyzeBtn");
 
-const generateBtn =
-  document.getElementById("generateBtn");
+  const generateBtn =
+    document.getElementById("generateBtn");
 
-const printBtn =
-  document.getElementById("printBtn");
+  const printBtn =
+    document.getElementById("printBtn");
 
-const downloadBtn =
-  document.getElementById("downloadBtn");
+  const downloadBtn =
+    document.getElementById("downloadBtn");
 
-const clearBtn =
-  document.getElementById("clearBtn");
+  const clearBtn =
+    document.getElementById("clearBtn");
 
-const statusBox =
-  document.getElementById("statusBox");
+  const statusBox =
+    document.getElementById("statusBox");
 
-const analysisPanel =
-  document.getElementById("analysisPanel");
+  const analysisPanel =
+    document.getElementById("analysisPanel");
 
-const ticketsPanel =
-  document.getElementById("ticketsPanel");
+  const ticketsPanel =
+    document.getElementById("ticketsPanel");
 
-const summaryGrid =
-  document.getElementById("summaryGrid");
+  const summaryGrid =
+    document.getElementById("summaryGrid");
 
-const columnTabs =
-  document.getElementById("columnTabs");
+  const columnTabs =
+    document.getElementById("columnTabs");
 
-const columnAnalysisContent =
-  document.getElementById("columnAnalysisContent");
+  const columnAnalysisContent =
+    document.getElementById("columnAnalysisContent");
 
-const ticketGrid =
-  document.getElementById("ticketGrid");
+  const ticketGrid =
+    document.getElementById("ticketGrid");
 
-const coverageCards =
-  document.getElementById("coverageCards");
+  const coverageCards =
+    document.getElementById("coverageCards");
 
-const exposureTableWrap =
-  document.getElementById("exposureTableWrap");
+  const exposureTableWrap =
+    document.getElementById("exposureTableWrap");
 
-function setStatus(message, type = "") {
-  statusBox.className = "status";
+  function setStatus(message, type) {
+    statusBox.className = "status";
 
-  if (type) {
-    statusBox.classList.add(type);
+    if (type) {
+      statusBox.classList.add(type);
+    }
+
+    statusBox.textContent = message;
   }
 
-  statusBox.textContent = message;
-}
-
-function clamp(value, minimum, maximum) {
-  return Math.max(
-    minimum,
-    Math.min(maximum, value)
-  );
-}
-
-function average(values) {
-  if (!values.length) {
-    return 0;
-  }
-
-  return values.reduce(
-    (sum, value) => sum + value,
-    0
-  ) / values.length;
-}
-
-function standardDeviation(values) {
-  if (!values.length) {
-    return 0;
-  }
-
-  const mean = average(values);
-
-  return Math.sqrt(
-    average(
-      values.map(
-        value => Math.pow(value - mean, 2)
-      )
-    )
-  );
-}
-
-function parseInput(text) {
-  const lines = text
-    .split(/\r?\n/)
-    .map(line => line.trim())
-    .filter(Boolean);
-
-  if (!lines.length) {
-    throw new Error(
-      "No historical draw rows were entered."
+  function clamp(value, minimum, maximum) {
+    return Math.max(
+      minimum,
+      Math.min(maximum, value)
     );
   }
 
-  if (lines.length > MAX_ROWS) {
-    throw new Error(
-      `Only ${MAX_ROWS} draw rows are allowed.`
+  function average(values) {
+    if (!values.length) {
+      return 0;
+    }
+
+    return values.reduce(
+      function (sum, value) {
+        return sum + value;
+      },
+      0
+    ) / values.length;
+  }
+
+  function standardDeviation(values) {
+    if (!values.length) {
+      return 0;
+    }
+
+    const mean = average(values);
+
+    const squaredDifferences =
+      values.map(function (value) {
+        return Math.pow(value - mean, 2);
+      });
+
+    return Math.sqrt(
+      average(squaredDifferences)
     );
   }
 
-  return lines.map((line, index) => {
-    const values = line
-      .split(/[\s,;|\t-]+/)
-      .filter(Boolean)
-      .map(Number);
+  function parseInput(text) {
+    const lines = text
+      .split(/\r?\n/)
+      .map(function (line) {
+        return line.trim();
+      })
+      .filter(function (line) {
+        return line.length > 0;
+      });
 
-    if (values.length !== COLUMN_COUNT) {
+    if (!lines.length) {
       throw new Error(
-        `Row ${index + 1} must contain exactly five numbers.`
+        "No historical draw rows were entered."
       );
     }
 
-    if (
-      values.some(
-        value => !Number.isInteger(value)
-      )
-    ) {
+    if (lines.length > MAX_ROWS) {
       throw new Error(
-        `Row ${index + 1} contains an invalid value.`
+        "A maximum of 1,000 rows is allowed."
       );
     }
 
-    if (
-      values.some(
-        value =>
-          value < NUMBER_MIN ||
-          value > NUMBER_MAX
-      )
-    ) {
-      throw new Error(
-        `Row ${index + 1} contains a number outside 1 through 35.`
-      );
-    }
-
-    if (new Set(values).size !== COLUMN_COUNT) {
-      throw new Error(
-        `Row ${index + 1} contains duplicate numbers.`
-      );
-    }
-
-    return values;
-  });
-}
-
-function getColumnValues(draws, columnIndex) {
-  return draws.map(
-    draw => draw[columnIndex]
-  );
-}
-
-function getRecentCount(
-  values,
-  number,
-  windowSize
-) {
-  return values
-    .slice(-windowSize)
-    .filter(value => value === number)
-    .length;
-}
-
-function getGapData(values, number) {
-  const indexes = [];
-
-  values.forEach((value, index) => {
-    if (value === number) {
-      indexes.push(index);
-    }
-  });
-
-  const gaps = [];
-
-  for (
-    let index = 1;
-    index < indexes.length;
-    index++
-  ) {
-    gaps.push(
-      indexes[index] -
-      indexes[index - 1]
-    );
-  }
-
-  const lastIndex =
-    indexes.length
-      ? indexes[indexes.length - 1]
-      : -1;
-
-  return {
-    currentGap:
-      lastIndex >= 0
-        ? values.length - 1 - lastIndex
-        : values.length,
-
-    averageGap:
-      gaps.length ? average(gaps) : null,
-
-    minimumGap:
-      gaps.length ? Math.min(...gaps) : null,
-
-    maximumGap:
-      gaps.length ? Math.max(...gaps) : null
-  };
-}
-
-function getTransitionData(values, seedNumber) {
-  const immediate = new Map();
-  const second = new Map();
-  const third = new Map();
-
-  for (
-    let index = 0;
-    index < values.length;
-    index++
-  ) {
-    if (values[index] !== seedNumber) {
-      continue;
-    }
-
-    for (let step = 1; step <= 3; step++) {
-      const nextIndex = index + step;
-
-      if (nextIndex >= values.length) {
-        break;
-      }
-
-      const number = values[nextIndex];
-
-      const target =
-        step === 1
-          ? immediate
-          : step === 2
-            ? second
-            : third;
-
-      target.set(
-        number,
-        (target.get(number) || 0) + 1
-      );
-    }
-  }
-
-  return {
-    immediate,
-    second,
-    third
-  };
-}
-  function determineTemperature(
-  frequency,
-  meanFrequency,
-  frequencyDeviation
-) {
-  const hotThreshold =
-    meanFrequency +
-    frequencyDeviation * 0.65;
-
-  const coldThreshold =
-    Math.max(
-      1,
-      meanFrequency -
-      frequencyDeviation * 0.45
-    );
-
-  if (
-    frequency >= hotThreshold &&
-    frequency >= 3
-  ) {
-    return "Hot";
-  }
-
-  if (frequency <= coldThreshold) {
-    return "Cold";
-  }
-
-  return "Warm";
-}
-
-function determineTimingStatus(
-  frequency,
-  currentGap,
-  averageGap,
-  maximumGap,
-  totalDraws
-) {
-  if (frequency <= 1) {
-    if (
-      currentGap >=
-      Math.max(30, totalDraws * 0.18)
-    ) {
-      return "Long absent";
-    }
-
-    return "Insufficient";
-  }
-
-  if (!averageGap || averageGap <= 0) {
-    return "Insufficient";
-  }
-
-  const ratio =
-    currentGap / averageGap;
-
-  if (
-    ratio >= 1.5 ||
-    (
-      maximumGap &&
-      currentGap >= maximumGap
-    )
-  ) {
-    return "Overdue";
-  }
-
-  if (ratio >= 1.05) {
-    return "Due";
-  }
-
-  if (ratio >= 0.72) {
-    return "Cycle";
-  }
-
-  return "Active";
-}
-
-function getTransitionScore(
-  number,
-  transitionData
-) {
-  return (
-    (transitionData.immediate.get(number) || 0) * 3 +
-    (transitionData.second.get(number) || 0) * 1.8 +
-    (transitionData.third.get(number) || 0)
-  );
-}
-
-function analyzeColumn(draws, columnIndex) {
-  const values =
-    getColumnValues(draws, columnIndex);
-
-  const totalDraws =
-    values.length;
-
-  const latestNumber =
-    values[values.length - 1];
-
-  const transitionData =
-    getTransitionData(
-      values,
-      latestNumber
-    );
-
-  const frequencies =
-    Array(NUMBER_MAX).fill(0);
-
-  values.forEach(number => {
-    frequencies[number - 1]++;
-  });
-
-  const meanFrequency =
-    average(frequencies);
-
-  const frequencyDeviation =
-    standardDeviation(frequencies);
-
-  const transitionScores =
-    Array.from(
-      { length: NUMBER_MAX },
-      (_, index) =>
-        getTransitionScore(
-          index + 1,
-          transitionData
-        )
-    );
-
-  const maximumFrequency =
-    Math.max(...frequencies, 1);
-
-  const maximumTransition =
-    Math.max(...transitionScores, 1);
-
-  const rows = [];
-
-  for (
-    let number = NUMBER_MIN;
-    number <= NUMBER_MAX;
-    number++
-  ) {
-    const frequency =
-      frequencies[number - 1];
-
-    const gapData =
-      getGapData(values, number);
-
-    const recent25 =
-      getRecentCount(
-        values,
-        number,
-        Math.min(25, totalDraws)
-      );
-
-    const recent50 =
-      getRecentCount(
-        values,
-        number,
-        Math.min(50, totalDraws)
-      );
-
-    const recent100 =
-      getRecentCount(
-        values,
-        number,
-        Math.min(100, totalDraws)
-      );
-
-    const temperature =
-      determineTemperature(
-        frequency,
-        meanFrequency,
-        frequencyDeviation
-      );
-
-    const timingStatus =
-      determineTimingStatus(
-        frequency,
-        gapData.currentGap,
-        gapData.averageGap,
-        gapData.maximumGap,
-        totalDraws
-      );
-
-    const overdueRatio =
-      gapData.averageGap &&
-      gapData.averageGap > 0
-        ? gapData.currentGap /
-          gapData.averageGap
-        : gapData.currentGap /
-          Math.max(1, totalDraws / 35);
-
-    const transitionScore =
-      transitionScores[number - 1];
-
-    const frequencyNormalized =
-      frequency / maximumFrequency;
-
-    const transitionNormalized =
-      transitionScore /
-      maximumTransition;
-
-    const expected25 =
-      Math.max(
-        1,
-        Math.min(25, totalDraws) / 35
-      );
-
-    const expected50 =
-      Math.max(
-        1,
-        Math.min(50, totalDraws) / 35
-      );
-
-    const recentMomentum = clamp(
-      (
-        recent25 / expected25 * 0.65 +
-        recent50 / expected50 * 0.35
-      ) / 2,
-      0,
-      1
-    );
-
-    const overdueNormalized =
-      clamp(
-        overdueRatio / 2.5,
-        0,
-        1
-      );
-
-    const timingBonusMap = {
-      Overdue: 1,
-      Due: 0.8,
-      Cycle: 0.62,
-      "Long absent": 0.58,
-      Active: 0.42,
-      Insufficient: 0.3
-    };
-
-    const temperatureBonusMap = {
-      Hot: 1,
-      Warm: 0.67,
-      Cold: 0.38
-    };
-
-    const score =
-      transitionNormalized * 30 +
-      overdueNormalized * 23 +
-      frequencyNormalized * 18 +
-      recentMomentum * 13 +
-      timingBonusMap[timingStatus] * 10 +
-      temperatureBonusMap[temperature] * 6;
-
-    rows.push({
-      number,
-      frequency,
-      recent25,
-      recent50,
-      recent100,
-      currentGap:
-        gapData.currentGap,
-      averageGap:
-        gapData.averageGap,
-      minimumGap:
-        gapData.minimumGap,
-      maximumGap:
-        gapData.maximumGap,
-      overdueRatio,
-      temperature,
-      timingStatus,
-      transitionImmediate:
-        transitionData.immediate.get(number) || 0,
-      transitionSecond:
-        transitionData.second.get(number) || 0,
-      transitionThird:
-        transitionData.third.get(number) || 0,
-      transitionScore,
-      score
-    });
-  }
-
-  rows.sort((a, b) => {
-    if (b.score !== a.score) {
-      return b.score - a.score;
-    }
-
-    if (b.frequency !== a.frequency) {
-      return b.frequency - a.frequency;
-    }
-
-    return a.number - b.number;
-  });
-
-  rows.forEach((row, index) => {
-    row.rank = index + 1;
-  });
-
-  const candidates =
-    selectBalancedCandidates(rows);
-
-  return {
-    columnIndex,
-    values,
-    latestNumber,
-    rows,
-    candidates,
-    transitionData
-  };
-}
-
-function selectBalancedCandidates(rows) {
-  const selected = [];
-  const selectedNumbers = new Set();
-
-  function addCategory(filter, maximum) {
-    for (const row of rows) {
-      if (selected.length >= PRIMARY_POOL_SIZE) {
-        break;
+    return lines.map(function (line, index) {
+      const values = line
+        .split(/[\s,;|\t-]+/)
+        .filter(function (value) {
+          return value !== "";
+        })
+        .map(function (value) {
+          return Number(value);
+        });
+
+      if (values.length !== COLUMN_COUNT) {
+        throw new Error(
+          "Row " +
+          (index + 1) +
+          " must contain exactly five numbers."
+        );
       }
 
       if (
-        selectedNumbers.has(row.number) ||
-        !filter(row)
+        values.some(function (value) {
+          return !Number.isInteger(value);
+        })
       ) {
+        throw new Error(
+          "Row " +
+          (index + 1) +
+          " contains an invalid value."
+        );
+      }
+
+      if (
+        values.some(function (value) {
+          return (
+            value < NUMBER_MIN ||
+            value > NUMBER_MAX
+          );
+        })
+      ) {
+        throw new Error(
+          "Row " +
+          (index + 1) +
+          " contains a number outside 1 through 35."
+        );
+      }
+
+      if (
+        new Set(values).size !==
+        COLUMN_COUNT
+      ) {
+        throw new Error(
+          "Row " +
+          (index + 1) +
+          " contains duplicate numbers."
+        );
+      }
+
+      return values;
+    });
+  }
+
+  function getColumnValues(
+    draws,
+    columnIndex
+  ) {
+    return draws.map(function (draw) {
+      return draw[columnIndex];
+    });
+  }
+
+  function getRecentCount(
+    values,
+    number,
+    windowSize
+  ) {
+    return values
+      .slice(-windowSize)
+      .filter(function (value) {
+        return value === number;
+      })
+      .length;
+  }
+
+  function getGapData(values, number) {
+    const indexes = [];
+
+    values.forEach(function (value, index) {
+      if (value === number) {
+        indexes.push(index);
+      }
+    });
+
+    const gaps = [];
+
+    for (
+      let index = 1;
+      index < indexes.length;
+      index++
+    ) {
+      gaps.push(
+        indexes[index] -
+        indexes[index - 1]
+      );
+    }
+
+    const lastIndex =
+      indexes.length
+        ? indexes[indexes.length - 1]
+        : -1;
+
+    return {
+      currentGap:
+        lastIndex >= 0
+          ? values.length - 1 - lastIndex
+          : values.length,
+
+      averageGap:
+        gaps.length
+          ? average(gaps)
+          : null,
+
+      minimumGap:
+        gaps.length
+          ? Math.min.apply(null, gaps)
+          : null,
+
+      maximumGap:
+        gaps.length
+          ? Math.max.apply(null, gaps)
+          : null
+    };
+  }
+    function getTransitionData(
+    values,
+    seedNumber
+  ) {
+    const immediate = new Map();
+    const second = new Map();
+    const third = new Map();
+
+    for (
+      let index = 0;
+      index < values.length;
+      index++
+    ) {
+      if (values[index] !== seedNumber) {
         continue;
       }
 
-      selected.push(row);
-      selectedNumbers.add(row.number);
+      for (let step = 1; step <= 3; step++) {
+        const nextIndex = index + step;
 
-      const categoryCount =
-        selected.filter(filter).length;
+        if (nextIndex >= values.length) {
+          break;
+        }
 
-      if (categoryCount >= maximum) {
-        break;
+        const number = values[nextIndex];
+
+        let targetMap = immediate;
+
+        if (step === 2) {
+          targetMap = second;
+        } else if (step === 3) {
+          targetMap = third;
+        }
+
+        targetMap.set(
+          number,
+          (targetMap.get(number) || 0) + 1
+        );
       }
     }
+
+    return {
+      immediate: immediate,
+      second: second,
+      third: third
+    };
   }
 
-  addCategory(
-    row =>
-      ["Overdue", "Due"].includes(
-        row.timingStatus
-      ) &&
-      row.temperature === "Hot",
-    2
-  );
+  function determineTemperature(
+    frequency,
+    meanFrequency,
+    frequencyDeviation
+  ) {
+    const hotThreshold =
+      meanFrequency +
+      frequencyDeviation * 0.65;
 
-  addCategory(
-    row =>
-      ["Overdue", "Due"].includes(
-        row.timingStatus
-      ) &&
-      row.temperature === "Warm",
-    2
-  );
+    const coldThreshold =
+      Math.max(
+        1,
+        meanFrequency -
+        frequencyDeviation * 0.45
+      );
 
-  addCategory(
-    row =>
-      ["Active", "Cycle"].includes(
-        row.timingStatus
-      ) &&
-      row.temperature === "Hot",
-    2
-  );
-
-  addCategory(
-    row =>
-      ["Active", "Cycle"].includes(
-        row.timingStatus
-      ) &&
-      row.temperature === "Warm",
-    2
-  );
-
-  addCategory(
-    row => row.transitionScore > 0,
-    2
-  );
-
-  addCategory(
-    row =>
-      row.temperature === "Cold" &&
-      row.timingStatus === "Long absent",
-    1
-  );
-
-  for (const row of rows) {
-    if (selected.length >= PRIMARY_POOL_SIZE) {
-      break;
+    if (
+      frequency >= hotThreshold &&
+      frequency >= 3
+    ) {
+      return "Hot";
     }
 
-    if (!selectedNumbers.has(row.number)) {
-      selected.push(row);
-      selectedNumbers.add(row.number);
+    if (frequency <= coldThreshold) {
+      return "Cold";
     }
+
+    return "Warm";
   }
 
-  return selected;
-}
-
-function analyzeAllColumns(draws) {
-  return Array.from(
-    { length: COLUMN_COUNT },
-    (_, columnIndex) =>
-      analyzeColumn(draws, columnIndex)
-  );
-}
-
-function buildColumnPool(analysis) {
-  const primaryNumbers =
-    new Set(
-      analysis.candidates.map(
-        row => row.number
-      )
-    );
-
-  const primary =
-    analysis.candidates.map(row => ({
-      ...row,
-      tier: "Primary",
-      tierPenalty: 0
-    }));
-
-  const remainingRows =
-    analysis.rows.filter(
-      row =>
-        !primaryNumbers.has(row.number)
-    );
-
-  const reserve =
-    remainingRows
-      .slice(
-        0,
-        RESERVE_POOL_END -
-        PRIMARY_POOL_SIZE
-      )
-      .map(row => ({
-        ...row,
-        tier: "Reserve",
-        tierPenalty: 9
-      }));
-
-  const reserveNumbers =
-    new Set(
-      reserve.map(row => row.number)
-    );
-
-  const emergency =
-    remainingRows
-      .filter(
-        row =>
-          !reserveNumbers.has(row.number)
-      )
-      .map(row => ({
-        ...row,
-        tier: "Emergency",
-        tierPenalty: 20
-      }));
-
-  return {
-    primary,
-    reserve,
-    emergency,
-    all: [
-      ...primary,
-      ...reserve,
-      ...emergency
-    ]
-  };
-}
-
-function pairKey(first, second) {
-  return first < second
-    ? `${first}-${second}`
-    : `${second}-${first}`;
-}
-
-function getColumnOrder(rowIndex) {
-  const orders = [
-    [0, 1, 2, 3, 4],
-    [1, 2, 3, 4, 0],
-    [2, 3, 4, 0, 1],
-    [3, 4, 0, 1, 2],
-    [4, 0, 1, 2, 3],
-    [0, 2, 4, 1, 3],
-    [4, 2, 0, 3, 1],
-    [1, 3, 0, 4, 2]
-  ];
-
-  return orders[
-    rowIndex % orders.length
-  ];
-}
-
-function getActivePool(
-  pool,
-  rowIndex,
-  coveredCount
-) {
-  if (
-    rowIndex < 8 &&
-    coveredCount >= 15
+  function determineTimingStatus(
+    frequency,
+    currentGap,
+    averageGap,
+    maximumGap,
+    totalDraws
   ) {
-    return pool.primary;
+    if (frequency <= 1) {
+      if (
+        currentGap >=
+        Math.max(30, totalDraws * 0.18)
+      ) {
+        return "Long absent";
+      }
+
+      return "Insufficient";
+    }
+
+    if (!averageGap || averageGap <= 0) {
+      return "Insufficient";
+    }
+
+    const ratio =
+      currentGap / averageGap;
+
+    if (
+      ratio >= 1.5 ||
+      (
+        maximumGap &&
+        currentGap >= maximumGap
+      )
+    ) {
+      return "Overdue";
+    }
+
+    if (ratio >= 1.05) {
+      return "Due";
+    }
+
+    if (ratio >= 0.72) {
+      return "Cycle";
+    }
+
+    return "Active";
   }
 
-  if (
-    rowIndex < 24 &&
-    coveredCount >= 23
+  function getTransitionScore(
+    number,
+    transitionData
   ) {
-    return [
-      ...pool.primary,
-      ...pool.reserve
+    return (
+      (
+        transitionData.immediate.get(number) ||
+        0
+      ) * 3 +
+      (
+        transitionData.second.get(number) ||
+        0
+      ) * 1.8 +
+      (
+        transitionData.third.get(number) ||
+        0
+      )
+    );
+  }
+
+  function analyzeColumn(
+    draws,
+    columnIndex
+  ) {
+    const values =
+      getColumnValues(
+        draws,
+        columnIndex
+      );
+
+    const totalDraws =
+      values.length;
+
+    const latestNumber =
+      values[values.length - 1];
+
+    const transitionData =
+      getTransitionData(
+        values,
+        latestNumber
+      );
+
+    const frequencies =
+      Array(NUMBER_MAX).fill(0);
+
+    values.forEach(function (number) {
+      frequencies[number - 1]++;
+    });
+
+    const meanFrequency =
+      average(frequencies);
+
+    const frequencyDeviation =
+      standardDeviation(frequencies);
+
+    const transitionScores =
+      Array.from(
+        { length: NUMBER_MAX },
+        function (_, index) {
+          return getTransitionScore(
+            index + 1,
+            transitionData
+          );
+        }
+      );
+
+    const maximumFrequency =
+      Math.max.apply(
+        null,
+        frequencies.concat([1])
+      );
+
+    const maximumTransition =
+      Math.max.apply(
+        null,
+        transitionScores.concat([1])
+      );
+
+    const rows = [];
+
+    for (
+      let number = NUMBER_MIN;
+      number <= NUMBER_MAX;
+      number++
+    ) {
+      const frequency =
+        frequencies[number - 1];
+
+      const gapData =
+        getGapData(values, number);
+
+      const recent25 =
+        getRecentCount(
+          values,
+          number,
+          Math.min(25, totalDraws)
+        );
+
+      const recent50 =
+        getRecentCount(
+          values,
+          number,
+          Math.min(50, totalDraws)
+        );
+
+      const recent100 =
+        getRecentCount(
+          values,
+          number,
+          Math.min(100, totalDraws)
+        );
+
+      const temperature =
+        determineTemperature(
+          frequency,
+          meanFrequency,
+          frequencyDeviation
+        );
+
+      const timingStatus =
+        determineTimingStatus(
+          frequency,
+          gapData.currentGap,
+          gapData.averageGap,
+          gapData.maximumGap,
+          totalDraws
+        );
+
+      const overdueRatio =
+        gapData.averageGap &&
+        gapData.averageGap > 0
+          ? gapData.currentGap /
+            gapData.averageGap
+          : gapData.currentGap /
+            Math.max(
+              1,
+              totalDraws / 35
+            );
+
+      const transitionScore =
+        transitionScores[number - 1];
+
+      const frequencyNormalized =
+        frequency / maximumFrequency;
+
+      const transitionNormalized =
+        transitionScore /
+        maximumTransition;
+
+      const expected25 =
+        Math.max(
+          1,
+          Math.min(25, totalDraws) / 35
+        );
+
+      const expected50 =
+        Math.max(
+          1,
+          Math.min(50, totalDraws) / 35
+        );
+
+      const recentMomentum =
+        clamp(
+          (
+            recent25 / expected25 * 0.65 +
+            recent50 / expected50 * 0.35
+          ) / 2,
+          0,
+          1
+        );
+
+      const overdueNormalized =
+        clamp(
+          overdueRatio / 2.5,
+          0,
+          1
+        );
+
+      const timingBonusMap = {
+        "Overdue": 1,
+        "Due": 0.8,
+        "Cycle": 0.62,
+        "Long absent": 0.58,
+        "Active": 0.42,
+        "Insufficient": 0.3
+      };
+
+      const temperatureBonusMap = {
+        "Hot": 1,
+        "Warm": 0.67,
+        "Cold": 0.38
+      };
+
+      const score =
+        transitionNormalized * 30 +
+        overdueNormalized * 23 +
+        frequencyNormalized * 18 +
+        recentMomentum * 13 +
+        timingBonusMap[timingStatus] * 10 +
+        temperatureBonusMap[temperature] * 6;
+
+      rows.push({
+        number: number,
+        frequency: frequency,
+        recent25: recent25,
+        recent50: recent50,
+        recent100: recent100,
+        currentGap: gapData.currentGap,
+        averageGap: gapData.averageGap,
+        minimumGap: gapData.minimumGap,
+        maximumGap: gapData.maximumGap,
+        overdueRatio: overdueRatio,
+        temperature: temperature,
+        timingStatus: timingStatus,
+
+        transitionImmediate:
+          transitionData.immediate.get(number) ||
+          0,
+
+        transitionSecond:
+          transitionData.second.get(number) ||
+          0,
+
+        transitionThird:
+          transitionData.third.get(number) ||
+          0,
+
+        transitionScore: transitionScore,
+        score: score
+      });
+    }
+
+    rows.sort(function (a, b) {
+      if (b.score !== a.score) {
+        return b.score - a.score;
+      }
+
+      if (b.frequency !== a.frequency) {
+        return b.frequency - a.frequency;
+      }
+
+      return a.number - b.number;
+    });
+
+    rows.forEach(function (row, index) {
+      row.rank = index + 1;
+    });
+
+    return {
+      columnIndex: columnIndex,
+      latestNumber: latestNumber,
+      values: values,
+      rows: rows,
+      transitionData: transitionData
+    };
+  }
+
+  function analyzeAllColumns(draws) {
+    const analyses = [];
+
+    for (
+      let columnIndex = 0;
+      columnIndex < COLUMN_COUNT;
+      columnIndex++
+    ) {
+      analyses.push(
+        analyzeColumn(
+          draws,
+          columnIndex
+        )
+      );
+    }
+
+    return analyses;
+  }
+
+  function buildColumnPool(analysis) {
+    const primary =
+      analysis.rows
+        .slice(0, PRIMARY_POOL_SIZE)
+        .map(function (row) {
+          return Object.assign({}, row, {
+            tier: "Primary",
+            tierPenalty: 0
+          });
+        });
+
+    const reserve =
+      analysis.rows
+        .slice(
+          PRIMARY_POOL_SIZE,
+          PRIMARY_POOL_SIZE +
+          RESERVE_POOL_SIZE
+        )
+        .map(function (row) {
+          return Object.assign({}, row, {
+            tier: "Reserve",
+            tierPenalty: 9
+          });
+        });
+
+    const emergency =
+      analysis.rows
+        .slice(
+          PRIMARY_POOL_SIZE +
+          RESERVE_POOL_SIZE
+        )
+        .map(function (row) {
+          return Object.assign({}, row, {
+            tier: "Emergency",
+            tierPenalty: 20
+          });
+        });
+
+    return {
+      primary: primary,
+      reserve: reserve,
+      emergency: emergency,
+      all:
+        primary
+          .concat(reserve)
+          .concat(emergency)
+    };
+  }
+
+  function pairKey(first, second) {
+    if (first < second) {
+      return first + "-" + second;
+    }
+
+    return second + "-" + first;
+  }
+
+  function getColumnOrder(rowIndex) {
+    const orders = [
+      [0, 1, 2, 3, 4],
+      [1, 2, 3, 4, 0],
+      [2, 3, 4, 0, 1],
+      [3, 4, 0, 1, 2],
+      [4, 0, 1, 2, 3],
+      [0, 2, 4, 1, 3],
+      [4, 2, 0, 3, 1],
+      [1, 3, 0, 4, 2]
+    ];
+
+    return orders[
+      rowIndex % orders.length
     ];
   }
 
-  return pool.all;
-}
-
-function calculateCandidateScore(
-  candidate,
-  columnIndex,
-  rowNumbers,
-  rowIndex,
-  globalUsage,
-  columnUsage,
-  pairUsage,
-  coveredNumbers
-) {
-  const number =
-    candidate.number;
-
-  const globalCount =
-    globalUsage[number] || 0;
-
-  const columnCount =
-    columnUsage[columnIndex][number] || 0;
-
-  if (
-    globalCount >= HARD_MAX_EXPOSURE ||
-    columnCount >= HARD_MAX_COLUMN_EXPOSURE
+  function getActivePool(
+    pool,
+    rowIndex,
+    coveredCount
   ) {
-    return -Infinity;
+    if (
+      rowIndex < 10 &&
+      coveredCount < 20
+    ) {
+      return pool.primary.concat(
+        pool.reserve
+      );
+    }
+
+    if (
+      rowIndex < 25 &&
+      coveredCount >= 22
+    ) {
+      return pool.primary.concat(
+        pool.reserve
+      );
+    }
+
+    return pool.all;
   }
 
-  let score =
-    candidate.score -
-    candidate.tierPenalty;
-
-  score -= globalCount * 5.5;
-  score -= columnCount * 8;
-
-  if (
-    globalCount >= TARGET_MAX_EXPOSURE
+  function calculateCandidateScore(
+    candidate,
+    columnIndex,
+    rowNumbers,
+    rowIndex,
+    globalUsage,
+    columnUsage,
+    pairUsage,
+    coveredNumbers
   ) {
-    score -= 40;
-  }
+    const number =
+      candidate.number;
 
-  if (
-    columnCount >=
-    TARGET_MAX_COLUMN_EXPOSURE
-  ) {
-    score -= 25;
-  }
+    const globalCount =
+      globalUsage[number] || 0;
 
-  if (!coveredNumbers.has(number)) {
-    score +=
+    const columnCount =
+      columnUsage[columnIndex][number] ||
+      0;
+
+    if (
+      globalCount >= HARD_MAX_EXPOSURE
+    ) {
+      return -Infinity;
+    }
+
+    if (
+      columnCount >=
+      HARD_MAX_COLUMN_EXPOSURE
+    ) {
+      return -Infinity;
+    }
+
+    let score =
+      candidate.score -
+      candidate.tierPenalty;
+
+    score -= globalCount * 5;
+    score -= columnCount * 8;
+
+    if (
+      globalCount >=
+      TARGET_MAX_EXPOSURE
+    ) {
+      score -= 40;
+    }
+
+    if (
+      columnCount >=
+      TARGET_MAX_COLUMN_EXPOSURE
+    ) {
+      score -= 28;
+    }
+
+    if (!coveredNumbers.has(number)) {
+      if (
+        coveredNumbers.size <
+        MIN_UNIQUE_COVERAGE
+      ) {
+        score += 55;
+      } else {
+        score += 18;
+      }
+    }
+
+    if (
+      rowIndex >= 24 &&
       coveredNumbers.size <
-      MIN_UNIQUE_COVERAGE
-        ? 58
-        : 20;
-  }
-
-  if (
-    rowIndex >= 24 &&
-    coveredNumbers.size <
       TARGET_UNIQUE_COVERAGE &&
-    !coveredNumbers.has(number)
+      !coveredNumbers.has(number)
+    ) {
+      score += 30;
+    }
+
+    rowNumbers.forEach(function (
+      existingNumber
+    ) {
+      const count =
+        pairUsage[
+          pairKey(
+            number,
+            existingNumber
+          )
+        ] || 0;
+
+      score -= count * 17;
+
+      if (
+        count >=
+        TARGET_MAX_PAIR_EXPOSURE
+      ) {
+        score -= 20;
+      }
+
+      if (
+        count >=
+        HARD_MAX_PAIR_EXPOSURE
+      ) {
+        score -= 80;
+      }
+    });
+
+    score += Math.random() * 2;
+
+    return score;
+  }
+
+  function selectCandidate(
+    pool,
+    columnIndex,
+    rowNumbers,
+    rowIndex,
+    globalUsage,
+    columnUsage,
+    pairUsage,
+    coveredNumbers
   ) {
-    score += 30;
-  }
-
-  for (const existing of rowNumbers) {
-    const count =
-      pairUsage[
-        pairKey(number, existing)
-      ] || 0;
-
-    score -= count * 18;
-
-    if (
-      count >= TARGET_MAX_PAIR_EXPOSURE
-    ) {
-      score -= 20;
-    }
-
-    if (
-      count >= HARD_MAX_PAIR_EXPOSURE
-    ) {
-      score -= 80;
-    }
-  }
-
-  score += Math.random() * 3;
-
-  return score;
-}
-
-function selectCandidate(
-  pool,
-  columnIndex,
-  rowNumbers,
-  rowIndex,
-  globalUsage,
-  columnUsage,
-  pairUsage,
-  coveredNumbers
-) {
-  const activePool =
-    getActivePool(
-      pool,
-      rowIndex,
-      coveredNumbers.size
-    );
-
-  const scored =
-    activePool
-      .filter(
-        candidate =>
-          !rowNumbers.includes(
-            candidate.number
-          )
-      )
-      .map(candidate => ({
-        candidate,
-        score:
-          calculateCandidateScore(
-            candidate,
-            columnIndex,
-            rowNumbers,
-            rowIndex,
-            globalUsage,
-            columnUsage,
-            pairUsage,
-            coveredNumbers
-          )
-      }))
-      .filter(
-        item =>
-          Number.isFinite(item.score)
-      )
-      .sort(
-        (a, b) => b.score - a.score
+    const activePool =
+      getActivePool(
+        pool,
+        rowIndex,
+        coveredNumbers.size
       );
 
-  if (scored.length) {
-    const selectionRange =
-      Math.min(3, scored.length);
+    const scored =
+      activePool
+        .filter(function (candidate) {
+          return !rowNumbers.includes(
+            candidate.number
+          );
+        })
+        .map(function (candidate) {
+          return {
+            candidate: candidate,
 
-    return scored[
-      Math.floor(
-        Math.random() *
-        selectionRange
-      )
-    ].candidate.number;
+            score:
+              calculateCandidateScore(
+                candidate,
+                columnIndex,
+                rowNumbers,
+                rowIndex,
+                globalUsage,
+                columnUsage,
+                pairUsage,
+                coveredNumbers
+              )
+          };
+        })
+        .filter(function (item) {
+          return Number.isFinite(
+            item.score
+          );
+        })
+        .sort(function (a, b) {
+          return b.score - a.score;
+        });
+
+    if (scored.length) {
+      const selectionRange =
+        Math.min(3, scored.length);
+
+      const selectedIndex =
+        Math.floor(
+          Math.random() *
+          selectionRange
+        );
+
+      return scored[
+        selectedIndex
+      ].candidate.number;
+    }
+
+    const fallback =
+      pool.all
+        .filter(function (candidate) {
+          return !rowNumbers.includes(
+            candidate.number
+          );
+        })
+        .sort(function (a, b) {
+          const aGlobal =
+            globalUsage[a.number] || 0;
+
+          const bGlobal =
+            globalUsage[b.number] || 0;
+
+          const aColumn =
+            columnUsage[columnIndex][a.number] ||
+            0;
+
+          const bColumn =
+            columnUsage[columnIndex][b.number] ||
+            0;
+
+          return (
+            aGlobal - bGlobal ||
+            aColumn - bColumn ||
+            b.score - a.score
+          );
+        });
+
+    if (!fallback.length) {
+      return null;
+    }
+
+    return fallback[0].number;
   }
 
-  /*
-    Safe fallback. It prevents the generator from
-    becoming trapped when the preferred pool is
-    temporarily blocked by exposure limits.
-  */
-  const fallback =
-    pool.all
-      .filter(
-        candidate =>
-          !rowNumbers.includes(
-            candidate.number
-          )
-      )
-      .sort((a, b) => {
-        const aGlobal =
-          globalUsage[a.number] || 0;
-
-        const bGlobal =
-          globalUsage[b.number] || 0;
-
-        const aColumn =
-          columnUsage[columnIndex][a.number] || 0;
-
-        const bColumn =
-          columnUsage[columnIndex][b.number] || 0;
-
-        return (
-          aGlobal - bGlobal ||
-          aColumn - bColumn ||
-          b.score - a.score
-        );
-      });
-
-  return fallback.length
-    ? fallback[0].number
-    : null;
-}
-
-function updateStatistics(
-  ticket,
-  globalUsage,
-  columnUsage,
-  pairUsage,
-  coveredNumbers
-) {
-  ticket.forEach(
-    (number, columnIndex) => {
+  function updateStatistics(
+    ticket,
+    globalUsage,
+    columnUsage,
+    pairUsage,
+    coveredNumbers
+  ) {
+    ticket.forEach(function (
+      number,
+      columnIndex
+    ) {
       globalUsage[number] =
         (globalUsage[number] || 0) + 1;
 
@@ -1568,1028 +1550,1046 @@ function updateStatistics(
         ) + 1;
 
       coveredNumbers.add(number);
-    }
-  );
+    });
 
-  for (
-    let firstIndex = 0;
-    firstIndex < ticket.length;
-    firstIndex++
-  ) {
     for (
-      let secondIndex =
-        firstIndex + 1;
-      secondIndex < ticket.length;
-      secondIndex++
+      let firstIndex = 0;
+      firstIndex < ticket.length;
+      firstIndex++
     ) {
-      const key =
-        pairKey(
-          ticket[firstIndex],
-          ticket[secondIndex]
-        );
+      for (
+        let secondIndex =
+          firstIndex + 1;
+        secondIndex < ticket.length;
+        secondIndex++
+      ) {
+        const key =
+          pairKey(
+            ticket[firstIndex],
+            ticket[secondIndex]
+          );
 
-      pairUsage[key] =
-        (pairUsage[key] || 0) + 1;
+        pairUsage[key] =
+          (pairUsage[key] || 0) + 1;
+      }
     }
   }
-}
 
-function ticketKey(ticket) {
-  return ticket.join("-");
-}
+  function ticketKey(ticket) {
+    return ticket.join("-");
+  }
 
-function getMaximumObjectValue(object) {
-  const values =
-    Object.values(object);
+  function getMaximumValue(object) {
+    const values =
+      Object.values(object);
 
-  return values.length
-    ? Math.max(...values)
-    : 0;
-}
+    if (!values.length) {
+      return 0;
+    }
 
-function getMaximumColumnExposure(
-  columnUsage
-) {
-  return Math.max(
-    ...columnUsage.map(
-      usage =>
-        getMaximumObjectValue(usage)
-    )
-  );
-}
-
-function getRepeatedPairCount(pairUsage) {
-  return Object.values(pairUsage)
-    .filter(
-      count =>
-        count >
-        TARGET_MAX_PAIR_EXPOSURE
-    )
-    .length;
-}
-  function buildMatrixAttempt(columnPools) {
-  const tickets = [];
-  const seenTickets = new Set();
-
-  const globalUsage = {};
-  const columnUsage =
-    Array.from(
-      { length: COLUMN_COUNT },
-      () => ({})
+    return Math.max.apply(
+      null,
+      values
     );
+  }
 
-  const pairUsage = {};
-  const coveredNumbers = new Set();
-
-  for (
-    let rowIndex = 0;
-    rowIndex < TICKET_COUNT;
-    rowIndex++
+  function getMaximumColumnExposure(
+    columnUsage
   ) {
-    const ticket =
-      Array(COLUMN_COUNT).fill(null);
+    return Math.max.apply(
+      null,
+      columnUsage.map(function (usage) {
+        return getMaximumValue(usage);
+      })
+    );
+  }
+    function buildMatrixAttempt(columnPools) {
+    const tickets = [];
+    const seenTickets = new Set();
 
-    const columnOrder =
-      getColumnOrder(rowIndex);
+    const globalUsage = {};
 
-    for (const columnIndex of columnOrder) {
-      const rowNumbers =
-        ticket.filter(
-          value => value !== null
-        );
+    const columnUsage =
+      Array.from(
+        { length: COLUMN_COUNT },
+        function () {
+          return {};
+        }
+      );
 
-      const number =
-        selectCandidate(
-          columnPools[columnIndex],
-          columnIndex,
-          rowNumbers,
-          rowIndex,
-          globalUsage,
-          columnUsage,
-          pairUsage,
-          coveredNumbers
-        );
+    const pairUsage = {};
+    const coveredNumbers = new Set();
 
-      if (number === null) {
+    for (
+      let rowIndex = 0;
+      rowIndex < TICKET_COUNT;
+      rowIndex++
+    ) {
+      const ticket =
+        Array(COLUMN_COUNT).fill(null);
+
+      const columnOrder =
+        getColumnOrder(rowIndex);
+
+      for (
+        let orderIndex = 0;
+        orderIndex < columnOrder.length;
+        orderIndex++
+      ) {
+        const columnIndex =
+          columnOrder[orderIndex];
+
+        const rowNumbers =
+          ticket.filter(function (value) {
+            return value !== null;
+          });
+
+        const number =
+          selectCandidate(
+            columnPools[columnIndex],
+            columnIndex,
+            rowNumbers,
+            rowIndex,
+            globalUsage,
+            columnUsage,
+            pairUsage,
+            coveredNumbers
+          );
+
+        if (number === null) {
+          return null;
+        }
+
+        ticket[columnIndex] = number;
+      }
+
+      if (
+        ticket.some(function (value) {
+          return value === null;
+        })
+      ) {
         return null;
       }
 
-      ticket[columnIndex] = number;
+      if (
+        new Set(ticket).size !==
+        COLUMN_COUNT
+      ) {
+        return null;
+      }
+
+      let key = ticketKey(ticket);
+
+      if (seenTickets.has(key)) {
+        let repaired = false;
+
+        for (
+          let columnIndex = 0;
+          columnIndex < COLUMN_COUNT;
+          columnIndex++
+        ) {
+          const usedNumbers =
+            ticket.filter(function (
+              value,
+              index
+            ) {
+              return index !== columnIndex;
+            });
+
+          const alternatives =
+            columnPools[columnIndex].all
+              .filter(function (candidate) {
+                return (
+                  !usedNumbers.includes(
+                    candidate.number
+                  ) &&
+                  candidate.number !==
+                  ticket[columnIndex]
+                );
+              })
+              .sort(function (a, b) {
+                const aUsage =
+                  globalUsage[a.number] || 0;
+
+                const bUsage =
+                  globalUsage[b.number] || 0;
+
+                return (
+                  aUsage - bUsage ||
+                  b.score - a.score
+                );
+              });
+
+          for (
+            let alternativeIndex = 0;
+            alternativeIndex <
+              alternatives.length;
+            alternativeIndex++
+          ) {
+            const alternative =
+              alternatives[
+                alternativeIndex
+              ];
+
+            const repairedTicket =
+              ticket.slice();
+
+            repairedTicket[columnIndex] =
+              alternative.number;
+
+            const repairedKey =
+              ticketKey(repairedTicket);
+
+            if (
+              !seenTickets.has(
+                repairedKey
+              )
+            ) {
+              ticket[columnIndex] =
+                alternative.number;
+
+              key = repairedKey;
+              repaired = true;
+              break;
+            }
+          }
+
+          if (repaired) {
+            break;
+          }
+        }
+
+        if (!repaired) {
+          return null;
+        }
+      }
+
+      tickets.push(ticket);
+      seenTickets.add(key);
+
+      updateStatistics(
+        ticket,
+        globalUsage,
+        columnUsage,
+        pairUsage,
+        coveredNumbers
+      );
     }
+
+    return {
+      tickets: tickets,
+      globalUsage: globalUsage,
+      columnUsage: columnUsage,
+      pairUsage: pairUsage,
+      coveredNumbers: coveredNumbers
+    };
+  }
+
+  function createGeneratedStatistics(
+    matrix
+  ) {
+    const coveredNumbers =
+      Array.from(
+        matrix.coveredNumbers
+      )
+        .sort(function (a, b) {
+          return a - b;
+        });
+
+    const missingNumbers = [];
+
+    for (
+      let number = NUMBER_MIN;
+      number <= NUMBER_MAX;
+      number++
+    ) {
+      if (
+        !matrix.coveredNumbers.has(
+          number
+        )
+      ) {
+        missingNumbers.push(number);
+      }
+    }
+
+    return {
+      globalUsage:
+        matrix.globalUsage,
+
+      columnUsage:
+        matrix.columnUsage,
+
+      pairUsage:
+        matrix.pairUsage,
+
+      coveredNumbers:
+        coveredNumbers,
+
+      missingNumbers:
+        missingNumbers,
+
+      uniqueCoverage:
+        coveredNumbers.length,
+
+      maximumExposure:
+        getMaximumValue(
+          matrix.globalUsage
+        ),
+
+      maximumColumnExposure:
+        getMaximumColumnExposure(
+          matrix.columnUsage
+        ),
+
+      maximumPairExposure:
+        getMaximumValue(
+          matrix.pairUsage
+        )
+    };
+  }
+
+  function scoreMatrix(matrix) {
+    const stats =
+      createGeneratedStatistics(
+        matrix
+      );
+
+    let score =
+      stats.uniqueCoverage * 200;
+
+    score -=
+      Math.max(
+        0,
+        stats.maximumExposure -
+        TARGET_MAX_EXPOSURE
+      ) * 70;
+
+    score -=
+      Math.max(
+        0,
+        stats.maximumColumnExposure -
+        TARGET_MAX_COLUMN_EXPOSURE
+      ) * 55;
+
+    score -=
+      Math.max(
+        0,
+        stats.maximumPairExposure -
+        TARGET_MAX_PAIR_EXPOSURE
+      ) * 30;
 
     if (
-      new Set(ticket).size !==
-      COLUMN_COUNT
+      stats.uniqueCoverage >=
+      TARGET_UNIQUE_COVERAGE
     ) {
-      return null;
+      score += 300;
     }
 
-    /*
-      Repair an exact duplicate ticket without
-      restarting the entire generator.
-    */
-    let key =
-      ticketKey(ticket);
+    return score;
+  }
 
-    if (seenTickets.has(key)) {
-      let repaired = false;
+  function generateFortyTickets() {
+    if (
+      columnAnalyses.length !==
+      COLUMN_COUNT
+    ) {
+      throw new Error(
+        "Analyze all five columns before generating."
+      );
+    }
+
+    const columnPools =
+      columnAnalyses.map(
+        function (analysis) {
+          return buildColumnPool(
+            analysis
+          );
+        }
+      );
+
+    let bestMatrix = null;
+    let bestScore = -Infinity;
+
+    for (
+      let attempt = 0;
+      attempt < MATRIX_ATTEMPTS;
+      attempt++
+    ) {
+      const matrix =
+        buildMatrixAttempt(
+          columnPools
+        );
+
+      if (!matrix) {
+        continue;
+      }
+
+      const matrixScore =
+        scoreMatrix(matrix);
+
+      if (matrixScore > bestScore) {
+        bestMatrix = matrix;
+        bestScore = matrixScore;
+      }
+
+      const stats =
+        createGeneratedStatistics(
+          matrix
+        );
+
+      if (
+        stats.uniqueCoverage >=
+          MIN_UNIQUE_COVERAGE &&
+        stats.maximumExposure <=
+          HARD_MAX_EXPOSURE &&
+        stats.maximumColumnExposure <=
+          HARD_MAX_COLUMN_EXPOSURE &&
+        stats.maximumPairExposure <=
+          HARD_MAX_PAIR_EXPOSURE
+      ) {
+        bestMatrix = matrix;
+        break;
+      }
+    }
+
+    if (!bestMatrix) {
+      throw new Error(
+        "Unable to construct forty rows. Select Generate again."
+      );
+    }
+
+    generatedStatistics =
+      createGeneratedStatistics(
+        bestMatrix
+      );
+
+    return bestMatrix.tickets;
+  }
+
+  function formatDecimal(
+    value,
+    digits
+  ) {
+    if (
+      value === null ||
+      value === undefined
+    ) {
+      return "—";
+    }
+
+    return Number(value).toFixed(
+      digits
+    );
+  }
+
+  function renderSummary() {
+    const latestDraw =
+      parsedDraws[
+        parsedDraws.length - 1
+      ];
+
+    summaryGrid.innerHTML =
+      '<div class="summary-card">' +
+        'Historical draws' +
+        '<strong>' +
+          parsedDraws.length +
+        '</strong>' +
+      '</div>' +
+
+      '<div class="summary-card">' +
+        'Values analyzed' +
+        '<strong>' +
+          (parsedDraws.length * 5) +
+        '</strong>' +
+      '</div>' +
+
+      '<div class="summary-card">' +
+        'Primary candidates' +
+        '<strong>12 per column</strong>' +
+      '</div>' +
+
+      '<div class="summary-card">' +
+        'Reserve candidates' +
+        '<strong>8 per column</strong>' +
+      '</div>' +
+
+      '<div class="summary-card">' +
+        'Latest machine draw' +
+        '<strong>' +
+          latestDraw.join(" - ") +
+        '</strong>' +
+      '</div>';
+  }
+
+  function renderColumnTabs() {
+    columnTabs.innerHTML = "";
+
+    for (
+      let columnIndex = 0;
+      columnIndex < COLUMN_COUNT;
+      columnIndex++
+    ) {
+      const button =
+        document.createElement(
+          "button"
+        );
+
+      button.type = "button";
+
+      button.className =
+        "column-tab" +
+        (
+          columnIndex ===
+          selectedColumnIndex
+            ? " active"
+            : ""
+        );
+
+      button.textContent =
+        "Column " +
+        (columnIndex + 1);
+
+      button.addEventListener(
+        "click",
+        function () {
+          selectedColumnIndex =
+            columnIndex;
+
+          renderColumnTabs();
+          renderSelectedColumn();
+        }
+      );
+
+      columnTabs.appendChild(button);
+    }
+  }
+
+  function transitionText(map) {
+    const values =
+      Array.from(map.entries())
+        .sort(function (a, b) {
+          return b[1] - a[1];
+        })
+        .slice(0, 15);
+
+    if (!values.length) {
+      return "No completed successors";
+    }
+
+    return values
+      .map(function (item) {
+        return (
+          item[0] +
+          " (" +
+          item[1] +
+          ")"
+        );
+      })
+      .join(", ");
+  }
+
+  function renderSelectedColumn() {
+    const analysis =
+      columnAnalyses[
+        selectedColumnIndex
+      ];
+
+    if (!analysis) {
+      return;
+    }
+
+    const pool =
+      buildColumnPool(analysis);
+
+    const primaryPills =
+      pool.primary
+        .map(function (candidate) {
+          return (
+            '<div class="candidate-pill primary">' +
+              candidate.number +
+              '<div style="' +
+                'margin-top:3px;' +
+                'font-size:10px;' +
+                'color:#677381;' +
+              '">' +
+                "Rank " +
+                candidate.rank +
+              '</div>' +
+            '</div>'
+          );
+        })
+        .join("");
+
+    const reservePills =
+      pool.reserve
+        .map(function (candidate) {
+          return (
+            '<div class="candidate-pill reserve">' +
+              candidate.number +
+              '<div style="' +
+                'margin-top:3px;' +
+                'font-size:10px;' +
+                'color:#677381;' +
+              '">' +
+                "Rank " +
+                candidate.rank +
+              '</div>' +
+            '</div>'
+          );
+        })
+        .join("");
+
+    const primaryNumbers =
+      new Set(
+        pool.primary.map(
+          function (candidate) {
+            return candidate.number;
+          }
+        )
+      );
+
+    const reserveNumbers =
+      new Set(
+        pool.reserve.map(
+          function (candidate) {
+            return candidate.number;
+          }
+        )
+      );
+
+    const tableRows =
+      analysis.rows
+        .slice()
+        .sort(function (a, b) {
+          return a.number - b.number;
+        })
+        .map(function (row) {
+          let tier = "Emergency";
+
+          if (
+            primaryNumbers.has(
+              row.number
+            )
+          ) {
+            tier = "Primary";
+          } else if (
+            reserveNumbers.has(
+              row.number
+            )
+          ) {
+            tier = "Reserve";
+          }
+
+          return (
+            '<tr class="row-' +
+              row.temperature.toLowerCase() +
+            '">' +
+
+              '<td><strong>' +
+                row.number +
+              '</strong></td>' +
+
+              '<td>' +
+                row.rank +
+              '</td>' +
+
+              '<td>' +
+                tier +
+              '</td>' +
+
+              '<td>' +
+                row.frequency +
+              '</td>' +
+
+              '<td>' +
+                row.recent25 +
+              '</td>' +
+
+              '<td>' +
+                row.recent50 +
+              '</td>' +
+
+              '<td>' +
+                row.recent100 +
+              '</td>' +
+
+              '<td>' +
+                row.currentGap +
+              '</td>' +
+
+              '<td>' +
+                formatDecimal(
+                  row.averageGap,
+                  1
+                ) +
+              '</td>' +
+
+              '<td>' +
+                formatDecimal(
+                  row.overdueRatio,
+                  2
+                ) +
+              '</td>' +
+
+              '<td>' +
+                row.temperature +
+              '</td>' +
+
+              '<td>' +
+                row.timingStatus +
+              '</td>' +
+
+              '<td>' +
+                row.transitionImmediate +
+              '</td>' +
+
+              '<td>' +
+                row.transitionSecond +
+              '</td>' +
+
+              '<td>' +
+                row.transitionThird +
+              '</td>' +
+
+              '<td><strong>' +
+                formatDecimal(
+                  row.score,
+                  2
+                ) +
+              '</strong></td>' +
+            '</tr>'
+          );
+        })
+        .join("");
+
+    columnAnalysisContent.innerHTML =
+      '<div class="transition-box">' +
+
+        '<strong>Column ' +
+          (selectedColumnIndex + 1) +
+          ' latest number:</strong> ' +
+          analysis.latestNumber +
+        '<br>' +
+
+        '<strong>Immediate successors:</strong> ' +
+          transitionText(
+            analysis.transitionData.immediate
+          ) +
+        '<br>' +
+
+        '<strong>Second-step successors:</strong> ' +
+          transitionText(
+            analysis.transitionData.second
+          ) +
+        '<br>' +
+
+        '<strong>Third-step successors:</strong> ' +
+          transitionText(
+            analysis.transitionData.third
+          ) +
+
+      '</div>' +
+
+      '<div class="candidate-box">' +
+        '<h3>Primary Pool — 12 Candidates</h3>' +
+        '<div class="candidate-list">' +
+          primaryPills +
+        '</div>' +
+      '</div>' +
+
+      '<div class="candidate-box">' +
+        '<h3>Reserve Pool — 8 Candidates</h3>' +
+        '<div class="candidate-list">' +
+          reservePills +
+        '</div>' +
+      '</div>' +
+
+      '<div class="table-wrap" style="margin-top:15px;">' +
+        '<table>' +
+          '<thead>' +
+            '<tr>' +
+              '<th>Number</th>' +
+              '<th>Rank</th>' +
+              '<th>Tier</th>' +
+              '<th>Frequency</th>' +
+              '<th>Last 25</th>' +
+              '<th>Last 50</th>' +
+              '<th>Last 100</th>' +
+              '<th>Current Gap</th>' +
+              '<th>Average Gap</th>' +
+              '<th>Overdue Ratio</th>' +
+              '<th>Temperature</th>' +
+              '<th>Timing</th>' +
+              '<th>Next +1</th>' +
+              '<th>Next +2</th>' +
+              '<th>Next +3</th>' +
+              '<th>Score</th>' +
+            '</tr>' +
+          '</thead>' +
+
+          '<tbody>' +
+            tableRows +
+          '</tbody>' +
+        '</table>' +
+      '</div>';
+  }
+
+  function renderTickets() {
+    ticketGrid.innerHTML =
+      generatedTickets
+        .map(function (
+          ticket,
+          ticketIndex
+        ) {
+          const balls =
+            ticket
+              .map(function (
+                number,
+                columnIndex
+              ) {
+                return (
+                  '<div class="ticket-ball">' +
+                    number +
+                    '<small>C' +
+                      (columnIndex + 1) +
+                    '</small>' +
+                  '</div>'
+                );
+              })
+              .join("");
+
+          return (
+            '<div class="ticket">' +
+              '<div class="ticket-number">' +
+                (ticketIndex + 1) +
+              '</div>' +
+              balls +
+            '</div>'
+          );
+        })
+        .join("");
+  }
+
+  function exposureClass(count) {
+    if (
+      count >=
+      TARGET_MAX_EXPOSURE
+    ) {
+      return "high-exposure";
+    }
+
+    if (count >= 3) {
+      return "medium-exposure";
+    }
+
+    return "low-exposure";
+  }
+
+  function renderCoverageReport() {
+    const stats =
+      generatedStatistics;
+
+    const missingText =
+      stats.missingNumbers.length
+        ? stats.missingNumbers.join(", ")
+        : "None";
+
+    coverageCards.innerHTML =
+      '<div class="summary-card">' +
+        'Unique numbers' +
+        '<strong>' +
+          stats.uniqueCoverage +
+          '/35' +
+        '</strong>' +
+      '</div>' +
+
+      '<div class="summary-card">' +
+        'Missing numbers' +
+        '<strong>' +
+          missingText +
+        '</strong>' +
+      '</div>' +
+
+      '<div class="summary-card">' +
+        'Maximum exposure' +
+        '<strong>' +
+          stats.maximumExposure +
+        '</strong>' +
+      '</div>' +
+
+      '<div class="summary-card">' +
+        'Maximum column exposure' +
+        '<strong>' +
+          stats.maximumColumnExposure +
+        '</strong>' +
+      '</div>' +
+
+      '<div class="summary-card">' +
+        'Maximum pair exposure' +
+        '<strong>' +
+          stats.maximumPairExposure +
+        '</strong>' +
+      '</div>';
+
+    let rows = "";
+
+    for (
+      let number = NUMBER_MIN;
+      number <= NUMBER_MAX;
+      number++
+    ) {
+      const total =
+        stats.globalUsage[number] || 0;
+
+      rows +=
+        '<tr>' +
+
+          '<td><strong>' +
+            number +
+          '</strong></td>' +
+
+          '<td class="' +
+            exposureClass(total) +
+          '">' +
+            total +
+          '</td>';
 
       for (
         let columnIndex = 0;
         columnIndex < COLUMN_COUNT;
         columnIndex++
       ) {
-        const usedNumbers =
-          ticket.filter(
-            (_, index) =>
-              index !== columnIndex
-          );
-
-        const alternatives =
-          columnPools[columnIndex].all
-            .filter(
-              candidate =>
-                !usedNumbers.includes(
-                  candidate.number
-                ) &&
-                candidate.number !==
-                  ticket[columnIndex]
-            )
-            .sort((a, b) => {
-              const aUsage =
-                globalUsage[a.number] || 0;
-
-              const bUsage =
-                globalUsage[b.number] || 0;
-
-              return (
-                aUsage - bUsage ||
-                b.score - a.score
-              );
-            });
-
-        for (const alternative of alternatives) {
-          const repairedTicket =
-            [...ticket];
-
-          repairedTicket[columnIndex] =
-            alternative.number;
-
-          const repairedKey =
-            ticketKey(repairedTicket);
-
-          if (!seenTickets.has(repairedKey)) {
-            ticket[columnIndex] =
-              alternative.number;
-
-            key = repairedKey;
-            repaired = true;
-            break;
-          }
-        }
-
-        if (repaired) {
-          break;
-        }
+        rows +=
+          '<td>' +
+            (
+              stats.columnUsage[
+                columnIndex
+              ][number] || 0
+            ) +
+          '</td>';
       }
 
-      if (!repaired) {
-        return null;
-      }
+      rows += '</tr>';
     }
 
-    tickets.push(ticket);
-    seenTickets.add(key);
+    exposureTableWrap.innerHTML =
+      '<table>' +
+        '<thead>' +
+          '<tr>' +
+            '<th>Number</th>' +
+            '<th>Total</th>' +
+            '<th>C1</th>' +
+            '<th>C2</th>' +
+            '<th>C3</th>' +
+            '<th>C4</th>' +
+            '<th>C5</th>' +
+          '</tr>' +
+        '</thead>' +
 
-    updateStatistics(
-      ticket,
-      globalUsage,
-      columnUsage,
-      pairUsage,
-      coveredNumbers
-    );
+        '<tbody>' +
+          rows +
+        '</tbody>' +
+      '</table>';
   }
 
-  return {
-    tickets,
-    globalUsage,
-    columnUsage,
-    pairUsage,
-    coveredNumbers
-  };
-}
-
-function scoreMatrix(matrix) {
-  const uniqueCoverage =
-    matrix.coveredNumbers.size;
-
-  const maximumExposure =
-    getMaximumObjectValue(
-      matrix.globalUsage
-    );
-
-  const maximumColumnExposure =
-    getMaximumColumnExposure(
-      matrix.columnUsage
-    );
-
-  const maximumPairExposure =
-    getMaximumObjectValue(
-      matrix.pairUsage
-    );
-
-  const repeatedPairCount =
-    getRepeatedPairCount(
-      matrix.pairUsage
-    );
-
-  let score =
-    uniqueCoverage * 200;
-
-  score -=
-    Math.max(
-      0,
-      maximumExposure -
-      TARGET_MAX_EXPOSURE
-    ) * 70;
-
-  score -=
-    Math.max(
-      0,
-      maximumColumnExposure -
-      TARGET_MAX_COLUMN_EXPOSURE
-    ) * 55;
-
-  score -= repeatedPairCount * 10;
-
-  score -=
-    Math.max(
-      0,
-      maximumPairExposure -
-      HARD_MAX_PAIR_EXPOSURE
-    ) * 80;
-
-  if (
-    uniqueCoverage >=
-    TARGET_UNIQUE_COVERAGE
-  ) {
-    score += 300;
-  }
-
-  return score;
-}
-
-function createGeneratedStatistics(matrix) {
-  const coveredNumbers =
-    [...matrix.coveredNumbers]
-      .sort((a, b) => a - b);
-
-  const missingNumbers =
-    Array.from(
-      { length: NUMBER_MAX },
-      (_, index) => index + 1
-    )
-      .filter(
-        number =>
-          !matrix.coveredNumbers.has(number)
-      );
-
-  return {
-    globalUsage:
-      matrix.globalUsage,
-
-    columnUsage:
-      matrix.columnUsage,
-
-    pairUsage:
-      matrix.pairUsage,
-
-    coveredNumbers,
-    missingNumbers,
-
-    uniqueCoverage:
-      coveredNumbers.length,
-
-    maximumExposure:
-      getMaximumObjectValue(
-        matrix.globalUsage
-      ),
-
-    maximumColumnExposure:
-      getMaximumColumnExposure(
-        matrix.columnUsage
-      ),
-
-    maximumPairExposure:
-      getMaximumObjectValue(
-        matrix.pairUsage
-      ),
-
-    repeatedPairCount:
-      getRepeatedPairCount(
-        matrix.pairUsage
-      )
-  };
-}
-
-function generateFortyTickets() {
-  if (
-    columnAnalyses.length !==
-    COLUMN_COUNT
-  ) {
-    throw new Error(
-      "Analyze all five columns before generating."
-    );
-  }
-
-  const columnPools =
-    columnAnalyses.map(
-      buildColumnPool
-    );
-
-  let bestMatrix = null;
-  let bestScore = -Infinity;
-
-  for (
-    let attempt = 0;
-    attempt < MATRIX_ATTEMPTS;
-    attempt++
-  ) {
-    const matrix =
-      buildMatrixAttempt(columnPools);
-
-    if (!matrix) {
-      continue;
-    }
-
-    const matrixScore =
-      scoreMatrix(matrix);
-
-    if (matrixScore > bestScore) {
-      bestMatrix = matrix;
-      bestScore = matrixScore;
-    }
-
-    const stats =
-      createGeneratedStatistics(
-        matrix
-      );
-
-    if (
-      stats.uniqueCoverage >=
-        MIN_UNIQUE_COVERAGE &&
-      stats.maximumExposure <=
-        HARD_MAX_EXPOSURE &&
-      stats.maximumColumnExposure <=
-        HARD_MAX_COLUMN_EXPOSURE &&
-      stats.maximumPairExposure <=
-        HARD_MAX_PAIR_EXPOSURE
+  function createHistoryRows() {
+    return parsedDraws.map(function (
+      draw,
+      index
     ) {
-      bestMatrix = matrix;
-      break;
-    }
+      return {
+        "Draw Index": index + 1,
+        "Column 1": draw[0],
+        "Column 2": draw[1],
+        "Column 3": draw[2],
+        "Column 4": draw[3],
+        "Column 5": draw[4]
+      };
+    });
   }
 
-  if (!bestMatrix) {
-    throw new Error(
-      "The generator could not construct forty rows. Review the historical input and analyze again."
-    );
-  }
-
-  generatedStatistics =
-    createGeneratedStatistics(
-      bestMatrix
-    );
-
-  return bestMatrix.tickets;
-}
-
-function formatDecimal(value, digits = 2) {
-  if (
-    value === null ||
-    value === undefined
-  ) {
-    return "—";
-  }
-
-  return Number(value).toFixed(digits);
-}
-
-function renderSummary() {
-  const latestDraw =
-    parsedDraws[
-      parsedDraws.length - 1
-    ];
-
-  summaryGrid.innerHTML = `
-    <div class="summary-card">
-      Historical draws
-      <strong>${parsedDraws.length}</strong>
-    </div>
-
-    <div class="summary-card">
-      Values analyzed
-      <strong>${parsedDraws.length * 5}</strong>
-    </div>
-
-    <div class="summary-card">
-      Primary candidates
-      <strong>12 per column</strong>
-    </div>
-
-    <div class="summary-card">
-      Reserve candidates
-      <strong>8 per column</strong>
-    </div>
-
-    <div class="summary-card">
-      Latest machine draw
-      <strong>${latestDraw.join(" - ")}</strong>
-    </div>
-  `;
-}
-
-function renderColumnTabs() {
-  columnTabs.innerHTML = "";
-
-  for (
-    let columnIndex = 0;
-    columnIndex < COLUMN_COUNT;
-    columnIndex++
-  ) {
-    const button =
-      document.createElement("button");
-
-    button.className =
-      "column-tab" +
-      (
-        columnIndex ===
-        selectedColumnIndex
-          ? " active"
-          : ""
-      );
-
-    button.textContent =
-      `Column ${columnIndex + 1}`;
-
-    button.addEventListener(
-      "click",
-      () => {
-        selectedColumnIndex =
-          columnIndex;
-
-        renderColumnTabs();
-        renderSelectedColumn();
+  function createTicketRows() {
+    return generatedTickets.map(
+      function (ticket, index) {
+        return {
+          "Ticket": index + 1,
+          "Column 1": ticket[0],
+          "Column 2": ticket[1],
+          "Column 3": ticket[2],
+          "Column 4": ticket[3],
+          "Column 5": ticket[4],
+          "Machine Order":
+            ticket.join(" - ")
+        };
       }
     );
-
-    columnTabs.appendChild(button);
-  }
-}
-
-function renderSelectedColumn() {
-  const analysis =
-    columnAnalyses[
-      selectedColumnIndex
-    ];
-
-  if (!analysis) {
-    return;
   }
 
-  const pool =
-    buildColumnPool(analysis);
+  function createExposureRows() {
+    const rows = [];
 
-  const transitionText =
-    map => {
-      const values =
-        [...map.entries()]
-          .sort(
-            (a, b) =>
-              b[1] - a[1]
-          )
-          .slice(0, 15);
+    for (
+      let number = NUMBER_MIN;
+      number <= NUMBER_MAX;
+      number++
+    ) {
+      rows.push({
+        "Number": number,
 
-      return values.length
-        ? values
-            .map(
-              ([number, count]) =>
-                `${number} (${count})`
-            )
-            .join(", ")
-        : "No completed successors";
-    };
+        "Total Exposure":
+          generatedStatistics
+            .globalUsage[number] || 0,
 
-  const primaryPills =
-    pool.primary
-      .map(
-        candidate => `
-          <div class="candidate-pill">
-            ${candidate.number}
-            <div style="
-              margin-top:3px;
-              color:#677381;
-              font-size:10px;">
-              Rank ${candidate.rank}
-            </div>
-          </div>
-        `
-      )
-      .join("");
+        "Column 1":
+          generatedStatistics
+            .columnUsage[0][number] || 0,
 
-  const reservePills =
-    pool.reserve
-      .map(
-        candidate => `
-          <div class="candidate-pill">
-            ${candidate.number}
-            <div style="
-              margin-top:3px;
-              color:#677381;
-              font-size:10px;">
-              Rank ${candidate.rank}
-            </div>
-          </div>
-        `
-      )
-      .join("");
+        "Column 2":
+          generatedStatistics
+            .columnUsage[1][number] || 0,
 
-  const rows =
-    [...analysis.rows]
-      .sort(
-        (a, b) =>
-          a.number - b.number
-      )
-      .map(row => {
-        const tier =
-          pool.primary.some(
-            candidate =>
-              candidate.number ===
-              row.number
-          )
-            ? "Primary"
-            : pool.reserve.some(
-                candidate =>
-                  candidate.number ===
-                  row.number
-              )
-              ? "Reserve"
-              : "Emergency";
+        "Column 3":
+          generatedStatistics
+            .columnUsage[2][number] || 0,
 
-        return `
-          <tr class="row-${row.temperature.toLowerCase()}">
-            <td><strong>${row.number}</strong></td>
-            <td>${row.rank}</td>
-            <td>${tier}</td>
-            <td>${row.frequency}</td>
-            <td>${row.recent25}</td>
-            <td>${row.recent50}</td>
-            <td>${row.recent100}</td>
-            <td>${row.currentGap}</td>
-            <td>${formatDecimal(row.averageGap, 1)}</td>
-            <td>${formatDecimal(row.overdueRatio, 2)}</td>
-            <td>${row.temperature}</td>
-            <td>${row.timingStatus}</td>
-            <td>${row.transitionImmediate}</td>
-            <td>${row.transitionSecond}</td>
-            <td>${row.transitionThird}</td>
-            <td><strong>${formatDecimal(row.score, 2)}</strong></td>
-          </tr>
-        `;
-      })
-      .join("");
+        "Column 4":
+          generatedStatistics
+            .columnUsage[3][number] || 0,
 
-  columnAnalysisContent.innerHTML = `
-    <div class="transition-box">
-      <strong>
-        Column ${selectedColumnIndex + 1}
-        latest number:
-      </strong>
-      ${analysis.latestNumber}
-      <br>
+        "Column 5":
+          generatedStatistics
+            .columnUsage[4][number] || 0
+      });
+    }
 
-      <strong>Immediate successors:</strong>
-      ${transitionText(
-        analysis.transitionData.immediate
-      )}
-      <br>
+    return rows;
+  }
 
-      <strong>Second-step successors:</strong>
-      ${transitionText(
-        analysis.transitionData.second
-      )}
-      <br>
-
-      <strong>Third-step successors:</strong>
-      ${transitionText(
-        analysis.transitionData.third
-      )}
-    </div>
-
-    <div class="candidate-box">
-      <h3>Primary Pool — 12 Candidates</h3>
-      <div class="candidate-list">
-        ${primaryPills}
-      </div>
-    </div>
-
-    <div class="candidate-box">
-      <h3>Reserve Pool — 8 Candidates</h3>
-      <div class="candidate-list">
-        ${reservePills}
-      </div>
-    </div>
-
-    <div class="table-wrap" style="margin-top:15px;">
-      <table>
-        <thead>
-          <tr>
-            <th>Number</th>
-            <th>Rank</th>
-            <th>Tier</th>
-            <th>Frequency</th>
-            <th>Last 25</th>
-            <th>Last 50</th>
-            <th>Last 100</th>
-            <th>Current Gap</th>
-            <th>Average Gap</th>
-            <th>Overdue Ratio</th>
-            <th>Temperature</th>
-            <th>Timing</th>
-            <th>Next +1</th>
-            <th>Next +2</th>
-            <th>Next +3</th>
-            <th>Score</th>
-          </tr>
-        </thead>
-
-        <tbody>
-          ${rows}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
-function renderTickets() {
-  ticketGrid.innerHTML =
-    generatedTickets
-      .map(
-        (ticket, index) => `
-          <div class="ticket">
-            <div class="ticket-number">
-              ${index + 1}
-            </div>
-
-            ${ticket
-              .map(
-                (number, columnIndex) => `
-                  <div class="ticket-ball">
-                    ${number}
-                    <small>
-                      C${columnIndex + 1}
-                    </small>
-                  </div>
-                `
-              )
-              .join("")}
-          </div>
-        `
-      )
-      .join("");
-}
-
-function exposureClass(count) {
-  if (
-    count >= TARGET_MAX_EXPOSURE
+  function appendSheet(
+    workbook,
+    sheetName,
+    rows
   ) {
-    return "high-exposure";
-  }
+    const worksheet =
+      XLSX.utils.json_to_sheet(rows);
 
-  if (count >= 3) {
-    return "medium-exposure";
-  }
-
-  return "low-exposure";
-}
-
-function renderCoverageReport() {
-  const stats =
-    generatedStatistics;
-
-  coverageCards.innerHTML = `
-    <div class="summary-card">
-      Unique numbers
-      <strong>${stats.uniqueCoverage}/35</strong>
-    </div>
-
-    <div class="summary-card">
-      Missing numbers
-      <strong>
-        ${
-          stats.missingNumbers.length
-            ? stats.missingNumbers.join(", ")
-            : "None"
-        }
-      </strong>
-    </div>
-
-    <div class="summary-card">
-      Maximum exposure
-      <strong>${stats.maximumExposure}</strong>
-    </div>
-
-    <div class="summary-card">
-      Maximum column exposure
-      <strong>${stats.maximumColumnExposure}</strong>
-    </div>
-
-    <div class="summary-card">
-      Maximum pair exposure
-      <strong>${stats.maximumPairExposure}</strong>
-    </div>
-  `;
-
-  const rows =
-    Array.from(
-      { length: NUMBER_MAX },
-      (_, index) => index + 1
-    )
-      .map(number => {
-        const total =
-          stats.globalUsage[number] || 0;
-
-        const columns =
-          stats.columnUsage.map(
-            usage =>
-              usage[number] || 0
-          );
-
-        return `
-          <tr>
-            <td><strong>${number}</strong></td>
-
-            <td class="${exposureClass(total)}">
-              ${total}
-            </td>
-
-            ${columns
-              .map(
-                count => `<td>${count}</td>`
-              )
-              .join("")}
-          </tr>
-        `;
-      })
-      .join("");
-
-  exposureTableWrap.innerHTML = `
-    <table>
-      <thead>
-        <tr>
-          <th>Number</th>
-          <th>Total</th>
-          <th>C1</th>
-          <th>C2</th>
-          <th>C3</th>
-          <th>C4</th>
-          <th>C5</th>
-        </tr>
-      </thead>
-
-      <tbody>
-        ${rows}
-      </tbody>
-    </table>
-  `;
-}
-
-function createHistoricalRowsForExcel() {
-  return parsedDraws.map(
-    (draw, index) => ({
-      "Draw Index": index + 1,
-      "Column 1": draw[0],
-      "Column 2": draw[1],
-      "Column 3": draw[2],
-      "Column 4": draw[3],
-      "Column 5": draw[4]
-    })
-  );
-}
-
-function createTicketRowsForExcel() {
-  return generatedTickets.map(
-    (ticket, index) => ({
-      Ticket: index + 1,
-      "Column 1": ticket[0],
-      "Column 2": ticket[1],
-      "Column 3": ticket[2],
-      "Column 4": ticket[3],
-      "Column 5": ticket[4],
-      "Machine Order":
-        ticket.join(" - ")
-    })
-  );
-}
-
-function createExposureRowsForExcel() {
-  return Array.from(
-    { length: NUMBER_MAX },
-    (_, index) => index + 1
-  )
-    .map(number => ({
-      Number: number,
-      Total:
-        generatedStatistics
-          .globalUsage[number] || 0,
-      "Column 1":
-        generatedStatistics
-          .columnUsage[0][number] || 0,
-      "Column 2":
-        generatedStatistics
-          .columnUsage[1][number] || 0,
-      "Column 3":
-        generatedStatistics
-          .columnUsage[2][number] || 0,
-      "Column 4":
-        generatedStatistics
-          .columnUsage[3][number] || 0,
-      "Column 5":
-        generatedStatistics
-          .columnUsage[4][number] || 0
-    }));
-}
-
-function appendSheet(
-  workbook,
-  name,
-  rows
-) {
-  const worksheet =
-    XLSX.utils.json_to_sheet(rows);
-
-  XLSX.utils.book_append_sheet(
-    workbook,
-    worksheet,
-    name
-  );
-}
-
-function downloadExcel() {
-  if (!window.XLSX) {
-    setStatus(
-      "The Excel library did not load.",
-      "error"
+    XLSX.utils.book_append_sheet(
+      workbook,
+      worksheet,
+      sheetName
     );
-
-    return;
   }
 
-  if (!generatedTickets.length) {
-    setStatus(
-      "Generate the forty rows first.",
-      "warning"
-    );
-
-    return;
-  }
-
-  const workbook =
-    XLSX.utils.book_new();
-
-  appendSheet(
-    workbook,
-    "History",
-    createHistoricalRowsForExcel()
-  );
-
-  appendSheet(
-    workbook,
-    "40 Future Draws",
-    createTicketRowsForExcel()
-  );
-
-  appendSheet(
-    workbook,
-    "Number Exposure",
-    createExposureRowsForExcel()
-  );
-
-  const dateStamp =
-    new Date()
-      .toISOString()
-      .slice(0, 10);
-
-  XLSX.writeFile(
-    workbook,
-    `Cash5_Coverage_${dateStamp}.xlsx`
-  );
-
-  setStatus(
-    "Excel workbook downloaded.",
-    "ok"
-  );
-}
-
-analyzeBtn.addEventListener(
-  "click",
-  () => {
-    try {
-      parsedDraws =
-        parseInput(drawInput.value);
-
-      columnAnalyses =
-        analyzeAllColumns(parsedDraws);
-
-      generatedTickets = [];
-      generatedStatistics = null;
-      selectedColumnIndex = 0;
-
-      renderSummary();
-      renderColumnTabs();
-      renderSelectedColumn();
-
-      analysisPanel.classList.remove(
-        "hidden"
-      );
-
-      ticketsPanel.classList.add(
-        "hidden"
-      );
-
-      generateBtn.disabled = false;
-      printBtn.disabled = true;
-      downloadBtn.disabled = true;
-
+  function downloadExcel() {
+    if (!window.XLSX) {
       setStatus(
-        `Analyzed ${parsedDraws.length} historical machine-order draws.`,
-        parsedDraws.length >= 100
-          ? "ok"
-          : "warning"
-      );
-    } catch (error) {
-      setStatus(
-        error.message,
+        "The Excel library did not load. Check your internet connection.",
         "error"
       );
+
+      return;
     }
-  }
-);
 
-generateBtn.addEventListener(
-  "click",
-  () => {
-    try {
-      /*
-        Allows the status message to appear before
-        generation begins.
-      */
-      setStatus(
-        "Building the forty-row coverage matrix..."
-      );
-
-      generatedTickets =
-        generateFortyTickets();
-
-      renderTickets();
-      renderCoverageReport();
-
-      ticketsPanel.classList.remove(
-        "hidden"
-      );
-
-      printBtn.disabled = false;
-      downloadBtn.disabled = false;
-
-      setStatus(
-        `Generated forty rows covering ${generatedStatistics.uniqueCoverage} of 35 numbers. Maximum exposure ${generatedStatistics.maximumExposure}; maximum pair exposure ${generatedStatistics.maximumPairExposure}.`,
-        generatedStatistics.uniqueCoverage >=
-          MIN_UNIQUE_COVERAGE
-          ? "ok"
-          : "warning"
-      );
-    } catch (error) {
-      generatedTickets = [];
-      generatedStatistics = null;
-
-      ticketsPanel.classList.add(
-        "hidden"
-      );
-
-      printBtn.disabled = true;
-      downloadBtn.disabled = true;
-
-      setStatus(
-        error.message,
-        "error"
-      );
-    }
-  }
-);
-
-printBtn.addEventListener(
-  "click",
-  () => {
     if (!generatedTickets.length) {
       setStatus(
         "Generate the forty rows first.",
@@ -2599,52 +2599,256 @@ printBtn.addEventListener(
       return;
     }
 
-    window.print();
-  }
-);
+    const workbook =
+      XLSX.utils.book_new();
 
-downloadBtn.addEventListener(
-  "click",
-  downloadExcel
-);
-
-clearBtn.addEventListener(
-  "click",
-  () => {
-    drawInput.value = "";
-
-    parsedDraws = [];
-    columnAnalyses = [];
-    generatedTickets = [];
-    generatedStatistics = null;
-    selectedColumnIndex = 0;
-
-    summaryGrid.innerHTML = "";
-    columnTabs.innerHTML = "";
-    columnAnalysisContent.innerHTML = "";
-    ticketGrid.innerHTML = "";
-    coverageCards.innerHTML = "";
-    exposureTableWrap.innerHTML = "";
-
-    analysisPanel.classList.add(
-      "hidden"
+    appendSheet(
+      workbook,
+      "History",
+      createHistoryRows()
     );
 
-    ticketsPanel.classList.add(
-      "hidden"
+    appendSheet(
+      workbook,
+      "40 Future Draws",
+      createTicketRows()
     );
 
-    generateBtn.disabled = true;
-    printBtn.disabled = true;
-    downloadBtn.disabled = true;
+    appendSheet(
+      workbook,
+      "Number Exposure",
+      createExposureRows()
+    );
+
+    const dateStamp =
+      new Date()
+        .toISOString()
+        .slice(0, 10);
+
+    XLSX.writeFile(
+      workbook,
+      "Cash5_Coverage_" +
+      dateStamp +
+      ".xlsx"
+    );
 
     setStatus(
-      "Enter historical machine-order draws and select Analyze Columns."
+      "Excel workbook downloaded.",
+      "ok"
     );
-
-    drawInput.focus();
   }
-);
+
+  analyzeBtn.addEventListener(
+    "click",
+    function () {
+      try {
+        parsedDraws =
+          parseInput(
+            drawInput.value
+          );
+
+        columnAnalyses =
+          analyzeAllColumns(
+            parsedDraws
+          );
+
+        generatedTickets = [];
+        generatedStatistics = null;
+        selectedColumnIndex = 0;
+
+        renderSummary();
+        renderColumnTabs();
+        renderSelectedColumn();
+
+        analysisPanel.classList.remove(
+          "hidden"
+        );
+
+        ticketsPanel.classList.add(
+          "hidden"
+        );
+
+        generateBtn.disabled = false;
+        printBtn.disabled = true;
+        downloadBtn.disabled = true;
+
+        setStatus(
+          "Analyzed " +
+          parsedDraws.length +
+          " historical machine-order draws.",
+          parsedDraws.length >= 100
+            ? "ok"
+            : "warning"
+        );
+      } catch (error) {
+        parsedDraws = [];
+        columnAnalyses = [];
+        generatedTickets = [];
+        generatedStatistics = null;
+
+        analysisPanel.classList.add(
+          "hidden"
+        );
+
+        ticketsPanel.classList.add(
+          "hidden"
+        );
+
+        generateBtn.disabled = true;
+        printBtn.disabled = true;
+        downloadBtn.disabled = true;
+
+        setStatus(
+          error.message,
+          "error"
+        );
+      }
+    }
+  );
+
+  generateBtn.addEventListener(
+    "click",
+    function () {
+      if (
+        columnAnalyses.length !==
+        COLUMN_COUNT
+      ) {
+        setStatus(
+          "Analyze the historical draws first.",
+          "warning"
+        );
+
+        return;
+      }
+
+      generateBtn.disabled = true;
+
+      setStatus(
+        "Building the forty-row coverage matrix..."
+      );
+
+      window.setTimeout(
+        function () {
+          try {
+            generatedTickets =
+              generateFortyTickets();
+
+            renderTickets();
+            renderCoverageReport();
+
+            ticketsPanel.classList.remove(
+              "hidden"
+            );
+
+            printBtn.disabled = false;
+            downloadBtn.disabled = false;
+
+            setStatus(
+              "Generated forty rows covering " +
+              generatedStatistics.uniqueCoverage +
+              " of 35 numbers. Maximum exposure: " +
+              generatedStatistics.maximumExposure +
+              ". Maximum pair exposure: " +
+              generatedStatistics.maximumPairExposure +
+              ".",
+              generatedStatistics.uniqueCoverage >=
+                MIN_UNIQUE_COVERAGE
+                ? "ok"
+                : "warning"
+            );
+
+            ticketsPanel.scrollIntoView({
+              behavior: "smooth",
+              block: "start"
+            });
+          } catch (error) {
+            generatedTickets = [];
+            generatedStatistics = null;
+
+            ticketsPanel.classList.add(
+              "hidden"
+            );
+
+            printBtn.disabled = true;
+            downloadBtn.disabled = true;
+
+            setStatus(
+              error.message,
+              "error"
+            );
+          } finally {
+            generateBtn.disabled = false;
+          }
+        },
+        20
+      );
+    }
+  );
+
+  printBtn.addEventListener(
+    "click",
+    function () {
+      if (!generatedTickets.length) {
+        setStatus(
+          "Generate the forty rows first.",
+          "warning"
+        );
+
+        return;
+      }
+
+      window.print();
+    }
+  );
+
+  downloadBtn.addEventListener(
+    "click",
+    downloadExcel
+  );
+
+  clearBtn.addEventListener(
+    "click",
+    function () {
+      drawInput.value = "";
+
+      parsedDraws = [];
+      columnAnalyses = [];
+      generatedTickets = [];
+      generatedStatistics = null;
+      selectedColumnIndex = 0;
+
+      summaryGrid.innerHTML = "";
+      columnTabs.innerHTML = "";
+      columnAnalysisContent.innerHTML = "";
+      ticketGrid.innerHTML = "";
+      coverageCards.innerHTML = "";
+      exposureTableWrap.innerHTML = "";
+
+      analysisPanel.classList.add(
+        "hidden"
+      );
+
+      ticketsPanel.classList.add(
+        "hidden"
+      );
+
+      generateBtn.disabled = true;
+      printBtn.disabled = true;
+      downloadBtn.disabled = true;
+
+      setStatus(
+        "Program cleared. Enter historical machine-order draws."
+      );
+
+      drawInput.focus();
+    }
+  );
+
+  setStatus(
+    "Program loaded successfully. Enter historical machine-order draws.",
+    "ok"
+  );
+});
 </script>
 
 </main>
