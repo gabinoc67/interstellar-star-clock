@@ -230,6 +230,16 @@ button:disabled {
   line-height: 1.55;
 }
 
+.order-box {
+  margin-top: 14px;
+  padding: 13px;
+  color: #5f3b00;
+  background: #fff7e5;
+  border: 1px solid #e9ce91;
+  border-radius: 8px;
+  line-height: 1.55;
+}
+
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(180px, 1fr));
@@ -561,10 +571,10 @@ tbody tr:nth-child(even):not(.duplicate-row) {
   <h1>Cash 5 Point Sequence Rotation Matrix</h1>
 
   <p>
-    Analyze historical machine-order draws, assign an independent point to
-    every number in every column, convert the newest 40 draws into five point
-    sequences, and rotate through each exact point group to produce 40 rows.
-    Rows containing a repeated number are preserved and highlighted.
+    Paste the historical machine-order file with the oldest draw at the top
+    and the newest draw at the bottom. The program keeps that order unchanged,
+    reads the newest scoring windows from the bottom, and creates the newest
+    40 point sequences by moving upward from the newest draw.
   </p>
 </header>
 
@@ -574,34 +584,57 @@ tbody tr:nth-child(even):not(.duplicate-row) {
     <h2>Step 1 — Paste Historical Machine-Order Draws</h2>
 
     <p class="panel-description">
-      Paste one draw per line. The newest draw must be at the top. The first
-      number is Column 1, the second is Column 2, and so forth. The program
-      accepts spaces, tabs, commas, or hyphens.
+      Paste one draw per line exactly as it appears in the downloaded file.
+      The oldest draw must be at the top and the newest draw at the bottom.
+      The program does not reverse the historical file. The first number is
+      Column 1, the second is Column 2, and so forth. Spaces, tabs, commas,
+      semicolons, pipes, or hyphens are accepted.
     </p>
 
-    <textarea id="drawInput" placeholder="Example format only:
-34 15 4 21 18
-5 28 31 20 17
-4 17 32 8 6"></textarea>
+    <textarea id="drawInput" placeholder="Oldest draw at the top:
+1 7 14 22 31
+3 8 16 25 34
+5 12 19 27 35
+...
+Newest draw at the bottom"></textarea>
 
     <div class="settings-grid">
       <div class="setting-card">
-        <label for="maximumDraws">Maximum History</label>
-        <input id="maximumDraws" type="number" min="40" max="5000" value="1000">
+        <label for="maximumDraws">Maximum Recent History</label>
+        <input
+          id="maximumDraws"
+          type="number"
+          min="40"
+          max="5000"
+          value="1000"
+        >
       </div>
 
       <div class="setting-card">
         <label for="recentWindow">Recent Scoring Window</label>
-        <input id="recentWindow" type="number" min="10" max="500" value="100">
+        <input
+          id="recentWindow"
+          type="number"
+          min="10"
+          max="500"
+          value="100"
+        >
       </div>
 
       <div class="setting-card">
         <label for="shortWindow">Short Scoring Window</label>
-        <input id="shortWindow" type="number" min="5" max="100" value="25">
+        <input
+          id="shortWindow"
+          type="number"
+          min="5"
+          max="100"
+          value="25"
+        >
       </div>
 
       <div class="setting-card">
         <label for="pointRounding">Point Rounding</label>
+
         <select id="pointRounding">
           <option value="0.1" selected>Nearest 0.10</option>
           <option value="0.2">Nearest 0.20</option>
@@ -633,6 +666,13 @@ tbody tr:nth-child(even):not(.duplicate-row) {
       </button>
     </div>
 
+    <div class="order-box">
+      <strong>Historical order:</strong><br>
+      Oldest draw at the top → newest draw at the bottom.<br>
+      The program preserves this order. The newest 100, newest 25, and newest
+      40 are read directly from the bottom of the pasted history.
+    </div>
+
     <div class="rule-box">
       <strong>Rotation rule:</strong>
       each point value has its own independent number cursor in each column.
@@ -642,7 +682,8 @@ tbody tr:nth-child(even):not(.duplicate-row) {
     </div>
 
     <div id="mainStatus" class="status info">
-      Paste at least 40 valid historical draws and select “Analyze History.”
+      Paste at least 40 valid historical draws with the oldest at the top and
+      the newest at the bottom.
     </div>
   </section>
 
@@ -658,7 +699,7 @@ tbody tr:nth-child(even):not(.duplicate-row) {
 
     <p class="panel-description">
       Each number-column combination is independent. Number 6 in Column 1
-      can therefore have a different point from Number 6 in Column 2.
+      can have a different point from Number 6 in Column 2.
     </p>
 
     <div class="table-wrap">
@@ -696,8 +737,9 @@ tbody tr:nth-child(even):not(.duplicate-row) {
     <h2>Step 5 — Newest 40 Draws Converted to Point Sequences</h2>
 
     <p class="panel-description">
-      Historical Number is the actual number in the newest 40 machine draws.
-      Assigned Number is the number selected from that point group’s rotation.
+      Point Sequence Row 1 is the newest historical draw. The program moves
+      upward through the final 40 historical rows without changing the stored
+      oldest-to-newest history.
     </p>
 
     <div id="sequenceColumns" class="sequence-columns"></div>
@@ -745,7 +787,9 @@ const state = {
   groups: createEmptyColumnObject(),
   pointSequences: createEmptyColumnObject(),
   assignedSequences: createEmptyColumnObject(),
-  generatedRows: []
+  generatedRows: [],
+  totalValidPastedDraws: 0,
+  historyWasTrimmed: false
 };
 
 function createEmptyColumnObject() {
@@ -802,7 +846,7 @@ function roundToIncrement(value, increment) {
 function pointKey(value) {
   return Number(value).toFixed(2);
 }
-function parseDrawLine(line) {
+  function parseDrawLine(line) {
   const values = line
     .trim()
     .split(/[\s,\-–—|;]+/)
@@ -866,18 +910,27 @@ function readHistoricalDraws() {
   ) {
     return {
       valid: false,
-      reason: "Maximum history must be between 40 and 5,000 draws."
+      reason:
+        "Maximum recent history must be between 40 and 5,000 draws."
     };
   }
 
-  const accepted = [];
+  /*
+    PASTED AND STORED ORDER:
+
+    First valid row = oldest draw
+    Last valid row = newest draw
+
+    The program does not reverse this history.
+  */
+  const acceptedOldestFirst = [];
   const rejected = [];
 
-  lines.slice(0, maximumDraws).forEach((line, index) => {
+  lines.forEach((line, index) => {
     const result = parseDrawLine(line);
 
     if (result.valid) {
-      accepted.push(result.values);
+      acceptedOldestFirst.push(result.values);
     } else {
       rejected.push({
         lineNumber: index + 1,
@@ -886,7 +939,7 @@ function readHistoricalDraws() {
     }
   });
 
-  if (accepted.length < 40) {
+  if (acceptedOldestFirst.length < 40) {
     return {
       valid: false,
       reason:
@@ -894,18 +947,60 @@ function readHistoricalDraws() {
     };
   }
 
+  /*
+    Keep the LAST maximumDraws valid rows.
+
+    Because the file is oldest-to-newest, the last rows are the
+    most recent historical draws.
+
+    Example:
+    1,500 valid pasted draws
+    Maximum Recent History = 1,000
+
+    The program keeps valid draws 501 through 1,500.
+  */
+  const selectedOldestFirst =
+    acceptedOldestFirst.slice(-maximumDraws);
+
   return {
     valid: true,
-    draws: accepted,
-    rejected
+    draws: selectedOldestFirst,
+    rejected,
+    totalValidPastedDraws:
+      acceptedOldestFirst.length,
+    selectedDrawCount:
+      selectedOldestFirst.length,
+    historyWasTrimmed:
+      acceptedOldestFirst.length >
+      selectedOldestFirst.length
   };
 }
 
 function countNumber(draws, columnIndex, number, windowSize) {
-  const limit = Math.min(draws.length, windowSize);
+  /*
+    Draws remain oldest-to-newest.
+
+    The requested newest window is read from the bottom.
+
+    For example:
+    Newest 25 draws = final 25 array rows
+    Newest 100 draws = final 100 array rows
+  */
+  const actualWindow = Math.min(
+    draws.length,
+    windowSize
+  );
+
+  const startIndex =
+    draws.length - actualWindow;
+
   let count = 0;
 
-  for (let row = 0; row < limit; row++) {
+  for (
+    let row = startIndex;
+    row < draws.length;
+    row++
+  ) {
     if (draws[row][columnIndex] === number) {
       count++;
     }
@@ -915,10 +1010,25 @@ function countNumber(draws, columnIndex, number, windowSize) {
 }
 
 function currentGap(draws, columnIndex, number) {
-  for (let row = 0; row < draws.length; row++) {
+  /*
+    Search backward from the newest draw.
+
+    Gap 0 = number appeared in the newest draw
+    Gap 1 = number appeared one draw before the newest
+    Gap 2 = number appeared two draws before the newest
+  */
+  let gap = 0;
+
+  for (
+    let row = draws.length - 1;
+    row >= 0;
+    row--
+  ) {
     if (draws[row][columnIndex] === number) {
-      return row;
+      return gap;
     }
+
+    gap++;
   }
 
   return draws.length;
@@ -959,7 +1069,9 @@ function calculateScore({
     number
   );
 
-  const fullExpected = draws.length / 35;
+  const fullExpected =
+    draws.length / 35;
+
   const recentExpected =
     Math.min(recentWindow, draws.length) / 35;
 
@@ -981,15 +1093,16 @@ function calculateScore({
       ? shortCount / shortExpected
       : 0;
 
-  const gapIndex = clamp(gap / 35, 0, 2);
+  const gapIndex =
+    clamp(gap / 35, 0, 2);
 
   /*
     Point formula:
 
     1.20 baseline
     0.85 full-history frequency index
-    0.65 recent frequency index
-    0.35 short-window frequency index
+    0.65 newest recent-window frequency index
+    0.35 newest short-window frequency index
     0.20 controlled absence-gap index
 
     Final points are limited to 0.50 through 5.00.
@@ -1001,12 +1114,14 @@ function calculateScore({
     (0.35 * shortIndex) +
     (0.20 * gapIndex);
 
-  const boundedPoint = clamp(rawPoint, 0.5, 5.0);
+  const boundedPoint =
+    clamp(rawPoint, 0.5, 5.0);
 
-  const roundedPoint = roundToIncrement(
-    boundedPoint,
-    rounding
-  );
+  const roundedPoint =
+    roundToIncrement(
+      boundedPoint,
+      rounding
+    );
 
   return {
     number,
@@ -1066,16 +1181,31 @@ function analyzeHistory() {
   if (shortWindow > recentWindow) {
     setStatus(
       "error",
-      "The short scoring window cannot exceed the recent window."
+      "The short scoring window cannot exceed the recent scoring window."
     );
     return;
   }
 
   state.draws = drawResult.draws;
-  state.scores = createEmptyColumnObject();
-  state.groups = createEmptyColumnObject();
-  state.pointSequences = createEmptyColumnObject();
-  state.assignedSequences = createEmptyColumnObject();
+
+  state.totalValidPastedDraws =
+    drawResult.totalValidPastedDraws;
+
+  state.historyWasTrimmed =
+    drawResult.historyWasTrimmed;
+
+  state.scores =
+    createEmptyColumnObject();
+
+  state.groups =
+    createEmptyColumnObject();
+
+  state.pointSequences =
+    createEmptyColumnObject();
+
+  state.assignedSequences =
+    createEmptyColumnObject();
+
   state.generatedRows = [];
 
   for (let column = 1; column <= 5; column++) {
@@ -1091,7 +1221,8 @@ function analyzeHistory() {
 
       state.scores[column][number] = score;
 
-      const key = pointKey(score.point);
+      const key =
+        pointKey(score.point);
 
       if (!state.groups[column][key]) {
         state.groups[column][key] = [];
@@ -1101,13 +1232,19 @@ function analyzeHistory() {
     }
 
     Object.keys(state.groups[column]).forEach(key => {
-      state.groups[column][key].sort((a, b) => a - b);
+      state.groups[column][key].sort(
+        (a, b) => a - b
+      );
     });
   }
 
   buildNewest40PointSequences();
 
-  renderSummary(recentWindow, shortWindow);
+  renderSummary(
+    recentWindow,
+    shortWindow
+  );
+
   renderPoints();
   renderGroups();
   renderPointSequences(false);
@@ -1125,25 +1262,55 @@ function analyzeHistory() {
       ? ` ${drawResult.rejected.length} invalid row(s) were ignored.`
       : "";
 
+  const trimmedMessage =
+    drawResult.historyWasTrimmed
+      ? ` The newest ${drawResult.selectedDrawCount} valid draws were kept from ${drawResult.totalValidPastedDraws} valid pasted draws.`
+      : "";
+
   setStatus(
     "success",
-    `${state.draws.length} historical draws analyzed. The newest 40 point sequences are ready.${rejectedMessage}`
+    `${state.draws.length} historical draws analyzed. ` +
+    `The historical draws remain in oldest-to-newest order. ` +
+    `The newest scoring windows were read from the bottom, ` +
+    `and the newest 40 point sequences are ready.` +
+    trimmedMessage +
+    rejectedMessage
   );
 }
 
 function buildNewest40PointSequences() {
+  /*
+    state.draws remains oldest-to-newest.
+
+    The final array position is the newest draw.
+
+    Sequence Row 1 = newest draw
+    Sequence Row 2 = second-newest draw
+    Sequence Row 40 = 40th-newest draw
+  */
+  const newestHistoryIndex =
+    state.draws.length - 1;
+
   for (let column = 1; column <= 5; column++) {
     state.pointSequences[column] = [];
 
-    for (let row = 0; row < 40; row++) {
+    for (
+      let sequenceRow = 0;
+      sequenceRow < 40;
+      sequenceRow++
+    ) {
+      const historyIndex =
+        newestHistoryIndex - sequenceRow;
+
       const historicalNumber =
-        state.draws[row][column - 1];
+        state.draws[historyIndex][column - 1];
 
       const score =
         state.scores[column][historicalNumber];
 
       state.pointSequences[column].push({
-        row: row + 1,
+        row: sequenceRow + 1,
+        historyIndex,
         historicalNumber,
         point: score.point,
         assignedNumber: null
@@ -1189,7 +1356,8 @@ function renderSummary(recentWindow, shortWindow) {
   summaryGrid.innerHTML = "";
 
   for (let column = 1; column <= 5; column++) {
-    const values = Object.values(state.scores[column]);
+    const values =
+      Object.values(state.scores[column]);
 
     const highest = values
       .slice()
@@ -1211,20 +1379,27 @@ function renderSummary(recentWindow, shortWindow) {
         return a.number - b.number;
       })[0];
 
-    const singleGroups = Object.values(
-      state.groups[column]
-    ).filter(numbers => numbers.length === 1).length;
+    const singleGroups =
+      Object.values(state.groups[column])
+        .filter(numbers => numbers.length === 1)
+        .length;
 
-    const multiGroups = Object.values(
-      state.groups[column]
-    ).filter(numbers => numbers.length > 1).length;
+    const multiGroups =
+      Object.values(state.groups[column])
+        .filter(numbers => numbers.length > 1)
+        .length;
 
-    const card = document.createElement("div");
+    const card =
+      document.createElement("div");
+
     card.className = "summary-card";
 
     card.innerHTML = `
       <strong>Column ${column}</strong>
-      Historical draws: ${state.draws.length}<br>
+      Valid pasted draws: ${state.totalValidPastedDraws}<br>
+      Draws analyzed: ${state.draws.length}<br>
+      Stored order: Oldest to newest<br>
+      Recent rows read from: Bottom<br>
       Point groups: ${Object.keys(state.groups[column]).length}<br>
       Single-number points: ${singleGroups}<br>
       Multi-number points: ${multiGroups}<br>
@@ -1243,16 +1418,23 @@ function renderPoints() {
   pointsBody.innerHTML = "";
 
   for (let number = 1; number <= 35; number++) {
-    const row = document.createElement("tr");
+    const row =
+      document.createElement("tr");
 
-    const numberCell = document.createElement("td");
+    const numberCell =
+      document.createElement("td");
+
     numberCell.className = "number-cell";
     numberCell.textContent = number;
+
     row.appendChild(numberCell);
 
     for (let column = 1; column <= 5; column++) {
-      const score = state.scores[column][number];
-      const cell = document.createElement("td");
+      const score =
+        state.scores[column][number];
+
+      const cell =
+        document.createElement("td");
 
       cell.innerHTML = `
         <span class="point-pill ${getPointClass(score.point)}">
@@ -1279,39 +1461,58 @@ function renderGroups() {
   groupColumns.innerHTML = "";
 
   for (let column = 1; column <= 5; column++) {
-    const columnBox = document.createElement("div");
+    const columnBox =
+      document.createElement("div");
+
     columnBox.className = "column-groups";
 
-    const heading = document.createElement("h3");
-    heading.textContent = `Column ${column}`;
+    const heading =
+      document.createElement("h3");
+
+    heading.textContent =
+      `Column ${column}`;
+
     columnBox.appendChild(heading);
 
-    const keys = Object.keys(state.groups[column])
-      .sort((a, b) => Number(b) - Number(a));
+    const keys =
+      Object.keys(state.groups[column])
+        .sort((a, b) => Number(b) - Number(a));
 
     keys.forEach(key => {
       const point = Number(key);
-      const numbers = state.groups[column][key];
 
-      const group = document.createElement("div");
+      const numbers =
+        state.groups[column][key];
+
+      const group =
+        document.createElement("div");
+
       group.className =
         `point-group ${getGroupClass(point)}`;
 
-      const title = document.createElement("div");
-      title.className = "point-group-title";
+      const title =
+        document.createElement("div");
+
+      title.className =
+        "point-group-title";
 
       title.textContent =
         `Point ${point.toFixed(2)} — ` +
         `${numbers.length} number` +
         `${numbers.length === 1 ? "" : "s"}`;
 
-      const list = document.createElement("div");
+      const list =
+        document.createElement("div");
+
       list.className = "number-list";
 
       numbers.forEach(number => {
-        const chip = document.createElement("span");
+        const chip =
+          document.createElement("span");
+
         chip.className = "number-chip";
         chip.textContent = number;
+
         list.appendChild(chip);
       });
 
@@ -1329,15 +1530,25 @@ function renderPointSequences(showAssignedNumbers) {
   sequenceColumns.innerHTML = "";
 
   for (let column = 1; column <= 5; column++) {
-    const columnBox = document.createElement("div");
+    const columnBox =
+      document.createElement("div");
+
     columnBox.className = "sequence-column";
 
-    const heading = document.createElement("h3");
-    heading.textContent = `Column ${column}`;
+    const heading =
+      document.createElement("h3");
+
+    heading.textContent =
+      `Column ${column}`;
+
     columnBox.appendChild(heading);
 
-    const header = document.createElement("div");
-    header.className = "sequence-line sequence-header";
+    const header =
+      document.createElement("div");
+
+    header.className =
+      "sequence-line sequence-header";
+
     header.innerHTML = `
       <span>Row</span>
       <span>Past</span>
@@ -1348,7 +1559,9 @@ function renderPointSequences(showAssignedNumbers) {
     columnBox.appendChild(header);
 
     state.pointSequences[column].forEach(item => {
-      const line = document.createElement("div");
+      const line =
+        document.createElement("div");
+
       line.className = "sequence-line";
 
       line.innerHTML = `
@@ -1371,8 +1584,9 @@ function renderPointSequences(showAssignedNumbers) {
     sequenceColumns.appendChild(columnBox);
   }
 }
-function createPointCursors() {
-  const cursors = createEmptyColumnObject();
+  function createPointCursors() {
+  const cursors =
+    createEmptyColumnObject();
 
   for (let column = 1; column <= 5; column++) {
     Object.keys(state.groups[column]).forEach(key => {
@@ -1384,14 +1598,18 @@ function createPointCursors() {
 }
 
 function assignNumbersFromPointSequences() {
-  const cursors = createPointCursors();
+  const cursors =
+    createPointCursors();
 
   for (let column = 1; column <= 5; column++) {
     state.assignedSequences[column] = [];
 
     state.pointSequences[column].forEach(item => {
-      const key = pointKey(item.point);
-      const group = state.groups[column][key];
+      const key =
+        pointKey(item.point);
+
+      const group =
+        state.groups[column][key];
 
       if (!group || group.length === 0) {
         throw new Error(
@@ -1399,18 +1617,24 @@ function assignNumbersFromPointSequences() {
         );
       }
 
-      const cursor = cursors[column][key];
-      const assignedNumber = group[cursor];
+      const cursor =
+        cursors[column][key];
+
+      const assignedNumber =
+        group[cursor];
 
       cursors[column][key] =
         (cursor + 1) % group.length;
 
-      item.assignedNumber = assignedNumber;
+      item.assignedNumber =
+        assignedNumber;
 
       state.assignedSequences[column].push({
         row: item.row,
-        historicalNumber: item.historicalNumber,
-        point: item.point,
+        historicalNumber:
+          item.historicalNumber,
+        point:
+          item.point,
         assignedNumber
       });
     });
@@ -1418,7 +1642,8 @@ function assignNumbersFromPointSequences() {
 }
 
 function findRepeatedNumbers(numbers) {
-  const counts = new Map();
+  const counts =
+    new Map();
 
   numbers.forEach(number => {
     counts.set(
@@ -1439,19 +1664,28 @@ function generateMatrix() {
       "error",
       "Analyze at least 40 valid historical draws first."
     );
+
     return;
   }
 
   try {
     assignNumbersFromPointSequences();
   } catch (error) {
-    setStatus("error", error.message);
+    setStatus(
+      "error",
+      error.message
+    );
+
     return;
   }
 
   state.generatedRows = [];
 
-  for (let rowIndex = 0; rowIndex < 40; rowIndex++) {
+  for (
+    let rowIndex = 0;
+    rowIndex < 40;
+    rowIndex++
+  ) {
     const placements = [];
 
     for (let column = 1; column <= 5; column++) {
@@ -1460,23 +1694,27 @@ function generateMatrix() {
 
       placements.push({
         column,
-        number: sequenceItem.assignedNumber,
-        point: sequenceItem.point,
+        number:
+          sequenceItem.assignedNumber,
+        point:
+          sequenceItem.point,
         historicalNumber:
           sequenceItem.historicalNumber
       });
     }
 
-    const numbers = placements.map(
-      placement => placement.number
-    );
+    const numbers =
+      placements.map(
+        placement => placement.number
+      );
 
     const repeatedNumbers =
       findRepeatedNumbers(numbers);
 
-    const sortedNumbers = numbers
-      .slice()
-      .sort((a, b) => a - b);
+    const sortedNumbers =
+      numbers
+        .slice()
+        .sort((a, b) => a - b);
 
     state.generatedRows.push({
       row: rowIndex + 1,
@@ -1484,7 +1722,8 @@ function generateMatrix() {
       numbers,
       sortedNumbers,
       repeatedNumbers,
-      hasDuplicate: repeatedNumbers.length > 0
+      hasDuplicate:
+        repeatedNumbers.length > 0
     });
   }
 
@@ -1492,6 +1731,7 @@ function generateMatrix() {
   renderGeneratedRows();
 
   generatedPanel.classList.remove("hidden");
+
   printButton.disabled = false;
   excelButton.disabled = false;
 
@@ -1501,11 +1741,16 @@ function generateMatrix() {
     ).length;
 
   const validCount =
-    state.generatedRows.length - duplicateCount;
+    state.generatedRows.length -
+    duplicateCount;
 
   setStatus(
-    duplicateCount > 0 ? "warning" : "success",
-    `40 rows generated. ${validCount} valid buying rows and ` +
+    duplicateCount > 0
+      ? "warning"
+      : "success",
+
+    `40 rows generated from the newest 40 point sequences. ` +
+    `${validCount} valid buying rows and ` +
     `${duplicateCount} highlighted repeated-number rows.`
   );
 }
@@ -1542,19 +1787,27 @@ function renderGeneratedRows() {
   `;
 
   state.generatedRows.forEach(matrixRow => {
-    const row = document.createElement("tr");
+    const row =
+      document.createElement("tr");
 
     if (matrixRow.hasDuplicate) {
       row.classList.add("duplicate-row");
     }
 
-    const rowCell = document.createElement("td");
-    rowCell.textContent = matrixRow.row;
-    rowCell.style.fontWeight = "800";
+    const rowCell =
+      document.createElement("td");
+
+    rowCell.textContent =
+      matrixRow.row;
+
+    rowCell.style.fontWeight =
+      "800";
+
     row.appendChild(rowCell);
 
     matrixRow.placements.forEach(placement => {
-      const cell = document.createElement("td");
+      const cell =
+        document.createElement("td");
 
       cell.innerHTML = `
         <span class="generated-number">
@@ -1569,22 +1822,32 @@ function renderGeneratedRows() {
       row.appendChild(cell);
     });
 
-    const sortedCell = document.createElement("td");
-    sortedCell.style.fontWeight = "800";
+    const sortedCell =
+      document.createElement("td");
+
+    sortedCell.style.fontWeight =
+      "800";
+
     sortedCell.textContent =
       matrixRow.sortedNumbers.join(" - ");
 
     row.appendChild(sortedCell);
 
-    const statusCell = document.createElement("td");
+    const statusCell =
+      document.createElement("td");
 
     if (matrixRow.hasDuplicate) {
-      statusCell.className = "status-duplicate";
+      statusCell.className =
+        "status-duplicate";
+
       statusCell.textContent =
         `Do Not Buy — repeated ${matrixRow.repeatedNumbers.join(", ")}`;
     } else {
-      statusCell.className = "status-valid";
-      statusCell.textContent = "Valid Buying Row";
+      statusCell.className =
+        "status-valid";
+
+      statusCell.textContent =
+        "Valid Buying Row";
     }
 
     row.appendChild(statusCell);
@@ -1598,18 +1861,21 @@ function printValidTickets() {
       "error",
       "Generate the 40-row matrix before printing."
     );
+
     return;
   }
 
-  const validRows = state.generatedRows.filter(
-    row => !row.hasDuplicate
-  );
+  const validRows =
+    state.generatedRows.filter(
+      row => !row.hasDuplicate
+    );
 
   if (validRows.length === 0) {
     setStatus(
       "error",
       "Every generated row contains a repeated number. There are no valid rows to print."
     );
+
     return;
   }
 
@@ -1622,6 +1888,7 @@ function downloadExcel() {
       "error",
       "Generate the 40-row matrix before downloading Excel."
     );
+
     return;
   }
 
@@ -1630,52 +1897,81 @@ function downloadExcel() {
       "error",
       "The Excel library did not load. Check the internet connection and reload the page."
     );
+
     return;
   }
 
-  const allRows = state.generatedRows.map(matrixRow => ({
-    Row: matrixRow.row,
+  const allRows =
+    state.generatedRows.map(matrixRow => ({
+      Row:
+        matrixRow.row,
 
-    "Column 1": matrixRow.placements[0].number,
-    "Column 1 Point":
-      matrixRow.placements[0].point.toFixed(2),
+      "Column 1":
+        matrixRow.placements[0].number,
 
-    "Column 2": matrixRow.placements[1].number,
-    "Column 2 Point":
-      matrixRow.placements[1].point.toFixed(2),
+      "Column 1 Point":
+        matrixRow.placements[0].point.toFixed(2),
 
-    "Column 3": matrixRow.placements[2].number,
-    "Column 3 Point":
-      matrixRow.placements[2].point.toFixed(2),
+      "Column 2":
+        matrixRow.placements[1].number,
 
-    "Column 4": matrixRow.placements[3].number,
-    "Column 4 Point":
-      matrixRow.placements[3].point.toFixed(2),
+      "Column 2 Point":
+        matrixRow.placements[1].point.toFixed(2),
 
-    "Column 5": matrixRow.placements[4].number,
-    "Column 5 Point":
-      matrixRow.placements[4].point.toFixed(2),
+      "Column 3":
+        matrixRow.placements[2].number,
 
-    "Sorted Ticket":
-      matrixRow.sortedNumbers.join(" - "),
+      "Column 3 Point":
+        matrixRow.placements[2].point.toFixed(2),
 
-    Status: matrixRow.hasDuplicate
-      ? `DO NOT BUY — repeated ${matrixRow.repeatedNumbers.join(", ")}`
-      : "VALID BUYING ROW"
-  }));
+      "Column 4":
+        matrixRow.placements[3].number,
 
-  const validRows = state.generatedRows
-    .filter(matrixRow => !matrixRow.hasDuplicate)
-    .map(matrixRow => ({
-      Row: matrixRow.row,
-      "Number 1": matrixRow.sortedNumbers[0],
-      "Number 2": matrixRow.sortedNumbers[1],
-      "Number 3": matrixRow.sortedNumbers[2],
-      "Number 4": matrixRow.sortedNumbers[3],
-      "Number 5": matrixRow.sortedNumbers[4],
+      "Column 4 Point":
+        matrixRow.placements[3].point.toFixed(2),
+
+      "Column 5":
+        matrixRow.placements[4].number,
+
+      "Column 5 Point":
+        matrixRow.placements[4].point.toFixed(2),
+
       "Sorted Ticket":
-        matrixRow.sortedNumbers.join(" - ")
+        matrixRow.sortedNumbers.join(" - "),
+
+      Status:
+        matrixRow.hasDuplicate
+          ? `DO NOT BUY — repeated ${matrixRow.repeatedNumbers.join(", ")}`
+          : "VALID BUYING ROW"
     }));
+
+  const validRows =
+    state.generatedRows
+      .filter(
+        matrixRow => !matrixRow.hasDuplicate
+      )
+      .map(matrixRow => ({
+        Row:
+          matrixRow.row,
+
+        "Number 1":
+          matrixRow.sortedNumbers[0],
+
+        "Number 2":
+          matrixRow.sortedNumbers[1],
+
+        "Number 3":
+          matrixRow.sortedNumbers[2],
+
+        "Number 4":
+          matrixRow.sortedNumbers[3],
+
+        "Number 5":
+          matrixRow.sortedNumbers[4],
+
+        "Sorted Ticket":
+          matrixRow.sortedNumbers.join(" - ")
+      }));
 
   const pointRows = [];
 
@@ -1685,7 +1981,8 @@ function downloadExcel() {
     };
 
     for (let column = 1; column <= 5; column++) {
-      const score = state.scores[column][number];
+      const score =
+        state.scores[column][number];
 
       row[`Column ${column} Point`] =
         score.point.toFixed(2);
@@ -1710,15 +2007,22 @@ function downloadExcel() {
 
   for (let column = 1; column <= 5; column++) {
     Object.keys(state.groups[column])
-      .sort((a, b) => Number(b) - Number(a))
+      .sort(
+        (a, b) => Number(b) - Number(a)
+      )
       .forEach(key => {
         groupRows.push({
-          Column: column,
-          Point: Number(key).toFixed(2),
+          Column:
+            column,
+
+          Point:
+            Number(key).toFixed(2),
+
           Type:
             state.groups[column][key].length === 1
               ? "Single Number"
               : "Number Group",
+
           Numbers:
             state.groups[column][key].join(", ")
         });
@@ -1727,9 +2031,19 @@ function downloadExcel() {
 
   const sequenceRows = [];
 
-  for (let rowIndex = 0; rowIndex < 40; rowIndex++) {
+  for (
+    let rowIndex = 0;
+    rowIndex < 40;
+    rowIndex++
+  ) {
     const row = {
-      Row: rowIndex + 1
+      Row:
+        rowIndex + 1,
+
+      "Sequence Position":
+        rowIndex === 0
+          ? "Newest Draw"
+          : `${rowIndex + 1} Draws Back`
     };
 
     for (let column = 1; column <= 5; column++) {
@@ -1749,7 +2063,39 @@ function downloadExcel() {
     sequenceRows.push(row);
   }
 
-  const workbook = XLSX.utils.book_new();
+  /*
+    Historical export remains in the original oldest-to-newest order.
+  */
+  const analyzedHistoryRows =
+    state.draws.map((draw, index) => ({
+      "Historical Row":
+        index + 1,
+
+      Order:
+        index === 0
+          ? "Oldest Selected Draw"
+          : index === state.draws.length - 1
+            ? "Newest Draw"
+            : "Oldest-to-Newest Order",
+
+      "Column 1":
+        draw[0],
+
+      "Column 2":
+        draw[1],
+
+      "Column 3":
+        draw[2],
+
+      "Column 4":
+        draw[3],
+
+      "Column 5":
+        draw[4]
+    }));
+
+  const workbook =
+    XLSX.utils.book_new();
 
   XLSX.utils.book_append_sheet(
     workbook,
@@ -1778,7 +2124,13 @@ function downloadExcel() {
   XLSX.utils.book_append_sheet(
     workbook,
     XLSX.utils.json_to_sheet(sequenceRows),
-    "40 Point Sequences"
+    "Newest 40 Sequences"
+  );
+
+  XLSX.utils.book_append_sheet(
+    workbook,
+    XLSX.utils.json_to_sheet(analyzedHistoryRows),
+    "History Oldest to Newest"
   );
 
   XLSX.writeFile(
@@ -1791,11 +2143,23 @@ function resetEverything() {
   drawInput.value = "";
 
   state.draws = [];
-  state.scores = createEmptyColumnObject();
-  state.groups = createEmptyColumnObject();
-  state.pointSequences = createEmptyColumnObject();
-  state.assignedSequences = createEmptyColumnObject();
+
+  state.scores =
+    createEmptyColumnObject();
+
+  state.groups =
+    createEmptyColumnObject();
+
+  state.pointSequences =
+    createEmptyColumnObject();
+
+  state.assignedSequences =
+    createEmptyColumnObject();
+
   state.generatedRows = [];
+
+  state.totalValidPastedDraws = 0;
+  state.historyWasTrimmed = false;
 
   summaryGrid.innerHTML = "";
   pointsBody.innerHTML = "";
@@ -1816,7 +2180,7 @@ function resetEverything() {
 
   setStatus(
     "info",
-    "Paste at least 40 valid historical draws and select “Analyze History.”"
+    "Paste at least 40 valid historical draws with the oldest at the top and the newest at the bottom."
   );
 }
 
