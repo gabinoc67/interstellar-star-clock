@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Cash 5 Sorted Column Sequence Engine</title>
+<title>Cash 5 Sorted Column Sequence & Co-Occurrence Engine</title>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
@@ -239,12 +239,12 @@ footer{padding:10px 18px 28px;color:var(--muted);text-align:center;font-size:12p
 
 <body>
 <header>
-  <h1>Cash 5 Sorted Column Sequence Engine</h1>
+  <h1>Cash 5 Sorted Column Sequence & Co-Occurrence Engine</h1>
   <p>
     Each draw is sorted from lowest to highest. Column 1 is the lowest number,
     Column 5 is the highest. The engine studies frequency, recent activity,
     overdue pressure, one-step followers, two-step sequence matches, movement,
-    and column-specific ranges. It then creates 40 diverse tickets.
+    exact cross-column companions, and column-specific ranges. It then creates 40 diverse tickets.
   </p>
 </header>
 
@@ -299,6 +299,12 @@ footer{padding:10px 18px 28px;color:var(--muted);text-align:center;font-size:12p
     <div id="columnCards" class="grid5"></div>
   </section>
 
+  <section id="coPanel" class="panel" style="display:none">
+    <h2>4. Cross-Column Companion Matrix</h2>
+    <p class="note">For each value in the latest draw, this shows numbers in the other sorted columns that historically appeared with it. All = complete history; Recent = selected recent window.</p>
+    <div id="coCards" class="grid5"></div>
+  </section>
+
   <section id="rankingPanel" class="panel" style="display:none">
     <h2>4. Full Column Ranking Matrix</h2>
     <div class="table-wrap">
@@ -329,7 +335,10 @@ let state = {
   draws: [],
   columns: [[],[],[],[],[]],
   analyses: [],
-  tickets: []
+  tickets: [],
+  pairMatrix: [],
+  recentPairMatrix: [],
+  ticketScores: []
 };
 
 function clamp(v,min,max){ return Math.max(min,Math.min(max,v)); }
@@ -417,6 +426,77 @@ function percentile(sorted,p){
   return sorted[lo]+(sorted[hi]-sorted[lo])*(idx-lo);
 }
 
+
+function createPairMatrix(draws){
+  const matrix=Array.from({length:5},()=>
+    Array.from({length:5},()=>
+      Array.from({length:36},()=>Array(36).fill(0))));
+  for(const draw of draws){
+    for(let a=0;a<5;a++){
+      for(let b=0;b<5;b++){
+        if(a===b) continue;
+        matrix[a][b][draw.numbers[a]][draw.numbers[b]]++;
+      }
+    }
+  }
+  return matrix;
+}
+
+function pairCount(fromCol,fromNumber,toCol,toNumber,recent=false){
+  const m=recent?state.recentPairMatrix:state.pairMatrix;
+  return m?.[fromCol]?.[toCol]?.[fromNumber]?.[toNumber]||0;
+}
+
+function maxPairForColumns(fromCol,fromNumber,toCol,recent=false){
+  let best=0;
+  for(let n=1;n<=35;n++) best=Math.max(best,pairCount(fromCol,fromNumber,toCol,n,recent));
+  return best;
+}
+
+function latestCompanionScore(number,column){
+  const latest=state.draws.at(-1)?.numbers||[];
+  let raw=0, normalized=0, comparisons=0;
+  for(let other=0;other<5;other++){
+    if(other===column) continue;
+    const source=latest[other];
+    const all=pairCount(other,source,column,number,false);
+    const recent=pairCount(other,source,column,number,true);
+    const maxAll=maxPairForColumns(other,source,column,false)||1;
+    const maxRecent=maxPairForColumns(other,source,column,true)||1;
+    raw+=all+recent*1.75;
+    normalized+=(all/maxAll)+(recent/maxRecent)*1.25;
+    comparisons++;
+  }
+  return {raw,normalized:comparisons?normalized/comparisons:0};
+}
+
+function ticketCoOccurrence(ticket){
+  let all=0,recent=0,norm=0,pairs=0;
+  for(let a=0;a<ticket.length;a++){
+    for(let b=a+1;b<ticket.length;b++){
+      const ac=pairCount(a,ticket[a],b,ticket[b],false);
+      const rc=pairCount(a,ticket[a],b,ticket[b],true);
+      const ma=maxPairForColumns(a,ticket[a],b,false)||1;
+      const mr=maxPairForColumns(a,ticket[a],b,true)||1;
+      all+=ac; recent+=rc; norm+=(ac/ma)+(rc/mr)*1.35; pairs++;
+    }
+  }
+  return {all,recent,normalized:pairs?norm/pairs:0};
+}
+
+function strongestCompanions(fromCol,fromNumber,limit=10){
+  const rows=[];
+  for(let toCol=0;toCol<5;toCol++){
+    if(toCol===fromCol) continue;
+    for(let n=1;n<=35;n++){
+      const all=pairCount(fromCol,fromNumber,toCol,n,false);
+      const recent=pairCount(fromCol,fromNumber,toCol,n,true);
+      if(all||recent) rows.push({toCol,n,all,recent,score:all+recent*2});
+    }
+  }
+  return rows.sort((a,b)=>b.score-a.score||b.recent-a.recent||b.all-a.all).slice(0,limit);
+}
+
 function analyzeColumn(values,colIndex,recentWindow){
   const longFreq = frequencyMap(values);
   const recentVals = values.slice(-recentWindow);
@@ -463,6 +543,7 @@ function analyzeColumn(values,colIndex,recentWindow){
     const overdueScore = clamp(gap/Math.max(8,recentWindow),0,1.5);
     const rangeScore = inCore ? 1 : (inRange ? .55 : 0);
 
+    const companion = latestCompanionScore(n,colIndex);
     const movement = n-last;
     const movePenalty = Math.abs(movement)>12 ? .35 : Math.abs(movement)>8 ? .70 : 1;
 
@@ -472,7 +553,8 @@ function analyzeColumn(values,colIndex,recentWindow){
       17*recentScore +
       14*longScore +
       9*Math.min(overdueScore,1) +
-      7*rangeScore;
+      7*rangeScore +
+      24*companion.normalized;
 
     if(lf===0) score*=.25;
     if(!inRange) score*=.12;
@@ -480,6 +562,7 @@ function analyzeColumn(values,colIndex,recentWindow){
 
     rows.push({
       n, lf, rf, gap, follow, pair, movement,
+      companionRaw:companion.raw, companionScore:companion.normalized,
       score:+score.toFixed(3),
       inRange, inCore
     });
@@ -511,12 +594,13 @@ function analyzeColumn(values,colIndex,recentWindow){
     .filter(r=>!used.has(r.n))
     .slice(0,6).map(r=>r.n);
 
-  rows.sort((a,b)=>b.score-a.score || b.follow-a.follow || b.pair-a.pair || b.rf-a.rf || b.lf-a.lf);
+  rows.sort((a,b)=>b.score-a.score || b.companionScore-a.companionScore || b.follow-a.follow || b.pair-a.pair || b.rf-a.rf || b.lf-a.lf);
   rows.forEach((r,i)=>r.rank=i+1);
 
   return {
     colIndex,last,prev,values,rows,hot,warm,recovery,cold,
     q05,q95,minObs,maxObs,legalMin,legalMax,
+    strongCompanions:[...activeRows].sort((a,b)=>b.companionScore-a.companionScore||b.companionRaw-a.companionRaw).slice(0,6).map(r=>r.n),
     avg:avg(values), transitionCount:[...followerCounts.values()].reduce((a,b)=>a+b,0)
   };
 }
@@ -534,11 +618,14 @@ function analyzeAll(){
   const recentWindow=clamp(Number(document.getElementById("recentWindow").value)||30,10,100);
   state.draws=draws;
   state.columns=[0,1,2,3,4].map(c=>draws.map(d=>d.numbers[c]));
+  state.pairMatrix=createPairMatrix(draws);
+  state.recentPairMatrix=createPairMatrix(draws.slice(-recentWindow));
   state.analyses=state.columns.map((v,c)=>analyzeColumn(v,c,recentWindow));
   state.tickets=[];
 
   renderSummary();
   renderColumns();
+  renderCoOccurrence();
   renderRanking();
   document.getElementById("ticketPanel").style.display="none";
 
@@ -579,6 +666,7 @@ function renderColumns(){
       if(r.pair) parts.push(`2-step ${r.pair}`);
       if(r.follow) parts.push(`follower ${r.follow}`);
       if(r.rf) parts.push(`recent ${r.rf}`);
+      if(r.companionRaw) parts.push(`together ${r.companionRaw.toFixed(1)}`);
       parts.push(`score ${r.score.toFixed(1)}`);
       return `<b>${r.n}</b> (${parts.join(", ")})`;
     }).join("<br>");
@@ -606,6 +694,9 @@ function renderColumns(){
         <div><b>Cold</b></div>
         <div class="number-cloud">${classBalls(a.cold,"cold")}</div>
 
+        <div><b>Strong cross-column companions</b></div>
+        <div class="number-cloud">${classBalls(a.strongCompanions,"recovery")}</div>
+
         <div class="prediction">
           <b>Possible next values after ${a.last}</b><br>${followText}
         </div>
@@ -614,6 +705,19 @@ function renderColumns(){
 
   document.getElementById("columnCards").innerHTML=cards;
   document.getElementById("analysisPanel").style.display="block";
+}
+
+
+function renderCoOccurrence(){
+  const latest=state.draws.at(-1).numbers;
+  const html=latest.map((n,c)=>{
+    const rows=strongestCompanions(c,n,12).map(x=>
+      `<div class="metric"><span>C${x.toCol+1}: <b>${x.n}</b></span><b>All ${x.all} · Recent ${x.recent}</b></div>`
+    ).join("");
+    return `<article class="column-card"><h3>Latest C${c+1}: ${n}</h3>${rows||'<span class="note">No pair history.</span>'}</article>`;
+  }).join("");
+  document.getElementById("coCards").innerHTML=html;
+  document.getElementById("coPanel").style.display="block";
 }
 
 function categoryFor(a,n){
@@ -627,10 +731,10 @@ function categoryFor(a,n){
 function renderRanking(){
   let head=`<thead><tr>
     <th>Rank</th>
-    ${[1,2,3,4,5].map(c=>`<th colspan="7">Column ${c}</th>`).join("")}
+    ${[1,2,3,4,5].map(c=>`<th colspan="8">Column ${c}</th>`).join("")}
   </tr><tr><th></th>
     ${[1,2,3,4,5].map(()=>`
-      <th>No.</th><th>Class</th><th>Score</th><th>Freq</th><th>Recent</th><th>Gap</th><th>Followers</th>
+      <th>No.</th><th>Class</th><th>Score</th><th>Freq</th><th>Recent</th><th>Gap</th><th>Followers</th><th>Together</th>
     `).join("")}
   </tr></thead>`;
 
@@ -645,7 +749,8 @@ function renderRanking(){
              <td>${r.lf}</td>
              <td>${r.rf}</td>
              <td>${r.gap}</td>
-             <td>${r.follow}${r.pair?` / ${r.pair}`:""}</td>`;
+             <td>${r.follow}${r.pair?` / ${r.pair}`:""}</td>
+             <td>${r.companionRaw.toFixed(1)} / ${r.companionScore.toFixed(2)}</td>`;
     }
     body+="</tr>";
   }
@@ -654,14 +759,23 @@ function renderRanking(){
   document.getElementById("rankingPanel").style.display="block";
 }
 
-function weightedPick(items,usage,colIndex){
+function weightedPick(items,usage,colIndex,selected=[]){
   const weighted=items.map((r,i)=>{
     const useKey=`${colIndex}-${r.n}`;
     const used=usage.get(useKey)||0;
     const exposurePenalty=1/(1+used*.52);
     const rankBoost=1/(1+i*.13);
     const jitter=.82+Math.random()*.36;
-    return {r,w:Math.max(.001,(r.score+2)*exposurePenalty*rankBoost*jitter)};
+    let compatibility=0;
+    selected.forEach((prev,pc)=>{
+      const all=pairCount(pc,prev,colIndex,r.n,false);
+      const recent=pairCount(pc,prev,colIndex,r.n,true);
+      const ma=maxPairForColumns(pc,prev,colIndex,false)||1;
+      const mr=maxPairForColumns(pc,prev,colIndex,true)||1;
+      compatibility+=(all/ma)+(recent/mr)*1.4;
+    });
+    const compatibilityBoost=1+compatibility*.42;
+    return {r,w:Math.max(.001,(r.score+2)*exposurePenalty*rankBoost*compatibilityBoost*jitter)};
   });
   const total=weighted.reduce((a,x)=>a+x.w,0);
   let roll=Math.random()*total;
@@ -749,7 +863,7 @@ function generate40(){
       }
 
       if(!validPool.length){ failed=true; break; }
-      const chosen=weightedPick(validPool,usage,c);
+      const chosen=weightedPick(validPool,usage,c,selected);
       selected.push(chosen.n);
     }
 
@@ -776,7 +890,7 @@ function generate40(){
           r.n>last && r.n<=35-(4-c) && !t.includes(r.n) && r.inRange
         ).slice(0,18);
         if(!candidates.length){t.length=0;break;}
-        const chosen=weightedPick(candidates,usage,c);
+        const chosen=weightedPick(candidates,usage,c,t);
         t.push(chosen.n); last=chosen.n;
       }
       if(!ticketValidity(t)) continue;
@@ -792,6 +906,7 @@ function generate40(){
   }
 
   state.tickets=tickets;
+  state.ticketScores=tickets.map(t=>ticketCoOccurrence(t));
   renderTickets();
 
   setStatus(
@@ -808,6 +923,7 @@ function renderTickets(){
         const cat=categoryFor(state.analyses[c],n).toLowerCase();
         return `<span class="ball ${cat}">${n}</span>`;
       }).join("")}
+      <div style="grid-column:1/-1;font-size:11px;color:var(--muted);border-top:1px dashed var(--line);padding-top:5px">Together ${state.ticketScores[i]?.all||0} · Recent ${state.ticketScores[i]?.recent||0} · Compatibility ${(state.ticketScores[i]?.normalized||0).toFixed(2)}</div>
     </div>`).join("");
   document.getElementById("ticketGrid").innerHTML=html || `<p>No valid tickets generated.</p>`;
   document.getElementById("ticketPanel").style.display="block";
@@ -844,6 +960,8 @@ function downloadExcel(){
       row[`C${c+1}_Gap`]=r.gap;
       row[`C${c+1}_Follower_Count`]=r.follow;
       row[`C${c+1}_Two_Step_Count`]=r.pair;
+      row[`C${c+1}_Together_Raw`]=r.companionRaw;
+      row[`C${c+1}_Together_Score`]=r.companionScore;
     });
     rankRows.push(row);
   }
@@ -854,7 +972,10 @@ function downloadExcel(){
     Number_1:t[0],Number_2:t[1],Number_3:t[2],Number_4:t[3],Number_5:t[4],
     Sum:sum(t),
     Odd_Even:`${t.filter(n=>n%2).length}/${t.filter(n=>n%2===0).length}`,
-    Low_High:`${t.filter(n=>n<=17).length}/${t.filter(n=>n>=18).length}`
+    Low_High:`${t.filter(n=>n<=17).length}/${t.filter(n=>n>=18).length}`,
+    Together_Total:state.ticketScores[i]?.all||0,
+    Recent_Together:state.ticketScores[i]?.recent||0,
+    Compatibility:state.ticketScores[i]?.normalized||0
   }));
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(ticketRows),"40 Tickets");
 
@@ -863,10 +984,10 @@ function downloadExcel(){
 
 function clearAll(){
   document.getElementById("drawInput").value="";
-  ["summaryPanel","analysisPanel","rankingPanel","ticketPanel"].forEach(id=>{
+  ["summaryPanel","analysisPanel","coPanel","rankingPanel","ticketPanel"].forEach(id=>{
     document.getElementById(id).style.display="none";
   });
-  state={draws:[],columns:[[],[],[],[],[]],analyses:[],tickets:[]};
+  state={draws:[],columns:[[],[],[],[],[]],analyses:[],tickets:[],pairMatrix:[],recentPairMatrix:[],ticketScores:[]};
   setStatus("Cleared. Paste a new draw history.");
 }
 
