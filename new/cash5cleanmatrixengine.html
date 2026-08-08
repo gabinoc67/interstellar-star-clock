@@ -482,6 +482,7 @@
     const TOTAL_TICKETS = 40;
     const CANDIDATE_POOL_SIZE = 70000;
     const UINT32_RANGE = 4294967296;
+    const MAX_PORTFOLIO_ATTEMPTS = 8;
 
     const PORTFOLIO_TYPES = {
       BROAD_COVERAGE: 20,
@@ -1310,6 +1311,12 @@
       for (let bridgeIndex = 0; bridgeIndex < PORTFOLIO_TYPES.BRIDGE; bridgeIndex++) {
         const sources = sourcePairCandidates(state);
 
+        if (sources.length < 2) {
+          throw new Error(
+            `Not enough eligible source pairs for bridge ticket ${bridgeIndex + 1}.`
+          );
+        }
+
         let bestCandidate = null;
         let bestScore = -Infinity;
 
@@ -1523,31 +1530,71 @@
         await yieldToBrowser();
 
         const candidates = await buildCandidatePool();
-        const state = createSelectionState();
 
-        await selectBroadTickets(candidates, state);
+        let completedState = null;
+        let lastGenerationError = null;
 
-        // IMPORTANT FIX:
-        // Reserve cluster anchors only after Broad Coverage exists, and only
-        // choose pairs that Broad Coverage has not used.
-        activeAnchorPairs = createAnchorPairsFromState(state);
+        for (
+          let portfolioAttempt = 1;
+          portfolioAttempt <= MAX_PORTFOLIO_ATTEMPTS;
+          portfolioAttempt++
+        ) {
+          try {
+            const state = createSelectionState();
+            activeAnchorPairs = [];
 
-        await selectClusterTickets(state);
-        await selectBridgeTickets(state);
-        await selectPureRandomTickets(state);
+            updateProgress(
+              46,
+              `Building portfolio attempt ${portfolioAttempt} of ` +
+              `${MAX_PORTFOLIO_ATTEMPTS}...`
+            );
 
-        generatedTickets = state.tickets;
+            await selectBroadTickets(candidates, state);
 
-        if (generatedTickets.length !== TOTAL_TICKETS) {
-          throw new Error("The final portfolio did not contain exactly 40 tickets.");
+            // Reserve cluster anchors only AFTER Broad Coverage exists.
+            // Every selected anchor pair must currently have zero exposure.
+            activeAnchorPairs = createAnchorPairsFromState(state);
+
+            await selectClusterTickets(state);
+            await selectBridgeTickets(state);
+            await selectPureRandomTickets(state);
+
+            if (state.tickets.length !== TOTAL_TICKETS) {
+              throw new Error(
+                "The candidate pass did not produce exactly 40 tickets."
+              );
+            }
+
+            completedState = state;
+            lastGenerationError = null;
+            break;
+          } catch (attemptError) {
+            lastGenerationError = attemptError;
+            activeAnchorPairs = [];
+
+            // Let the browser repaint before trying a fresh portfolio state.
+            await yieldToBrowser();
+          }
         }
+
+        if (!completedState) {
+          throw new Error(
+            `Unable to build a valid 40-ticket portfolio after ` +
+            `${MAX_PORTFOLIO_ATTEMPTS} attempts. ` +
+            `${lastGenerationError instanceof Error
+              ? lastGenerationError.message
+              : "Please generate again."}`
+          );
+        }
+
+        generatedTickets = completedState.tickets;
 
         renderTickets(generatedTickets);
         renderSummary(generatedTickets);
         renderCoverage(generatedTickets);
 
         document.getElementById("status").textContent =
-          "40-ticket hybrid portfolio generated successfully.";
+          "40-ticket portfolio generated successfully with protected anchors and bridge retries.";
 
         updateProgress(100);
       } catch (error) {
