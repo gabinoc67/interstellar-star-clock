@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Texas Cash Five Hybrid 40-Ticket Portfolio</title>
+  <title>Texas Cash Five Bridge Hybrid 40-Ticket Portfolio</title>
 
   <style>
     * { box-sizing: border-box; }
@@ -221,6 +221,11 @@
       color: #cfe0ff;
     }
 
+    .badge.bridge {
+      background: rgba(196,120,255,0.22);
+      color: #efd7ff;
+    }
+
     .balls {
       display: flex;
       flex-wrap: wrap;
@@ -341,11 +346,11 @@
 <body>
   <main class="container">
     <header class="header">
-      <h1>Texas Cash Five Hybrid 40-Ticket Generator</h1>
+      <h1>Texas Cash Five Bridge Hybrid 40-Ticket Generator</h1>
 
       <p>
         Builds a 40-ticket portfolio using 20 broad-coverage tickets,
-        12 moderate-cluster tickets, and 8 pure cryptographic Quick Picks.
+        12 moderate-cluster tickets, 4 bridge tickets, and 4 pure cryptographic Quick Picks.
       </p>
 
       <div class="warning">
@@ -370,7 +375,12 @@
         </div>
 
         <div class="setting-card">
-          <strong>8 Pure Random</strong>
+          <strong>4 Bridge Tickets</strong>
+          Links two disjoint source pairs from different selected tickets
+        </div>
+
+        <div class="setting-card">
+          <strong>4 Pure Random</strong>
           Unscored cryptographic Quick Pick tickets
         </div>
 
@@ -442,7 +452,14 @@
         three numbers vary across those tickets.
         <br><br>
 
-        <strong>Pure-random section:</strong> the final eight tickets are generated
+        <strong>Bridge section:</strong> four tickets are built after the broad and
+        cluster sections. Each bridge ticket combines one two-number pair from
+        one selected ticket with a different two-number pair from another selected
+        ticket, then adds a fifth balancing number. This deliberately reconnects
+        combinations that are already represented elsewhere in the portfolio.
+        <br><br>
+
+        <strong>Pure-random section:</strong> the final four tickets are generated
         directly with browser cryptographic randomness. They are not scored for
         sums, parity, zones, or past drawings. Duplicate tickets, four-number
         overlaps, and pair-limit violations are still rejected.
@@ -469,7 +486,8 @@
     const PORTFOLIO_TYPES = {
       BROAD_COVERAGE: 20,
       MODERATE_CLUSTER: 12,
-      PURE_RANDOM: 8
+      BRIDGE: 4,
+      PURE_RANDOM: 4
     };
 
     const MAX_SHARED_BROAD = 2;
@@ -651,6 +669,8 @@
         type,
         clusterGroup: null,
         anchorPair: null,
+        bridgePairs: null,
+        bridgeSources: null,
         sum,
         sumBand: getSumBand(sum),
         odd,
@@ -1062,6 +1082,220 @@
       }
     }
 
+
+    function pairToNumbers(pairKey) {
+      return pairKey.split("-").map(Number);
+    }
+
+    function sourcePairCandidates(state) {
+      const eligibleTickets = state.tickets.filter(
+        ticket =>
+          ticket.type === "Broad Coverage" ||
+          ticket.type === "Moderate Cluster"
+      );
+
+      const sources = [];
+
+      eligibleTickets.forEach((ticket, ticketIndex) => {
+        for (const pair of ticket.pairs) {
+          const currentUse = state.pairCounts.get(pair) || 0;
+
+          // Prefer pairs that are present but not already heavily repeated.
+          if (currentUse <= 2) {
+            sources.push({
+              pair,
+              numbers: pairToNumbers(pair),
+              ticketIndex,
+              ticketNumber: ticketIndex + 1,
+              ticketType: ticket.type,
+              currentUse
+            });
+          }
+        }
+      });
+
+      return sources;
+    }
+
+    function createBridgeCandidate(firstSource, secondSource, fifthNumber) {
+      const selected = new Set([
+        ...firstSource.numbers,
+        ...secondSource.numbers,
+        fifthNumber
+      ]);
+
+      if (selected.size !== NUMBERS_PER_TICKET) {
+        return null;
+      }
+
+      const candidate = createCandidate(
+        [...selected].sort((a, b) => a - b),
+        "Bridge"
+      );
+
+      candidate.bridgePairs = [
+        [...firstSource.numbers],
+        [...secondSource.numbers]
+      ];
+
+      candidate.bridgeSources = [
+        firstSource.ticketNumber,
+        secondSource.ticketNumber
+      ];
+
+      return candidate;
+    }
+
+    function scoreBridgeCandidate(candidate, firstSource, secondSource, state) {
+      if (!candidate) {
+        return -Infinity;
+      }
+
+      if (firstSource.ticketIndex === secondSource.ticketIndex) {
+        return -Infinity;
+      }
+
+      const pairUnion = new Set([
+        ...firstSource.numbers,
+        ...secondSource.numbers
+      ]);
+
+      // Bridge tickets are meant to connect two different, disjoint pairs.
+      if (pairUnion.size !== 4) {
+        return -Infinity;
+      }
+
+      if (state.keys.has(candidate.key)) {
+        return -Infinity;
+      }
+
+      if (violatesPairLimit(candidate, state)) {
+        return -Infinity;
+      }
+
+      const finalOverlap = getMaximumOverlap(candidate, state.tickets);
+
+      if (finalOverlap > MAX_SHARED_FINAL) {
+        return -Infinity;
+      }
+
+      let score = 0;
+
+      // Reward linking pairs that already exist once, without saturating them.
+      score += firstSource.currentUse === 1 ? 16 : 7;
+      score += secondSource.currentUse === 1 ? 16 : 7;
+
+      // Favor source tickets from different portfolio structures.
+      if (firstSource.ticketType !== secondSource.ticketType) {
+        score += 10;
+      }
+
+      score += scoreExposure(candidate, state);
+      score += scoreShape(candidate, state);
+
+      // For bridge tickets we want some pair reuse by design, but still reward
+      // novel cross-pairs created between the two source pairs.
+      for (const pair of candidate.pairs) {
+        const use = state.pairCounts.get(pair) || 0;
+
+        if (pair === firstSource.pair || pair === secondSource.pair) {
+          score += use === 1 ? 10 : 2;
+        } else if (use === 0) {
+          score += 5;
+        } else if (use === 1) {
+          score += 1;
+        } else {
+          score -= 10;
+        }
+      }
+
+      for (const triple of candidate.triples) {
+        const use = state.tripleCounts.get(triple) || 0;
+        score += use === 0 ? 4 : -8;
+      }
+
+      if (finalOverlap === 2) score += 7;
+      if (finalOverlap === 3) score -= 5;
+
+      score += secureRandomUnit() * 24;
+
+      return score;
+    }
+
+    async function selectBridgeTickets(state) {
+      for (let bridgeIndex = 0; bridgeIndex < PORTFOLIO_TYPES.BRIDGE; bridgeIndex++) {
+        const sources = sourcePairCandidates(state);
+
+        let bestCandidate = null;
+        let bestScore = -Infinity;
+
+        for (let attempt = 0; attempt < 25000; attempt++) {
+          const firstSource =
+            sources[secureRandomInteger(0, sources.length - 1)];
+
+          const secondSource =
+            sources[secureRandomInteger(0, sources.length - 1)];
+
+          if (firstSource.ticketIndex === secondSource.ticketIndex) {
+            continue;
+          }
+
+          const pairUnion = new Set([
+            ...firstSource.numbers,
+            ...secondSource.numbers
+          ]);
+
+          if (pairUnion.size !== 4) {
+            continue;
+          }
+
+          let fifthNumber = null;
+
+          for (let fifthAttempt = 0; fifthAttempt < 20; fifthAttempt++) {
+            const proposal = secureRandomInteger(GAME_MIN, GAME_MAX);
+
+            if (!pairUnion.has(proposal)) {
+              fifthNumber = proposal;
+              break;
+            }
+          }
+
+          if (fifthNumber === null) {
+            continue;
+          }
+
+          const candidate =
+            createBridgeCandidate(firstSource, secondSource, fifthNumber);
+
+          const score =
+            scoreBridgeCandidate(candidate, firstSource, secondSource, state);
+
+          if (score > bestScore) {
+            bestScore = score;
+            bestCandidate = candidate;
+          }
+        }
+
+        if (!bestCandidate) {
+          throw new Error(
+            `Could not complete bridge ticket ${bridgeIndex + 1}.`
+          );
+        }
+
+        addCandidate(bestCandidate, state);
+
+        updateProgress(
+          85 + Math.round(
+            ((bridgeIndex + 1) / PORTFOLIO_TYPES.BRIDGE) * 8
+          ),
+          `Selecting bridge ticket ${bridgeIndex + 1} of ` +
+          `${PORTFOLIO_TYPES.BRIDGE}`
+        );
+
+        await yieldToBrowser();
+      }
+    }
+
     async function selectPureRandomTickets(state) {
       for (let index = 0; index < PORTFOLIO_TYPES.PURE_RANDOM; index++) {
         let candidate = null;
@@ -1083,8 +1317,8 @@
         addCandidate(candidate, state);
 
         updateProgress(
-          85 + Math.round(
-            ((index + 1) / PORTFOLIO_TYPES.PURE_RANDOM) * 15
+          93 + Math.round(
+            ((index + 1) / PORTFOLIO_TYPES.PURE_RANDOM) * 7
           ),
           `Selecting pure random ticket ${index + 1} of ` +
           `${PORTFOLIO_TYPES.PURE_RANDOM}`
@@ -1209,6 +1443,7 @@
 
         await selectBroadTickets(candidates, state);
         await selectClusterTickets(state);
+        await selectBridgeTickets(state);
         await selectPureRandomTickets(state);
 
         generatedTickets = state.tickets;
@@ -1277,6 +1512,12 @@
             badgeText =
               `Cluster ${ticket.clusterGroup}: ` +
               `${ticket.anchorPair.join("-")}`;
+          } else if (ticket.type === "Bridge") {
+            badgeClass = "bridge";
+            badgeText =
+              `Bridge: ${ticket.bridgePairs
+                .map(pair => pair.join("-"))
+                .join(" + ")}`;
           } else if (ticket.type === "Pure Random") {
             badgeClass = "random";
           }
@@ -1349,8 +1590,8 @@
         </div>
 
         <div class="summary-card">
-          <strong>20 / 12 / 8</strong>
-          Broad / Cluster / Random
+          <strong>20 / 12 / 4 / 4</strong>
+          Broad / Cluster / Bridge / Random
         </div>
 
         <div class="summary-card">
@@ -1396,6 +1637,24 @@
             `
           )
           .join("");
+
+      const bridgeTickets = tickets.filter(ticket => ticket.type === "Bridge");
+
+      const bridgeCards = bridgeTickets
+        .map(
+          (ticket, index) => `
+            <div class="coverage-card">
+              <strong>Bridge ${index + 1}:</strong>
+              ${ticket.bridgePairs
+                ? ticket.bridgePairs.map(pair => pair.join("-")).join(" + ")
+                : ""}
+              ${ticket.bridgeSources
+                ? ` (sources ${ticket.bridgeSources.join(" & ")})`
+                : ""}
+            </div>
+          `
+        )
+        .join("");
 
       const anchorCards = activeAnchorPairs
         .map(
@@ -1449,6 +1708,7 @@
           ${diagnostics.consecutiveTickets}
         </div>
 
+        ${bridgeCards}
         ${anchorCards}
       `;
 
@@ -1507,6 +1767,8 @@
           "Type",
           "Cluster Group",
           "Anchor Pair",
+          "Bridge Pairs",
+          "Bridge Sources",
           "Number 1",
           "Number 2",
           "Number 3",
@@ -1528,6 +1790,10 @@
           ticket.type,
           ticket.clusterGroup || "",
           ticket.anchorPair ? ticket.anchorPair.join("-") : "",
+          ticket.bridgePairs
+            ? ticket.bridgePairs.map(pair => pair.join("-")).join(" + ")
+            : "",
+          ticket.bridgeSources ? ticket.bridgeSources.join(" & ") : "",
           ...ticket.numbers,
           ticket.sum,
           ticket.odd,
@@ -1559,7 +1825,7 @@
 
       anchor.href = url;
       anchor.download =
-        "texas-cash-five-hybrid-40-ticket-portfolio.csv";
+        "texas-cash-five-bridge-hybrid-40-ticket-portfolio.csv";
 
       document.body.appendChild(anchor);
       anchor.click();
