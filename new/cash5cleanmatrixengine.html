@@ -576,6 +576,68 @@
       ];
     }
 
+    function createAnchorPairsFromState(state) {
+      // Cluster anchor pairs must start unused. Each cluster anchor will then
+      // appear exactly three times, matching MAX_PAIR_EXPOSURE = 3.
+      const availablePairs = [];
+
+      for (let first = GAME_MIN; first <= GAME_MAX; first++) {
+        for (let second = first + 1; second <= GAME_MAX; second++) {
+          const pairKey = `${first}-${second}`;
+          const currentUse = state.pairCounts.get(pairKey) || 0;
+
+          if (currentUse !== 0) {
+            continue;
+          }
+
+          // Prefer numbers that are currently less exposed after Broad Coverage.
+          const exposure =
+            state.numberCounts[first] +
+            state.numberCounts[second];
+
+          availablePairs.push({
+            pair: [first, second],
+            exposure,
+            random: secureRandomUnit()
+          });
+        }
+      }
+
+      // Lowest-exposure pairs first, with cryptographic randomness for ties.
+      availablePairs.sort((a, b) =>
+        a.exposure - b.exposure ||
+        a.random - b.random
+      );
+
+      const selectedPairs = [];
+      const usedNumbers = new Set();
+
+      for (const item of availablePairs) {
+        const [first, second] = item.pair;
+
+        if (usedNumbers.has(first) || usedNumbers.has(second)) {
+          continue;
+        }
+
+        selectedPairs.push([first, second]);
+        usedNumbers.add(first);
+        usedNumbers.add(second);
+
+        if (selectedPairs.length === CLUSTER_GROUPS) {
+          break;
+        }
+      }
+
+      if (selectedPairs.length !== CLUSTER_GROUPS) {
+        throw new Error(
+          "Could not reserve four unused cluster anchor pairs."
+        );
+      }
+
+      return selectedPairs;
+    }
+
+
     function calculateSum(numbers) {
       return numbers.reduce((total, number) => total + number, 0);
     }
@@ -908,6 +970,27 @@
         return -Infinity;
       }
 
+      // Protect the other reserved cluster anchors.
+      // A ticket in one cluster may not contain BOTH numbers of another
+      // cluster's anchor pair, otherwise it would consume that pair's
+      // exposure allowance before the other cluster is generated.
+      for (const reservedPair of activeAnchorPairs) {
+        const isCurrentAnchor =
+          reservedPair[0] === anchorPair[0] &&
+          reservedPair[1] === anchorPair[1];
+
+        if (isCurrentAnchor) {
+          continue;
+        }
+
+        if (
+          candidate.numbers.includes(reservedPair[0]) &&
+          candidate.numbers.includes(reservedPair[1])
+        ) {
+          return -Infinity;
+        }
+      }
+
       if (state.keys.has(candidate.key)) {
         return -Infinity;
       }
@@ -1056,7 +1139,8 @@
 
           if (!bestCandidate) {
             throw new Error(
-              `Could not complete cluster group ${groupIndex + 1}.`
+              `Could not complete cluster group ${groupIndex + 1} ` +
+              `(anchor ${anchorPair.join("-")}).`
             );
           }
 
@@ -1422,7 +1506,7 @@
         generationInProgress = true;
         button.disabled = true;
         generatedTickets = [];
-        activeAnchorPairs = createAnchorPairs();
+        activeAnchorPairs = [];
 
         renderTickets([]);
         renderSummary([]);
@@ -1442,6 +1526,12 @@
         const state = createSelectionState();
 
         await selectBroadTickets(candidates, state);
+
+        // IMPORTANT FIX:
+        // Reserve cluster anchors only after Broad Coverage exists, and only
+        // choose pairs that Broad Coverage has not used.
+        activeAnchorPairs = createAnchorPairsFromState(state);
+
         await selectClusterTickets(state);
         await selectBridgeTickets(state);
         await selectPureRandomTickets(state);
