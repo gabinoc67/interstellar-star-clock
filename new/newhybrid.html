@@ -32,6 +32,12 @@ summary{cursor:pointer;color:#8de6ff}
 .panels{columns:1}
 main{padding:6px}
 }
+input{width:100px;background:#07111f;color:#e4efff;border:1px solid #55718b;padding:4px}
+.cas-arrow{animation:pulse 1.4s infinite}
+@keyframes pulse{50%{opacity:.3}}
+@media(prefers-reduced-motion:reduce){
+.cas-arrow{animation:none}
+}
 </style>
 </head>
 <body>
@@ -78,29 +84,80 @@ live clocks continue. Drawings are schematic.
 <h2>Flight and mission clocks</h2>
 <table id="flight"></table>
 </section>
+
 <section class="box">
 <h2>Power · operating demand</h2>
 <table id="power"></table>
 </section>
+
 <section class="box">
 <h2>Protected cabin</h2>
 <table id="cabin"></table>
 </section>
+
 <section class="box">
 <h2>Surrounding magnetic field</h2>
 <table id="shield"></table>
 </section>
+
 <section class="box">
 <h2>Crew habitat</h2>
 <table id="habitat"></table>
 </section>
+
 <section class="box">
 <h2>Plasma-layer hypothesis</h2>
 <table id="plasma"></table>
 </section>
+
 <section class="box">
 <h2>Gravity diagnostics</h2>
 <table id="gravity"></table>
+</section>
+
+<section class="box">
+<h2>Casimir effect · controlled live experiment</h2>
+<p>
+<label>
+<input id="casAuto" type="checkbox" checked style="width:auto">
+Cycle plate gap during playback
+</label>
+</p>
+<p class="muted">
+Start runs both flight and an 8-second laboratory demonstration cycle.
+Laboratory time is separate from accelerated mission time.
+</p>
+<p>
+<label>
+Center gap (nm)
+<input id="casGap" type="number" min="20" max="8000" value="100">
+</label>
+</p>
+<p>
+<label>
+Area (cm²)
+<input id="casArea" type="number" min="0.001" max="10000" step="0.1" value="1">
+</label>
+</p>
+<p id="casError" role="status" class="muted"></p>
+
+<svg viewBox="0 0 300 85" role="img"
+aria-label="Supported plates and opposing inward forces; gap exaggerated">
+<rect id="casLeft" x="100" y="8" width="8" height="55" fill="#cedee9"/>
+<rect id="casRight" x="192" y="8" width="8" height="55" fill="#cedee9"/>
+<path class="cas-arrow"
+d="M65 35H90L82 29M90 35L82 41M235 35H210L218 29M210 35L218 41"
+stroke="#ffd08a" fill="none" stroke-width="2"/>
+<text x="150" y="80" text-anchor="middle" fill="#abc1d7">
+Opposing forces · gap exaggerated
+</text>
+</svg>
+
+<table id="casimir"></table>
+<p class="muted">
+Prescribed gap cycle: ±25% of center gap. Stop holds the plates.
+Opposing forces remain internal; no spacecraft thrust or solved wormhole geometry.
+</p>
 </section>
 </div>
 
@@ -181,6 +238,31 @@ Ordinary vacuum buoyancy is 0 N.
 Rotation supplies apparent crew gravity.
 </p>
 
+<p><b>Casimir:</b>
+Ideal parallel perfect conducting plates at zero temperature,
+negligible edge effects.
+E = −π²ℏcA/(720a³), u = E/(Aa),
+P = −π²ℏc/(240a⁴), F = PA.
+Negative energy is relative to the reference vacuum.
+E/c² is this energy contribution only, not total apparatus mass
+or a solved gravitational field.
+Controls prescribe quasi-static plate motion.
+An ideal actuator balances attraction;
+its power into Casimir energy is dE/dt = −F da/dt.
+Over a complete reversible cycle the net work is zero.
+Plate inertia, actuator inefficiency,
+finite conductivity, roughness and thermal corrections are omitted.
+Laboratory time advances by one second per real playback second,
+separately from mission time.
+The ideal mechanical exchange is shown separately and does not change
+mission mass, propulsion or reactor accounting;
+no actuator efficiency model is assumed.
+A constant energy offset is not ongoing power or reusable fuel.
+<a href="https://arxiv.org/abs/hep-th/0503158">Theory discussion</a>;
+<a href="https://journals.aps.org/prl/abstract/10.1103/PhysRevLett.78.5">
+1997 measurement</a>.
+</p>
+
 <p><b>Historical references:</b>
 <a href="https://science.nasa.gov/photojournal/observed-change-in-density-shows-voyager-is-in-interstellar-space/">
 Voyager 1: 0.08/cm³ (2013 report)</a>;
@@ -223,7 +305,7 @@ const volume=4*Math.PI*(L.outer**3-D.R**3)/3;
 const pairE=13.6*Q+3*KB*L.T;
 const airMass=101325*1000*.02897/(8.314462618*293.15);
 
-let s,running=false,last=0,paint=0;
+let s,running=false,last=0,paint=0,casTime=0;
 
 const num=n=>Number.isFinite(n)
   ?n.toLocaleString('en-US',{maximumFractionDigits:4})
@@ -253,6 +335,10 @@ function env(){
 
 function reset(){
   running=false;
+  casTime=0;
+  $('casAuto').checked=true;
+  $('casGap').value=100;
+  $('casArea').value=1;
   s={
     epoch:Date.now(),x:x0,v:12000,m:D.dry+D.fuel,
     t:0,U:0,spin:0,N:0,T:295.15,
@@ -354,7 +440,76 @@ function advance(seconds){
   }
 }
 
+function casValues(center,area,time,cycle,moving){
+  const omega=2*Math.PI/8;
+  const a=center*1e-9*(cycle?1+.25*Math.sin(omega*time):1);
+  const speed=cycle&&moving
+    ?center*1e-9*.25*omega*Math.cos(omega*time)
+    :0;
+  const A=area*1e-4;
+  const density=-(Math.PI**2)*1.054571817e-34*C/(720*a**4);
+  const force=3*density*A, energy=density*A*a;
+  return {a,speed,density,force,energy,power:-force*speed};
+}
+
+function renderCasimir(){
+  const center=Number($('casGap').value);
+  const area=Number($('casArea').value);
+
+  if(!Number.isFinite(center)||center<20||center>8000||
+     !Number.isFinite(area)||area<.001||area>10000){
+    $('casError').textContent=
+      'Enter center gap 20–8,000 nm and area 0.001–10,000 cm².';
+    table('casimir',[['Calculation','Invalid input']]);
+    return;
+  }
+
+  const cycle=$('casAuto').checked;
+  const v=casValues(center,area,casTime,cycle,running);
+
+  $('casError').textContent=
+    (running?'Running':s.done?'Complete':'Paused')+
+    ' · '+(cycle?'prescribed gap cycle':'fixed gap')+
+    ' · ideal zero-temperature model';
+
+  table('casimir',[
+    ['Lab demonstration time',num(casTime)+' s'],
+    ['Center / current gap',num(center)+' / '+num(v.a*1e9)+' nm'],
+    ['Area',num(area)+' cm²'],
+    ['Gap velocity',sci(v.speed*1e9)+' nm/s'],
+    ['Attractive pressure',sci(3*v.density)+' Pa'],
+    ['Signed force on separation',sci(v.force)+' N'],
+    ['Vacuum energy difference',sci(v.energy)+' J'],
+    ['Energy density difference',sci(v.density)+' J/m³'],
+    ['Energy-only mass contribution',sci(v.energy/C**2)+' kg'],
+    ['Ideal actuator power into Casimir energy',sci(v.power)+' W'],
+    ['Net work over a full ideal cycle','0 J · reversible model'],
+    ['Net spacecraft Casimir thrust','0 N · internal forces'],
+    ['Wormhole / curvature solution','Not calculated']
+  ]);
+
+  const half=15+30*Math.max(
+    0,Math.min(1,Math.log10(v.a/1e-8)/3)
+  );
+
+  $('casLeft').setAttribute('x',150-half-8);
+  $('casRight').setAttribute('x',150+half);
+
+  document.querySelectorAll('.cas-arrow').forEach(el=>{
+    el.style.animationPlayState=running?'running':'paused';
+  });
+}
+
+$('casGap').addEventListener('input',renderCasimir);
+$('casArea').addEventListener('input',renderCasimir);
+$('casAuto').addEventListener('change',()=>{
+  casTime=0;
+  renderCasimir();
+});
+
 function render(){
+  renderCasimir();
+
   let e=env();
   let progress=Math.max(0,Math.min(1,(s.x-x0)/D.length));
   let B=D.B*Math.sqrt(s.U/Umax);
@@ -385,6 +540,7 @@ function render(){
   $('ship').setAttribute(
     'transform',`translate(${85+730*progress} 42)`
   );
+
   $('field').style.opacity=B>0?.8:0;
   $('flame').style.opacity=s.thrust?1:0;
   $('flame').setAttribute(
@@ -508,20 +664,29 @@ $('reset').onclick=reset;
 function frame(now){
   let dt=last?Math.min(.1,(now-last)/1000):0;
   last=now;
-  if(running)advance(dt*86400);
+
+  if(running){
+    casTime+=dt;
+    advance(dt*86400);
+  }
 
   if(now-paint>100){
     let d=new Date();
+
     $('central').textContent=d.toLocaleString('en-US',{
       timeZone:'America/Chicago',
       timeZoneName:'short'
     });
+
     $('utc').textContent=d.toISOString();
+
     $('tai').textContent=new Date(+d+37000)
       .toISOString().replace('Z',' TAI estimate');
+
     render();
     paint=now;
   }
+
   requestAnimationFrame(frame);
 }
 
